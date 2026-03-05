@@ -1,0 +1,13 @@
+// C:\MVPiQHoopsMobile\tsconfig.json
+
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["*"]
+    }
+  }
+}
+
