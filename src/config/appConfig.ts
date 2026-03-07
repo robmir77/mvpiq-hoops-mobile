@@ -1,1 +1,1 @@
-export const API_BASE_URL = 'http://192.168.1.4:8082';
+export const API_BASE_URL = 'https://mvpiq-hoops-backend-1.onrender.com';
