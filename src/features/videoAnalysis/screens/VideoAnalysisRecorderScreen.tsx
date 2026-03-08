@@ -3,6 +3,7 @@ import { View, Button, Text, StyleSheet } from "react-native"
 
 import { CameraView, useCameraPermissions } from "expo-camera"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
+import { uploadVideo } from "../api/videoUpload.api"
 
 type VideoAnalysisStackParamList = {
     VideoRecorder: {
@@ -11,7 +12,7 @@ type VideoAnalysisStackParamList = {
         }
     }
     VideoProcessing: {
-        video: any
+        videoUrl: string
         type: any
     }
 }
@@ -54,13 +55,24 @@ export default function VideoAnalysisRecorderScreen({
 
             setRecording(false)
 
+            console.log("Video URI:", video.uri)
+
+            // TODO recuperare userId dal tuo auth store
+            const userId = "test-user"
+
+            // upload su supabase
+            const videoUrl = await uploadVideo(video.uri, userId)
+
+            console.log("Uploaded video URL:", videoUrl)
+
             navigation.navigate("VideoProcessing", {
-                video,
+                videoUrl,
                 type,
             })
 
         } catch (err) {
             console.error(err)
+            setRecording(false)
         }
     }
 

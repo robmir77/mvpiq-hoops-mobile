@@ -4,7 +4,7 @@ import { createAnalysisSession } from "../api/videoAnalysis.api"
 
 export default function VideoAnalysisProcessingScreen({ route, navigation }: any) {
 
-    const { video, type } = route.params
+    const { videoUrl, type } = route.params
 
     useEffect(() => {
 
@@ -12,8 +12,8 @@ export default function VideoAnalysisProcessingScreen({ route, navigation }: any
 
             const session = await createAnalysisSession({
                 analysisCode: type.code,
-                videoUrl: video.uri,
-                videoSeconds: video.duration,
+                videoUrl: videoUrl.uri,
+                videoSeconds: videoUrl.duration,
                 videoSizeMb: 5
             })
 
