@@ -9,15 +9,18 @@ export const uploadVideo = async (
     const fileName = `${Date.now()}.${fileExt}`
     const filePath = `${userId}/${fileName}`
 
-    const file = {
-        uri,
-        name: fileName,
-        type: `video/${fileExt}`,
-    } as any
+    // conversione file:// -> blob
+    const response = await fetch(uri)
+    const blob = await response.blob()
+
+    const mimeType =
+        fileExt === "mov" ? "video/quicktime" : `video/${fileExt}`
 
     const { error } = await supabase.storage
         .from("videos")
-        .upload(filePath, file)
+        .upload(filePath, blob, {
+            contentType: mimeType,
+        })
 
     if (error) {
         throw new Error(error.message)

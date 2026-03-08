@@ -2,7 +2,18 @@ import React from "react"
 import { View, Text, FlatList, TouchableOpacity } from "react-native"
 import { useAnalysisTypes } from "../hooks/useAnalysisTypes"
 
-export default function VideoAnalysisHomeScreen({ navigation }) {
+import { NativeStackNavigationProp } from "@react-navigation/native-stack"
+import { RootStackParamList } from "@/app/navigation/types"
+import { VideoAnalysisType } from "../types/videoAnalysis.types"
+
+type Props = {
+    navigation: NativeStackNavigationProp<
+        RootStackParamList,
+        "VideoAnalysisHome"
+    >
+}
+
+export default function VideoAnalysisHomeScreen({ navigation }: Props) {
 
     const { types, loading } = useAnalysisTypes()
 
@@ -11,7 +22,7 @@ export default function VideoAnalysisHomeScreen({ navigation }) {
     }
 
     return (
-        <FlatList
+        <FlatList<VideoAnalysisType>
             data={types}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (

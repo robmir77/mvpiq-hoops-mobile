@@ -4,16 +4,16 @@ import { View, Button, Text, StyleSheet } from "react-native"
 import { CameraView, useCameraPermissions } from "expo-camera"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { uploadVideo } from "../api/videoUpload.api"
+import { VideoAnalysisType } from "../types/videoAnalysis.types"
+import * as ImagePicker from "expo-image-picker"
 
 type VideoAnalysisStackParamList = {
     VideoRecorder: {
-        type: {
-            maxVideoSeconds?: number
-        }
+        type: VideoAnalysisType
     }
     VideoProcessing: {
         videoUrl: string
-        type: any
+        type: VideoAnalysisType
     }
 }
 
@@ -76,6 +76,37 @@ export default function VideoAnalysisRecorderScreen({
         }
     }
 
+    const pickVideoFromGallery = async () => {
+
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+
+        if (!permission.granted) {
+            alert("Gallery permission required")
+            return
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+            quality: 1
+        })
+
+        if (result.canceled) return
+
+        const uri = result.assets[0].uri
+
+        console.log("Video selected:", uri)
+
+        // TODO recuperare userId dal tuo auth store
+        const userId = "test-user"
+
+        const videoUrl = await uploadVideo(uri, userId)
+
+        navigation.navigate("VideoProcessing", {
+            videoUrl,
+            type: route.params.type
+        })
+    }
+
     const stopRecording = () => {
         if (cameraRef.current) {
             cameraRef.current.stopRecording()
@@ -100,10 +131,15 @@ export default function VideoAnalysisRecorderScreen({
                 mode="video"
             />
 
+            <Button
+                title="📂 Upload from gallery"
+                onPress={pickVideoFromGallery}
+            />
+
             {!recording ? (
-                <Button title="Record" onPress={recordVideo} />
+                <Button title="🎥 Record video" onPress={recordVideo} />
             ) : (
-                <Button title="Stop" onPress={stopRecording} />
+                <Button title="🎥 Stop Recording" onPress={stopRecording} />
             )}
 
         </View>
