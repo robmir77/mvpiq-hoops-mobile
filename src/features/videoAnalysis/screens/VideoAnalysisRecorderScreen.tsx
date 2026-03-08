@@ -78,33 +78,44 @@ export default function VideoAnalysisRecorderScreen({
 
     const pickVideoFromGallery = async () => {
 
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+        try {
 
-        if (!permission.granted) {
-            alert("Gallery permission required")
-            return
+            const permission =
+                await ImagePicker.requestMediaLibraryPermissionsAsync()
+
+            if (!permission.granted) {
+                alert("Gallery permission required")
+                return
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ["videos"],
+                quality: 1,
+            })
+
+            if (result.canceled || !result.assets?.length) {
+                return
+            }
+
+            const asset = result.assets[0]
+
+            console.log("Selected video:", asset.uri)
+
+            const userId = "test-user"
+
+            const videoUrl = await uploadVideo(asset.uri, userId)
+
+            navigation.navigate("VideoProcessing", {
+                videoUrl,
+                type,
+            })
+
+        } catch (err) {
+
+            console.error("Gallery error:", err)
+            alert("Video upload failed")
+
         }
-
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-            quality: 1
-        })
-
-        if (result.canceled) return
-
-        const uri = result.assets[0].uri
-
-        console.log("Video selected:", uri)
-
-        // TODO recuperare userId dal tuo auth store
-        const userId = "test-user"
-
-        const videoUrl = await uploadVideo(uri, userId)
-
-        navigation.navigate("VideoProcessing", {
-            videoUrl,
-            type: route.params.type
-        })
     }
 
     const stopRecording = () => {

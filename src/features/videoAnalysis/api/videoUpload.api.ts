@@ -1,34 +1,34 @@
-import { supabase } from "@/shared/lib/supabase"
+import apiClient from "@/shared/api/apiClient"
 
 export const uploadVideo = async (
     uri: string,
     userId: string
 ): Promise<string> => {
 
-    const fileExt = uri.split(".").pop()
-    const fileName = `${Date.now()}.${fileExt}`
-    const filePath = `${userId}/${fileName}`
+    console.log("🎥 Upload start")
+    console.log("📁 URI:", uri)
 
-    // conversione file:// -> blob
-    const response = await fetch(uri)
-    const blob = await response.blob()
+    const formData = new FormData()
 
-    const mimeType =
-        fileExt === "mov" ? "video/quicktime" : `video/${fileExt}`
+    formData.append("file", {
+        uri,
+        name: "video.mp4",
+        type: "video/mp4",
+    } as any)
 
-    const { error } = await supabase.storage
-        .from("videos")
-        .upload(filePath, blob, {
-            contentType: mimeType,
-        })
+    formData.append("userId", userId)
 
-    if (error) {
-        throw new Error(error.message)
-    }
+    const response = await apiClient.post(
+        "/videos/upload",
+        formData,
+        {
+            headers: {
+                "Content-Type": "multipart/form-data",
+            },
+        }
+    )
 
-    const { data } = supabase.storage
-        .from("videos")
-        .getPublicUrl(filePath)
+    console.log("✅ Upload response:", response.data)
 
-    return data.publicUrl
+    return response.data.storageUrl
 }
