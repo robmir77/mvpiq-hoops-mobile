@@ -3,7 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import HomeScreen from '../../features/home/screens/HomeScreen';
-import TrainingScreen from '../../features/training/screens/TrainingScreen';
+import TrainingNavigator from '../../features/training/navigation/TrainingNavigator'
 import RankingScreen from '../../features/ranking/screens/RankingScreen';
 import ProfileScreen from '../../features/profile/screens/ProfileScreen';
 import JournalNavigator from '../../features/journal/navigation/JournalNavigator';
@@ -60,7 +60,7 @@ export default function MainNavigator() {
         >
             <Tab.Screen name="Home" component={HomeScreen} />
             <Tab.Screen name="Diario" component={JournalNavigator} />
-            <Tab.Screen name="Training" component={TrainingScreen} />
+            <Tab.Screen name="Training" component={TrainingNavigator} />
             <Tab.Screen name="Ranking" component={RankingScreen} />
             <Tab.Screen name="Profile" component={ProfileScreen} />
         </Tab.Navigator>
