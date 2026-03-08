@@ -2,7 +2,7 @@ import React, { useEffect } from "react"
 import { View, Text } from "react-native"
 import { createAnalysisSession } from "../api/videoAnalysis.api"
 
-export default function VideoAnalysisProcessingScreen({ route, navigation }) {
+export default function VideoAnalysisProcessingScreen({ route, navigation }: any) {
 
     const { video, type } = route.params
 
@@ -11,8 +11,8 @@ export default function VideoAnalysisProcessingScreen({ route, navigation }) {
         const process = async () => {
 
             const session = await createAnalysisSession({
-                analysisTypeId: type.id,
-                videoUrl: video.path,
+                analysisCode: type.code,
+                videoUrl: video.uri,
                 videoSeconds: video.duration,
                 videoSizeMb: 5
             })

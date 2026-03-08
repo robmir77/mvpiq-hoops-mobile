@@ -16,18 +16,15 @@ export const getAnalysisTypes = async (): Promise<VideoAnalysisType[]> => {
     return response.data
 }
 
+export const createAnalysisSession = async (data: {
+    analysisCode: string
+    videoUrl: string
+    videoSeconds: number
+    videoSizeMb: number
+}) => {
 
-export const createAnalysisSession = async (
-    data: {
-        analysisCode: string
-        videoUrl: string
-        videoSeconds: number
-        videoSizeMb: number
-    }
-): Promise<VideoAnalysisSession> => {
-
-    const response = await apiClient.post<VideoAnalysisSession>(
-        '/analysis/sessions',
+    const response = await apiClient.post(
+        "/analysis/sessions",
         data
     )
 
