@@ -6,6 +6,8 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { uploadVideo } from "../api/videoUpload.api"
 import { VideoAnalysisType } from "../types/videoAnalysis.types"
 import * as ImagePicker from "expo-image-picker"
+import { AuthContext } from "@/features/auth/context/AuthContext"
+import { useContext } from "react"
 
 type VideoAnalysisStackParamList = {
     VideoRecorder: {
@@ -34,6 +36,14 @@ export default function VideoAnalysisRecorderScreen({
 
     const { type } = route.params
 
+    const auth = useContext(AuthContext)
+
+    if (!auth) {
+        throw new Error("AuthContext not available")
+    }
+
+    const { user } = auth
+
     useEffect(() => {
         if (!permission) return
         if (!permission.granted) {
@@ -57,8 +67,7 @@ export default function VideoAnalysisRecorderScreen({
 
             console.log("Video URI:", video.uri)
 
-            // TODO recuperare userId dal tuo auth store
-            const userId = "test-user"
+            const userId = user.id
 
             // upload su supabase
             const videoUrl = await uploadVideo(video.uri, userId)
@@ -101,7 +110,7 @@ export default function VideoAnalysisRecorderScreen({
 
             console.log("Selected video:", asset.uri)
 
-            const userId = "test-user"
+            const userId = user.id
 
             const videoUrl = await uploadVideo(asset.uri, userId)
 
