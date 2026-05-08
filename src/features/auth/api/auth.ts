@@ -41,3 +41,44 @@ export const login = async (
         )
     }
 }
+
+export const register = async (
+    username: string,
+    email: string,
+    password: string,
+    displayName?: string
+): Promise<LoginResponse> => {
+    try {
+        const response = await apiClient.post('/auth/register', {
+            username,
+            email,
+            password,
+            displayName,
+        })
+
+        const data = response.data
+
+        // 🔥 VERIFICA PRESENZA TOKEN
+        if (!data.token) {
+            console.log('⚠️ Token non presente nella risposta di registrazione')
+            // Rimuove il salvataggio automatico del token e restituisce i dati
+            return data
+        }
+
+        // 🔥 SALVATAGGIO TOKEN
+        await AsyncStorage.setItem('token', data.token)
+
+        console.log('💾 TOKEN SALVATO DOPO REGISTRAZIONE')
+
+        return data
+    } catch (error: any) {
+        console.error(
+            'Errore registrazione:',
+            error?.response?.data || error.message
+        )
+
+        throw new Error(
+            error?.response?.data?.message || 'Registrazione fallita'
+        )
+    }
+}

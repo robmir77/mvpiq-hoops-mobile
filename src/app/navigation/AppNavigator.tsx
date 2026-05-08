@@ -5,7 +5,7 @@ import { useContext } from 'react'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 
 import MainNavigator from './MainNavigator'
-import LoginScreen from '@/features/auth/screens/LoginScreen'
+import AuthNavigator from './AuthNavigator'
 import EditProfileScreen from '@/features/profile/screens/EditProfileScreen'
 import EditCvScreen from '@/features/cv/screens/EditCvScreen'
 
@@ -48,8 +48,8 @@ export default function AppNavigator() {
                 </>
             ) : (
                 <Stack.Screen
-                    name="Login"
-                    component={LoginScreen}
+                    name="Auth"
+                    component={AuthNavigator}
                     options={{ headerShown: false }}
                 />
             )}

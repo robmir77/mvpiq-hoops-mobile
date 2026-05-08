@@ -16,8 +16,12 @@ import {
 import { login } from '../api/auth';
 import { saveAuth } from '@/shared/storage/authStorage';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { AuthStackParamList } from '@/app/navigation/types';
 
-const LoginScreen = () => {
+type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
+
+const LoginScreen = ({ navigation }: Props) => {
     const auth = useContext(AuthContext);
     if (!auth) return null;
 
@@ -26,6 +30,7 @@ const LoginScreen = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
     const handleLogin = async () => {
         if (!email || !password) {
@@ -76,24 +81,36 @@ const LoginScreen = () => {
                 </Text>
 
                 <View style={styles.card}>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Email"
-                        placeholderTextColor="#94A3B8"
-                        value={email}
-                        onChangeText={setEmail}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                    />
+                    <View style={styles.inputContainer}>
+                        <TextInput
+                            style={styles.inputWithIcon}
+                            placeholder="Email"
+                            placeholderTextColor="#94A3B8"
+                            value={email}
+                            onChangeText={setEmail}
+                            autoCapitalize="none"
+                            keyboardType="email-address"
+                        />
+                    </View>
 
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Password"
-                        placeholderTextColor="#94A3B8"
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry
-                    />
+                    <View style={styles.inputContainer}>
+                        <TextInput
+                            style={styles.inputWithIcon}
+                            placeholder="Password"
+                            placeholderTextColor="#94A3B8"
+                            value={password}
+                            onChangeText={setPassword}
+                            secureTextEntry={!showPassword}
+                        />
+                        <TouchableOpacity
+                            style={styles.eyeIcon}
+                            onPress={() => setShowPassword(!showPassword)}
+                        >
+                            <Text style={styles.eyeText}>
+                                {showPassword ? '🙈' : '👁️'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
 
                     <TouchableOpacity
                         style={styles.button}
@@ -105,6 +122,15 @@ const LoginScreen = () => {
                         ) : (
                             <Text style={styles.buttonText}>Accedi</Text>
                         )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.linkButton}
+                        onPress={() => navigation.navigate('Register')}
+                    >
+                        <Text style={styles.linkText}>
+                            Non hai un account? Creane uno
+                        </Text>
                     </TouchableOpacity>
                 </View>
             </ScrollView>
@@ -148,6 +174,27 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         marginBottom: 16,
     },
+    inputContainer: {
+        position: 'relative',
+        marginBottom: 16,
+    },
+    inputWithIcon: {
+        backgroundColor: '#334155',
+        borderRadius: 12,
+        padding: 14,
+        color: '#FFFFFF',
+        paddingRight: 45,
+    },
+    eyeIcon: {
+        position: 'absolute',
+        right: 15,
+        top: 14,
+        padding: 5,
+    },
+    eyeText: {
+        fontSize: 16,
+        color: '#94A3B8',
+    },
     button: {
         backgroundColor: '#F97316',
         padding: 16,
@@ -159,6 +206,15 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontWeight: '600',
         fontSize: 16,
+    },
+    linkButton: {
+        marginTop: 20,
+        alignItems: 'center',
+    },
+    linkText: {
+        color: '#F97316',
+        fontSize: 14,
+        fontWeight: '500',
     },
 });
 
