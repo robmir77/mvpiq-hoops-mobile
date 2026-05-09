@@ -75,6 +75,7 @@ export default function GoalWizardScreen() {
     const [currentStep, setCurrentStep] = useState(0)
     const [customGoal, setCustomGoal] = useState('')
     const [showCustomInput, setShowCustomInput] = useState(false)
+    const [isCreating, setIsCreating] = useState(false)
 
     const toggleGoalSelection = (goalId: string) => {
         setSelectedGoals(prev => 
@@ -97,8 +98,12 @@ export default function GoalWizardScreen() {
     }
 
     const handleFinish = async () => {
+        if (isCreating) return // Previeni click multipli
+        
         const athleteId = user?.id
         if (!athleteId) return
+        
+        setIsCreating(true)
         
         const goalsToCreate = selectedGoals.map(goalId => {
             const suggestion = GOAL_SUGGESTIONS.find(g => g.id === goalId)
@@ -124,14 +129,7 @@ export default function GoalWizardScreen() {
         try {
             // Creiamo tutti i goal selezionati
             await Promise.all(
-                goalsToCreate.map(goal => 
-                    new Promise<void>((resolve, reject) => {
-                        createGoalMutation.mutate(goal, {
-                            onSuccess: () => resolve(),
-                            onError: (error) => reject(error)
-                        })
-                    })
-                )
+                goalsToCreate.map(goal => createGoalMutation.mutateAsync(goal))
             )
             
             // Aggiorniamo il flag hasGoals nell'utente
@@ -139,10 +137,12 @@ export default function GoalWizardScreen() {
                 auth.setUser({ ...user, hasGoals: true })
             }
             
-            // Reindirizziamo alla home per refreshare i dati
-            navigation.navigate('Main')
+            // Torniamo indietro invece di navigare a Main
+            navigation.goBack()
         } catch (error) {
             console.error('Errore durante la creazione dei goal:', error)
+        } finally {
+            setIsCreating(false)
         }
     }
 
@@ -304,9 +304,9 @@ export default function GoalWizardScreen() {
                             (currentStep === 0 && selectedGoals.length === 0) && styles.disabledButton
                         ]}
                         onPress={handleNext}
-                        disabled={currentStep === 0 && selectedGoals.length === 0}
+                        disabled={currentStep === 0 && selectedGoals.length === 0 || isCreating}
                     >
-                        {createGoalMutation.isPending ? (
+                        {isCreating || createGoalMutation.isPending ? (
                             <ActivityIndicator color="#fff" />
                         ) : (
                             <Text style={styles.nextButtonText}>
