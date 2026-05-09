@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -9,10 +9,17 @@ import PositionsScreen from '../../features/positions/screens/PositionsScreen';
 import ProfileNavigator from '../../features/profile/navigation/ProfileNavigator';
 import AiTrainingNavigator from '../../features/ai-training/navigation/AiTrainingNavigator';
 import RankingScreen from '../../features/ranking/screens/RankingScreen';
+import NotificationsScreen from '../../features/notifications/screens/NotificationsScreen';
+import { BadgeIcon } from '@/shared/components/BadgeIcon';
+import { AuthContext } from '@/features/auth/context/AuthContext';
+import { useUnreadNotificationsCount } from '@/features/notifications/hooks/useNotifications';
 
 const Tab = createBottomTabNavigator();
 
-export default function MainNavigator() {
+const TabNavigatorWithNotifications = () => {
+    const auth = useContext(AuthContext);
+    const { data: unreadCount } = useUnreadNotificationsCount(auth?.user?.id);
+
     return (
         <Tab.Navigator
             screenOptions={({ route }) => ({
@@ -52,6 +59,18 @@ export default function MainNavigator() {
                         return <Ionicons name="trophy" size={size} color={color} />;
                     }
 
+                    if (route.name === 'Notifications') {
+                        return (
+                            <BadgeIcon
+                                name="notifications"
+                                size={size}
+                                color={color}
+                                badgeCount={unreadCount?.count}
+                                iconType="ionicons"
+                            />
+                        );
+                    }
+
                     if (route.name === 'CV') {
                         return (
                             <MaterialCommunityIcons
@@ -84,9 +103,14 @@ export default function MainNavigator() {
             <Tab.Screen name="Goals" component={GoalsScreen} />
             <Tab.Screen name="Training" component={AiTrainingNavigator} />
             <Tab.Screen name="Ranking" component={RankingScreen} />
+            <Tab.Screen name="Notifications" component={NotificationsScreen} />
             <Tab.Screen name="CV" component={CvScreen} />
             <Tab.Screen name="Positions" component={PositionsScreen} />
             <Tab.Screen name="Profile" component={ProfileNavigator} />
         </Tab.Navigator>
     );
+};
+
+export default function MainNavigator() {
+    return <TabNavigatorWithNotifications />;
 }

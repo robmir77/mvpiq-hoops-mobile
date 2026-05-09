@@ -1,6 +1,6 @@
 // src/features/ai-training/screens/AiTrainingGeneratorScreen.tsx
 
-import React, { useContext, useState } from 'react'
+import React, { useContext, useState, useEffect } from 'react'
 import {
     View,
     Text,
@@ -18,6 +18,9 @@ import {
     TrainingGenerationRequest, 
     SkillLevel 
 } from '../types/ai-training.types'
+import { PositionCard } from '@/shared/components/PositionCard'
+import { getAllPositions } from '@/features/positions/api/positions.api'
+import { PositionMetadata } from '@/features/positions/types/positions.types'
 
 export default function AiTrainingGeneratorScreen() {
     const navigation = useNavigation<any>()
@@ -30,10 +33,36 @@ export default function AiTrainingGeneratorScreen() {
 
     const [goal, setGoal] = useState('')
     const [skillLevel, setSkillLevel] = useState<SkillLevel>(SkillLevel.INTERMEDIATE)
-    const [position, setPosition] = useState(user?.mainPosition || '')
+    const [positionId, setPositionId] = useState<string | undefined>(undefined)
     const [sessionsPerWeek, setSessionsPerWeek] = useState(3)
     const [sessionDurationMinutes, setSessionDurationMinutes] = useState(60)
     const [weeks, setWeeks] = useState(4)
+
+    const [positions, setPositions] = useState<PositionMetadata[]>([])
+    const [loadingPositions, setLoadingPositions] = useState(true)
+
+    useEffect(() => {
+        const loadPositions = async () => {
+            try {
+                const data = await getAllPositions()
+                setPositions(data)
+                
+                // Imposta la posizione principale dell'utente come default
+                if (user?.mainPosition) {
+                    const userPosition = data.find(p => p.code === user.mainPosition)
+                    if (userPosition) {
+                        setPositionId(userPosition.id)
+                    }
+                }
+            } catch {
+                Alert.alert('Errore', 'Impossibile caricare posizioni')
+            } finally {
+                setLoadingPositions(false)
+            }
+        }
+
+        loadPositions()
+    }, [user?.mainPosition])
 
     const handleGenerate = () => {
         if (!goal.trim()) {
@@ -41,10 +70,14 @@ export default function AiTrainingGeneratorScreen() {
             return
         }
 
+        // Trova il codice della posizione selezionata
+        const selectedPosition = positions.find(p => p.id === positionId)
+        const positionCode = selectedPosition?.code
+
         const request: TrainingGenerationRequest = {
             goal: goal.trim(),
             skillLevel,
-            position: position || undefined,
+            position: positionCode || undefined,
             sessionsPerWeek,
             sessionDurationMinutes,
             weeks
@@ -114,13 +147,29 @@ export default function AiTrainingGeneratorScreen() {
 
                     <View style={styles.field}>
                         <Text style={styles.label}>Posizione</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={position}
-                            onChangeText={setPosition}
-                            placeholder="es. PG, SG, SF, PF, C"
-                            editable={!isGenerating}
-                        />
+                        {loadingPositions ? (
+                            <Text style={{ color: '#aaa', marginTop: 10 }}>
+                                Caricamento posizioni...
+                            </Text>
+                        ) : (
+                            <View style={styles.positionsGrid}>
+                                {positions.map(pos => {
+                                    const isSelected = positionId === pos.id
+
+                                    return (
+                                        <PositionCard
+                                            key={pos.id}
+                                            label={`${pos.code} - ${pos.name}`}
+                                            selected={isSelected}
+                                            disabled={isGenerating}
+                                            onPress={() => {
+                                                setPositionId(pos.id)
+                                            }}
+                                        />
+                                    )
+                                })}
+                            </View>
+                        )}
                     </View>
 
                     <View style={styles.row}>
@@ -283,5 +332,11 @@ const styles = StyleSheet.create({
         color: '#ccc',
         fontSize: 14,
         textAlign: 'center',
+    },
+    positionsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        marginTop: 10,
     },
 })
