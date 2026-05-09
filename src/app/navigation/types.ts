@@ -13,4 +13,6 @@ export type MainStackParamList = {
     GoalWizard: undefined
     EditProfile: { playerId: string }
     EditCv: undefined
+    ChatScreen: { conversationId: string }
+    NewChat: undefined
 }
