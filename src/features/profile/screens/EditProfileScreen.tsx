@@ -7,11 +7,13 @@ import {
     Button,
     Alert,
     ScrollView,
+    TouchableOpacity,
 } from 'react-native'
 import { useNavigation, useRoute } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { updateAthleteProfile } from '../api/profile.api'
+import { useProfile } from '../hooks/useProfile'
 import { getPositions, PositionMetadata } from '../api/position.api'
 import { PlayerProfile } from '../types/profile.types'
 
@@ -23,28 +25,36 @@ export default function EditProfileScreen() {
     const route = useRoute<any>()
     const queryClient = useQueryClient()
 
-    const profile: PlayerProfile = route.params.profile
+    console.log('EditProfileScreen - route.params:', route.params)
+    const playerId = route.params.playerId
+    console.log('EditProfileScreen - playerId:', playerId)
+    
+    const { data: profile, isLoading } = useProfile(playerId)
+    console.log('EditProfileScreen - profile data:', profile)
 
     const [positions, setPositions] = useState<PositionMetadata[]>([])
     const [loadingPositions, setLoadingPositions] = useState(true)
 
-    const [displayName, setDisplayName] = useState(profile.displayName ?? '')
-    const [city, setCity] = useState(profile.city ?? '')
-    const [country, setCountry] = useState(profile.country ?? '')
-    const [heightCm, setHeightCm] = useState(
-        profile.heightCm ? String(profile.heightCm) : ''
-    )
-    const [weightKg, setWeightKg] = useState(
-        profile.weightKg ? String(profile.weightKg) : ''
-    )
+    const [displayName, setDisplayName] = useState('')
+    const [city, setCity] = useState('')
+    const [country, setCountry] = useState('')
+    const [heightCm, setHeightCm] = useState('')
+    const [weightKg, setWeightKg] = useState('')
+    const [mainPositionId, setMainPositionId] = useState<string | undefined>(undefined)
+    const [secondaryPositionIds, setSecondaryPositionIds] = useState<string[]>([])
 
-    const [mainPositionId, setMainPositionId] = useState<string | undefined>(
-        profile.mainPositionId ?? undefined
-    )
-
-    const [secondaryPositionIds, setSecondaryPositionIds] = useState<string[]>(
-        profile.secondaryPositionIds ?? []
-    )
+    // Update form when profile data is loaded
+    useEffect(() => {
+        if (profile) {
+            setDisplayName(profile.displayName ?? '')
+            setCity(profile.city ?? '')
+            setCountry(profile.country ?? '')
+            setHeightCm(profile.heightCm ? String(profile.heightCm) : '')
+            setWeightKg(profile.weightKg ? String(profile.weightKg) : '')
+            setMainPositionId(profile.mainPositionId ?? undefined)
+            setSecondaryPositionIds(profile.secondaryPositionIds ?? [])
+        }
+    }, [profile])
 
     useEffect(() => {
         const load = async () => {
@@ -80,7 +90,28 @@ export default function EditProfileScreen() {
     }
 
     const handleSave = async () => {
+        console.log('handleSave - profile:', profile)
+        console.log('handleSave - profile.id:', profile?.id)
+        
+        if (!profile?.id) {
+            Alert.alert('Errore', 'ID profilo non valido')
+            return
+        }
+
         try {
+            console.log('Updating profile:', {
+                profileId: profile.id,
+                data: {
+                    displayName: displayName || undefined,
+                    city: city || undefined,
+                    country: country || undefined,
+                    heightCm: heightCm ? Number(heightCm) : undefined,
+                    weightKg: weightKg ? Number(weightKg) : undefined,
+                    mainPositionId,
+                    secondaryPositionIds,
+                }
+            })
+
             await updateAthleteProfile({
                 profileId: profile.id,
                 data: {
@@ -100,8 +131,10 @@ export default function EditProfileScreen() {
 
             Alert.alert('Successo', 'Profilo aggiornato')
             navigation.goBack()
-        } catch {
-            Alert.alert('Errore', 'Impossibile aggiornare il profilo')
+        } catch (error: any) {
+            console.error('Error updating profile:', error)
+            const errorMessage = error?.response?.data?.message || error?.message || 'Impossibile aggiornare il profilo'
+            Alert.alert('Errore', errorMessage)
         }
     }
 
@@ -215,11 +248,24 @@ export default function EditProfileScreen() {
                 })}
             </View>
 
-            <View style={{ marginTop: 30 }}>
-                <Button
-                    title="Salva modifiche"
+            <View style={{ marginTop: 30, marginBottom: 40 }}>
+                <TouchableOpacity
+                    style={{
+                        backgroundColor: '#F97316',
+                        padding: 16,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                    }}
                     onPress={handleSave}
-                />
+                >
+                    <Text style={{
+                        color: '#FFFFFF',
+                        fontWeight: '600',
+                        fontSize: 16,
+                    }}>
+                        Salva modifiche
+                    </Text>
+                </TouchableOpacity>
             </View>
         </ScrollView>
     )

@@ -25,7 +25,7 @@ export default function HomeScreen() {
     const navigation = useNavigation<NavigationProp>()
     if (!auth) return null
 
-    const { user } = auth
+    const { user, isLoading } = auth
 
     // 🔹 1. Fetch profile
     const {
@@ -52,11 +52,11 @@ export default function HomeScreen() {
     const completedGoals =
         goals.filter((g) => g.completed).length
 
-    const isLoading = profileLoading || goalsLoading
+    const isDataLoading = profileLoading || goalsLoading || auth.isLoading
 
     // Check if user has no goals and show wizard
     useEffect(() => {
-        if (!isLoading && user && user.hasGoals === false) {
+        if (!isDataLoading && user && user.hasGoals === false) {
             // Show alert to offer wizard setup
             Alert.alert(
                 'Benvenuto! 🏀',
@@ -73,9 +73,9 @@ export default function HomeScreen() {
                 ]
             )
         }
-    }, [isLoading, user, navigation])
+    }, [isDataLoading, user, navigation])
 
-    if (isLoading) {
+    if (isDataLoading) {
         return (
             <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
                 <ActivityIndicator size="large" color="#ff8c00" />
@@ -88,8 +88,34 @@ export default function HomeScreen() {
             <ScrollView style={styles.container}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Text style={styles.greeting}>Bentornato 👋</Text>
-                    <Text style={styles.username}>{user?.displayName}</Text>
+                    <View>
+                        <Text style={styles.greeting}>Bentornato 👋</Text>
+                        <Text style={styles.username}>{user?.displayName || user?.username || 'Utente'}</Text>
+                    </View>
+                    <TouchableOpacity
+                        style={styles.logoutButton}
+                        onPress={async () => {
+                            Alert.alert(
+                                'Logout',
+                                'Sei sicuro di voler uscire?',
+                                [
+                                    {
+                                        text: 'Annulla',
+                                        style: 'cancel',
+                                    },
+                                    {
+                                        text: 'Esci',
+                                        style: 'destructive',
+                                        onPress: async () => {
+                                            await auth?.logout()
+                                        },
+                                    },
+                                ]
+                            )
+                        }}
+                    >
+                        <Text style={styles.logoutButtonText}>🚪 Esci</Text>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Stats */}
@@ -228,6 +254,20 @@ const styles = StyleSheet.create({
     header: {
         marginTop: 40,
         marginBottom: 20,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    logoutButton: {
+        backgroundColor: '#dc2626',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 8,
+    },
+    logoutButtonText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 14,
     },
     greeting: {
         fontSize: 18,

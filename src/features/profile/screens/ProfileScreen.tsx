@@ -50,7 +50,7 @@ export default function ProfileScreen() {
                     style={styles.avatar}
                 />
 
-                <Text style={styles.name}>{data.displayName}</Text>
+                <Text style={styles.name}>{data?.displayName || data?.username || 'Profilo'}</Text>
 
                 <Text style={styles.position}>
                     {data.mainPositionLabel
@@ -61,9 +61,11 @@ export default function ProfileScreen() {
                 {/* Pulsante Edit */}
                 <TouchableOpacity
                     style={styles.editButton}
-                    onPress={() =>
-                        navigation.navigate('EditProfile', { playerId: data.userId })
-                    }
+                    onPress={() => {
+                        console.log('ProfileScreen - Navigating to EditProfile with playerId:', data.id);
+                        console.log('ProfileScreen - Full data object:', data);
+                        navigation.navigate('EditProfile', { playerId: data.id })
+                    }}
                 >
                     <Text style={styles.editButtonText}>Modifica Profilo</Text>
                 </TouchableOpacity>
@@ -72,7 +74,7 @@ export default function ProfileScreen() {
                 <TouchableOpacity
                     style={styles.editButton}
                     onPress={() =>
-                        navigation.navigate('EditCv', { playerId: data.userId })
+                        navigation.navigate('EditCv', { playerId: data.id })
                     }
                 >
                     <Text style={styles.editButtonText}>Modifica CV sportivo</Text>
@@ -82,17 +84,17 @@ export default function ProfileScreen() {
             {/* Stats Card */}
             <View style={styles.card}>
                 <View style={styles.statItem}>
-                    <Text style={styles.statValue}>{data.heightCm} cm</Text>
+                    <Text style={styles.statValue}>{data.heightCm || '-'} cm</Text>
                     <Text style={styles.statLabel}>Height</Text>
                 </View>
 
                 <View style={styles.statItem}>
-                    <Text style={styles.statValue}>{data.weightKg} kg</Text>
+                    <Text style={styles.statValue}>{data.weightKg || '-'} kg</Text>
                     <Text style={styles.statLabel}>Weight</Text>
                 </View>
 
                 <View style={styles.statItem}>
-                    <Text style={styles.statValue}>{data.dominantHand}</Text>
+                    <Text style={styles.statValue}>{data.dominantHand || '-'}</Text>
                     <Text style={styles.statLabel}>Hand</Text>
                 </View>
             </View>
@@ -102,11 +104,11 @@ export default function ProfileScreen() {
                 <Text style={styles.infoTitle}>Info</Text>
 
                 <Text style={styles.infoText}>
-                    📍 {data.city}, {data.country}
+                    📍 {data.city || '-'}{data.city && data.country ? ', ' : ''}{data.country || '-'}
                 </Text>
 
                 <Text style={styles.infoText}>
-                    🎂 {data.birthDate}
+                    🎂 {data.birthDate || '-'}
                 </Text>
             </View>
         </ScrollView>

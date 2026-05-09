@@ -83,3 +83,14 @@ export const register = async (
         )
     }
 }
+
+export const logout = async (): Promise<void> => {
+    try {
+        // Rimuovi il token da AsyncStorage
+        await AsyncStorage.removeItem('token')
+        console.log('🗑️ TOKEN RIMOSSO - Logout completato')
+    } catch (error) {
+        console.error('Errore durante il logout:', error)
+        throw new Error('Logout fallito')
+    }
+}

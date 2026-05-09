@@ -11,6 +11,6 @@ export type AuthStackParamList = {
 export type MainStackParamList = {
     Main: undefined
     GoalWizard: undefined
-    EditProfile: undefined
+    EditProfile: { playerId: string }
     EditCv: undefined
 }

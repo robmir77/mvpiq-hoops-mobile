@@ -1,6 +1,7 @@
 export interface PlayerProfile {
     id: string
     userId: string
+    username: string
     displayName: string
     birthDate?: string
     heightCm?: number
@@ -16,6 +17,10 @@ export interface PlayerProfile {
     city?: string
     gender?: string
     avatarUrl?: string
+    publicProfile?: boolean
+    verified?: boolean
+    approximateAge?: any
+    bio?: string
 }
 
 export interface UpdatePlayerProfile {
