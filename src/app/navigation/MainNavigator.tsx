@@ -3,10 +3,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import HomeScreen from '../../features/home/screens/HomeScreen';
-import TrainingNavigator from '../../features/training/navigation/TrainingNavigator'
+import GoalsScreen from '../../features/goals/screens/GoalsScreen';
+import CvScreen from '../../features/cv/screens/CvScreen';
+import PositionsScreen from '../../features/positions/screens/PositionsScreen';
+import ProfileNavigator from '../../features/profile/navigation/ProfileNavigator';
+import TrainingScreen from '../../features/training/screens/TrainingScreen';
 import RankingScreen from '../../features/ranking/screens/RankingScreen';
-import ProfileScreen from '../../features/profile/screens/ProfileScreen';
-import JournalNavigator from '../../features/journal/navigation/JournalNavigator';
 
 const Tab = createBottomTabNavigator();
 
@@ -26,10 +28,10 @@ export default function MainNavigator() {
                         return <Ionicons name="home" size={size} color={color} />;
                     }
 
-                    if (route.name === 'Diario') {
+                    if (route.name === 'Goals') {
                         return (
                             <MaterialCommunityIcons
-                                name="notebook-outline"
+                                name="target"
                                 size={size}
                                 color={color}
                             />
@@ -39,7 +41,7 @@ export default function MainNavigator() {
                     if (route.name === 'Training') {
                         return (
                             <MaterialCommunityIcons
-                                name="basketball"
+                                name="dumbbell"
                                 size={size}
                                 color={color}
                             />
@@ -48,6 +50,26 @@ export default function MainNavigator() {
 
                     if (route.name === 'Ranking') {
                         return <Ionicons name="trophy" size={size} color={color} />;
+                    }
+
+                    if (route.name === 'CV') {
+                        return (
+                            <MaterialCommunityIcons
+                                name="file-document-outline"
+                                size={size}
+                                color={color}
+                            />
+                        );
+                    }
+
+                    if (route.name === 'Positions') {
+                        return (
+                            <MaterialCommunityIcons
+                                name="basketball"
+                                size={size}
+                                color={color}
+                            />
+                        );
                     }
 
                     if (route.name === 'Profile') {
@@ -59,10 +81,12 @@ export default function MainNavigator() {
             })}
         >
             <Tab.Screen name="Home" component={HomeScreen} />
-            <Tab.Screen name="Diario" component={JournalNavigator} />
-            <Tab.Screen name="Training" component={TrainingNavigator} />
+            <Tab.Screen name="Goals" component={GoalsScreen} />
+            <Tab.Screen name="Training" component={TrainingScreen} />
             <Tab.Screen name="Ranking" component={RankingScreen} />
-            <Tab.Screen name="Profile" component={ProfileScreen} />
+            <Tab.Screen name="CV" component={CvScreen} />
+            <Tab.Screen name="Positions" component={PositionsScreen} />
+            <Tab.Screen name="Profile" component={ProfileNavigator} />
         </Tab.Navigator>
     );
 }

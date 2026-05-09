@@ -11,8 +11,11 @@ export type AuthStackParamList = {
 export type MainStackParamList = {
     Main: undefined
     GoalWizard: undefined
+    Goals: undefined
     EditProfile: { playerId: string }
-    EditCv: undefined
+    EditCv: { playerId: string }
+    Cv: undefined
+    Positions: undefined
     ChatScreen: { conversationId: string }
     NewChat: undefined
 }

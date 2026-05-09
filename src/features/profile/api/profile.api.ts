@@ -8,11 +8,11 @@ export const getPlayerProfile = async (
     id: string
 ): Promise<PlayerProfile> => {
     try {
-        const response = await apiClient.get<PlayerProfile>(
+        const response = await apiClient.get<{ data: PlayerProfile }>(
             `/player-profiles/${id}`
         )
 
-        return response.data
+        return response.data.data
     } catch (error: any) {
         console.error(
             'Errore caricamento profilo:',
@@ -29,11 +29,11 @@ export const getPlayerProfileByUserId = async (
     userId: string
 ): Promise<PlayerProfile> => {
     try {
-        const response = await apiClient.get<PlayerProfile>(
+        const response = await apiClient.get<{ data: PlayerProfile }>(
             `/player-profiles/user/${userId}`
         )
 
-        return response.data
+        return response.data.data
     } catch (error: any) {
         console.error(
             'Errore caricamento profilo utente:',
@@ -306,6 +306,90 @@ export const getPlayerRankings = async (
     }
 }
 
+// Athlete Management - Alternative Endpoints (dal backend)
+export const getAllAthletes = async (): Promise<PlayerProfile[]> => {
+    try {
+        const response = await apiClient.get<{ data: PlayerProfile[] }>('/athletes')
+
+        return response.data.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento tutti gli atleti:',
+            error?.response?.data || error.message
+        )
+
+        throw new Error(
+            error?.response?.data?.message || 'Errore caricamento tutti gli atleti'
+        )
+    }
+}
+
+export const getAthleteById = async (
+    id: string
+): Promise<PlayerProfile> => {
+    try {
+        const response = await apiClient.get<{ data: PlayerProfile }>(`/athlet/${id}`)
+
+        return response.data.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento atleta:',
+            error?.response?.data || error.message
+        )
+
+        throw new Error(
+            error?.response?.data?.message || 'Errore caricamento atleta'
+        )
+    }
+}
+
+export const getAthleteByUserId = async (
+    userId: string
+): Promise<PlayerProfile> => {
+    try {
+        const response = await apiClient.get<{ data: PlayerProfile }>(
+            `/athlet/user/${userId}`
+        )
+
+        return response.data.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento atleta per user ID:',
+            error?.response?.data || error.message
+        )
+
+        throw new Error(
+            error?.response?.data?.message || 'Errore caricamento atleta per user ID'
+        )
+    }
+}
+
+export const updateAthleteProfile = async (
+    id: string,
+    profileData: {
+        mainPositionId?: string
+        secondaryPositionIds?: string[]
+        [key: string]: any
+    }
+): Promise<PlayerProfile> => {
+    try {
+        const response = await apiClient.put<PlayerProfile>(
+            `/athlet/${id}`,
+            profileData
+        )
+
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore aggiornamento profilo atleta:',
+            error?.response?.data || error.message
+        )
+
+        throw new Error(
+            error?.response?.data?.message || 'Errore aggiornamento profilo atleta'
+        )
+    }
+}
+
 // Backward compatibility
 export const getAthleteProfile = getPlayerProfileByUserId
-export const updateAthleteProfile = updatePlayerProfile

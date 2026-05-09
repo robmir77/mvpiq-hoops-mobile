@@ -4,19 +4,51 @@ import { RankingItem } from '../types/ranking.types'
 export const getGlobalRanking = async (): Promise<
     RankingItem[]
 > => {
-    const response = await apiClient.get<RankingItem[]>(
-        '/ranking/global'
-    )
+    try {
+        const response = await apiClient.get<RankingItem[]>(
+            '/ranking/global'
+        )
 
-    return response.data
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento ranking globale:',
+            error?.response?.data || error.message
+        )
+        
+        // Fallback per ranking non disponibile
+        if (error?.response?.status === 404) {
+            return []
+        }
+        
+        throw new Error(
+            error?.response?.data?.message || 'Errore caricamento ranking globale'
+        )
+    }
 }
 
 export const getRoleRanking = async (
     role: string
 ): Promise<RankingItem[]> => {
-    const response = await apiClient.get<RankingItem[]>(
-        `/ranking/${role}`
-    )
+    try {
+        const response = await apiClient.get<RankingItem[]>(
+            `/ranking/${role}`
+        )
 
-    return response.data
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento ranking per ruolo:',
+            error?.response?.data || error.message
+        )
+        
+        // Fallback per ranking non disponibile
+        if (error?.response?.status === 404) {
+            return []
+        }
+        
+        throw new Error(
+            error?.response?.data?.message || 'Errore caricamento ranking per ruolo'
+        )
+    }
 }

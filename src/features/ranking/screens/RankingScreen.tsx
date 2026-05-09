@@ -1,85 +1,57 @@
-import React, { useEffect, useState, useContext } from 'react'
+import React, { useContext } from 'react'
 import {
     View,
     Text,
     StyleSheet,
     ScrollView,
-    ActivityIndicator,
+    RefreshControl,
     TouchableOpacity,
+    ActivityIndicator,
 } from 'react-native'
 
+import { useNavigation } from '@react-navigation/native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import {
-    getGlobalRanking,
-    getRoleRanking,
-} from '@/features/ranking/api/ranking.api'
-import { RankingItem } from '@/features/ranking/types/ranking.types'
-import { getAthleteProfile } from '@/features/profile/api/profile.api'
-import { PlayerProfile } from '@/features/profile/types/profile.types'
+import { useGlobalRanking, useRoleRanking } from '../hooks/useRanking'
+import { RankingItem } from '../types/ranking.types'
 
 export default function RankingScreen() {
+    const navigation = useNavigation<any>()
     const auth = useContext(AuthContext)
+    
     if (!auth) return null
 
     const { user } = auth
-
-    const [ranking, setRanking] = useState<RankingItem[]>([])
-    const [profile, setProfile] = useState<PlayerProfile | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [scope, setScope] = useState<'GLOBAL' | 'ROLE'>('GLOBAL')
-
-    // 🔹 Carico il profilo una sola volta
-    useEffect(() => {
-        const fetchProfile = async () => {
-            try {
-                const playerProfile = await getAthleteProfile(user.id)
-                setProfile(playerProfile)
-            } catch (e) {
-                console.error('Errore caricamento profilo:', e)
-            }
-        }
-
-        fetchProfile()
-    }, [])
-
-    // 🔹 Carico il ranking ogni volta che cambia scope o profilo
-    useEffect(() => {
-        loadRanking()
-    }, [scope, profile])
-
-    const loadRanking = async () => {
-        setLoading(true)
-
-        try {
-            let data: RankingItem[] = []
-
-            if (scope === 'ROLE' && profile?.mainPosition) {
-                data = await getRoleRanking(profile.mainPosition)
-            } else {
-                data = await getGlobalRanking()
-            }
-
-            setRanking(data)
-        } catch (error) {
-            console.error('Errore caricamento ranking:', error)
-        } finally {
-            setLoading(false)
-        }
+    const [scope, setScope] = React.useState<'GLOBAL' | 'ROLE'>('GLOBAL')
+    
+    const { data: globalRanking, isLoading: globalLoading, refetch: refetchGlobal } = useGlobalRanking()
+    const { data: roleRanking, isLoading: roleLoading, refetch: refetchRole } = useRoleRanking(user?.mainPosition)
+    
+    const isLoading = globalLoading || roleLoading
+    const ranking = scope === 'ROLE' ? (roleRanking || []) : (globalRanking || [])
+    
+    const handleRefresh = () => {
+        refetchGlobal()
+        refetchRole()
     }
 
-    const hasRole = !!profile?.mainPosition
+    const hasRole = !!user?.mainPosition
 
-    if (loading) {
+    if (isLoading) {
         return (
             <View style={styles.loaderContainer}>
-                <ActivityIndicator size="large" color="#F97316" />
+                <ActivityIndicator size="large" color="#ff8c00" />
             </View>
         )
     }
 
     return (
         <View style={styles.container}>
-            <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <ScrollView 
+                contentContainerStyle={{ padding: 20 }}
+                refreshControl={
+                    <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} />
+                }
+            >
                 <Text style={styles.title}>Ranking</Text>
 
                 {/* Scope Switch */}
@@ -148,12 +120,12 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#0F172A',
+        backgroundColor: '#1a1a1a',
     },
     title: {
         fontSize: 28,
         fontWeight: '700',
-        color: '#FFFFFF',
+        color: '#fff',
         marginBottom: 20,
     },
     switchRow: {
@@ -164,41 +136,53 @@ const styles = StyleSheet.create({
         flex: 1,
         padding: 10,
         borderRadius: 12,
-        backgroundColor: '#1E293B',
+        backgroundColor: '#2a2a2a',
         alignItems: 'center',
         marginHorizontal: 5,
     },
     activeSwitch: {
-        backgroundColor: '#F97316',
+        backgroundColor: '#ff8c00',
     },
     switchText: {
-        color: '#FFFFFF',
+        color: '#fff',
         fontWeight: '600',
     },
     rankCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1E293B',
+        backgroundColor: '#2a2a2a',
         padding: 16,
         borderRadius: 18,
         marginBottom: 12,
     },
     currentUserCard: {
         borderWidth: 2,
-        borderColor: '#F97316',
+        borderColor: '#ff8c00',
     },
     rankPosition: {
         fontSize: 18,
         fontWeight: '700',
-        color: '#F97316',
+        color: '#ff8c00',
         marginRight: 15,
     },
     playerName: {
-        color: '#FFFFFF',
+        color: '#fff',
         fontWeight: '600',
     },
     score: {
-        color: '#94A3B8',
+        color: '#ccc',
         marginTop: 4,
+    },
+    emptyState: {
+        backgroundColor: '#2a2a2a',
+        padding: 20,
+        borderRadius: 18,
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+    emptyText: {
+        color: '#ccc',
+        fontSize: 16,
+        textAlign: 'center',
     },
 })

@@ -1,67 +1,50 @@
-import React, { useEffect, useState, useContext } from 'react'
+import React, { useContext } from 'react'
 import {
     View,
     Text,
     StyleSheet,
     ScrollView,
     TouchableOpacity,
-    ActivityIndicator,
+    RefreshControl, ActivityIndicator,
 } from 'react-native'
 
 import { useNavigation } from '@react-navigation/native'
-
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import {
-    getTrainingStats,
-    getTrainingPrograms,
-} from '@/features/training/api/training.api'
-
-import {
-    TrainingStats,
-    TrainingProgram,
-} from '@/features/training/types/training.types'
+import { useTrainingStats, useTrainingPrograms } from '../hooks/useTraining'
+import { TrainingStats, TrainingProgram } from '../types/training.types'
 
 export default function TrainingScreen() {
     const navigation = useNavigation<any>()
-
     const auth = useContext(AuthContext)
+    
     if (!auth) return null
 
     const { user } = auth
+    const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useTrainingStats(user?.id)
+    const { data: programs, isLoading: programsLoading, refetch: refetchPrograms } = useTrainingPrograms()
 
-    const [stats, setStats] = useState<TrainingStats | null>(null)
-    const [programs, setPrograms] = useState<TrainingProgram[]>([])
-    const [loading, setLoading] = useState(true)
-
-    useEffect(() => {
-        loadData()
-    }, [])
-
-    const loadData = async () => {
-        try {
-            const statsData = await getTrainingStats(user.id)
-            const programsData = await getTrainingPrograms()
-
-            setStats(statsData)
-            setPrograms(programsData)
-        } catch (error) {
-            console.error('Errore caricamento training:', error)
-        } finally {
-            setLoading(false)
-        }
+    const isLoading = statsLoading || programsLoading
+    const handleRefresh = () => {
+        refetchStats()
+        refetchPrograms()
     }
 
-    if (loading) {
+    if (isLoading) {
         return (
             <View style={styles.loaderContainer}>
-                <ActivityIndicator size="large" color="#F97316" />
+                <ActivityIndicator size="large" color="#ff8c00" />
             </View>
         )
     }
 
     return (
         <View style={styles.container}>
-            <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <ScrollView 
+                contentContainerStyle={{ padding: 20 }}
+                refreshControl={
+                    <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} />
+                }
+            >
                 <Text style={styles.title}>Training</Text>
 
                 {/* STATS */}
@@ -95,7 +78,7 @@ export default function TrainingScreen() {
 
                 <TouchableOpacity
                     style={styles.videoCard}
-                    onPress={() => navigation.navigate('VideoAnalysisHome')}
+                    onPress={() => navigation.navigate('VideoAnalysisHome' as any)}
                 >
                     <Text style={styles.videoTitle}>🎥 Video Analysis</Text>
 
@@ -115,23 +98,29 @@ export default function TrainingScreen() {
 
                 <Text style={styles.sectionTitle}>Programmi</Text>
 
-                {programs.map((program) => (
-                    <View key={program.id} style={styles.programCard}>
-                        <Text style={styles.programTitle}>
-                            {program.title}
-                        </Text>
-
-                        <Text style={styles.programDesc}>
-                            {program.description}
-                        </Text>
-
-                        <TouchableOpacity style={styles.startButton}>
-                            <Text style={styles.startButtonText}>
-                                Inizia Sessione
-                            </Text>
-                        </TouchableOpacity>
+                {!programs || programs.length === 0 ? (
+                    <View style={styles.emptyState}>
+                        <Text style={styles.emptyText}>Nessun programma disponibile</Text>
                     </View>
-                ))}
+                ) : (
+                    programs.map((program) => (
+                        <View key={program.id} style={styles.programCard}>
+                            <Text style={styles.programTitle}>
+                                {program.title}
+                            </Text>
+
+                            <Text style={styles.programDesc}>
+                                {program.description}
+                            </Text>
+
+                            <TouchableOpacity style={styles.startButton}>
+                                <Text style={styles.startButtonText}>
+                                    Inizia Sessione
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    ))
+                )}
             </ScrollView>
         </View>
     )
@@ -248,5 +237,19 @@ const styles = StyleSheet.create({
     startButtonText: {
         color: '#FFFFFF',
         fontWeight: '600',
+    },
+
+    emptyState: {
+        backgroundColor: '#1E293B',
+        padding: 20,
+        borderRadius: 18,
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+
+    emptyText: {
+        color: '#94A3B8',
+        fontSize: 16,
+        textAlign: 'center',
     },
 })
