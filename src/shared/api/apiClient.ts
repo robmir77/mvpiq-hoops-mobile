@@ -56,11 +56,24 @@ apiClient.interceptors.response.use(
 
         return response
     },
-    (error) => {
+    async (error) => {
         console.log('\n🛑 RESPONSE ERROR')
         console.log('⬅️ URL:', error?.config?.url)
         console.log('⬅️ STATUS:', error?.response?.status)
         console.log('⬅️ DATA:', error?.response?.data)
+
+        // Gestione automatica dei token scaduti (401)
+        if (error?.response?.status === 401) {
+            console.log('🔐 TOKEN SCADUTO - Reindirizzamento al login')
+            
+            // Rimuovi il token scaduto
+            await AsyncStorage.removeItem('token')
+            await AsyncStorage.removeItem('auth_user')
+            
+            // Qui potresti emettere un evento o usare un navigation service
+            // per reindirizzare automaticamente alla schermata di login
+            console.log('🗑️ Token rimosso - Utente deve fare nuovamente il login')
+        }
 
         return Promise.reject(error)
     }
