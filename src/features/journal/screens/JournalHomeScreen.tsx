@@ -1,26 +1,31 @@
 import React from 'react'
-import { View, Text, StyleSheet, Button } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
+import { globalStyles } from '@/shared/theme/globalStyles'
 
 export default function JournalHomeScreen({ navigation }: any) {
     return (
         <View style={styles.container}>
             <Text style={styles.title}>Diario</Text>
 
-            <Button
-                title="Nuovo Diario Partita"
+            <TouchableOpacity
+                style={globalStyles.button}
                 onPress={() =>
                     navigation.navigate('JournalCreate', { entryType: 'MATCH' })
                 }
-            />
+            >
+                <Text style={globalStyles.buttonText}>Nuovo Diario Partita</Text>
+            </TouchableOpacity>
 
             <View style={{ height: 10 }} />
 
-            <Button
-                title="Nuovo Diario Allenamento"
+            <TouchableOpacity
+                style={globalStyles.button}
                 onPress={() =>
                     navigation.navigate('JournalCreate', { entryType: 'TRAINING' })
                 }
-            />
+            >
+                <Text style={globalStyles.buttonText}>Nuovo Diario Allenamento</Text>
+            </TouchableOpacity>
         </View>
     )
 }

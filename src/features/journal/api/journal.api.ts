@@ -14,7 +14,7 @@ export const fetchChecklistTemplate = async (
 ): Promise<ChecklistTemplate> => {
     try {
         const response = await apiClient.get<ChecklistTemplate[]>(
-            `/checklist-templates?entryType=${entryType}`
+            `/checklist-templates?entryType=${encodeURIComponent(entryType)}`
         )
 
         const templates = response.data

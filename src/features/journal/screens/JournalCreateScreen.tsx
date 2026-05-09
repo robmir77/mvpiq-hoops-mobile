@@ -5,7 +5,7 @@ import {
     ActivityIndicator,
     ScrollView,
     StyleSheet,
-    Button,
+    TouchableOpacity,
     Alert,
 } from 'react-native'
 import {
@@ -15,6 +15,7 @@ import {
 import { ChecklistTemplate } from '../types/journal.types'
 import { ChecklistField } from '../components/ChecklistField'
 import { AuthContext } from '@/features/auth/context/AuthContext'
+import { globalStyles } from '@/shared/theme/globalStyles'
 
 type Props = {
     route: {
@@ -65,9 +66,9 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
             return
         }
 
-        const missingRequired = template.items.filter(
+        const missingRequired = template.items?.filter(
             (item) => item.isRequired && answers[item.id] == null
-        )
+        ) || []
 
         if (missingRequired.length > 0) {
             Alert.alert('Errore', 'Completa tutti i campi obbligatori')
@@ -84,7 +85,7 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
                     {
                         templateId: template.id,
                         status: 'COMPLETED',
-                        items: template.items.map((item) => {
+                        items: (template.items || []).map((item) => {
                             const value = answers[item.id]
 
                             return {
@@ -134,10 +135,17 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
 
     return (
         <ScrollView style={styles.container}>
-            <Text style={styles.title}>{template.name}</Text>
+            <View style={styles.header}>
+                <TouchableOpacity 
+                    style={styles.backButton} 
+                    onPress={() => navigation.goBack()}
+                >
+                    <Text style={styles.backButtonText}>← Indietro</Text>
+                </TouchableOpacity>
+                <Text style={styles.title}>{template.name}</Text>
+            </View>
 
-            {template.items
-                .sort((a, b) => a.sortOrder - b.sortOrder)
+            {template.items?.sort((a, b) => a.sortOrder - b.sortOrder)
                 .map((item) => (
                     <ChecklistField
                         key={item.id}
@@ -148,7 +156,9 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
                 ))}
 
             <View style={{ marginTop: 20 }}>
-                <Button title="Salva Journal" onPress={handleSubmit} />
+                <TouchableOpacity style={globalStyles.button} onPress={handleSubmit}>
+                    <Text style={globalStyles.buttonText}>Salva Journal</Text>
+                </TouchableOpacity>
             </View>
         </ScrollView>
     )
@@ -160,11 +170,25 @@ const styles = StyleSheet.create({
         backgroundColor: '#0b0f1a',
         padding: 20,
     },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    backButton: {
+        marginRight: 15,
+        padding: 8,
+    },
+    backButtonText: {
+        color: '#F97316',
+        fontSize: 16,
+        fontWeight: '600',
+    },
     title: {
         fontSize: 20,
         fontWeight: 'bold',
         color: 'white',
-        marginBottom: 20,
+        flex: 1,
     },
     center: {
         flex: 1,

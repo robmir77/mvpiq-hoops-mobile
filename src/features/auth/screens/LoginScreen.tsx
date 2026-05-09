@@ -18,6 +18,7 @@ import { saveAuth } from '@/shared/storage/authStorage';
 import { AuthContext } from '@/features/auth/context/AuthContext';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '@/app/navigation/types';
+import { globalStyles } from '@/shared/theme/globalStyles';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
@@ -113,14 +114,14 @@ const LoginScreen = ({ navigation }: Props) => {
                     </View>
 
                     <TouchableOpacity
-                        style={styles.button}
+                        style={globalStyles.button}
                         onPress={handleLogin}
                         disabled={loading}
                     >
                         {loading ? (
                             <ActivityIndicator color="#fff" />
                         ) : (
-                            <Text style={styles.buttonText}>Accedi</Text>
+                            <Text style={globalStyles.buttonText}>Accedi</Text>
                         )}
                     </TouchableOpacity>
 
@@ -195,19 +196,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#94A3B8',
     },
-    button: {
-        backgroundColor: '#F97316',
-        padding: 16,
-        borderRadius: 14,
-        alignItems: 'center',
-        marginTop: 10,
-    },
-    buttonText: {
-        color: '#FFFFFF',
-        fontWeight: '600',
-        fontSize: 16,
-    },
-    linkButton: {
+        linkButton: {
         marginTop: 20,
         alignItems: 'center',
     },

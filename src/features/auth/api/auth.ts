@@ -26,11 +26,11 @@ export const login = async (
         const data = response.data
 
         // 🔥 SALVATAGGIO TOKEN
-        await AsyncStorage.setItem('token', data.token)
+        await AsyncStorage.setItem('token', data.data?.token)
 
         console.log('💾 TOKEN SALVATO')
 
-        return data
+        return data.data
     } catch (error: any) {
         console.error(
             'Errore login:',
@@ -60,18 +60,18 @@ export const register = async (
         const data = response.data
 
         // 🔥 VERIFICA PRESENZA TOKEN
-        if (!data.token) {
+        if (!data.data?.token) {
             console.log('⚠️ Token non presente nella risposta di registrazione')
             // Rimuove il salvataggio automatico del token e restituisce i dati
-            return data
+            return data.data
         }
 
         // 🔥 SALVATAGGIO TOKEN
-        await AsyncStorage.setItem('token', data.token)
+        await AsyncStorage.setItem('token', data.data.token)
 
         console.log('💾 TOKEN SALVATO DOPO REGISTRAZIONE')
 
-        return data
+        return data.data
     } catch (error: any) {
         console.error(
             'Errore registrazione:',

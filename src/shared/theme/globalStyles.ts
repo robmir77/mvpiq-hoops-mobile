@@ -28,4 +28,18 @@ export const globalStyles = StyleSheet.create({
         padding: 12,
         borderRadius: 8,
     },
+
+    button: {
+        backgroundColor: '#F97316',
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+
+    buttonText: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+        fontSize: 16,
+    },
 })
