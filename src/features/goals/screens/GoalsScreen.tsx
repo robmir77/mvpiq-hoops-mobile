@@ -21,48 +21,26 @@ import { Goal } from '../types/goals.types'
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>
 
 const GoalCard = ({ goal, onPress }: { goal: Goal; onPress: () => void }) => {
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'ACTIVE': return '#ff8c00'
-            case 'COMPLETED': return '#4CAF50'
-            case 'PAUSED': return '#9E9E9E'
-            default: return '#757575'
-        }
+    const getStatusColor = (completed: boolean) => {
+        return completed ? '#4CAF50' : '#ff8c00'
     }
 
-    const getStatusText = (status: string) => {
-        switch (status) {
-            case 'ACTIVE': return 'Attivo'
-            case 'COMPLETED': return 'Completato'
-            case 'PAUSED': return 'In Pausa'
-            default: return status
-        }
+    const getStatusText = (completed: boolean) => {
+        return completed ? 'Completato' : 'Attivo'
     }
 
     return (
         <TouchableOpacity style={styles.goalCard} onPress={onPress}>
             <View style={styles.goalHeader}>
                 <Text style={styles.goalTitle}>{goal.title}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(goal.status) }]}>
-                    <Text style={styles.statusText}>{getStatusText(goal.status)}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(goal.completed) }]}>
+                    <Text style={styles.statusText}>{getStatusText(goal.completed)}</Text>
                 </View>
             </View>
             {goal.description && (
                 <Text style={styles.goalDescription}>{goal.description}</Text>
             )}
-            {goal.targetValue && (
-                <View style={styles.progressContainer}>
-                    <Text style={styles.progressText}>
-                        Target: {goal.targetValue} {goal.unit || ''}
-                    </Text>
-                    {goal.currentValue && (
-                        <Text style={styles.currentValue}>
-                            Attuale: {goal.currentValue}
-                        </Text>
-                    )}
-                </View>
-            )}
-        </TouchableOpacity>
+                    </TouchableOpacity>
     )
 }
 

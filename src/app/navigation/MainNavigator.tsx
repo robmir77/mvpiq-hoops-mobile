@@ -7,7 +7,7 @@ import GoalsScreen from '../../features/goals/screens/GoalsScreen';
 import CvScreen from '../../features/cv/screens/CvScreen';
 import PositionsScreen from '../../features/positions/screens/PositionsScreen';
 import ProfileNavigator from '../../features/profile/navigation/ProfileNavigator';
-import TrainingScreen from '../../features/training/screens/TrainingScreen';
+import AiTrainingNavigator from '../../features/ai-training/navigation/AiTrainingNavigator';
 import RankingScreen from '../../features/ranking/screens/RankingScreen';
 
 const Tab = createBottomTabNavigator();
@@ -41,7 +41,7 @@ export default function MainNavigator() {
                     if (route.name === 'Training') {
                         return (
                             <MaterialCommunityIcons
-                                name="dumbbell"
+                                name="robot"
                                 size={size}
                                 color={color}
                             />
@@ -82,7 +82,7 @@ export default function MainNavigator() {
         >
             <Tab.Screen name="Home" component={HomeScreen} />
             <Tab.Screen name="Goals" component={GoalsScreen} />
-            <Tab.Screen name="Training" component={TrainingScreen} />
+            <Tab.Screen name="Training" component={AiTrainingNavigator} />
             <Tab.Screen name="Ranking" component={RankingScreen} />
             <Tab.Screen name="CV" component={CvScreen} />
             <Tab.Screen name="Positions" component={PositionsScreen} />
