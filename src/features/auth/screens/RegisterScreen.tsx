@@ -5,7 +5,6 @@ import {
     Text,
     TextInput,
     StyleSheet,
-    Alert,
     Image,
     KeyboardAvoidingView,
     Platform,
@@ -16,6 +15,7 @@ import {
 import { register } from '../api/auth';
 import { saveAuth } from '@/shared/storage/authStorage';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { useGlobalAlert } from '@/shared/context/AlertContext';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '@/app/navigation/types';
 import { globalStyles } from '@/shared/theme/globalStyles';
@@ -27,6 +27,7 @@ const RegisterScreen = ({ navigation }: Props) => {
     if (!auth) return null;
 
     const { setUser } = auth;
+    const { showError, showSuccess, showWarning } = useGlobalAlert();
 
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
@@ -39,17 +40,17 @@ const RegisterScreen = ({ navigation }: Props) => {
 
     const handleRegister = async () => {
         if (!username || !email || !password || !confirmPassword) {
-            Alert.alert('Errore', 'Compila tutti i campi');
+            showError('Errore', 'Compila tutti i campi');
             return;
         }
 
         if (password !== confirmPassword) {
-            Alert.alert('Errore', 'Le password non coincidono');
+            showError('Errore', 'Le password non coincidono');
             return;
         }
 
         if (password.length < 6) {
-            Alert.alert('Errore', 'La password deve avere almeno 6 caratteri');
+            showError('Errore', 'La password deve avere almeno 6 caratteri');
             return;
         }
 
@@ -61,15 +62,10 @@ const RegisterScreen = ({ navigation }: Props) => {
 
             if (!token) {
                 // Registrazione riuscita ma senza token - reindirizza al login
-                Alert.alert(
+                showSuccess(
                     'Registrazione completata!',
                     'Account creato con successo. Ora puoi accedere con le tue credenziali.',
-                    [
-                        {
-                            text: 'OK',
-                            onPress: () => navigation.navigate('Login')
-                        }
-                    ]
+                    () => navigation.navigate('Login')
                 );
                 return;
             }
@@ -93,7 +89,7 @@ const RegisterScreen = ({ navigation }: Props) => {
                 errorMessage = error.message;
             }
             
-            Alert.alert(
+            showError(
                 'Errore di registrazione',
                 errorMessage
             );

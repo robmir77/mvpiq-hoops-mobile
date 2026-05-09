@@ -7,7 +7,8 @@ export const useUpdateProfile = () => {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: updateAthleteProfile,
+        mutationFn: ({ profileId, data }: { profileId: string; data: any }) => 
+            updateAthleteProfile(profileId, data),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({
                 queryKey: ['profile', variables.profileId],

@@ -48,13 +48,13 @@ export default function PositionsScreen() {
 
     const categorizePositions = (positions: PositionMetadata[]) => {
         const guards = positions.filter(p => 
-            p.code.includes('G') || p.name.toLowerCase().includes('guard')
+            p.code.includes('G') || (p.name && p.name.toLowerCase().includes('guard'))
         )
         const forwards = positions.filter(p => 
-            p.code.includes('F') || p.name.toLowerCase().includes('forward')
+            p.code.includes('F') || (p.name && p.name.toLowerCase().includes('forward'))
         )
         const centers = positions.filter(p => 
-            p.code === 'C' || p.name.toLowerCase().includes('center')
+            p.code === 'C' || (p.name && p.name.toLowerCase().includes('center'))
         )
         const others = positions.filter(p => 
             !guards.includes(p) && !forwards.includes(p) && !centers.includes(p)

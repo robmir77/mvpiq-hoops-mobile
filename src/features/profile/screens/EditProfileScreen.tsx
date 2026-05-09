@@ -5,25 +5,26 @@ import {
     TextInput,
     StyleSheet,
     Button,
-    Alert,
     ScrollView,
     TouchableOpacity, Modal,
 } from 'react-native'
 import { useNavigation, useRoute } from '@react-navigation/native'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { updateAthleteProfile } from '../api/profile.api'
 import { useProfile } from '../hooks/useProfile'
+import { useUpdateProfile } from '../hooks/useUpdateProfile'
 import { getPositions, PositionMetadata } from '../api/position.api'
 import { PlayerProfile } from '../types/profile.types'
 
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { PositionCard } from '@/shared/components/PositionCard'
+import { useGlobalAlert } from '@/shared/context/AlertContext'
 
 export default function EditProfileScreen() {
     const navigation = useNavigation<any>()
     const route = useRoute<any>()
-    const queryClient = useQueryClient()
+    const updateProfileMutation = useUpdateProfile()
+    const { showSuccess, showError, showWarning } = useGlobalAlert()
 
     console.log('EditProfileScreen - route.params:', route.params)
     const playerId = route.params.playerId
@@ -77,7 +78,7 @@ export default function EditProfileScreen() {
                 const data = await getPositions()
                 setPositions(data)
             } catch {
-                Alert.alert('Errore', 'Impossibile caricare posizioni')
+                showError('Errore', 'Impossibile caricare posizioni')
             } finally {
                 setLoadingPositions(false)
             }
@@ -88,7 +89,7 @@ export default function EditProfileScreen() {
 
     const toggleSecondary = (positionId: string) => {
         if (positionId === mainPositionId) {
-            Alert.alert(
+            showWarning(
                 'Attenzione',
                 'Una posizione primaria non può essere anche secondaria'
             )
@@ -109,7 +110,7 @@ export default function EditProfileScreen() {
         console.log('handleSave - profile.id:', profile?.id)
         
         if (!profile?.id) {
-            Alert.alert('Errore', 'ID profilo non valido')
+            showError('Errore', 'ID profilo non valido')
             return
         }
 
@@ -128,7 +129,7 @@ export default function EditProfileScreen() {
                 }
             })
 
-            await updateAthleteProfile({
+            await updateProfileMutation.mutateAsync({
                 profileId: profile.id,
                 data: {
                     displayName: displayName || undefined,
@@ -137,21 +138,16 @@ export default function EditProfileScreen() {
                     country: country || undefined,
                     heightCm: heightCm ? Number(heightCm) : undefined,
                     weightKg: weightKg ? Number(weightKg) : undefined,
-                    mainPositionId,
-                    secondaryPositionIds,
                 },
             })
 
-            await queryClient.invalidateQueries({
-                queryKey: ['profile', profile.id],
+            showSuccess('Successo', 'Profilo aggiornato', () => {
+                navigation.navigate('UserProfile')
             })
-
-            Alert.alert('Successo', 'Profilo aggiornato')
-            navigation.goBack()
         } catch (error: any) {
             console.error('Error updating profile:', error)
             const errorMessage = error?.response?.data?.message || error?.message || 'Impossibile aggiornare il profilo'
-            Alert.alert('Errore', errorMessage)
+            showError('Errore', errorMessage)
         }
     }
 

@@ -5,7 +5,6 @@ import {
     Text,
     TextInput,
     StyleSheet,
-    Alert,
     Image,
     KeyboardAvoidingView,
     Platform,
@@ -16,6 +15,7 @@ import {
 import { login } from '../api/auth';
 import { saveAuth } from '@/shared/storage/authStorage';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { useGlobalAlert } from '@/shared/context/AlertContext';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '@/app/navigation/types';
 import { globalStyles } from '@/shared/theme/globalStyles';
@@ -27,6 +27,7 @@ const LoginScreen = ({ navigation }: Props) => {
     if (!auth) return null;
 
     const { setUser } = auth;
+    const { showError } = useGlobalAlert();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -35,7 +36,7 @@ const LoginScreen = ({ navigation }: Props) => {
 
     const handleLogin = async () => {
         if (!email || !password) {
-            Alert.alert('Errore', 'Compila tutti i campi');
+            showError('Errore', 'Compila tutti i campi');
             return;
         }
 
@@ -52,7 +53,7 @@ const LoginScreen = ({ navigation }: Props) => {
             await saveAuth(token, userData);
             setUser(userData);
         } catch (error: any) {
-            Alert.alert(
+            showError(
                 'Errore',
                 error?.message || 'Email o password non corretti'
             );

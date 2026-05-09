@@ -51,8 +51,8 @@ export const getPositionsByCategory = async (
         
         // Filtra per categoria se necessario (es. "guard", "forward", "center")
         return positions.filter(pos => 
-            pos.name.toLowerCase().includes(category.toLowerCase()) ||
-            pos.code.toLowerCase().includes(category.toLowerCase())
+            (pos.name && pos.name.toLowerCase().includes(category.toLowerCase())) ||
+            (pos.code && pos.code.toLowerCase().includes(category.toLowerCase()))
         )
     } catch (error) {
         console.error('Errore filtro posizioni per categoria:', error)
