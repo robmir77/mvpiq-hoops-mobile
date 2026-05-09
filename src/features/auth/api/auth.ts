@@ -10,6 +10,7 @@ export interface LoginResponse {
     displayName?: string
     email?: string
     role?: string
+    hasGoals?: boolean    // ← flag per indicare se l'utente ha già configurato i goal
 }
 
 export const login = async (

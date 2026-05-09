@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react'
+import React, { useContext, useState, useEffect } from 'react'
 import {
     View,
     Text,
@@ -8,14 +8,21 @@ import {
     ActivityIndicator,
     Modal,
     TextInput,
+    Alert,
 } from 'react-native'
+import { useNavigation } from '@react-navigation/native'
+import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useProfile } from '@/features/profile/hooks/useProfile'
 import { useGoals } from '@/features/goals/hooks/useGoals'
 import { useCreateGoal } from '@/features/goals/hooks/useCreateGoal'
+import { MainStackParamList } from '@/app/navigation/types'
+
+type NavigationProp = NativeStackNavigationProp<MainStackParamList>
 
 export default function HomeScreen() {
     const auth = useContext(AuthContext)
+    const navigation = useNavigation<NavigationProp>()
     if (!auth) return null
 
     const { user } = auth
@@ -46,6 +53,27 @@ export default function HomeScreen() {
         goals.filter((g) => g.completed).length
 
     const isLoading = profileLoading || goalsLoading
+
+    // Check if user has no goals and show wizard
+    useEffect(() => {
+        if (!isLoading && user && user.hasGoals === false) {
+            // Show alert to offer wizard setup
+            Alert.alert(
+                'Benvenuto! 🏀',
+                'Non hai ancora impostato nessun obiettivo. Vuoi creare i tuoi primi goal ora?',
+                [
+                    {
+                        text: 'Più tardi',
+                        style: 'cancel',
+                    },
+                    {
+                        text: 'Inizia ora',
+                        onPress: () => navigation.navigate('GoalWizard'),
+                    },
+                ]
+            )
+        }
+    }, [isLoading, user, navigation])
 
     if (isLoading) {
         return (

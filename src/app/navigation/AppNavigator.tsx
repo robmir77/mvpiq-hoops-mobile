@@ -8,6 +8,7 @@ import MainNavigator from './MainNavigator'
 import AuthNavigator from './AuthNavigator'
 import EditProfileScreen from '@/features/profile/screens/EditProfileScreen'
 import EditCvScreen from '@/features/cv/screens/EditCvScreen'
+import GoalWizardScreen from '@/features/goals/screens/GoalWizardScreen'
 
 const Stack = createNativeStackNavigator()
 
@@ -44,6 +45,17 @@ export default function AppNavigator() {
                         name="EditCv"
                         component={EditCvScreen}
                         options={{ title: 'Curriculum Sportivo' }}
+                    />
+
+                    <Stack.Screen
+                        name="GoalWizard"
+                        component={GoalWizardScreen}
+                        options={{ 
+                            title: 'Imposta i tuoi obiettivi',
+                            headerStyle: { backgroundColor: '#0b0f1a' },
+                            headerTintColor: '#fff',
+                            headerShown: true
+                        }}
                     />
                 </>
             ) : (
