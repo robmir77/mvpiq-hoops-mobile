@@ -92,11 +92,6 @@ export default function ProfileScreen() {
                     <Text style={styles.statValue}>{data.weightKg || '-'} kg</Text>
                     <Text style={styles.statLabel}>Weight</Text>
                 </View>
-
-                <View style={styles.statItem}>
-                    <Text style={styles.statValue}>{data.dominantHand || '-'}</Text>
-                    <Text style={styles.statLabel}>Hand</Text>
-                </View>
             </View>
 
             {/* Info Section */}
