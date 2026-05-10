@@ -1,9 +1,10 @@
 import React, { useState, useContext } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, RefreshControl } from 'react-native'
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useJournalEntries } from '../hooks/useJournalEntries'
 import { EntryType } from '../types/journal.types'
+import { useQueryClient } from '@tanstack/react-query'
 
 type FilterType = 'ALL' | 'MATCH' | 'TRAINING'
 
@@ -13,8 +14,17 @@ export default function JournalHomeScreen({ navigation }: any) {
     const { user } = auth || {}
 
     const entryTypeFilter = filter === 'ALL' ? undefined : filter
+    const queryClient = useQueryClient()
 
     const { data: entries, isLoading, error } = useJournalEntries(user?.id || '', entryTypeFilter)
+
+    const [refreshing, setRefreshing] = useState(false)
+
+    const onRefresh = async () => {
+        setRefreshing(true)
+        await queryClient.invalidateQueries({ queryKey: ['journalEntries'] })
+        setRefreshing(false)
+    }
 
     const renderFilterButton = (type: FilterType, label: string) => (
         <TouchableOpacity
@@ -121,6 +131,9 @@ export default function JournalHomeScreen({ navigation }: any) {
                     contentContainerStyle={entries?.length === 0 ? styles.emptyList : undefined}
                     ListEmptyComponent={renderEmptyState}
                     showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                    }
                 />
             )}
         </View>

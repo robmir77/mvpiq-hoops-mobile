@@ -6,6 +6,7 @@ import {
     ScrollView,
     StyleSheet,
     TouchableOpacity,
+    RefreshControl,
 } from 'react-native'
 import {
     fetchChecklistTemplate,
@@ -37,6 +38,7 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
 
     const [template, setTemplate] = useState<ChecklistTemplate | null>(null)
     const [loading, setLoading] = useState(true)
+    const [refreshing, setRefreshing] = useState(false)
     const [answers, setAnswers] = useState<Record<string, any>>({})
     const [sqlOptionsMap, setSqlOptionsMap] = useState<Record<string, any[]>>({})
 
@@ -116,7 +118,13 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
             showError('Errore', 'Impossibile caricare il template')
         } finally {
             setLoading(false)
+            setRefreshing(false)
         }
+    }
+
+    const onRefresh = async () => {
+        setRefreshing(true)
+        await loadTemplate()
     }
 
     const handleChange = (itemId: string, value: any) => {
@@ -202,7 +210,12 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
     }
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+        >
             <View style={styles.header}>
                 <TouchableOpacity 
                     style={styles.backButton} 

@@ -9,6 +9,7 @@ import {
     Image,
     ScrollView,
     TouchableOpacity,
+    RefreshControl,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
@@ -24,10 +25,17 @@ export default function ProfileScreen() {
     if (!auth) return null
 
     const { user } = auth
-    const { data, isLoading, isError } = useProfile(user?.id)
+    const { data, isLoading, isError, refetch } = useProfile(user?.id)
 
     const [positions, setPositions] = useState<PositionMetadata[]>([])
     const [loadingPositions, setLoadingPositions] = useState(true)
+    const [refreshing, setRefreshing] = useState(false)
+
+    const onRefresh = async () => {
+        setRefreshing(true)
+        await refetch()
+        setRefreshing(false)
+    }
 
     useEffect(() => {
         const loadPositions = async () => {
@@ -61,7 +69,12 @@ export default function ProfileScreen() {
     }
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+        >
             {/* Header */}
             <View style={styles.header}>
                 <Image

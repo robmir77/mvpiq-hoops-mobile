@@ -9,6 +9,7 @@ import {
     Modal,
     TextInput,
     Alert,
+    RefreshControl,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -21,6 +22,7 @@ import { useOnlineUsers } from '@/features/users/hooks/useOnlineUsers'
 import { NavigationMenu } from '@/features/navigation/components/NavigationMenu'
 import { MainStackParamList } from '@/app/navigation/types'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { useQueryClient } from '@tanstack/react-query'
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>
 
@@ -60,11 +62,21 @@ export default function HomeScreen() {
     } = useOnlineUsers(isAdmin ? 15 : undefined)
 
     const createGoalMutation = useCreateGoal()
+    const queryClient = useQueryClient()
 
     const [modalVisible, setModalVisible] = useState(false)
     const [title, setTitle] = useState('')
     const [description, setDescription] = useState('')
     const [showNavigationMenu, setShowNavigationMenu] = useState(false)
+    const [refreshing, setRefreshing] = useState(false)
+
+    const onRefresh = async () => {
+        setRefreshing(true)
+        await queryClient.invalidateQueries({ queryKey: ['profile'] })
+        await queryClient.invalidateQueries({ queryKey: ['goals'] })
+        await queryClient.invalidateQueries({ queryKey: ['onlineUsers'] })
+        setRefreshing(false)
+    }
 
     const completedGoals =
         goals.filter((g) => g.completed).length
@@ -132,7 +144,12 @@ export default function HomeScreen() {
                 </Modal>
             )}
 
-            <ScrollView style={styles.container}>
+            <ScrollView
+                style={styles.container}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                }
+            >
                 <View style={styles.header}>
                 <View>
                     <Text style={styles.greeting}>Bentornato 👋</Text>

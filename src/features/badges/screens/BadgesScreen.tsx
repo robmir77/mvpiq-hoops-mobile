@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -6,16 +6,24 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native'
 import { useBadges } from '../hooks/useBadges'
 import { BadgeCard } from '../components/BadgeCard'
 import { UserBadge } from '../types/badges.types'
 
 export default function BadgesScreen() {
-  const { badges, progress, loading, totalPoints, unlockedCount } = useBadges()
+  const { badges, progress, loading, totalPoints, unlockedCount, refetch: loadBadges } = useBadges()
   const [filter, setFilter] = useState<'all' | 'unlocked' | 'locked'>('all')
+  const [refreshing, setRefreshing] = useState(false)
 
-  if (loading) {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    await loadBadges()
+    setRefreshing(false)
+  }, [loadBadges])
+
+  if (loading && !refreshing) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#F97316" />
@@ -30,7 +38,12 @@ export default function BadgesScreen() {
   })
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Le Tue Medaglie</Text>
         <View style={styles.stats}>
