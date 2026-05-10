@@ -13,6 +13,8 @@ import CvScreen from '@/features/cv/screens/CvScreen'
 import NotificationsScreen from '@/features/notifications/screens/NotificationsScreen'
 import GoalsScreen from '@/features/goals/screens/GoalsScreen'
 import AiTrainingNavigator from '@/features/ai-training/navigation/AiTrainingNavigator'
+import JournalHomeScreen from '@/features/journal/screens/JournalHomeScreen'
+import JournalNavigator from '@/features/journal/navigation/JournalNavigator'
 import RankingScreen from '@/features/ranking/screens/RankingScreen'
 
 // Placeholder screens per le varie sezioni
@@ -75,7 +77,7 @@ export const DynamicTabNavigator: React.FC = () => {
             player_profile: ProfileScreen,
             player_stats: StatsScreen,
             player_goals: GoalsScreen,
-            player_journal: () => <PlaceholderScreen title="Diario di Allenamento" />,
+            player_journal: JournalNavigator,
             player_training: AiTrainingNavigator,
             player_media: () => <PlaceholderScreen title="Media" />,
             player_cv: CvScreen,
@@ -177,9 +179,9 @@ export const DynamicTabNavigator: React.FC = () => {
                     backgroundColor: '#0b0f1a',
                     borderTopColor: '#2a2a2a',
                     borderTopWidth: 1,
-                    paddingBottom: Platform.OS === 'android' ? 25 : 5,
+                    paddingBottom: Platform.OS === 'android' ? 35 : 5,
                     paddingTop: 5,
-                    height: Platform.OS === 'android' ? 85 : 65,
+                    height: Platform.OS === 'android' ? 95 : 65,
                 },
                 tabBarLabelStyle: {
                     fontSize: 11,
