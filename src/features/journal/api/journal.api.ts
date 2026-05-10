@@ -100,6 +100,26 @@ export const fetchJournalEntries = async (
 }
 
 /**
+ * Recupera una singola entry diario
+ */
+export const fetchJournalEntry = async (playerId: string, entryId: string) => {
+    try {
+        const response = await apiClient.get(`/players/${playerId}/journal/${entryId}`)
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento entry diario:',
+            error?.response?.data || error.message
+        )
+
+        throw new Error(
+            error?.response?.data?.message ||
+            'Errore caricamento entry diario'
+        )
+    }
+}
+
+/**
  * Recupera opzioni dinamiche per checklist items
  */
 export const fetchDynamicChecklistOptions = async (

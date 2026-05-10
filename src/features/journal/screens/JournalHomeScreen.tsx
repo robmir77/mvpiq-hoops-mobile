@@ -89,7 +89,7 @@ export default function JournalHomeScreen({ navigation }: any) {
             {/* Pulsanti Crea */}
             <View style={styles.createButtons}>
                 <TouchableOpacity
-                    style={globalStyles.button}
+                    style={[globalStyles.button, styles.createButton]}
                     onPress={() =>
                         navigation.navigate('JournalCreate', { entryType: 'MATCH' })
                     }
@@ -98,7 +98,7 @@ export default function JournalHomeScreen({ navigation }: any) {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={[globalStyles.button, styles.trainingButton]}
+                    style={[globalStyles.button, styles.createButton, styles.trainingButton]}
                     onPress={() =>
                         navigation.navigate('JournalCreate', { entryType: 'TRAINING' })
                     }
@@ -184,8 +184,11 @@ const styles = StyleSheet.create({
         gap: 10,
         marginBottom: 15,
     },
-    trainingButton: {
+    createButton: {
         flex: 1,
+    },
+    trainingButton: {
+        backgroundColor: '#f97316',
     },
     entryCard: {
         backgroundColor: '#121826',
