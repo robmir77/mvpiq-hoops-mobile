@@ -153,6 +153,13 @@ export const DynamicTabNavigator: React.FC = () => {
         ...accessibleSections.filter(section => section.id !== 'home')
     ]
 
+    // Ordina i tab per sortOrder mantenendo Home sempre prima
+    tabsWithHome.sort((a, b) => {
+        if (a.id === 'home') return -1
+        if (b.id === 'home') return 1
+        return a.sortOrder - b.sortOrder
+    })
+
     return (
         <Tab.Navigator
             initialRouteName="home"
