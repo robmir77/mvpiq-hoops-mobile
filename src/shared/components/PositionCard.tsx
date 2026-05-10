@@ -22,13 +22,14 @@ export const PositionCard = ({
             style={[
                 styles.card,
                 selected && styles.selected,
-                disabled && { opacity: 0.4 },
+                disabled && styles.disabled,
             ]}
         >
             <Text
                 style={[
                     styles.text,
                     selected && styles.selectedText,
+                    disabled && styles.disabledText,
                 ]}
             >
                 {label}
@@ -50,11 +51,20 @@ const styles = StyleSheet.create({
         backgroundColor: colors.primary,
         borderColor: colors.primary,
     },
+    disabled: {
+        backgroundColor: '#2a2a2a',
+        borderColor: '#444',
+        opacity: 1,
+    },
     text: {
         color: colors.textPrimary,
         fontWeight: '600',
     },
     selectedText: {
         color: '#000',
+    },
+    disabledText: {
+        color: '#ffffff',
+        opacity: 0.8,
     },
 })

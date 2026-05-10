@@ -154,17 +154,26 @@ export default function ProfileScreen() {
                     <Text style={styles.loadingText}>Caricamento posizioni...</Text>
                 ) : (
                     <View style={styles.positionsGrid}>
-                        {positions
-                            .filter(pos => data.mainPositionId === pos.id)
-                            .map(pos => (
-                                <PositionCard
-                                    key={pos.id}
-                                    label={`${pos.code} - ${pos.name}`}
-                                    selected={true}
-                                    disabled={true}
-                                    onPress={() => {}}
-                                />
-                            ))}
+                        {(() => {
+                            // Extract main position from backend structure
+                            let mainPositionId = data.mainPositionId;
+                            if (!mainPositionId && data.positions && Array.isArray(data.positions)) {
+                                const mainPos = data.positions.find((p: any) => p.isPrimary === true);
+                                mainPositionId = mainPos?.position?.id;
+                            }
+                            
+                            return positions
+                                .filter(pos => mainPositionId === pos.id)
+                                .map(pos => (
+                                    <PositionCard
+                                        key={pos.id}
+                                        label={`${pos.code} - ${pos.name}`}
+                                        selected={true}
+                                        disabled={true}
+                                        onPress={() => {}}
+                                    />
+                                ));
+                        })()}
                     </View>
                 )}
 
@@ -174,20 +183,28 @@ export default function ProfileScreen() {
                     <Text style={styles.loadingText}>Caricamento posizioni...</Text>
                 ) : (
                     <View style={styles.positionsGrid}>
-                        {positions
-                            .filter(pos => 
-                                data.secondaryPositionIds?.includes(pos.id) && 
-                                data.mainPositionId !== pos.id
-                            )
-                            .map(pos => (
-                                <PositionCard
-                                    key={pos.id}
-                                    label={`${pos.code} - ${pos.name}`}
-                                    selected={true}
-                                    disabled={true}
-                                    onPress={() => {}}
-                                />
-                            ))}
+                        {(() => {
+                            // Extract secondary positions from backend structure
+                            let secondaryPositionIds = data.secondaryPositionIds;
+                            if ((!secondaryPositionIds || secondaryPositionIds.length === 0) && data.positions && Array.isArray(data.positions)) {
+                                secondaryPositionIds = data.positions
+                                    .filter((p: any) => p.isPrimary === false)
+                                    .map((p: any) => p.position?.id)
+                                    .filter(Boolean);
+                            }
+                            
+                            return positions
+                                .filter(pos => secondaryPositionIds?.includes(pos.id))
+                                .map(pos => (
+                                    <PositionCard
+                                        key={pos.id}
+                                        label={`${pos.code} - ${pos.name}`}
+                                        selected={true}
+                                        disabled={true}
+                                        onPress={() => {}}
+                                    />
+                                ));
+                        })()}
                     </View>
                 )}
             </View>
@@ -240,7 +257,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     cvButton: {
-        backgroundColor: '#2a2a2a',
+        backgroundColor: '#ff8c00',
     },
     editButtonText: {
         color: '#0b0f1a',

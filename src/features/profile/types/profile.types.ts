@@ -21,6 +21,24 @@ export interface PlayerProfile {
     verified?: boolean
     approximateAge?: any
     bio?: string
+    // Backend positions structure
+    positions?: PlayerPosition[]
+}
+
+export interface PlayerPosition {
+    id: string
+    isPrimary: boolean
+    position: {
+        id: string
+        code: string
+        label?: string
+        name?: string
+        description?: string
+        category?: string
+        isActive?: boolean
+        sortOrder?: number
+    }
+    createdAt?: string
 }
 
 export interface UpdatePlayerProfile {

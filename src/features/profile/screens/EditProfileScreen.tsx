@@ -67,8 +67,22 @@ export default function EditProfileScreen() {
             
             setHeightCm(profile.heightCm ? String(profile.heightCm) : '')
             setWeightKg(profile.weightKg ? String(profile.weightKg) : '')
-            setMainPositionId(profile.mainPositionId ?? undefined)
-            setSecondaryPositionIds(profile.secondaryPositionIds ?? [])
+            
+            // Extract positions from the backend structure
+            if (profile.positions && Array.isArray(profile.positions)) {
+                const mainPos = profile.positions.find((p: any) => p.isPrimary === true)
+                const secondaryPos = profile.positions
+                    .filter((p: any) => p.isPrimary === false)
+                    .map((p: any) => p.position?.id)
+                    .filter(Boolean)
+                
+                setMainPositionId(mainPos?.position?.id)
+                setSecondaryPositionIds(secondaryPos)
+            } else {
+                // Fallback for direct fields if structure changes
+                setMainPositionId(profile.mainPositionId ?? undefined)
+                setSecondaryPositionIds(profile.secondaryPositionIds ?? [])
+            }
         }
     }, [profile])
 
@@ -138,6 +152,8 @@ export default function EditProfileScreen() {
                     country: country || undefined,
                     heightCm: heightCm ? Number(heightCm) : undefined,
                     weightKg: weightKg ? Number(weightKg) : undefined,
+                    mainPositionId: mainPositionId || undefined,
+                    secondaryPositionIds: secondaryPositionIds.length > 0 ? secondaryPositionIds : undefined,
                 },
             })
 

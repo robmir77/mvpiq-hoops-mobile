@@ -224,7 +224,7 @@ export default function NotificationsScreen() {
                         <Text style={styles.emptySubtext}>Le tue notifiche appariranno qui</Text>
                     </View>
                 ) : (
-                    notifications.map(renderNotification)
+                    Array.isArray(notifications) ? notifications.map(renderNotification) : []
                 )}
             </ScrollView>
         </View>

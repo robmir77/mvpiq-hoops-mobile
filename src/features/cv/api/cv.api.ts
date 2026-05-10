@@ -14,7 +14,7 @@ export const getPlayerCv = async (playerId: string): Promise<PlayerCv> => {
             error?.response?.data || error.message
         )
 
-        // Se il CV non esiste (404), restituiamo un CV vuoto
+        // Se il CV non esiste (404), restituiamo un CV vuoto senza errore
         if (error?.response?.status === 404) {
             console.log('🔄 CV non trovato, creo un CV vuoto')
             return {
@@ -25,6 +25,7 @@ export const getPlayerCv = async (playerId: string): Promise<PlayerCv> => {
             }
         }
 
+        // Per altri errori, lanciamo l'eccezione
         throw new Error(
             error?.response?.data?.message || 'Errore caricamento CV giocatore'
         )
