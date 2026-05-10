@@ -13,7 +13,9 @@ export const generateTrainingProgram = async (
     try {
         const response = await apiClient.post<{ data: TrainingGenerationResponse }>(
             '/ai/training-programs/generate',
-            request
+            request, {
+            timeout: 300000 // 5 minuti
+        }
         )
         return response.data.data
     } catch (error: any) {

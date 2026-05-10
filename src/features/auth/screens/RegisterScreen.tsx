@@ -19,6 +19,7 @@ import { useGlobalAlert } from '@/shared/context/AlertContext';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '@/app/navigation/types';
 import { globalStyles } from '@/shared/theme/globalStyles';
+import { UserRole } from '../types/auth.types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
@@ -34,9 +35,11 @@ const RegisterScreen = ({ navigation }: Props) => {
     const [displayName, setDisplayName] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [selectedRole, setSelectedRole] = useState<UserRole>(UserRole.PLAYER);
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [showRolePicker, setShowRolePicker] = useState(false);
 
     const handleRegister = async () => {
         if (!username || !email || !password || !confirmPassword) {
@@ -57,7 +60,7 @@ const RegisterScreen = ({ navigation }: Props) => {
         setLoading(true);
 
         try {
-            const userData = await register(username, email, password, displayName);
+            const userData = await register(username, email, password, displayName, selectedRole);
             const token = userData?.token;
 
             if (!token) {
@@ -186,6 +189,44 @@ const RegisterScreen = ({ navigation }: Props) => {
                         </TouchableOpacity>
                     </View>
 
+                    <View style={styles.roleContainer}>
+                        <Text style={styles.roleLabel}>Profilo Utente</Text>
+                        <TouchableOpacity
+                            style={styles.roleSelector}
+                            onPress={() => setShowRolePicker(!showRolePicker)}
+                        >
+                            <Text style={styles.roleText}>
+                                {getRoleLabel(selectedRole)}
+                            </Text>
+                            <Text style={styles.dropdownIcon}>▼</Text>
+                        </TouchableOpacity>
+                        
+                        {showRolePicker && (
+                            <View style={styles.roleDropdown}>
+                                {Object.values(UserRole).map((role) => (
+                                    <TouchableOpacity
+                                        key={role}
+                                        style={[
+                                            styles.roleOption,
+                                            selectedRole === role && styles.roleOptionSelected
+                                        ]}
+                                        onPress={() => {
+                                            setSelectedRole(role);
+                                            setShowRolePicker(false);
+                                        }}
+                                    >
+                                        <Text style={[
+                                            styles.roleOptionText,
+                                            selectedRole === role && styles.roleOptionTextSelected
+                                        ]}>
+                                            {getRoleLabel(role)}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        )}
+                    </View>
+
                     <TouchableOpacity
                         style={globalStyles.button}
                         onPress={handleRegister}
@@ -269,6 +310,54 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#94A3B8',
     },
+    roleContainer: {
+        marginBottom: 16,
+    },
+    roleLabel: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600',
+        marginBottom: 8,
+    },
+    roleSelector: {
+        backgroundColor: '#334155',
+        borderRadius: 12,
+        padding: 14,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    roleText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+    },
+    dropdownIcon: {
+        color: '#94A3B8',
+        fontSize: 12,
+    },
+    roleDropdown: {
+        backgroundColor: '#334155',
+        borderRadius: 12,
+        marginTop: 8,
+        borderWidth: 1,
+        borderColor: '#475569',
+    },
+    roleOption: {
+        padding: 14,
+        borderBottomWidth: 1,
+        borderBottomColor: '#475569',
+    },
+    roleOptionSelected: {
+        backgroundColor: '#F97316',
+    },
+    roleOptionText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+    },
+    roleOptionTextSelected: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+    },
         linkButton: {
         marginTop: 20,
         alignItems: 'center',
@@ -279,5 +368,17 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
 });
+
+const getRoleLabel = (role: UserRole): string => {
+    const roleLabels = {
+        [UserRole.ADMIN]: 'Amministratore',
+        [UserRole.CREATOR]: 'Creator',
+        [UserRole.GUEST]: 'Ospite',
+        [UserRole.PLAYER]: 'Giocatore',
+        [UserRole.SCOUT]: 'Scout',
+        [UserRole.TRAINER]: 'Allenatore',
+    };
+    return roleLabels[role] || role;
+};
 
 export default RegisterScreen;

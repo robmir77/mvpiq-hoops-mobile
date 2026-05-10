@@ -2,16 +2,7 @@
 
 import apiClient from '@/shared/api/apiClient'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-
-export interface LoginResponse {
-    token: string
-    id: string            // ← attenzione: il backend restituisce "id", non "userId"
-    username: string
-    displayName?: string
-    email?: string
-    role?: string
-    hasGoals?: boolean    // ← flag per indicare se l'utente ha già configurato i goal
-}
+import { LoginResponse, RegisterRequest, UserRole } from '../types/auth.types'
 
 export const login = async (
     email: string,
@@ -47,7 +38,8 @@ export const register = async (
     username: string,
     email: string,
     password: string,
-    displayName?: string
+    displayName?: string,
+    role?: UserRole
 ): Promise<LoginResponse> => {
     try {
         const response = await apiClient.post('/auth/register', {
@@ -55,6 +47,7 @@ export const register = async (
             email,
             password,
             displayName,
+            role,
         })
 
         const data = response.data

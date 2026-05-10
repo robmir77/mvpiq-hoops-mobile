@@ -1,18 +1,12 @@
 import React, { createContext, useState, useEffect } from 'react'
 import { logout } from '../api/auth'
 import { loadAuth } from '@/shared/storage/authStorage'
-
-interface AuthContextType {
-    user: any
-    setUser: (user: any) => void
-    logout: () => Promise<void>
-    isLoading: boolean
-}
+import { AuthContextType, User } from '../types/auth.types'
 
 export const AuthContext = createContext<AuthContextType | null>(null)
 
 export const AuthProvider = ({ children }: any) => {
-    const [user, setUser] = useState<any>(null)
+    const [user, setUser] = useState<User | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
     // Carica l'utente salvato all'avvio

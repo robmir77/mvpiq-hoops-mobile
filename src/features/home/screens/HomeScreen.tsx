@@ -13,16 +13,22 @@ import {
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { AuthContext } from '@/features/auth/context/AuthContext'
+import { useRolePermissions } from '@/features/auth/hooks/useRolePermissions'
 import { useProfile } from '@/features/profile/hooks/useProfile'
 import { useGoals } from '@/features/goals/hooks/useGoals'
 import { useCreateGoal } from '@/features/goals/hooks/useCreateGoal'
+import { NavigationMenu } from '@/features/navigation/components/NavigationMenu'
 import { MainStackParamList } from '@/app/navigation/types'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>
 
 export default function HomeScreen() {
     const auth = useContext(AuthContext)
     const navigation = useNavigation<NavigationProp>()
+    const { getRoleLabel, getRoleColor } = useRolePermissions()
+    const { alert, showWarning } = useCustomAlert()
+    
     if (!auth) return null
 
     const { user, isLoading } = auth
@@ -48,6 +54,7 @@ export default function HomeScreen() {
     const [modalVisible, setModalVisible] = useState(false)
     const [title, setTitle] = useState('')
     const [description, setDescription] = useState('')
+    const [showNavigationMenu, setShowNavigationMenu] = useState(false)
 
     const completedGoals =
         goals.filter((g) => g.completed).length
@@ -85,105 +92,126 @@ export default function HomeScreen() {
 
     return (
         <>
-            <ScrollView style={styles.container}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <View>
-                        <Text style={styles.greeting}>Bentornato 👋</Text>
-                        <Text style={styles.username}>{user?.displayName || user?.username || 'Utente'}</Text>
-                    </View>
-                    <TouchableOpacity
-                        style={styles.logoutButton}
-                        onPress={async () => {
-                            Alert.alert(
-                                'Logout',
-                                'Sei sicuro di voler uscire?',
-                                [
-                                    {
-                                        text: 'Annulla',
-                                        style: 'cancel',
-                                    },
-                                    {
-                                        text: 'Esci',
-                                        style: 'destructive',
-                                        onPress: async () => {
-                                            await auth?.logout()
-                                        },
-                                    },
-                                ]
-                            )
-                        }}
-                    >
-                        <Text style={styles.logoutButtonText}>🚪 Esci</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Stats */}
-                <View style={styles.card}>
-                    <View style={styles.statBox}>
-                        <Text style={styles.statValue}>
-                            {profile?.level || '-'}
-                        </Text>
-                        <Text style={styles.statLabel}>Livello</Text>
-                    </View>
-
-                    <View style={styles.statBox}>
-                        <Text style={styles.statValue}>
-                            {completedGoals}
-                        </Text>
-                        <Text style={styles.statLabel}>Completati</Text>
-                    </View>
-
-                    <View style={styles.statBox}>
-                        <Text style={styles.statValue}>
-                            {goals.length}
-                        </Text>
-                        <Text style={styles.statLabel}>Totali</Text>
-                    </View>
-                </View>
-
-                {/* Goals Section */}
-                <Text style={styles.sectionTitle}>I tuoi Goals</Text>
-
-                <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => setModalVisible(true)}
+            {/* Navigation Menu Modal */}
+            {showNavigationMenu && (
+                <Modal
+                    visible={showNavigationMenu}
+                    animationType="slide"
+                    transparent
+                    onRequestClose={() => setShowNavigationMenu(false)}
                 >
-                    <Text style={styles.addButtonText}>
-                        ➕ Nuovo Goal
-                    </Text>
-                </TouchableOpacity>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Menu Navigazione</Text>
+                                <TouchableOpacity
+                                    style={styles.closeButton}
+                                    onPress={() => setShowNavigationMenu(false)}
+                                >
+                                    <Text style={styles.closeButtonText}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <NavigationMenu
+                                onSectionPress={(section) => {
+                                    setShowNavigationMenu(false)
+                                    // La navigazione viene gestita internamente dal componente
+                                }}
+                            />
+                        </View>
+                    </View>
+                </Modal>
+            )}
 
-                {goals.length === 0 && (
-                    <Text style={{ color: '#aaa', marginBottom: 20 }}>
-                        Nessun goal ancora. Creane uno 🚀
-                    </Text>
-                )}
-
-                {goals.map((goal) => (
-                    <View key={goal.id} style={styles.goalCard}>
-                        <Text style={styles.goalTitle}>
-                            {goal.title}
-                        </Text>
-                        <Text
-                            style={[
-                                styles.goalStatus,
-                                {
-                                    color: goal.completed
-                                        ? '#00ff99'
-                                        : '#ff8c00',
-                                },
-                            ]}
-                        >
-                            {goal.completed
-                                ? 'Completato'
-                                : 'In corso'}
+            <ScrollView style={styles.container}>
+                <View style={styles.header}>
+                <View>
+                    <Text style={styles.greeting}>Bentornato 👋</Text>
+                    <Text style={styles.username}>{user?.displayName || user?.username || 'Utente'}</Text>
+                    <View style={styles.roleContainer}>
+                        <Text style={[styles.roleText, { color: getRoleColor() }]}>
+                            {getRoleLabel()}
                         </Text>
                     </View>
-                ))}
+                </View>
+                <TouchableOpacity
+                    style={styles.logoutButton}
+                    onPress={async () => {
+                        showWarning(
+                            'Logout',
+                            'Sei sicuro di voler uscire?',
+                            async () => {
+                                await auth?.logout()
+                            }
+                        )
+                    }}
+                >
+                    <Text style={styles.logoutButtonText}>🚪 Esci</Text>
+                </TouchableOpacity>
+            </View>
+
+            <View style={styles.card}>
+                <View style={styles.statBox}>
+                    <Text style={styles.statValue}>
+                        {profile?.level || '-'}
+                    </Text>
+                    <Text style={styles.statLabel}>Livello</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                    <Text style={styles.statValue}>
+                        {completedGoals}
+                    </Text>
+                    <Text style={styles.statLabel}>Completati</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                    <Text style={styles.statValue}>
+                        {goals.length}
+                    </Text>
+                    <Text style={styles.statLabel}>Totali</Text>
+                </View>
+            </View>
+
+            <Text style={styles.sectionTitle}>I tuoi Goals</Text>
+
+            <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => setModalVisible(true)}
+            >
+                <Text style={styles.addButtonText}>
+                    ➕ Nuovo Goal
+                </Text>
+            </TouchableOpacity>
+
+            {goals.length === 0 && (
+                <Text style={{ color: '#aaa', marginBottom: 20 }}>
+                    Nessun goal ancora. Creane uno 🚀
+                </Text>
+            )}
+
+            {goals.map((goal) => (
+                <View key={goal.id} style={styles.goalCard}>
+                    <Text style={styles.goalTitle}>
+                        {goal.title}
+                    </Text>
+                    <Text
+                        style={[
+                            styles.goalStatus,
+                            {
+                                color: goal.completed
+                                    ? '#00ff99'
+                                    : '#ff8c00',
+                            },
+                        ]}
+                    >
+                        {goal.completed
+                            ? 'Completato'
+                            : 'In corso'}
+                    </Text>
+                </View>
+            ))}
             </ScrollView>
 
-            {/* MODAL CREAZIONE GOAL */}
             <Modal
                 visible={modalVisible}
                 animationType="slide"
@@ -241,6 +269,18 @@ export default function HomeScreen() {
                     </View>
                 </View>
             </Modal>
+
+            <CustomAlert
+                visible={alert.visible}
+                title={alert.title}
+                message={alert.message}
+                type={alert.type}
+                onConfirm={alert.onConfirm}
+                onCancel={alert.onCancel}
+                confirmText={alert.confirmText}
+                cancelText={alert.cancelText}
+                showCancel={alert.showCancel}
+            />
         </>
     )
 }
@@ -257,6 +297,21 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+    },
+    headerButtons: {
+        flexDirection: 'column',
+        gap: 8,
+    },
+    menuButton: {
+        backgroundColor: '#ff8c00',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 8,
+    },
+    menuButtonText: {
+        color: 'white',
+        fontWeight: '600',
+        fontSize: 14,
     },
     logoutButton: {
         backgroundColor: '#dc2626',
@@ -277,6 +332,13 @@ const styles = StyleSheet.create({
         fontSize: 26,
         fontWeight: 'bold',
         color: 'white',
+    },
+    roleContainer: {
+        marginTop: 4,
+    },
+    roleText: {
+        fontSize: 14,
+        fontWeight: '600',
     },
     card: {
         flexDirection: 'row',
@@ -337,6 +399,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: 'rgba(0,0,0,0.6)',
     },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        justifyContent: 'flex-end',
+    },
     modalContent: {
         width: '85%',
         backgroundColor: '#121826',
@@ -348,6 +415,27 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: 'white',
         marginBottom: 15,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#2a2a2a',
+    },
+    closeButton: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#2a2a2a',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    closeButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
     },
     input: {
         backgroundColor: '#1c2333',
