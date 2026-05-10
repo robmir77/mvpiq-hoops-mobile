@@ -4,6 +4,8 @@ import apiClient from '@/shared/api/apiClient'
 import {
     ChecklistTemplate,
     EntryType,
+    ChecklistTemplateItemOption,
+    SelectSource,
 } from '../types/journal.types'
 
 /**
@@ -93,6 +95,32 @@ export const fetchJournalEntries = async (
         throw new Error(
             error?.response?.data?.message ||
             'Errore caricamento storico diario'
+        )
+    }
+}
+
+/**
+ * Recupera opzioni dinamiche per checklist items
+ */
+export const fetchDynamicChecklistOptions = async (
+    selectSource: SelectSource,
+    selectQuery?: string
+): Promise<ChecklistTemplateItemOption[]> => {
+    try {
+        let url = `/checklist-templates/dynamic-options?selectSource=${selectSource}`
+        if (selectSource === 'SQL' && selectQuery) {
+            url += `&selectQuery=${encodeURIComponent(selectQuery)}`
+        }
+        const response = await apiClient.get<ChecklistTemplateItemOption[]>(url)
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento opzioni dinamiche:',
+            error?.response?.data || error.message
+        )
+        throw new Error(
+            error?.response?.data?.message ||
+            'Errore caricamento opzioni dinamiche'
         )
     }
 }

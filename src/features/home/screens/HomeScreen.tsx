@@ -57,7 +57,7 @@ export default function HomeScreen() {
     const {
         data: onlineUsers = [],
         isLoading: onlineUsersLoading,
-    } = useOnlineUsers(15)
+    } = useOnlineUsers(isAdmin ? 15 : undefined)
 
     const createGoalMutation = useCreateGoal()
 

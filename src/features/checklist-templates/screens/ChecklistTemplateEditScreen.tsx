@@ -138,6 +138,13 @@ export default function ChecklistTemplateEditScreen() {
     }
 
     const handleSave = async () => {
+        console.log('=== SALVA TEMPLATE ===')
+        console.log('Code:', code)
+        console.log('Name:', name)
+        console.log('EntryType:', entryType)
+        console.log('Items:', items)
+        console.log('TemplateId:', templateId)
+
         if (!code || !name) {
             Alert.alert('Errore', 'Compila tutti i campi obbligatori')
             return
@@ -162,17 +169,24 @@ export default function ChecklistTemplateEditScreen() {
                 items,
             }
 
+            console.log('Payload da inviare:', JSON.stringify(payload, null, 2))
+
             if (templateId) {
+                console.log('Aggiornamento template esistente:', templateId)
                 await updateMutation.mutateAsync({ id: templateId, payload })
                 Alert.alert('Successo', 'Template aggiornato con successo')
             } else {
+                console.log('Creazione nuovo template')
                 await createMutation.mutateAsync(payload as any)
                 Alert.alert('Successo', 'Template creato con successo')
             }
 
             navigation.goBack()
         } catch (error: any) {
-            Alert.alert('Errore', error.message || 'Impossibile salvare il template')
+            console.error('Errore salvataggio:', error)
+            console.error('Error response:', error?.response?.data)
+            console.error('Error message:', error?.message)
+            Alert.alert('Errore', error?.response?.data?.message || error.message || 'Impossibile salvare il template')
         }
     }
 

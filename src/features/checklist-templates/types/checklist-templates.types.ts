@@ -1,14 +1,15 @@
 export type EntryType = 'MATCH' | 'TRAINING'
 
-export type DataType = 'BOOLEAN' | 'NUMBER' | 'TEXT' | 'SELECT'
+export type DataType = 'BOOLEAN' | 'NUMBER' | 'TEXT' | 'DATE' | 'SELECT' | 'MULTI_SELECT'
 
-export type SelectSource = 'STATIC' | 'POSITION_METADATA' | 'PLAYER_POSITION' | 'TRAINING_TYPE'
+export type SelectSource = 'STATIC' | 'POSITION_METADATA' | 'PLAYER_POSITION' | 'TRAINING_TYPE' | 'SQL'
 
 export type ChecklistTemplateOption = {
     id: string
     valueCode: string
     valueLabel: string
     sortOrder: number
+    metadata?: string // JSON string with additional information
 }
 
 export type ChecklistTemplateItem = {

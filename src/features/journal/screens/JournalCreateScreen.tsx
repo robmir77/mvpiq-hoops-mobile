@@ -6,16 +6,18 @@ import {
     ScrollView,
     StyleSheet,
     TouchableOpacity,
-    Alert,
 } from 'react-native'
 import {
     fetchChecklistTemplate,
     createJournalEntry,
+    fetchDynamicChecklistOptions,
 } from '../api/journal.api'
-import { ChecklistTemplate } from '../types/journal.types'
+import { ChecklistTemplate, SelectSource } from '../types/journal.types'
 import { ChecklistField } from '../components/ChecklistField'
+import { useDynamicChecklistOptions } from '../hooks/useDynamicChecklistOptions'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { globalStyles } from '@/shared/theme/globalStyles'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type Props = {
     route: {
@@ -31,10 +33,76 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
 
     const auth = useContext(AuthContext)
     const playerId = auth?.user?.id
+    const { alert, showError, showSuccess } = useCustomAlert()
 
     const [template, setTemplate] = useState<ChecklistTemplate | null>(null)
     const [loading, setLoading] = useState(true)
     const [answers, setAnswers] = useState<Record<string, any>>({})
+    const [sqlOptionsMap, setSqlOptionsMap] = useState<Record<string, any[]>>({})
+
+    // Collect all unique selectSources from template items
+    const selectSources = template?.items
+        ?.filter(item => item.selectSource && item.selectSource !== 'STATIC')
+        ?.map(item => item.selectSource)
+        ?.filter((source): source is SelectSource => !!source) || []
+
+    // Fetch dynamic options for POSITION_METADATA
+    const { data: positionMetadataOptions } = useDynamicChecklistOptions(
+        selectSources.includes('POSITION_METADATA') ? 'POSITION_METADATA' : undefined
+    )
+
+    // Fetch dynamic options for PLAYER_POSITION
+    const { data: playerPositionOptions } = useDynamicChecklistOptions(
+        selectSources.includes('PLAYER_POSITION') ? 'PLAYER_POSITION' : undefined
+    )
+
+    // Fetch dynamic options for TRAINING_TYPE
+    const { data: trainingTypeOptions } = useDynamicChecklistOptions(
+        selectSources.includes('TRAINING_TYPE') ? 'TRAINING_TYPE' : undefined
+    )
+
+    // Fetch SQL options for each item with selectSource='SQL'
+    useEffect(() => {
+        if (!template) return
+
+        const fetchSqlOptions = async () => {
+            const sqlItems = template.items.filter(
+                item => item.selectSource === 'SQL' && item.selectQuery
+            )
+
+            const optionsMap: Record<string, any[]> = {}
+
+            for (const item of sqlItems) {
+                try {
+                    const options = await fetchDynamicChecklistOptions('SQL', item.selectQuery)
+                    optionsMap[item.id] = options
+                } catch (error) {
+                    console.error(`Error fetching SQL options for item ${item.id}:`, error)
+                    optionsMap[item.id] = []
+                }
+            }
+
+            setSqlOptionsMap(optionsMap)
+        }
+
+        fetchSqlOptions()
+    }, [template])
+
+    // Map options to selectSources (excluding SQL which is handled per-item)
+    const dynamicOptionsMap: Partial<Record<Exclude<SelectSource, 'SQL'>, any[]>> = {
+        POSITION_METADATA: positionMetadataOptions || [],
+        PLAYER_POSITION: playerPositionOptions || [],
+        TRAINING_TYPE: trainingTypeOptions || [],
+    }
+
+    // Helper to get options for an item
+    const getItemOptions = (item: any) => {
+        if (item.selectSource === 'SQL') {
+            // SQL options are fetched per-item and stored in sqlOptionsMap
+            return sqlOptionsMap[item.id] || []
+        }
+        return item.selectSource ? dynamicOptionsMap[item.selectSource as Exclude<SelectSource, 'SQL'>] : undefined
+    }
 
     useEffect(() => {
         loadTemplate()
@@ -45,7 +113,7 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
             const data = await fetchChecklistTemplate(entryType)
             setTemplate(data)
         } catch (e) {
-            Alert.alert('Errore', 'Impossibile caricare il template')
+            showError('Errore', 'Impossibile caricare il template')
         } finally {
             setLoading(false)
         }
@@ -62,7 +130,7 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
         if (!template) return
 
         if (!playerId) {
-            Alert.alert('Errore', 'Utente non autenticato')
+            showError('Errore', 'Utente non autenticato')
             return
         }
 
@@ -71,7 +139,7 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
         ) || []
 
         if (missingRequired.length > 0) {
-            Alert.alert('Errore', 'Completa tutti i campi obbligatori')
+            showError('Errore', 'Completa tutti i campi obbligatori')
             return
         }
 
@@ -96,8 +164,12 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
                                     item.dataType === 'NUMBER' ? value ?? null : null,
                                 textValue:
                                     item.dataType === 'TEXT' ? value ?? null : null,
+                                dateValue:
+                                    item.dataType === 'DATE' ? value ?? null : null,
                                 selectValue:
                                     item.dataType === 'SELECT' ? value ?? null : null,
+                                multiSelectValue:
+                                    item.dataType === 'MULTI_SELECT' ? (Array.isArray(value) ? value.join(',') : null) : null,
                                 completed: true,
                             }
                         }),
@@ -107,13 +179,9 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
 
             await createJournalEntry(playerId, payload)
 
-            Alert.alert('Successo', 'Journal salvato')
-            navigation.goBack()
+            showSuccess('Successo', 'Journal salvato', () => navigation.goBack())
         } catch (e: any) {
-            Alert.alert(
-                'Errore',
-                e?.message || 'Salvataggio fallito'
-            )
+            showError('Errore', e?.message || 'Salvataggio fallito')
         }
     }
 
@@ -152,6 +220,7 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
                         item={item}
                         value={answers[item.id]}
                         onChange={(val) => handleChange(item.id, val)}
+                        dynamicOptions={getItemOptions(item)}
                     />
                 ))}
 
@@ -160,6 +229,8 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
                     <Text style={globalStyles.buttonText}>Salva Journal</Text>
                 </TouchableOpacity>
             </View>
+
+            <CustomAlert {...alert} />
         </ScrollView>
     )
 }
