@@ -69,3 +69,30 @@ export const createJournalEntry = async (
         )
     }
 }
+
+/**
+ * Recupera lo storico delle entry diario per un giocatore
+ */
+export const fetchJournalEntries = async (
+    playerId: string,
+    entryType?: EntryType
+) => {
+    try {
+        const url = entryType
+            ? `/players/${playerId}/journal?entryType=${encodeURIComponent(entryType)}`
+            : `/players/${playerId}/journal`
+
+        const response = await apiClient.get(url)
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento storico diario:',
+            error?.response?.data || error.message
+        )
+
+        throw new Error(
+            error?.response?.data?.message ||
+            'Errore caricamento storico diario'
+        )
+    }
+}

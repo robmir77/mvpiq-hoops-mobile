@@ -16,6 +16,8 @@ import AiTrainingNavigator from '@/features/ai-training/navigation/AiTrainingNav
 import JournalHomeScreen from '@/features/journal/screens/JournalHomeScreen'
 import JournalNavigator from '@/features/journal/navigation/JournalNavigator'
 import RankingScreen from '@/features/ranking/screens/RankingScreen'
+import ChecklistTemplatesNavigator from '@/features/checklist-templates/navigation/ChecklistTemplatesNavigator'
+import OnlineUsersScreen from '@/features/users/screens/OnlineUsersScreen'
 
 // Placeholder screens per le varie sezioni
 const StatsScreen = () => null
@@ -53,6 +55,7 @@ export const DynamicTabNavigator: React.FC = () => {
             admin_subscriptions: { active: '💳', inactive: '💳' },
             admin_gamification: { active: '🎮', inactive: '🎮' },
             admin_notifications: { active: '🔔', inactive: '🔔' },
+            admin_checklist: { active: '✅', inactive: '✅' },
             messages: { active: '💬', inactive: '💬' },
             notifications: { active: '🔔', inactive: '🔔' },
             settings: { active: '⚙️', inactive: '⚙️' },
@@ -91,10 +94,11 @@ export const DynamicTabNavigator: React.FC = () => {
             creator_content: () => <PlaceholderScreen title="Contenuti Creator" />,
             creator_templates: () => <PlaceholderScreen title="Template Creator" />,
             creator_analytics: () => <PlaceholderScreen title="Analytics Creator" />,
-            admin_users: AdminScreen,
+            admin_users: OnlineUsersScreen,
             admin_subscriptions: () => <PlaceholderScreen title="Abbonamenti Admin" />,
             admin_gamification: () => <PlaceholderScreen title="Gamification Admin" />,
             admin_notifications: NotificationsScreen,
+            admin_checklist: ChecklistTemplatesNavigator,
             messages: () => <PlaceholderScreen title="Messaggi" />,
             notifications: NotificationsScreen,
             settings: () => <PlaceholderScreen title="Impostazioni" />,
@@ -128,6 +132,7 @@ export const DynamicTabNavigator: React.FC = () => {
             admin_subscriptions: 'Abbon.',
             admin_gamification: 'Game',
             admin_notifications: 'Notif.',
+            admin_checklist: 'Checklist',
             messages: 'Messaggi',
             notifications: 'Notif.',
             settings: 'Impost.',

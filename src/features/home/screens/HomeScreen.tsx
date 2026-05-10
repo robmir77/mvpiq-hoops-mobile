@@ -17,6 +17,7 @@ import { useRolePermissions } from '@/features/auth/hooks/useRolePermissions'
 import { useProfile } from '@/features/profile/hooks/useProfile'
 import { useGoals } from '@/features/goals/hooks/useGoals'
 import { useCreateGoal } from '@/features/goals/hooks/useCreateGoal'
+import { useOnlineUsers } from '@/features/users/hooks/useOnlineUsers'
 import { NavigationMenu } from '@/features/navigation/components/NavigationMenu'
 import { MainStackParamList } from '@/app/navigation/types'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
@@ -33,6 +34,9 @@ export default function HomeScreen() {
 
     const { user, isLoading } = auth
 
+    // Check if user is admin
+    const isAdmin = user?.role === 'admin'
+
     // 🔹 1. Fetch profile
     const {
         data: profile,
@@ -43,11 +47,17 @@ export default function HomeScreen() {
     //const athleteId = profile?.id
     const athleteId = user?.id
 
-    // 🔹 3. Fetch goals SOLO quando athleteId esiste
+    // 🔹 3. Fetch goals SOLO quando athleteId esiste e non è admin
     const {
         data: goals = [],
         isLoading: goalsLoading,
-    } = useGoals(athleteId)
+    } = useGoals(isAdmin ? undefined : athleteId)
+
+    // 🔹 4. Fetch online users (solo admin)
+    const {
+        data: onlineUsers = [],
+        isLoading: onlineUsersLoading,
+    } = useOnlineUsers(15)
 
     const createGoalMutation = useCreateGoal()
 
@@ -149,67 +159,118 @@ export default function HomeScreen() {
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.card}>
-                <View style={styles.statBox}>
-                    <Text style={styles.statValue}>
-                        {profile?.level || '-'}
-                    </Text>
-                    <Text style={styles.statLabel}>Livello</Text>
-                </View>
+            {!isAdmin && (
+                <>
+                    <View style={styles.card}>
+                        <View style={styles.statBox}>
+                            <Text style={styles.statValue}>
+                                {profile?.level || '-'}
+                            </Text>
+                            <Text style={styles.statLabel}>Livello</Text>
+                        </View>
 
-                <View style={styles.statBox}>
-                    <Text style={styles.statValue}>
-                        {completedGoals}
-                    </Text>
-                    <Text style={styles.statLabel}>Completati</Text>
-                </View>
+                        <View style={styles.statBox}>
+                            <Text style={styles.statValue}>
+                                {completedGoals}
+                            </Text>
+                            <Text style={styles.statLabel}>Completati</Text>
+                        </View>
 
-                <View style={styles.statBox}>
-                    <Text style={styles.statValue}>
-                        {goals.length}
-                    </Text>
-                    <Text style={styles.statLabel}>Totali</Text>
-                </View>
-            </View>
+                        <View style={styles.statBox}>
+                            <Text style={styles.statValue}>
+                                {goals.length}
+                            </Text>
+                            <Text style={styles.statLabel}>Totali</Text>
+                        </View>
+                    </View>
 
-            <Text style={styles.sectionTitle}>I tuoi Goals</Text>
+                    <Text style={styles.sectionTitle}>I tuoi Goals</Text>
 
-            <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => setModalVisible(true)}
-            >
-                <Text style={styles.addButtonText}>
-                    ➕ Nuovo Goal
-                </Text>
-            </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.addButton}
+                        onPress={() => setModalVisible(true)}
+                    >
+                        <Text style={styles.addButtonText}>
+                            ➕ Nuovo Goal
+                        </Text>
+                    </TouchableOpacity>
 
-            {goals.length === 0 && (
-                <Text style={{ color: '#aaa', marginBottom: 20 }}>
-                    Nessun goal ancora. Creane uno 🚀
-                </Text>
+                    {goals.length === 0 && (
+                        <Text style={{ color: '#aaa', marginBottom: 20 }}>
+                            Nessun goal ancora. Creane uno 🚀
+                        </Text>
+                    )}
+
+                    {goals.map((goal) => (
+                        <View key={goal.id} style={styles.goalCard}>
+                            <Text style={styles.goalTitle}>
+                                {goal.title}
+                            </Text>
+                            <Text
+                                style={[
+                                    styles.goalStatus,
+                                    {
+                                        color: goal.completed
+                                            ? '#00ff99'
+                                            : '#ff8c00',
+                                    },
+                                ]}
+                            >
+                                {goal.completed
+                                    ? 'Completato'
+                                    : 'In corso'}
+                            </Text>
+                        </View>
+                    ))}
+                </>
             )}
 
-            {goals.map((goal) => (
-                <View key={goal.id} style={styles.goalCard}>
-                    <Text style={styles.goalTitle}>
-                        {goal.title}
-                    </Text>
-                    <Text
-                        style={[
-                            styles.goalStatus,
-                            {
-                                color: goal.completed
-                                    ? '#00ff99'
-                                    : '#ff8c00',
-                            },
-                        ]}
-                    >
-                        {goal.completed
-                            ? 'Completato'
-                            : 'In corso'}
-                    </Text>
-                </View>
-            ))}
+            {isAdmin && (
+                <>
+                    <Text style={styles.sectionTitle}>Utenti Online</Text>
+
+                    {onlineUsersLoading ? (
+                        <Text style={{ color: '#aaa', marginBottom: 20 }}>
+                            Caricamento...
+                        </Text>
+                    ) : onlineUsers.length === 0 ? (
+                        <Text style={{ color: '#aaa', marginBottom: 20 }}>
+                            Nessun utente online negli ultimi 15 minuti
+                        </Text>
+                    ) : (
+                        <>
+                            <Text style={{ color: '#888', marginBottom: 10, fontSize: 12 }}>
+                                {onlineUsers.length} utent{onlineUsers.length === 1 ? 'e' : 'i'} online
+                            </Text>
+                            {onlineUsers.slice(0, 5).map((user) => (
+                                <View key={user.userId} style={styles.onlineUserCard}>
+                                    <View style={styles.onlineUserInfo}>
+                                        <Text style={styles.onlineUserName}>
+                                            {user.displayName || user.username}
+                                        </Text>
+                                        <Text style={styles.onlineUserRole}>
+                                            {user.role}
+                                        </Text>
+                                    </View>
+                                    <Text style={styles.onlineUserActivity}>
+                                        {user.activityType || 'Attivo'}
+                                    </Text>
+                                </View>
+                            ))}
+                            {onlineUsers.length > 5 && (
+                                <TouchableOpacity
+                                    style={styles.viewMoreButton}
+                                    onPress={() => navigation.navigate('admin_users' as any)}
+                                >
+                                    <Text style={styles.viewMoreText}>
+                                        Vedi tutti ({onlineUsers.length})
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
             </ScrollView>
 
             <Modal
@@ -458,5 +519,43 @@ const styles = StyleSheet.create({
         color: '#aaa',
         marginTop: 10,
         textAlign: 'center',
+    },
+    onlineUserCard: {
+        backgroundColor: '#121826',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 8,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    onlineUserInfo: {
+        flex: 1,
+    },
+    onlineUserName: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    onlineUserRole: {
+        color: '#888',
+        fontSize: 12,
+    },
+    onlineUserActivity: {
+        color: '#ff8c00',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    viewMoreButton: {
+        backgroundColor: '#1c2333',
+        padding: 10,
+        borderRadius: 8,
+        alignItems: 'center',
+        marginTop: 8,
+    },
+    viewMoreText: {
+        color: '#ff8c00',
+        fontSize: 12,
+        fontWeight: '600',
     },
 })
