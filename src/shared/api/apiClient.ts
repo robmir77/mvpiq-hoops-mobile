@@ -29,11 +29,11 @@ apiClient.interceptors.request.use(
         console.log('\n🚀 REQUEST')
         console.log('➡️ URL:', `${config.baseURL}${config.url}`)
         console.log('➡️ METHOD:', config.method?.toUpperCase())
-        console.log('➡️ BODY:', config.data)
-        console.log('➡️ TOKEN:', isPublicRoute ? 'SKIPPED' : token)
+        console.log('➡️ BODY:', config.data || 'none')
+        console.log('➡️ TOKEN:', isPublicRoute ? 'SKIPPED' : (token ? 'PRESENT' : 'MISSING'))
 
         if (token && !isPublicRoute) {
-            config.headers.Authorization = `Bearer ${token}`
+            config.headers.set('Authorization', `Bearer ${token}`)
         }
 
         return config

@@ -1,4 +1,4 @@
-import React, { useContext } from 'react'
+import React, { useContext, useState, useEffect } from 'react'
 import {
     View,
     Text,
@@ -9,6 +9,7 @@ import {
 } from 'react-native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useJournalEntry } from '../hooks/useJournalEntry'
+import { fetchChecklistTemplate } from '../api/journal.api'
 
 type Props = {
     route: {
@@ -25,6 +26,22 @@ export default function JournalDetailScreen({ route, navigation }: Props) {
     const { user } = auth || {}
 
     const { data: entry, isLoading, error } = useJournalEntry(user?.id || '', id)
+    const [templateItems, setTemplateItems] = useState<Map<string, any>>(new Map())
+
+    // Load template to get item labels
+    useEffect(() => {
+        if (entry?.checklists?.[0]?.templateId && entry?.entryType) {
+            fetchChecklistTemplate(entry.entryType)
+                .then(template => {
+                    const itemsMap = new Map()
+                    template.items?.forEach((item: any) => {
+                        itemsMap.set(item.id, item)
+                    })
+                    setTemplateItems(itemsMap)
+                })
+                .catch(err => console.log('Template load error:', err))
+        }
+    }, [entry])
 
     if (isLoading) {
         return (
@@ -48,39 +65,54 @@ export default function JournalDetailScreen({ route, navigation }: Props) {
         )
     }
 
-    // Get first two checklist values
-    const getFirstTwoValues = () => {
+    // Get all checklist values from items using template for labels
+    const getChecklistValues = () => {
         if (!entry.checklists || entry.checklists.length === 0) return []
 
         const checklist = entry.checklists[0]
-        if (!checklist.answers || checklist.answers.length === 0) return []
+        const items = checklist.items || []
+        if (!items || items.length === 0) return []
 
-        return checklist.answers.slice(0, 2).map((answer: any) => {
-            const item = checklist.template?.items?.find((i: any) => i.id === answer.itemId)
-            let value = answer.value
+        const values = items.map((item: any, index: number) => {
+            // Get template item for label
+            const templateItem = templateItems.get(item.templateItemId)
 
-            // Format value based on dataType
-            if (item?.dataType === 'BOOLEAN') {
-                value = answer.booleanValue ? 'Sì' : 'No'
-            } else if (item?.dataType === 'SELECT' || item?.dataType === 'MULTI_SELECT') {
-                const option = item?.options?.find((o: any) => o.valueCode === answer.selectValue)
-                value = option?.valueLabel || answer.selectValue || '-'
-            } else if (item?.dataType === 'NUMBER') {
-                value = answer.numberValue?.toString() || '-'
-            } else if (item?.dataType === 'DATE') {
-                value = answer.dateValue || '-'
+            // Get label from template or fallback
+            let label = templateItem?.label || templateItem?.itemLabel ||
+                        templateItem?.fieldName || templateItem?.title ||
+                        templateItem?.name || `Campo ${index + 1}`
+
+            // Get the actual value - check all possible fields
+            let value: any = item.booleanValue ?? item.numberValue ?? item.selectValue ?? item.textValue ?? item.itemValue ?? item.value ?? item.answerValue
+
+            // If it's a select value, try to get the label from options
+            const itemType = templateItem?.dataType
+            if ((itemType === 'SELECT' || itemType === 'MULTI_SELECT') && value && templateItem?.options) {
+                const option = templateItem.options.find((o: any) => o.valueCode === value || o.value === value)
+                if (option?.valueLabel || option?.label) {
+                    value = option.valueLabel || option.label
+                }
+            }
+
+            // Format value for display
+            if (value === null || value === undefined || value === '') {
+                value = '⚪ Non inserito'
+            } else if (typeof value === 'boolean') {
+                value = value ? '✓ Sì' : '✗ No'
+            } else if (Array.isArray(value)) {
+                value = value.join(', ')
             } else {
-                value = answer.textValue || '-'
+                value = String(value)
             }
 
-            return {
-                label: item?.label || 'Campo',
-                value: value
-            }
+            return { label, value, index }
         })
+
+        const filtered = values.filter((item: any) => !(item.label === `Campo ${item.index + 1}` && item.value === '⚪ Non inserito'))
+        return filtered
     }
 
-    const firstTwoValues = getFirstTwoValues()
+    const checklistValues = getChecklistValues()
 
     return (
         <View style={styles.container}>
@@ -110,20 +142,37 @@ export default function JournalDetailScreen({ route, navigation }: Props) {
                             : 'Data non disponibile'}
                     </Text>
 
-                    {entry.opponent && (
-                        <Text style={styles.opponent}>Avversario: {entry.opponent}</Text>
-                    )}
-
-                    {entry.location && (
-                        <Text style={styles.location}>📍 {entry.location}</Text>
+                    {entry.durationMinutes && (
+                        <Text style={styles.duration}>⏱️ {entry.durationMinutes} minuti</Text>
                     )}
                 </View>
 
-                {/* First two checklist values */}
-                {firstTwoValues.length > 0 && (
+                {/* Ratings */}
+                {(entry.moodRating || entry.performanceRating) && (
+                    <View style={styles.ratingsCard}>
+                        <Text style={styles.ratingsTitle}>Valutazioni</Text>
+                        <View style={styles.ratingsRow}>
+                            {entry.moodRating && (
+                                <View style={styles.ratingItem}>
+                                    <Text style={styles.ratingLabel}>Umore</Text>
+                                    <Text style={styles.ratingValue}>{entry.moodRating}/10</Text>
+                                </View>
+                            )}
+                            {entry.performanceRating && (
+                                <View style={styles.ratingItem}>
+                                    <Text style={styles.ratingLabel}>Prestazione</Text>
+                                    <Text style={styles.ratingValue}>{entry.performanceRating}/10</Text>
+                                </View>
+                            )}
+                        </View>
+                    </View>
+                )}
+
+                {/* All checklist values */}
+                {checklistValues.length > 0 && (
                     <View style={styles.valuesCard}>
-                        <Text style={styles.valuesTitle}>Dettagli</Text>
-                        {firstTwoValues.map((item: any, index: number) => (
+                        <Text style={styles.valuesTitle}>Dettagli Checklist</Text>
+                        {checklistValues.map((item: any, index: number) => (
                             <View key={index} style={styles.valueRow}>
                                 <Text style={styles.valueLabel}>{item.label}</Text>
                                 <Text style={styles.valueText}>{item.value}</Text>
@@ -251,5 +300,52 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 14,
         lineHeight: 20,
+    },
+    opponentMuted: {
+        color: '#64748B',
+        fontSize: 16,
+        fontStyle: 'italic',
+    },
+    locationMuted: {
+        color: '#64748B',
+        fontSize: 14,
+        marginTop: 4,
+        fontStyle: 'italic',
+    },
+    duration: {
+        color: '#94A3B8',
+        fontSize: 14,
+        marginTop: 4,
+    },
+    ratingsCard: {
+        backgroundColor: '#121826',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: '#22c55e',
+    },
+    ratingsTitle: {
+        color: '#22c55e',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginBottom: 12,
+    },
+    ratingsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+    },
+    ratingItem: {
+        alignItems: 'center',
+    },
+    ratingLabel: {
+        color: '#94A3B8',
+        fontSize: 14,
+        marginBottom: 4,
+    },
+    ratingValue: {
+        color: '#22c55e',
+        fontSize: 24,
+        fontWeight: 'bold',
     },
 })

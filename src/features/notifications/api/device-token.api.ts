@@ -52,12 +52,11 @@ export const getUserDeviceTokens = async (
 }
 
 export const deactivateDeviceToken = async (
-    tokenId: string
+    token: string
 ): Promise<DeviceToken> => {
     try {
         const response = await apiClient.put<DeviceToken>(
-            '/device-tokens/deactivate',
-            { tokenId }
+            `/device-tokens/deactivate?token=${encodeURIComponent(token)}`
         )
         return response.data
     } catch (error: any) {
@@ -90,8 +89,27 @@ export const deactivateAllUserDeviceTokens = async (
     }
 }
 
-export const cleanupInactiveTokens = async (): Promise<{ 
-    deletedCount: number 
+export const deactivateDeviceByDeviceId = async (
+    deviceId: string
+): Promise<DeviceToken> => {
+    try {
+        const response = await apiClient.put<DeviceToken>(
+            `/device-tokens/device/${deviceId}/deactivate`
+        )
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore disattivazione device per deviceId:',
+            error?.response?.data || error.message
+        )
+        throw new Error(
+            error?.response?.data?.message || 'Errore disattivazione device per deviceId'
+        )
+    }
+}
+
+export const cleanupInactiveTokens = async (): Promise<{
+    deletedCount: number
 }> => {
     try {
         const response = await apiClient.delete<{ deletedCount: number }>(

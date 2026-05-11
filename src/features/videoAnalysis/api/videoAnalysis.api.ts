@@ -32,6 +32,19 @@ export const createAnalysisSession = async (data: {
 }
 
 
+export const analyzeVideo = async (data: {
+    sessionId: string
+    videoUrl: string
+    analysisType: string
+}): Promise<{ analysisId: string; status: string }> => {
+    const response = await apiClient.post(
+        "/analysis/analyze",
+        data
+    )
+
+    return response.data
+}
+
 export const getAnalysisResult = async (
     sessionId: string
 ): Promise<VideoAnalysisResult> => {

@@ -1,10 +1,11 @@
 import React, { useState, useContext } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, RefreshControl } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl } from 'react-native'
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useJournalEntries } from '../hooks/useJournalEntries'
-import { EntryType } from '../types/journal.types'
 import { useQueryClient } from '@tanstack/react-query'
+import { deleteJournalEntry } from '../api/journal.api'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type FilterType = 'ALL' | 'MATCH' | 'TRAINING'
 
@@ -19,6 +20,8 @@ export default function JournalHomeScreen({ navigation }: any) {
     const { data: entries, isLoading, error } = useJournalEntries(user?.id || '', entryTypeFilter)
 
     const [refreshing, setRefreshing] = useState(false)
+    const [deletingId, setDeletingId] = useState<string | null>(null)
+    const { alert, showWarning, showError, showSuccess } = useCustomAlert()
 
     const onRefresh = async () => {
         setRefreshing(true)
@@ -70,32 +73,66 @@ export default function JournalHomeScreen({ navigation }: any) {
         return { label: templateItem?.label || 'Valore', value }
     }
 
+    const handleDelete = (entryId: string) => {
+        showWarning(
+            'Elimina diario',
+            'Sei sicuro di voler eliminare questo diario? L\'azione non è reversibile.',
+            async () => {
+                if (!user?.id) return
+                setDeletingId(entryId)
+                try {
+                    await deleteJournalEntry(user.id, entryId)
+                    showSuccess('Eliminato', 'Diario eliminato con successo')
+                    queryClient.invalidateQueries({ queryKey: ['journalEntries'] })
+                } catch (error) {
+                    showError('Errore', 'Impossibile eliminare il diario')
+                } finally {
+                    setDeletingId(null)
+                }
+            },
+            () => {}
+        )
+    }
+
     const renderEntryCard = ({ item }: any) => {
         const firstValue = getFirstValue(item)
+        const isDeleting = deletingId === item.id
 
         return (
-            <TouchableOpacity
-                style={styles.entryCard}
-                onPress={() => navigation.navigate('JournalDetail', { id: item.id })}
-            >
-                <View style={styles.cardHeader}>
-                    <Text style={styles.entryDate}>
-                        {item.entryDate ? new Date(item.entryDate).toLocaleDateString('it-IT', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric'
-                        }) : 'Data non disponibile'}
+            <View style={styles.entryCard}>
+                <TouchableOpacity
+                    style={styles.cardContent}
+                    onPress={() => navigation.navigate('JournalDetail', { id: item.id })}
+                    disabled={isDeleting}
+                >
+                    <View style={styles.cardHeader}>
+                        <Text style={styles.entryDate}>
+                            {item.entryDate ? new Date(item.entryDate).toLocaleDateString('it-IT', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric'
+                            }) : 'Data non disponibile'}
+                        </Text>
+                        <Text style={styles.entryType}>
+                            {item.entryType === 'MATCH' ? '⚽ Partita' : '🏋️ Allenamento'}
+                        </Text>
+                    </View>
+                    <Text style={styles.entryTitle}>
+                        {item.entryType === 'MATCH' ? 'Diario Partita' : 'Diario Allenamento'}
+                        {firstValue && ` · ${firstValue.value}`}
                     </Text>
-                    <Text style={styles.entryType}>
-                        {item.entryType === 'MATCH' ? '⚽ Partita' : '🏋️ Allenamento'}
+                    <Text style={styles.viewDetails}>Vedi dettagli →</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => handleDelete(item.id)}
+                    disabled={isDeleting}
+                >
+                    <Text style={styles.deleteButtonText}>
+                        {isDeleting ? '⏳' : '🗑️'}
                     </Text>
-                </View>
-                <Text style={styles.entryTitle}>
-                    {item.entryType === 'MATCH' ? 'Diario Partita' : 'Diario Allenamento'}
-                    {firstValue && ` · ${firstValue.value}`}
-                </Text>
-                <Text style={styles.viewDetails}>Vedi dettagli →</Text>
-            </TouchableOpacity>
+                </TouchableOpacity>
+            </View>
         )
     }
 
@@ -163,6 +200,7 @@ export default function JournalHomeScreen({ navigation }: any) {
                     }
                 />
             )}
+            <CustomAlert {...alert} />
         </View>
     )
 }
@@ -257,6 +295,21 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#ff8c00',
         fontWeight: '600',
+    },
+    cardContent: {
+        flex: 1,
+    },
+    deleteButton: {
+        position: 'absolute',
+        right: 10,
+        bottom: 15,
+        width: 30,
+        height: 30,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    deleteButtonText: {
+        fontSize: 16,
     },
     emptyState: {
         alignItems: 'center',

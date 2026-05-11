@@ -15,7 +15,7 @@ export const getNavigationSections = async (): Promise<NavigationResponse> => {
 
 export const checkSectionAccess = async (sectionId: string): Promise<AccessResponse> => {
     try {
-        const response = await apiClient.get(`/api/navigation/sections/${sectionId}/access`)
+        const response = await apiClient.get(`/navigation/sections/${sectionId}/access`)
         return response.data
     } catch (error: any) {
         console.error(`Errore verifica accesso sezione ${sectionId}:`, error)

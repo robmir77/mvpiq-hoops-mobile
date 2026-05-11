@@ -11,7 +11,7 @@ export type { TrainerProfile, TrainingProgram, TrainerReview, TrainerSpecializat
 
 export const getTrainerProfile = async (userId: string): Promise<TrainerProfile> => {
   try {
-    const response = await apiClient.get(`/trainers/${userId}`)
+    const response = await apiClient.get(`/trainer/${userId}`)
     return response.data
   } catch (error) {
     console.error('Error fetching trainer profile:', error)
@@ -21,7 +21,7 @@ export const getTrainerProfile = async (userId: string): Promise<TrainerProfile>
 
 export const createTrainerProfile = async (profile: Partial<TrainerProfile>): Promise<TrainerProfile> => {
   try {
-    const response = await apiClient.post('/trainers', profile)
+    const response = await apiClient.post('/trainer', profile)
     return response.data
   } catch (error) {
     console.error('Error creating trainer profile:', error)
@@ -31,7 +31,7 @@ export const createTrainerProfile = async (profile: Partial<TrainerProfile>): Pr
 
 export const updateTrainerProfile = async (userId: string, updates: Partial<TrainerProfile>): Promise<TrainerProfile> => {
   try {
-    const response = await apiClient.put(`/trainers/${userId}`, updates)
+    const response = await apiClient.put(`/trainer/${userId}`, updates)
     return response.data
   } catch (error) {
     console.error('Error updating trainer profile:', error)
@@ -41,7 +41,7 @@ export const updateTrainerProfile = async (userId: string, updates: Partial<Trai
 
 export const getTrainerPrograms = async (trainerId: string): Promise<TrainingProgram[]> => {
   try {
-    const response = await apiClient.get(`/trainers/${trainerId}/programs`)
+    const response = await apiClient.get(`/trainer/${trainerId}/programs`)
     return response.data
   } catch (error) {
     console.error('Error fetching trainer programs:', error)
@@ -51,7 +51,7 @@ export const getTrainerPrograms = async (trainerId: string): Promise<TrainingPro
 
 export const createTrainingProgram = async (program: Partial<TrainingProgram>): Promise<TrainingProgram> => {
   try {
-    const response = await apiClient.post('/trainers/programs', program)
+    const response = await apiClient.post('/training/programs', program)
     return response.data
   } catch (error) {
     console.error('Error creating training program:', error)
@@ -61,7 +61,7 @@ export const createTrainingProgram = async (program: Partial<TrainingProgram>): 
 
 export const getTrainerReviews = async (trainerId: string): Promise<TrainerReview[]> => {
   try {
-    const response = await apiClient.get(`/trainers/${trainerId}/reviews`)
+    const response = await apiClient.get(`/trainer/${trainerId}/reviews`)
     return response.data
   } catch (error) {
     console.error('Error fetching trainer reviews:', error)
@@ -71,7 +71,7 @@ export const getTrainerReviews = async (trainerId: string): Promise<TrainerRevie
 
 export const submitTrainerReview = async (review: Partial<TrainerReview>): Promise<TrainerReview> => {
   try {
-    const response = await apiClient.post('/trainers/reviews', review)
+    const response = await apiClient.post('/trainer/reviews', review)
     return response.data
   } catch (error) {
     console.error('Error submitting trainer review:', error)
@@ -94,7 +94,7 @@ export const searchTrainers = async (filters: {
       }
     })
 
-    const response = await apiClient.get(`/trainers/search?${params.toString()}`)
+    const response = await apiClient.get(`/trainer/search?${params.toString()}`)
     return response.data
   } catch (error) {
     console.error('Error searching trainers:', error)
@@ -104,7 +104,7 @@ export const searchTrainers = async (filters: {
 
 export const followTrainer = async (trainerId: string): Promise<void> => {
   try {
-    await apiClient.post(`/trainers/${trainerId}/follow`)
+    await apiClient.post(`/trainer/follow`, { trainerId })
   } catch (error) {
     console.error('Error following trainer:', error)
     throw error
@@ -113,7 +113,7 @@ export const followTrainer = async (trainerId: string): Promise<void> => {
 
 export const unfollowTrainer = async (trainerId: string): Promise<void> => {
   try {
-    await apiClient.delete(`/trainers/${trainerId}/follow`)
+    await apiClient.delete(`/trainer/follow?trainerId=${trainerId}`)
   } catch (error) {
     console.error('Error unfollowing trainer:', error)
     throw error
@@ -122,7 +122,7 @@ export const unfollowTrainer = async (trainerId: string): Promise<void> => {
 
 export const enrollInProgram = async (programId: string): Promise<void> => {
   try {
-    await apiClient.post(`/training-programs/${programId}/enroll`)
+    await apiClient.post(`/training/programs/${programId}/enroll`)
   } catch (error) {
     console.error('Error enrolling in program:', error)
     throw error

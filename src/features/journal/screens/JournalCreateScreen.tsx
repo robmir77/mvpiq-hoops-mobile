@@ -175,9 +175,9 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
                                 dateValue:
                                     item.dataType === 'DATE' ? value ?? null : null,
                                 selectValue:
-                                    item.dataType === 'SELECT' ? value ?? null : null,
-                                multiSelectValue:
-                                    item.dataType === 'MULTI_SELECT' ? (Array.isArray(value) ? value.join(',') : null) : null,
+                                    item.dataType === 'SELECT' || item.dataType === 'MULTI_SELECT'
+                                        ? (item.dataType === 'MULTI_SELECT' && Array.isArray(value) ? value.join(',') : value ?? null)
+                                        : null,
                                 completed: true,
                             }
                         }),

@@ -1,6 +1,8 @@
 // src/features/journal/api/journal.api.ts
 
 import apiClient from '@/shared/api/apiClient'
+import { API_BASE_URL } from '@/config/appConfig'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
     ChecklistTemplate,
     EntryType,
@@ -115,6 +117,40 @@ export const fetchJournalEntry = async (playerId: string, entryId: string) => {
         throw new Error(
             error?.response?.data?.message ||
             'Errore caricamento entry diario'
+        )
+    }
+}
+
+/**
+ * Cancella una entry diario
+ */
+export const deleteJournalEntry = async (playerId: string, entryId: string): Promise<void> => {
+    try {
+        const token = await AsyncStorage.getItem('token')
+        const response = await fetch(
+            `${API_BASE_URL}/api/players/${playerId}/journal/${entryId}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        )
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}))
+            throw new Error(errorData.message || `HTTP ${response.status}`)
+        }
+    } catch (error: any) {
+        console.error(
+            'Errore cancellazione entry diario:',
+            error.message
+        )
+
+        throw new Error(
+            error.message ||
+            'Errore cancellazione entry diario'
         )
     }
 }

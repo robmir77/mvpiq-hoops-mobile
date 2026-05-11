@@ -1,5 +1,30 @@
 import apiClient from '@/shared/api/apiClient'
-import { TrainingStats, TrainingProgram } from '../types/training.types'
+import { TrainingStats, TrainingProgram, TrainingSession } from '../types/training.types'
+
+export const getTrainingSessions = async (
+    userId: string
+): Promise<TrainingSession[]> => {
+    try {
+        const response = await apiClient.get<TrainingSession[]>(
+            `/training/sessions/${userId}`
+        )
+        return response.data
+    } catch (error: any) {
+        console.error(
+            'Errore caricamento sessioni training:',
+            error?.response?.data || error.message
+        )
+
+        // Fallback per sessioni non disponibili
+        if (error?.response?.status === 404) {
+            return []
+        }
+
+        throw new Error(
+            error?.response?.data?.message || 'Errore caricamento sessioni training'
+        )
+    }
+}
 
 export const getTrainingStats = async (
     athleteId: string
