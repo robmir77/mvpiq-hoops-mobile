@@ -43,34 +43,61 @@ export default function JournalHomeScreen({ navigation }: any) {
         </TouchableOpacity>
     )
 
-    const renderEntryCard = ({ item }: any) => (
-        <TouchableOpacity
-            style={styles.entryCard}
-            onPress={() => navigation.navigate('JournalDetail', { id: item.id })}
-        >
-            <View style={styles.cardHeader}>
-                <Text style={styles.entryDate}>
-                    {item.createdAt ? new Date(item.createdAt).toLocaleDateString('it-IT', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric'
-                    }) : 'Data non disponibile'}
+    // Get first checklist value for preview
+    const getFirstValue = (item: any) => {
+        if (!item.checklists || item.checklists.length === 0) return null
+
+        const checklist = item.checklists[0]
+        if (!checklist.answers || checklist.answers.length === 0) return null
+
+        const answer = checklist.answers[0]
+        const templateItem = checklist.template?.items?.find((i: any) => i.id === answer.itemId)
+
+        let value = '-'
+        if (templateItem?.dataType === 'BOOLEAN') {
+            value = answer.booleanValue ? 'Sì' : 'No'
+        } else if (templateItem?.dataType === 'SELECT' || templateItem?.dataType === 'MULTI_SELECT') {
+            const option = templateItem?.options?.find((o: any) => o.valueCode === answer.selectValue)
+            value = option?.valueLabel || answer.selectValue || '-'
+        } else if (templateItem?.dataType === 'NUMBER') {
+            value = answer.numberValue?.toString() || '-'
+        } else if (templateItem?.dataType === 'DATE') {
+            value = answer.dateValue || '-'
+        } else {
+            value = answer.textValue || '-'
+        }
+
+        return { label: templateItem?.label || 'Valore', value }
+    }
+
+    const renderEntryCard = ({ item }: any) => {
+        const firstValue = getFirstValue(item)
+
+        return (
+            <TouchableOpacity
+                style={styles.entryCard}
+                onPress={() => navigation.navigate('JournalDetail', { id: item.id })}
+            >
+                <View style={styles.cardHeader}>
+                    <Text style={styles.entryDate}>
+                        {item.entryDate ? new Date(item.entryDate).toLocaleDateString('it-IT', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                        }) : 'Data non disponibile'}
+                    </Text>
+                    <Text style={styles.entryType}>
+                        {item.entryType === 'MATCH' ? '⚽ Partita' : '🏋️ Allenamento'}
+                    </Text>
+                </View>
+                <Text style={styles.entryTitle}>
+                    {item.entryType === 'MATCH' ? 'Diario Partita' : 'Diario Allenamento'}
+                    {firstValue && ` · ${firstValue.value}`}
                 </Text>
-                <Text style={styles.entryType}>
-                    {item.entryType === 'MATCH' ? '⚽ Partita' : '🏋️ Allenamento'}
-                </Text>
-            </View>
-            <Text style={styles.entryTitle}>
-                {item.entryType === 'MATCH' ? 'Diario Partita' : 'Diario Allenamento'}
-            </Text>
-            {item.summary && (
-                <Text style={styles.entrySummary} numberOfLines={2}>
-                    {item.summary}
-                </Text>
-            )}
-            <Text style={styles.viewDetails}>Vedi dettagli →</Text>
-        </TouchableOpacity>
-    )
+                <Text style={styles.viewDetails}>Vedi dettagli →</Text>
+            </TouchableOpacity>
+        )
+    }
 
     const renderEmptyState = () => (
         <View style={styles.emptyState}>

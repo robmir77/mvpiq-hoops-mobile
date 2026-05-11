@@ -130,7 +130,7 @@ export function ChecklistField({ item, value, onChange, dynamicOptions }: Props)
                                 <ScrollView style={styles.optionsList}>
                                     {options?.map((opt) => (
                                         <TouchableOpacity
-                                            key={opt.id}
+                                            key={opt.valueCode}
                                             style={[
                                                 styles.modalOption,
                                                 value === opt.valueCode && styles.modalOptionSelected
@@ -187,7 +187,7 @@ export function ChecklistField({ item, value, onChange, dynamicOptions }: Props)
                                         const isSelected = (value || []).includes(opt.valueCode)
                                         return (
                                             <TouchableOpacity
-                                                key={opt.id}
+                                                key={opt.valueCode}
                                                 style={[
                                                     styles.modalOption,
                                                     isSelected && styles.modalOptionSelected

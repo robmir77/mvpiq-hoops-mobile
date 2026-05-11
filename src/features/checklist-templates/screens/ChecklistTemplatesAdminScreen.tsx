@@ -114,7 +114,7 @@ export default function ChecklistTemplatesAdminScreen() {
         <View style={styles.container}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Configurazione Checklist</Text>
-                <TouchableOpacity style={styles.createButton} onPress={handleCreateTemplate}>
+                <TouchableOpacity style={styles.createButtonHeader} onPress={handleCreateTemplate}>
                     <Text style={styles.createButtonText}>+ Nuovo Template</Text>
                 </TouchableOpacity>
             </View>
@@ -157,17 +157,24 @@ const styles = StyleSheet.create({
         backgroundColor: '#0b0f1a',
     },
     header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
         padding: 20,
         borderBottomWidth: 1,
         borderBottomColor: '#2a2a2a',
+        gap: 12,
     },
     headerTitle: {
-        fontSize: 24,
+        fontSize: 22,
         fontWeight: 'bold',
         color: '#fff',
+    },
+    createButtonHeader: {
+        backgroundColor: '#ff8c00',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 8,
+        alignSelf: 'flex-start',
     },
     createButton: {
         backgroundColor: '#ff8c00',
