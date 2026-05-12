@@ -19,6 +19,7 @@ import { useDynamicChecklistOptions } from '../hooks/useDynamicChecklistOptions'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { useQueryClient } from '@tanstack/react-query'
 
 type Props = {
     route: {
@@ -34,6 +35,7 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
 
     const auth = useContext(AuthContext)
     const playerId = auth?.user?.id
+    const queryClient = useQueryClient()
     const { alert, showError, showSuccess } = useCustomAlert()
 
     const [template, setTemplate] = useState<ChecklistTemplate | null>(null)
@@ -186,6 +188,9 @@ export default function JournalCreateScreen({ route, navigation }: Props) {
             }
 
             await createJournalEntry(playerId, payload)
+
+            // Invalida le query per refreshare la lista journal
+            queryClient.invalidateQueries({ queryKey: ['journalEntries'] })
 
             showSuccess('Successo', 'Journal salvato', () => navigation.goBack())
         } catch (e: any) {
