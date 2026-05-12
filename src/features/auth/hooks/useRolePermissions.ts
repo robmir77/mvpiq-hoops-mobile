@@ -9,17 +9,17 @@ export const useRolePermissions = () => {
     const user = auth?.user
 
     const hasRole = (role: UserRole): boolean => {
-        return user?.role === role
+        return user?.roles?.includes(role) || false
     }
 
     const hasAnyRole = (roles: UserRole[]): boolean => {
-        if (!user?.role) return false
-        return roles.includes(user.role)
+        if (!user?.roles || user.roles.length === 0) return false
+        return roles.some(role => user.roles!.includes(role))
     }
 
     const hasAllRoles = (roles: UserRole[]): boolean => {
-        if (!user?.role) return false
-        return roles.every(role => user.role === role)
+        if (!user?.roles || user.roles.length === 0) return false
+        return roles.every(role => user.roles!.includes(role))
     }
 
     const canScout = (): boolean => {
@@ -27,13 +27,11 @@ export const useRolePermissions = () => {
     }
 
     const canTrain = (): boolean => {
-        return hasAnyRole([UserRole.TRAINER, UserRole.ADMIN]) || 
-               (user?.is_trainer === true)
+        return hasAnyRole([UserRole.TRAINER, UserRole.ADMIN])
     }
 
     const canCreateContent = (): boolean => {
-        return hasAnyRole([UserRole.CREATOR, UserRole.ADMIN]) || 
-               (user?.is_creator === true)
+        return hasAnyRole([UserRole.CREATOR, UserRole.ADMIN])
     }
 
     const canManageUsers = (): boolean => {
@@ -54,7 +52,7 @@ export const useRolePermissions = () => {
     }
 
     const getRoleLabel = (): string => {
-        if (!user?.role) return 'Sconosciuto'
+        if (!user?.roles || user.roles.length === 0) return 'Sconosciuto'
         
         const roleLabels = {
             [UserRole.ADMIN]: 'Amministratore',
@@ -65,11 +63,19 @@ export const useRolePermissions = () => {
             [UserRole.TRAINER]: 'Allenatore',
         }
         
-        return roleLabels[user.role] || user.role
+        // Return the highest priority role label or the first role
+        const priorityOrder = [UserRole.ADMIN, UserRole.TRAINER, UserRole.SCOUT, UserRole.CREATOR, UserRole.PLAYER, UserRole.GUEST]
+        for (const role of priorityOrder) {
+            if (user.roles!.includes(role)) {
+                return roleLabels[role]
+            }
+        }
+        
+        return roleLabels[user.roles[0]] || user.roles[0]
     }
 
     const getRoleColor = (): string => {
-        if (!user?.role) return '#94A3B8'
+        if (!user?.roles || user.roles.length === 0) return '#94A3B8'
         
         const roleColors = {
             [UserRole.ADMIN]: '#DC2626', // Rosso
@@ -80,7 +86,15 @@ export const useRolePermissions = () => {
             [UserRole.TRAINER]: '#EA580C', // Arancione
         }
         
-        return roleColors[user.role] || '#94A3B8'
+        // Return the highest priority role color or the first role color
+        const priorityOrder = [UserRole.ADMIN, UserRole.TRAINER, UserRole.SCOUT, UserRole.CREATOR, UserRole.PLAYER, UserRole.GUEST]
+        for (const role of priorityOrder) {
+            if (user.roles!.includes(role)) {
+                return roleColors[role]
+            }
+        }
+        
+        return roleColors[user.roles[0]] || '#94A3B8'
     }
 
     return {

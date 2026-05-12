@@ -1,4 +1,4 @@
-export interface PlayerProfile {
+export interface Player {
     id: string
     userId: string
     username: string
@@ -41,7 +41,7 @@ export interface PlayerPosition {
     createdAt?: string
 }
 
-export interface UpdatePlayerProfile {
+export interface UpdatePlayer {
     displayName?: string
     birthDate?: string
 
@@ -60,3 +60,7 @@ export interface UpdatePlayerProfile {
 
     avatarUrl?: string
 }
+
+// Backward compatibility aliases
+export type PlayerProfile = Player
+export type UpdatePlayerProfile = UpdatePlayer

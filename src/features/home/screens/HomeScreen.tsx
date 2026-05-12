@@ -8,12 +8,12 @@ import {
     ActivityIndicator,
     Modal,
     TextInput,
-    Alert,
     RefreshControl,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { AuthContext } from '@/features/auth/context/AuthContext'
+import { UserRole } from '@/features/auth/types/auth.types'
 import { useRolePermissions } from '@/features/auth/hooks/useRolePermissions'
 import { useProfile } from '@/features/profile/hooks/useProfile'
 import { useGoals } from '@/features/goals/hooks/useGoals'
@@ -37,7 +37,7 @@ export default function HomeScreen() {
     const { user, isLoading } = auth
 
     // Check if user is admin
-    const isAdmin = user?.role === 'admin'
+    const isAdmin = user?.roles?.includes(UserRole.ADMIN) || false
 
     // 🔹 1. Fetch profile
     const {
@@ -87,19 +87,11 @@ export default function HomeScreen() {
     useEffect(() => {
         if (!isDataLoading && user && user.hasGoals === false) {
             // Show alert to offer wizard setup
-            Alert.alert(
+            showWarning(
                 'Benvenuto! 🏀',
                 'Non hai ancora impostato nessun obiettivo. Vuoi creare i tuoi primi goal ora?',
-                [
-                    {
-                        text: 'Più tardi',
-                        style: 'cancel',
-                    },
-                    {
-                        text: 'Inizia ora',
-                        onPress: () => navigation.navigate('GoalWizard'),
-                    },
-                ]
+                () => navigation.navigate('GoalWizard'),
+                () => {}
             )
         }
     }, [isDataLoading, user, navigation])
@@ -266,7 +258,7 @@ export default function HomeScreen() {
                                             {user.displayName || user.username}
                                         </Text>
                                         <Text style={styles.onlineUserRole}>
-                                            {user.role}
+                                            {user.roles?.[0] || 'N/A'}
                                         </Text>
                                     </View>
                                     <Text style={styles.onlineUserActivity}>

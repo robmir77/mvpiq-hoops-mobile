@@ -6,17 +6,18 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
   Image,
 } from 'react-native'
 import { useTrainer } from '../hooks/useTrainer'
 import { TrainerProfile, TrainerSpecialization } from '../types/trainer.types'
 import { SPECIALIZATION_LABELS, CERTIFICATION_LEVEL_LABELS } from '../api/trainer.api'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 export default function TrainerProfileScreen() {
   const { profile, loading, isEditing, setIsEditing, createProfile, updateProfile } = useTrainer()
   const [formData, setFormData] = useState<Partial<TrainerProfile>>({})
+  const { alert, showError, showSuccess } = useCustomAlert()
 
   const handleEdit = () => {
     if (profile) {
@@ -35,9 +36,9 @@ export default function TrainerProfileScreen() {
         await updateProfile(formData)
       }
       setIsEditing(false)
-      Alert.alert('Successo', 'Profilo trainer salvato')
+      showSuccess('Successo', 'Profilo trainer salvato')
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile salvare il profilo')
+      showError('Errore', 'Impossibile salvare il profilo')
     }
   }
 
@@ -88,134 +89,137 @@ export default function TrainerProfileScreen() {
   const currentData = isEditing ? formData : profile
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>
-          {isEditing ? 'Modifica Profilo Trainer' : 'Profilo Trainer'}
-        </Text>
-        
-        {!isEditing ? (
-          <TouchableOpacity style={styles.editButton} onPress={handleEdit}>
-            <Text style={styles.editButtonText}>Modifica</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.editActions}>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-              <Text style={styles.cancelButtonText}>Annulla</Text>
+    <View style={styles.container}>
+      <ScrollView>
+        <View style={styles.header}>
+          <Text style={styles.title}>
+            {isEditing ? 'Modifica Profilo Trainer' : 'Profilo Trainer'}
+          </Text>
+          
+          {!isEditing ? (
+            <TouchableOpacity style={styles.editButton} onPress={handleEdit}>
+              <Text style={styles.editButtonText}>Modifica</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <Text style={styles.saveButtonText}>Salva</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+          ) : (
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
+                <Text style={styles.cancelButtonText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+                <Text style={styles.saveButtonText}>Salva</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Informazioni Base</Text>
-        
-        {isEditing ? (
-          <TextInput
-            style={styles.textInput}
-            placeholder="Bio del trainer..."
-            placeholderTextColor="#6B7280"
-            value={formData.bio || ''}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, bio: text }))}
-            multiline
-            numberOfLines={4}
-          />
-        ) : (
-          <Text style={styles.bio}>{currentData?.bio || 'Nessuna bio disponibile'}</Text>
-        )}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Informazioni Base</Text>
+          
+          {isEditing ? (
+            <TextInput
+              style={styles.textInput}
+              placeholder="Bio del trainer..."
+              placeholderTextColor="#6B7280"
+              value={formData.bio || ''}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, bio: text }))}
+              multiline
+              numberOfLines={4}
+            />
+          ) : (
+            <Text style={styles.bio}>{currentData?.bio || 'Nessuna bio disponibile'}</Text>
+          )}
 
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{currentData?.experience || 0}</Text>
-            <Text style={styles.statLabel}>Anni di Esperienza</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{currentData?.rating || 0}</Text>
-            <Text style={styles.statLabel}>Rating</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{currentData?.reviewCount || 0}</Text>
-            <Text style={styles.statLabel}>Recensioni</Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{currentData?.experience || 0}</Text>
+              <Text style={styles.statLabel}>Anni di Esperienza</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{currentData?.rating || 0}</Text>
+              <Text style={styles.statLabel}>Rating</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{currentData?.reviewCount || 0}</Text>
+              <Text style={styles.statLabel}>Recensioni</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Specializzazioni</Text>
-        
-        {isEditing ? (
-          <View style={styles.specializationsGrid}>
-            {Object.entries(SPECIALIZATION_LABELS).map(([key, label]) => {
-              const spec = key as TrainerSpecialization
-              const isSelected = formData.specializations?.includes(spec)
-              
-              return (
-                <TouchableOpacity
-                  key={key}
-                  style={[
-                    styles.specializationChip,
-                    isSelected && styles.specializationChipSelected
-                  ]}
-                  onPress={() => toggleSpecialization(spec)}
-                >
-                  <Text style={[
-                    styles.specializationText,
-                    isSelected && styles.specializationTextSelected
-                  ]}>
-                    {label}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Specializzazioni</Text>
+          
+          {isEditing ? (
+            <View style={styles.specializationsGrid}>
+              {Object.entries(SPECIALIZATION_LABELS).map(([key, label]) => {
+                const spec = key as TrainerSpecialization
+                const isSelected = formData.specializations?.includes(spec)
+                
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[
+                      styles.specializationChip,
+                      isSelected && styles.specializationChipSelected
+                    ]}
+                    onPress={() => toggleSpecialization(spec)}
+                  >
+                    <Text style={[
+                      styles.specializationText,
+                      isSelected && styles.specializationTextSelected
+                    ]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          ) : (
+            <View style={styles.specializationsList}>
+              {currentData?.specializations?.map(spec => (
+                <View key={spec} style={styles.specializationTag}>
+                  <Text style={styles.specializationTagText}>
+                    {SPECIALIZATION_LABELS[spec]}
                   </Text>
-                </TouchableOpacity>
-              )
-            })}
-          </View>
-        ) : (
-          <View style={styles.specializationsList}>
-            {currentData?.specializations?.map(spec => (
-              <View key={spec} style={styles.specializationTag}>
-                <Text style={styles.specializationTagText}>
-                  {SPECIALIZATION_LABELS[spec]}
+                </View>
+              ))}
+              {(!currentData?.specializations || currentData.specializations.length === 0) && (
+                <Text style={styles.noSpecializations}>Nessuna specializzazione</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Certificazioni</Text>
+          
+          {currentData?.certifications && currentData.certifications.length > 0 ? (
+            currentData.certifications.map(cert => (
+              <View key={cert.id} style={styles.certificationCard}>
+                <View style={styles.certificationHeader}>
+                  <Text style={styles.certificationName}>{cert.name}</Text>
+                  {cert.isVerified && (
+                    <Text style={styles.verifiedBadge}>✓ Verificato</Text>
+                  )}
+                </View>
+                <Text style={styles.certificationIssuer}>{cert.issuer}</Text>
+                <Text style={styles.certificationDate}>
+                  Rilasciato: {new Date(cert.issueDate).toLocaleDateString('it-IT')}
                 </Text>
               </View>
-            ))}
-            {(!currentData?.specializations || currentData.specializations.length === 0) && (
-              <Text style={styles.noSpecializations}>Nessuna specializzazione</Text>
-            )}
+            ))
+          ) : (
+            <Text style={styles.noCertifications}>Nessuna certificazione</Text>
+          )}
+        </View>
+
+        {currentData?.isVerified && (
+          <View style={styles.verifiedBanner}>
+            <Text style={styles.verifiedBannerText}>✓ Profilo Trainer Verificato</Text>
           </View>
         )}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Certificazioni</Text>
-        
-        {currentData?.certifications && currentData.certifications.length > 0 ? (
-          currentData.certifications.map(cert => (
-            <View key={cert.id} style={styles.certificationCard}>
-              <View style={styles.certificationHeader}>
-                <Text style={styles.certificationName}>{cert.name}</Text>
-                {cert.isVerified && (
-                  <Text style={styles.verifiedBadge}>✓ Verificato</Text>
-                )}
-              </View>
-              <Text style={styles.certificationIssuer}>{cert.issuer}</Text>
-              <Text style={styles.certificationDate}>
-                Rilasciato: {new Date(cert.issueDate).toLocaleDateString('it-IT')}
-              </Text>
-            </View>
-          ))
-        ) : (
-          <Text style={styles.noCertifications}>Nessuna certificazione</Text>
-        )}
-      </View>
-
-      {currentData?.isVerified && (
-        <View style={styles.verifiedBanner}>
-          <Text style={styles.verifiedBannerText}>✓ Profilo Trainer Verificato</Text>
-        </View>
-      )}
-    </ScrollView>
+      </ScrollView>
+      <CustomAlert {...alert} />
+    </View>
   )
 }
 

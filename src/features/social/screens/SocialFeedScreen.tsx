@@ -6,19 +6,20 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native'
 import { useSocial } from '../hooks/useSocial'
 import { Activity, CommunityPost } from '../types/social.types'
 import { ACTIVITY_TYPE_LABELS, POST_TYPE_LABELS, POST_TYPE_ICONS } from '../api/social.api'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 export default function SocialFeedScreen() {
   const { feed, loading, loadMore, likeActivity, unlikeActivity, likePost, unlikePost, refresh } = useSocial()
   const [refreshing, setRefreshing] = useState(false)
   const [newPost, setNewPost] = useState({ title: '', content: '', type: 'DISCUSSION' as const })
   const [showNewPost, setShowNewPost] = useState(false)
+  const { alert, showError, showSuccess } = useCustomAlert()
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -28,18 +29,18 @@ export default function SocialFeedScreen() {
 
   const handleCreatePost = async () => {
     if (newPost.title.trim() === '' || newPost.content.trim() === '') {
-      Alert.alert('Attenzione', 'Compila tutti i campi')
+      showError('Attenzione', 'Compila tutti i campi')
       return
     }
 
     try {
       // Mock implementation - would call createCommunityPost
-      Alert.alert('Successo', 'Post creato!')
+      showSuccess('Successo', 'Post creato!')
       setNewPost({ title: '', content: '', type: 'DISCUSSION' })
       setShowNewPost(false)
       refresh()
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile creare il post')
+      showError('Errore', 'Impossibile creare il post')
     }
   }
 
@@ -51,7 +52,7 @@ export default function SocialFeedScreen() {
         await likeActivity(activity.id)
       }
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile aggiornare il like')
+      showError('Errore', 'Impossibile aggiornare il like')
     }
   }
 
@@ -63,7 +64,7 @@ export default function SocialFeedScreen() {
         await likePost(post.id)
       }
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile aggiornare il like')
+      showError('Errore', 'Impossibile aggiornare il like')
     }
   }
 
@@ -78,7 +79,7 @@ export default function SocialFeedScreen() {
           </View>
           <View style={styles.userDetails}>
             <Text style={styles.userName}>{activity.user?.displayName || 'Utente'}</Text>
-            <Text style={styles.userRole}>{activity.user?.role || 'player'}</Text>
+            <Text style={styles.userRole}>{activity.user?.roles?.[0] || 'PLAYER'}</Text>
           </View>
         </View>
         <Text style={styles.activityTime}>
@@ -186,78 +187,80 @@ export default function SocialFeedScreen() {
   }
 
   return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-      }
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>Community</Text>
-        <TouchableOpacity 
-          style={styles.createButton}
-          onPress={() => setShowNewPost(true)}
-        >
-          <Text style={styles.createButtonText}>+</Text>
-        </TouchableOpacity>
-      </View>
-
-      {showNewPost && (
-        <View style={styles.newPostSection}>
-          <Text style={styles.newPostTitle}>Crea un Post</Text>
-          <TextInput
-            style={styles.postTitleInput}
-            placeholder="Titolo del post..."
-            placeholderTextColor="#6B7280"
-            value={newPost.title}
-            onChangeText={(text) => setNewPost(prev => ({ ...prev, title: text }))}
-          />
-          <TextInput
-            style={styles.postContentInput}
-            placeholder="Contenuto del post..."
-            placeholderTextColor="#6B7280"
-            value={newPost.content}
-            onChangeText={(text) => setNewPost(prev => ({ ...prev, content: text }))}
-            multiline
-            numberOfLines={4}
-          />
-          <View style={styles.newPostActions}>
-            <TouchableOpacity 
-              style={styles.cancelButton}
-              onPress={() => setShowNewPost(false)}
-            >
-              <Text style={styles.cancelButtonText}>Annulla</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.publishButton}
-              onPress={handleCreatePost}
-            >
-              <Text style={styles.publishButtonText}>Pubblica</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      <View style={styles.feed}>
-        {/* Mix activities and posts chronologically */}
-        {[...feed.activities, ...feed.posts]
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-          .map(item => 'user' in item ? renderActivity(item) : renderPost(item))}
-
-        {feed.hasMore && (
-          <TouchableOpacity style={styles.loadMoreButton} onPress={loadMore}>
-            <Text style={styles.loadMoreText}>Carica altro</Text>
+    <View style={styles.container}>
+      <ScrollView 
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Community</Text>
+          <TouchableOpacity 
+            style={styles.createButton}
+            onPress={() => setShowNewPost(true)}
+          >
+            <Text style={styles.createButtonText}>+</Text>
           </TouchableOpacity>
-        )}
+        </View>
 
-        {feed.activities.length === 0 && feed.posts.length === 0 && !loading && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Nessuna attività nella community</Text>
-            <Text style={styles.emptySubtext}>Sii il primo a condividere qualcosa!</Text>
+        {showNewPost && (
+          <View style={styles.newPostSection}>
+            <Text style={styles.newPostTitle}>Crea un Post</Text>
+            <TextInput
+              style={styles.postTitleInput}
+              placeholder="Titolo del post..."
+              placeholderTextColor="#6B7280"
+              value={newPost.title}
+              onChangeText={(text) => setNewPost(prev => ({ ...prev, title: text }))}
+            />
+            <TextInput
+              style={styles.postContentInput}
+              placeholder="Contenuto del post..."
+              placeholderTextColor="#6B7280"
+              value={newPost.content}
+              onChangeText={(text) => setNewPost(prev => ({ ...prev, content: text }))}
+              multiline
+              numberOfLines={4}
+            />
+            <View style={styles.newPostActions}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setShowNewPost(false)}
+              >
+                <Text style={styles.cancelButtonText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.publishButton}
+                onPress={handleCreatePost}
+              >
+                <Text style={styles.publishButtonText}>Pubblica</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
-      </View>
-    </ScrollView>
+
+        <View style={styles.feed}>
+          {/* Mix activities and posts chronologically */}
+          {[...feed.activities, ...feed.posts]
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .map(item => 'user' in item ? renderActivity(item) : renderPost(item))}
+
+          {feed.hasMore && (
+            <TouchableOpacity style={styles.loadMoreButton} onPress={loadMore}>
+              <Text style={styles.loadMoreText}>Carica altro</Text>
+            </TouchableOpacity>
+          )}
+
+          {feed.activities.length === 0 && feed.posts.length === 0 && !loading && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>Nessuna attività nella community</Text>
+              <Text style={styles.emptySubtext}>Sii il primo a condividere qualcosa!</Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+      <CustomAlert {...alert} />
+    </View>
   )
 }
 

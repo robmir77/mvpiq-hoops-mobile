@@ -14,24 +14,24 @@ import { OnlineUserDTO } from '../types/users.types'
 const UserCard = ({ user }: { user: OnlineUserDTO }) => {
     const getRoleColor = (role: string) => {
         const colors: Record<string, string> = {
-            admin: '#ef4444',
-            player: '#3b82f6',
-            trainer: '#10b981',
-            scout: '#f59e0b',
-            creator: '#8b5cf6',
-            guest: '#6b7280',
+            ADMIN: '#ef4444',
+            PLAYER: '#3b82f6',
+            TRAINER: '#10b981',
+            SCOUT: '#f59e0b',
+            CREATOR: '#8b5cf6',
+            GUEST: '#6b7280',
         }
         return colors[role] || '#6b7280'
     }
 
     const getRoleLabel = (role: string) => {
         const labels: Record<string, string> = {
-            admin: 'Admin',
-            player: 'Giocatore',
-            trainer: 'Allenatore',
-            scout: 'Scout',
-            creator: 'Creator',
-            guest: 'Ospite',
+            ADMIN: 'Admin',
+            PLAYER: 'Giocatore',
+            TRAINER: 'Allenatore',
+            SCOUT: 'Scout',
+            CREATOR: 'Creator',
+            GUEST: 'Ospite',
         }
         return labels[role] || role
     }
@@ -64,8 +64,8 @@ const UserCard = ({ user }: { user: OnlineUserDTO }) => {
                     <Text style={styles.userName}>{user.displayName || user.username}</Text>
                     <Text style={styles.userEmail}>{user.email}</Text>
                 </View>
-                <View style={[styles.roleBadge, { backgroundColor: getRoleColor(user.role) }]}>
-                    <Text style={styles.roleText}>{getRoleLabel(user.role)}</Text>
+                <View style={[styles.roleBadge, { backgroundColor: getRoleColor(user.roles?.[0]) }]}>
+                    <Text style={styles.roleText}>{getRoleLabel(user.roles?.[0])}</Text>
                 </View>
             </View>
             <View style={styles.userFooter}>

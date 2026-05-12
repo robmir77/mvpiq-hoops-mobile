@@ -8,7 +8,6 @@ import {
     ScrollView,
     TouchableOpacity,
     ActivityIndicator,
-    Alert,
     RefreshControl,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
@@ -17,6 +16,7 @@ import { MainStackParamList } from '@/app/navigation/types'
 import { useCv } from '../hooks/useCv'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { PlayerCv } from '../types/cv.types'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>
 
@@ -47,6 +47,7 @@ export default function CvScreen() {
 
     const { user } = auth
     const { data: cv, isLoading, isError, refetch } = useCv(user?.id)
+    const { alert, showInfo } = useCustomAlert()
 
     const handleEditCv = () => {
         navigation.navigate('EditCv' as any, { playerId: user?.id })
@@ -151,7 +152,7 @@ export default function CvScreen() {
                     
                     <TouchableOpacity 
                         style={[styles.actionButton, styles.secondaryButton]}
-                        onPress={() => Alert.alert('Anteprima', 'Funzionalità di anteprima PDF in arrivo')}
+                        onPress={() => showInfo('Anteprima', 'Funzionalità di anteprima PDF in arrivo')}
                     >
                         <Text style={[styles.actionButtonText, styles.secondaryButtonText]}>
                             Anteprima PDF
@@ -159,6 +160,7 @@ export default function CvScreen() {
                     </TouchableOpacity>
                 </View>
             </ScrollView>
+            <CustomAlert {...alert} />
         </View>
     )
 }

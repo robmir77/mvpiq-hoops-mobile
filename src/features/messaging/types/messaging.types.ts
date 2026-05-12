@@ -1,3 +1,5 @@
+import { UserRole } from '@/features/auth/types/auth.types'
+
 export type MessageType = 'TEXT' | 'VIDEO' | 'CV' | 'HIGHLIGHT' | 'EVALUATION_REQUEST'
 
 export type MessageStatus = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
@@ -41,7 +43,7 @@ export type User = {
   username: string
   displayName: string
   avatar?: string
-  role: 'player' | 'trainer' | 'scout' | 'creator'
+  role: UserRole
   isOnline: boolean
   lastSeen?: string
 }

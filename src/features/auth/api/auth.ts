@@ -21,7 +21,13 @@ export const login = async (
 
         console.log('💾 TOKEN SALVATO')
 
-        return data.data
+        // 🔥 Convert single role to roles array for backward compatibility
+        const loginData = data.data
+        if (loginData.role && !loginData.roles) {
+            loginData.roles = [loginData.role]
+        }
+
+        return loginData
     } catch (error: any) {
         console.error(
             'Errore login:',
@@ -38,8 +44,7 @@ export const register = async (
     username: string,
     email: string,
     password: string,
-    displayName?: string,
-    role?: UserRole
+    displayName?: string
 ): Promise<LoginResponse> => {
     try {
         const response = await apiClient.post('/auth/register', {
@@ -47,7 +52,6 @@ export const register = async (
             email,
             password,
             displayName,
-            role,
         })
 
         const data = response.data

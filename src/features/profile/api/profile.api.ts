@@ -1,18 +1,18 @@
 // C:\MVPiQHoopsMobile\src\features\profile\api\profile.api.ts
 
 import apiClient from '@/shared/api/apiClient'
-import { PlayerProfile, UpdatePlayerProfile } from '@/features/profile/types/profile.types'
+import { Player, UpdatePlayer } from '@/features/profile/types/profile.types'
 
 // API CORRETTE secondo documentazione
-export const getPlayerProfile = async (
+export const getPlayer = async (
     id: string
-): Promise<PlayerProfile> => {
+): Promise<Player> => {
     try {
-        const response = await apiClient.get<{ data: PlayerProfile }>(
-            `/player-profiles/${id}`
+        const response = await apiClient.get<Player>(
+            `/athlet/${id}`
         )
 
-        return response.data.data
+        return response.data
     } catch (error: any) {
         console.error(
             'Errore caricamento profilo:',
@@ -25,22 +25,22 @@ export const getPlayerProfile = async (
     }
 }
 
-export const getPlayerProfileByUserId = async (
+export const getPlayerByUserId = async (
     userId: string
-): Promise<PlayerProfile> => {
+): Promise<Player> => {
     try {
-        const response = await apiClient.get<{ data: PlayerProfile }>(
-            `/player-profiles/user/${userId}`
+        const response = await apiClient.get<Player>(
+            `/athlet/user/${userId}`
         )
 
-        return response.data.data
+        return response.data
     } catch (error: any) {
         console.error(
             'Errore caricamento profilo utente:',
             error?.response?.data || error.message
         )
 
-        // Fallback: se il backend ha problemi con player-profiles/user/{userId}
+        // Fallback: se il backend ha problemi con athlet/user/{userId}
         // proviamo a recuperare i dati utente e creare un profilo base
         if (error?.response?.status === 500 && error?.response?.data?.message?.includes('user.id')) {
             console.log('🔄 Tentativo fallback con endpoint users/me')
@@ -49,7 +49,7 @@ export const getPlayerProfileByUserId = async (
                 const userData = userResponse.data
                 
                 // Creiamo un profilo base dai dati utente
-                const fallbackProfile: PlayerProfile = {
+                const fallbackProfile: Player = {
                     id: userData.id,
                     userId: userData.id,
                     username: userData.username,
@@ -71,13 +71,13 @@ export const getPlayerProfileByUserId = async (
     }
 }
 
-export const createPlayerProfile = async (
+export const createPlayer = async (
     userId: string,
-    profile: Partial<PlayerProfile>
-): Promise<PlayerProfile> => {
+    profile: Partial<Player>
+): Promise<Player> => {
     try {
-        const response = await apiClient.post<PlayerProfile>(
-            `/player-profiles?userId=${userId}`,
+        const response = await apiClient.post<Player>(
+            `/athlet?userId=${userId}`,
             profile
         )
 
@@ -94,13 +94,13 @@ export const createPlayerProfile = async (
     }
 }
 
-export const updatePlayerProfile = async (
+export const updatePlayer = async (
     id: string,
-    profile: UpdatePlayerProfile
-): Promise<PlayerProfile> => {
+    profile: UpdatePlayer
+): Promise<Player> => {
     try {
-        const response = await apiClient.put<PlayerProfile>(
-            `/player-profiles/${id}`,
+        const response = await apiClient.put<Player>(
+            `/athlet/${id}`,
             profile
         )
 
@@ -118,12 +118,12 @@ export const updatePlayerProfile = async (
     }
 }
 
-export const deletePlayerProfile = async (
+export const deletePlayer = async (
     id: string
 ): Promise<void> => {
     try {
         await apiClient.delete(
-            `/player-profiles/${id}`
+            `/athlet/${id}`
         )
     } catch (error: any) {
         console.error(
@@ -140,10 +140,10 @@ export const deletePlayerProfile = async (
 // API di ricerca e filtraggio
 export const getPlayersByCountry = async (
     country: string
-): Promise<PlayerProfile[]> => {
+): Promise<Player[]> => {
     try {
-        const response = await apiClient.get<PlayerProfile[]>(
-            `/player-profiles/country/${country}`
+        const response = await apiClient.get<Player[]>(
+            `/athletes/country/${country}`
         )
 
         return response.data
@@ -161,10 +161,10 @@ export const getPlayersByCountry = async (
 
 export const getPlayersByLevel = async (
     level: string
-): Promise<PlayerProfile[]> => {
+): Promise<Player[]> => {
     try {
-        const response = await apiClient.get<PlayerProfile[]>(
-            `/player-profiles/level/${level}`
+        const response = await apiClient.get<Player[]>(
+            `/athletes/level/${level}`
         )
 
         return response.data
@@ -182,10 +182,10 @@ export const getPlayersByLevel = async (
 
 export const getPlayersByPosition = async (
     position: string
-): Promise<PlayerProfile[]> => {
+): Promise<Player[]> => {
     try {
-        const response = await apiClient.get<PlayerProfile[]>(
-            `/player-profiles/position/${position}`
+        const response = await apiClient.get<Player[]>(
+            `/athletes/position/${position}`
         )
 
         return response.data
@@ -204,10 +204,10 @@ export const getPlayersByPosition = async (
 export const getPlayersByAgeRange = async (
     minAge: number,
     maxAge: number
-): Promise<PlayerProfile[]> => {
+): Promise<Player[]> => {
     try {
-        const response = await apiClient.get<PlayerProfile[]>(
-            `/player-profiles/age-range?minAge=${minAge}&maxAge=${maxAge}`
+        const response = await apiClient.get<Player[]>(
+            `/athletes/age-range?minAge=${minAge}&maxAge=${maxAge}`
         )
 
         return response.data
@@ -223,10 +223,10 @@ export const getPlayersByAgeRange = async (
     }
 }
 
-export const getPublicPlayerProfiles = async (): Promise<PlayerProfile[]> => {
+export const getPublicPlayers = async (): Promise<Player[]> => {
     try {
-        const response = await apiClient.get<PlayerProfile[]>(
-            '/player-profiles/public'
+        const response = await apiClient.get<Player[]>(
+            '/athletes/public'
         )
 
         return response.data
@@ -242,12 +242,12 @@ export const getPublicPlayerProfiles = async (): Promise<PlayerProfile[]> => {
     }
 }
 
-export const searchPlayerProfiles = async (
+export const searchPlayers = async (
     filters: Record<string, any>
-): Promise<PlayerProfile[]> => {
+): Promise<Player[]> => {
     try {
-        const response = await apiClient.post<PlayerProfile[]>(
-            '/player-profiles/search',
+        const response = await apiClient.post<Player[]>(
+            '/athletes/search',
             filters
         )
 
@@ -269,7 +269,7 @@ export const getPlayerStats = async (
 ): Promise<any> => {
     try {
         const response = await apiClient.get(
-            `/player-profiles/${id}/stats`
+            `/athlet/${id}/stats`
         )
 
         return response.data
@@ -290,7 +290,7 @@ export const getPlayerRankings = async (
 ): Promise<any[]> => {
     try {
         const response = await apiClient.get(
-            `/player-profiles/${id}/rankings`
+            `/athlet/${id}/rankings`
         )
 
         return response.data
@@ -307,9 +307,9 @@ export const getPlayerRankings = async (
 }
 
 // Athlete Management - Alternative Endpoints (dal backend)
-export const getAllAthletes = async (): Promise<PlayerProfile[]> => {
+export const getAllAthletes = async (): Promise<Player[]> => {
     try {
-        const response = await apiClient.get<{ data: PlayerProfile[] }>('/athletes')
+        const response = await apiClient.get<{ data: Player[] }>('/athletes')
 
         return response.data.data
     } catch (error: any) {
@@ -326,9 +326,9 @@ export const getAllAthletes = async (): Promise<PlayerProfile[]> => {
 
 export const getAthleteById = async (
     id: string
-): Promise<PlayerProfile> => {
+): Promise<Player> => {
     try {
-        const response = await apiClient.get<{ data: PlayerProfile }>(`/athlet/${id}`)
+        const response = await apiClient.get<{ data: Player }>(`/athlet/${id}`)
 
         return response.data.data
     } catch (error: any) {
@@ -345,9 +345,9 @@ export const getAthleteById = async (
 
 export const getAthleteByUserId = async (
     userId: string
-): Promise<PlayerProfile> => {
+): Promise<Player> => {
     try {
-        const response = await apiClient.get<{ data: PlayerProfile }>(
+        const response = await apiClient.get<{ data: Player }>(
             `/athlet/user/${userId}`
         )
 
@@ -371,9 +371,9 @@ export const updateAthleteProfile = async (
         secondaryPositionIds?: string[]
         [key: string]: any
     }
-): Promise<PlayerProfile> => {
+): Promise<Player> => {
     try {
-        const response = await apiClient.put<PlayerProfile>(
+        const response = await apiClient.put<Player>(
             `/athlet/${id}`,
             profileData
         )
@@ -392,4 +392,13 @@ export const updateAthleteProfile = async (
 }
 
 // Backward compatibility
-export const getAthleteProfile = getPlayerProfileByUserId
+export const getAthleteProfile = getPlayerByUserId
+
+// Legacy aliases for backward compatibility
+export const getPlayerProfile = getPlayer
+export const getPlayerProfileByUserId = getPlayerByUserId
+export const createPlayerProfile = createPlayer
+export const updatePlayerProfile = updatePlayer
+export const deletePlayerProfile = deletePlayer
+export const getPublicPlayerProfiles = getPublicPlayers
+export const searchPlayerProfiles = searchPlayers

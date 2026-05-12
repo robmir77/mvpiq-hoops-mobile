@@ -1,12 +1,20 @@
 // src/features/auth/types/auth.types.ts
 
 export enum UserRole {
-    ADMIN = 'admin',
-    CREATOR = 'creator',
-    GUEST = 'guest',
-    PLAYER = 'player',
-    SCOUT = 'scout',
-    TRAINER = 'trainer'
+    ADMIN = 'ADMIN',
+    CREATOR = 'CREATOR',
+    GUEST = 'GUEST',
+    PLAYER = 'PLAYER',
+    SCOUT = 'SCOUT',
+    TRAINER = 'TRAINER'
+}
+
+export interface UserRoleAssignment {
+    id: string
+    userId: string
+    role: UserRole
+    assignedAt?: string
+    assignedBy?: string
 }
 
 export interface User {
@@ -14,13 +22,13 @@ export interface User {
     username: string
     displayName?: string
     email?: string
-    role: UserRole
     verified?: boolean
     hasGoals?: boolean
     publicProfile?: boolean
     bio?: string
-    isCreator?: boolean
-    isTrainer?: boolean
+    // Roles are now managed through UserRoleAssignment entity (RBAC system)
+    // isCreator and isTrainer removed - use role assignments instead
+    roles?: UserRole[] // Array of roles for multi-role support
 }
 
 export interface LoginResponse {
@@ -29,11 +37,9 @@ export interface LoginResponse {
     username: string
     displayName?: string
     email?: string
-    role: UserRole
     verified?: boolean
     hasGoals?: boolean
-    isCreator?: boolean
-    isTrainer?: boolean
+    roles?: UserRole[] // Roles returned from login
 }
 
 export interface RegisterRequest {
@@ -41,7 +47,6 @@ export interface RegisterRequest {
     email: string
     password: string
     displayName?: string
-    role?: UserRole
 }
 
 export interface AuthContextType {

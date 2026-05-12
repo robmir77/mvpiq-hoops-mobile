@@ -7,10 +7,10 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
-  Alert,
 } from 'react-native'
 import { searchTrainers, TrainerProfile, TrainerSpecialization } from '@/features/trainer/api/trainer.api'
 import { getGlobalRanking } from '@/features/ranking/api/ranking.api'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type SearchFilters = {
   ageRange: [number, number]
@@ -37,6 +37,7 @@ export default function ScoutingScreen() {
   const [results, setResults] = useState<any[]>([])
   const [showFilters, setShowFilters] = useState(false)
   const [searchType, setSearchType] = useState<'athletes' | 'trainers'>('athletes')
+  const { alert, showError } = useCustomAlert()
 
   useEffect(() => {
     loadInitialData()
@@ -57,7 +58,7 @@ export default function ScoutingScreen() {
 
   const handleSearch = async () => {
     if (!searchQuery.trim() && !hasActiveFilters()) {
-      Alert.alert('Attenzione', 'Inserisci una query di ricerca o seleziona dei filtri')
+      showError('Attenzione', 'Inserisci una query di ricerca o seleziona dei filtri')
       return
     }
 
@@ -78,7 +79,7 @@ export default function ScoutingScreen() {
       }
     } catch (error) {
       console.error('Error searching:', error)
-      Alert.alert('Errore', 'Impossibile eseguire la ricerca')
+      showError('Errore', 'Impossibile eseguire la ricerca')
     } finally {
       setLoading(false)
     }
@@ -181,116 +182,119 @@ export default function ScoutingScreen() {
   )
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Scouting</Text>
-        <View style={styles.searchTypeToggle}>
-          <TouchableOpacity
-            style={[
-              styles.typeButton,
-              searchType === 'athletes' && styles.typeButtonActive
-            ]}
-            onPress={() => setSearchType('athletes')}
-          >
-            <Text style={[
-              styles.typeButtonText,
-              searchType === 'athletes' && styles.typeButtonTextActive
-            ]}>
-              Atleti
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.typeButton,
-              searchType === 'trainers' && styles.typeButtonActive
-            ]}
-            onPress={() => setSearchType('trainers')}
-          >
-            <Text style={[
-              styles.typeButtonText,
-              searchType === 'trainers' && styles.typeButtonTextActive
-            ]}>
-              Trainer
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.searchSection}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder={`Cerca ${searchType === 'athletes' ? 'atleti' : 'trainer'}...`}
-          placeholderTextColor="#6B7280"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        
-        <View style={styles.searchActions}>
-          <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilters(!showFilters)}>
-            <Text style={styles.filterButtonText}>Filtri {hasActiveFilters() && '•'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-            <Text style={styles.searchButtonText}>Cerca</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {showFilters && (
-        <View style={styles.filtersSection}>
-          <View style={styles.filterRow}>
-            <Text style={styles.filterLabel}>Età: {filters.ageRange[0]}-{filters.ageRange[1]}</Text>
-            <Text style={styles.filterLabel}>Altezza: {filters.heightRange[0]}-{filters.heightRange[1]}cm</Text>
-          </View>
-          
-          <View style={styles.filterRow}>
-            <TextInput
-              style={styles.filterInput}
-              placeholder="Posizione"
-              placeholderTextColor="#6B7280"
-              value={filters.position}
-              onChangeText={(text) => setFilters(prev => ({ ...prev, position: text }))}
-            />
-            <TextInput
-              style={styles.filterInput}
-              placeholder="Località"
-              placeholderTextColor="#6B7280"
-              value={filters.location}
-              onChangeText={(text) => setFilters(prev => ({ ...prev, location: text }))}
-            />
-          </View>
-
-          <View style={styles.filterActions}>
-            <TouchableOpacity style={styles.clearButton} onPress={clearFilters}>
-              <Text style={styles.clearButtonText}>Pulisci</Text>
+    <View style={styles.container}>
+      <ScrollView>
+        <View style={styles.header}>
+          <Text style={styles.title}>Scouting</Text>
+          <View style={styles.searchTypeToggle}>
+            <TouchableOpacity
+              style={[
+                styles.typeButton,
+                searchType === 'athletes' && styles.typeButtonActive
+              ]}
+              onPress={() => setSearchType('athletes')}
+            >
+              <Text style={[
+                styles.typeButtonText,
+                searchType === 'athletes' && styles.typeButtonTextActive
+              ]}>
+                Atleti
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.typeButton,
+                searchType === 'trainers' && styles.typeButtonActive
+              ]}
+              onPress={() => setSearchType('trainers')}
+            >
+              <Text style={[
+                styles.typeButtonText,
+                searchType === 'trainers' && styles.typeButtonTextActive
+              ]}>
+                Trainer
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
-      )}
 
-      <View style={styles.resultsSection}>
-        <Text style={styles.resultsTitle}>
-          Risultati ({results.length})
-        </Text>
-        
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#F97316" />
+        <View style={styles.searchSection}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder={`Cerca ${searchType === 'athletes' ? 'atleti' : 'trainer'}...`}
+            placeholderTextColor="#6B7280"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          
+          <View style={styles.searchActions}>
+            <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilters(!showFilters)}>
+              <Text style={styles.filterButtonText}>Filtri {hasActiveFilters() && '•'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+              <Text style={styles.searchButtonText}>Cerca</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          <View style={styles.resultsList}>
-            {results.map(item => 
-              searchType === 'athletes' ? renderAthleteCard(item) : renderTrainerCard(item)
-            )}
+        </View>
+
+        {showFilters && (
+          <View style={styles.filtersSection}>
+            <View style={styles.filterRow}>
+              <Text style={styles.filterLabel}>Età: {filters.ageRange[0]}-{filters.ageRange[1]}</Text>
+              <Text style={styles.filterLabel}>Altezza: {filters.heightRange[0]}-{filters.heightRange[1]}cm</Text>
+            </View>
             
-            {results.length === 0 && !loading && (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>Nessun risultato trovato</Text>
-              </View>
-            )}
+            <View style={styles.filterRow}>
+              <TextInput
+                style={styles.filterInput}
+                placeholder="Posizione"
+                placeholderTextColor="#6B7280"
+                value={filters.position}
+                onChangeText={(text) => setFilters(prev => ({ ...prev, position: text }))}
+              />
+              <TextInput
+                style={styles.filterInput}
+                placeholder="Località"
+                placeholderTextColor="#6B7280"
+                value={filters.location}
+                onChangeText={(text) => setFilters(prev => ({ ...prev, location: text }))}
+              />
+            </View>
+
+            <View style={styles.filterActions}>
+              <TouchableOpacity style={styles.clearButton} onPress={clearFilters}>
+                <Text style={styles.clearButtonText}>Pulisci</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
-      </View>
-    </ScrollView>
+
+        <View style={styles.resultsSection}>
+          <Text style={styles.resultsTitle}>
+            Risultati ({results.length})
+          </Text>
+          
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#F97316" />
+            </View>
+          ) : (
+            <View style={styles.resultsList}>
+              {results.map(item => 
+                searchType === 'athletes' ? renderAthleteCard(item) : renderTrainerCard(item)
+              )}
+              
+              {results.length === 0 && !loading && (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>Nessun risultato trovato</Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+      <CustomAlert {...alert} />
+    </View>
   )
 }
 

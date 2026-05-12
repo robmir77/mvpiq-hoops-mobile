@@ -1,7 +1,5 @@
 // src/shared/utils/errorHandler.ts
 
-import { Alert } from 'react-native'
-
 export interface ApiError {
     response?: {
         status: number
@@ -31,11 +29,6 @@ export const handleApiError = (error: ApiError): string => {
         default:
             return message || 'Errore imprevisto. Riprova.'
     }
-}
-
-export const showErrorAlert = (title: string, error: ApiError) => {
-    const message = handleApiError(error)
-    Alert.alert(title, message, [{ text: 'OK', style: 'default' }])
 }
 
 export const isAuthError = (error: ApiError): boolean => {

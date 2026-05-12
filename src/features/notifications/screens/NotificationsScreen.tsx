@@ -8,7 +8,6 @@ import {
     ScrollView,
     RefreshControl,
     TouchableOpacity,
-    Alert,
 } from 'react-native'
 
 import { useNavigation } from '@react-navigation/native'
@@ -21,6 +20,7 @@ import {
     useDeleteAllNotifications
 } from '../hooks/useNotifications'
 import { Notification, NotificationType } from '../types/notifications.types'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 export default function NotificationsScreen() {
     const navigation = useNavigation<any>()
@@ -29,43 +29,33 @@ export default function NotificationsScreen() {
     if (!auth) return null
 
     const { user } = auth
+    if (!user) return null
+
     const { data: notifications, isLoading, refetch } = useUserNotifications(user.id)
     const { data: unreadCount, refetch: refetchUnreadCount } = useUnreadNotificationsCount(user.id)
     
     const markAsReadMutation = useMarkNotificationAsRead()
     const markAllAsReadMutation = useMarkAllNotificationsAsRead()
     const deleteAllMutation = useDeleteAllNotifications()
+    const { alert, showWarning } = useCustomAlert()
 
     const handleMarkAsRead = (notificationId: string) => {
         markAsReadMutation.mutate(notificationId)
     }
 
     const handleMarkAllAsRead = () => {
-        Alert.alert(
+        showWarning(
             'Conferma',
             'Sei sicuro di voler segnare tutte le notifiche come lette?',
-            [
-                { text: 'Annulla', style: 'cancel' },
-                { 
-                    text: 'Conferma', 
-                    onPress: () => markAllAsReadMutation.mutate(user.id)
-                }
-            ]
+            () => markAllAsReadMutation.mutate(user.id)
         )
     }
 
     const handleDeleteAll = () => {
-        Alert.alert(
+        showWarning(
             'Conferma',
             'Sei sicuro di voler eliminare tutte le notifiche?',
-            [
-                { text: 'Annulla', style: 'cancel' },
-                { 
-                    text: 'Elimina', 
-                    style: 'destructive',
-                    onPress: () => deleteAllMutation.mutate(user.id)
-                }
-            ]
+            () => deleteAllMutation.mutate(user.id)
         )
     }
 
@@ -227,6 +217,7 @@ export default function NotificationsScreen() {
                     Array.isArray(notifications) ? notifications.map(renderNotification) : []
                 )}
             </ScrollView>
+            <CustomAlert {...alert} />
         </View>
     )
 }

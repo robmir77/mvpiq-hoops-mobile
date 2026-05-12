@@ -8,7 +8,6 @@ import {
     ScrollView,
     TouchableOpacity,
     ActivityIndicator,
-    Alert,
     RefreshControl,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
@@ -17,6 +16,7 @@ import { MainStackParamList } from '@/app/navigation/types'
 import { useGoals } from '../hooks/useGoals'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { Goal } from '../types/goals.types'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>
 
@@ -52,16 +52,13 @@ export default function GoalsScreen() {
 
     const { user } = auth
     const { data: goals, isLoading, isError, refetch } = useGoals(user?.id)
+    const { alert, showInfo } = useCustomAlert()
 
     const handleGoalPress = (goal: Goal) => {
         // Naviga ai dettagli del goal o permette di modificarlo
-        Alert.alert(
+        showInfo(
             'Dettagli Goal',
-            `${goal.title}\n\n${goal.description || 'Nessuna descrizione'}`,
-            [
-                { text: 'Chiudi', style: 'cancel' },
-                { text: 'Modifica', onPress: () => console.log('Modifica goal:', goal.id) }
-            ]
+            `${goal.title}\n\n${goal.description || 'Nessuna descrizione'}`
         )
     }
 
@@ -124,6 +121,7 @@ export default function GoalsScreen() {
                     ))
                 )}
             </ScrollView>
+            <CustomAlert {...alert} />
         </View>
     )
 }

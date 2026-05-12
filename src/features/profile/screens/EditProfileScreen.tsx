@@ -14,7 +14,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useProfile } from '../hooks/useProfile'
 import { useUpdateProfile } from '../hooks/useUpdateProfile'
 import { getPositions, PositionMetadata } from '../api/position.api'
-import { PlayerProfile } from '../types/profile.types'
+import { Player } from '../types/profile.types'
 
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { PositionCard } from '@/shared/components/PositionCard'
@@ -158,7 +158,7 @@ export default function EditProfileScreen() {
             })
 
             showSuccess('Successo', 'Profilo aggiornato', () => {
-                navigation.navigate('UserProfile')
+                navigation.goBack()
             })
         } catch (error: any) {
             console.error('Error updating profile:', error)

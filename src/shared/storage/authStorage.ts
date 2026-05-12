@@ -16,9 +16,16 @@ export const loadAuth = async () => {
     const token = values[0][1];
     const userRaw = values[1][1];
 
+    let user = userRaw ? JSON.parse(userRaw) : null;
+
+    // 🔥 Convert single role to roles array for backward compatibility
+    if (user && user.role && !user.roles) {
+        user.roles = [user.role];
+    }
+
     return {
         token,
-        user: userRaw ? JSON.parse(userRaw) : null,
+        user,
     };
 };
 

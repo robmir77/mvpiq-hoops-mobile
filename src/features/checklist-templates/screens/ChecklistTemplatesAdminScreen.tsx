@@ -6,7 +6,6 @@ import {
     ScrollView,
     TouchableOpacity,
     ActivityIndicator,
-    Alert,
     RefreshControl,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
@@ -14,6 +13,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useChecklistTemplates, useDeleteChecklistTemplate } from '../hooks/useChecklistTemplates'
 import { ChecklistTemplate } from '../types/checklist-templates.types'
 import { AuthContext } from '@/features/auth/context/AuthContext'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type NavigationProp = NativeStackNavigationProp<any>
 
@@ -59,6 +59,7 @@ export default function ChecklistTemplatesAdminScreen() {
     const auth = useContext(AuthContext)
     const { data: templates, isLoading, isError, refetch } = useChecklistTemplates()
     const deleteMutation = useDeleteChecklistTemplate()
+    const { alert, showWarning, showError, showSuccess } = useCustomAlert()
 
     const handleCreateTemplate = () => {
         navigation.navigate('ChecklistTemplateEdit' as any)
@@ -69,24 +70,18 @@ export default function ChecklistTemplatesAdminScreen() {
     }
 
     const handleDeleteTemplate = (template: ChecklistTemplate) => {
-        Alert.alert(
+        showWarning(
             'Conferma Eliminazione',
             `Sei sicuro di voler eliminare il template "${template.name}"?`,
-            [
-                { text: 'Annulla', style: 'cancel' },
-                {
-                    text: 'Elimina',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await deleteMutation.mutateAsync(template.id)
-                            Alert.alert('Successo', 'Template eliminato con successo')
-                        } catch (error: any) {
-                            Alert.alert('Errore', error.message || 'Impossibile eliminare il template')
-                        }
-                    }
+            async () => {
+                try {
+                    await deleteMutation.mutateAsync(template.id)
+                    showSuccess('Successo', 'Template eliminato con successo')
+                    refetch()
+                } catch (error: any) {
+                    showError('Errore', error.message || 'Impossibile eliminare il template')
                 }
-            ]
+            }
         )
     }
 
@@ -147,6 +142,7 @@ export default function ChecklistTemplatesAdminScreen() {
                     ))
                 )}
             </ScrollView>
+            <CustomAlert {...alert} />
         </View>
     )
 }

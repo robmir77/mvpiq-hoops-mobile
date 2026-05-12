@@ -4,13 +4,13 @@ import {
     Text,
     TextInput,
     ScrollView,
-    Button,
-    Alert,
+    TouchableOpacity,
 } from 'react-native'
 import { useRoute } from '@react-navigation/native'
 import { getPlayerCv, updatePlayerCv } from '../api/cv.api'
 import { PlayerCv, PlayerCvTeam } from '../types/cv.types'
 import { globalStyles } from '@/shared/theme/globalStyles'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 export default function EditCvScreen() {
     const route = useRoute<any>()
@@ -18,6 +18,7 @@ export default function EditCvScreen() {
     console.log('ROUTE PARAMS', route.params)
 
     const playerId = route.params.playerId
+    const { alert, showError, showSuccess } = useCustomAlert()
 
 
     const [cv, setCv] = useState<PlayerCv>({
@@ -36,7 +37,7 @@ export default function EditCvScreen() {
                 teams: data.teams ?? [],
             })
         } catch {
-            Alert.alert('Errore', 'Impossibile caricare CV')
+            showError('Errore', 'Impossibile caricare CV')
         }
     }
 
@@ -75,9 +76,9 @@ export default function EditCvScreen() {
     const save = async () => {
         try {
             await updatePlayerCv(playerId, cv)
-            Alert.alert('Successo', 'CV aggiornato')
+            showSuccess('Successo', 'CV aggiornato')
         } catch {
-            Alert.alert('Errore', 'Errore salvataggio CV')
+            showError('Errore', 'Errore salvataggio CV')
         }
     }
 
@@ -160,18 +161,25 @@ export default function EditCvScreen() {
                         }
                     />
 
-                    <Button
-                        title="Rimuovi"
+                    <TouchableOpacity
+                        style={globalStyles.button}
                         onPress={() => removeTeam(index)}
-                    />
+                    >
+                        <Text style={globalStyles.buttonText}>Rimuovi</Text>
+                    </TouchableOpacity>
                 </View>
             ))}
 
-            <Button title="Aggiungi squadra" onPress={addTeam} />
+            <TouchableOpacity style={globalStyles.button} onPress={addTeam}>
+                <Text style={globalStyles.buttonText}>Aggiungi squadra</Text>
+            </TouchableOpacity>
 
             <View style={{ marginTop: 30 }}>
-                <Button title="Salva CV" onPress={save} />
+                <TouchableOpacity style={globalStyles.button} onPress={save}>
+                    <Text style={globalStyles.buttonText}>Salva CV</Text>
+                </TouchableOpacity>
             </View>
+            <CustomAlert {...alert} />
         </ScrollView>
     )
 }

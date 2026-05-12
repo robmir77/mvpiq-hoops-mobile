@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react"
-import { View, Button, Text, StyleSheet } from "react-native"
+import { View, TouchableOpacity, Text, StyleSheet } from "react-native"
 
 import { CameraView, useCameraPermissions } from "expo-camera"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
@@ -8,6 +8,7 @@ import { VideoAnalysisType } from "../types/videoAnalysis.types"
 import * as ImagePicker from "expo-image-picker"
 import { AuthContext } from "@/features/auth/context/AuthContext"
 import { useContext } from "react"
+import { globalStyles } from "@/shared/theme/globalStyles"
 
 type VideoAnalysisStackParamList = {
     VideoRecorder: {
@@ -43,6 +44,10 @@ export default function VideoAnalysisRecorderScreen({
     }
 
     const { user } = auth
+
+    if (!user) {
+        throw new Error("User not available")
+    }
 
     useEffect(() => {
         if (!permission) return
@@ -151,15 +156,21 @@ export default function VideoAnalysisRecorderScreen({
                 mode="video"
             />
 
-            <Button
-                title="📂 Upload from gallery"
+            <TouchableOpacity
+                style={globalStyles.button}
                 onPress={pickVideoFromGallery}
-            />
+            >
+                <Text style={globalStyles.buttonText}>📂 Upload from gallery</Text>
+            </TouchableOpacity>
 
             {!recording ? (
-                <Button title="🎥 Record video" onPress={recordVideo} />
+                <TouchableOpacity style={globalStyles.button} onPress={recordVideo}>
+                    <Text style={globalStyles.buttonText}>🎥 Record video</Text>
+                </TouchableOpacity>
             ) : (
-                <Button title="🎥 Stop Recording" onPress={stopRecording} />
+                <TouchableOpacity style={globalStyles.button} onPress={stopRecording}>
+                    <Text style={globalStyles.buttonText}>🎥 Stop Recording</Text>
+                </TouchableOpacity>
             )}
 
         </View>

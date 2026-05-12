@@ -1,7 +1,7 @@
 // src/features/notifications/hooks/useFirebaseNotifications.ts
 
 import { useEffect, useContext } from 'react'
-import { Alert, Platform } from 'react-native'
+import { Platform } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useRegisterDeviceToken } from './useDeviceToken'
@@ -16,12 +16,14 @@ export const useFirebaseNotifications = () => {
     useEffect(() => {
         if (!auth?.user?.id) return
 
+        const userId = auth.user.id
+
         const initializeNotifications = async () => {
             try {
                 console.log('🔥 Inizializzazione notifiche Firebase...')
 
                 // Inizializza il servizio Firebase
-                await FirebaseService.initialize(auth.user.id)
+                await FirebaseService.initialize(userId)
 
                 // Ottieni e registra il token
                 const token = await FirebaseService.getFCMToken()
@@ -37,17 +39,7 @@ export const useFirebaseNotifications = () => {
                 // Ascolta i messaggi in foreground
                 const unsubscribeForeground = FirebaseService.onForegroundMessage((message) => {
                     console.log('📨 Messaggio ricevuto in foreground:', message)
-                    
-                    // Mostra un alert per i messaggi in foreground
-                    if (message.notification) {
-                        Alert.alert(
-                            message.notification.title || 'Nuova Notifica',
-                            message.notification.body || 'Hai ricevuto una nuova notifica',
-                            [
-                                { text: 'OK' }
-                            ]
-                        )
-                    }
+                    // Notifiche in foreground gestite dal sistema di notifiche
                 })
 
                 // Ascolta le notifiche aperte da background

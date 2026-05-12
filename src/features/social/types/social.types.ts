@@ -42,7 +42,7 @@ export type ActivityUser = {
   username: string
   displayName: string
   avatar?: string
-  role: string
+  roles: string[]
 }
 
 export type ActivityLike = {

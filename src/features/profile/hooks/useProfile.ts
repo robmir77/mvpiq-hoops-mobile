@@ -1,12 +1,12 @@
 // C:\MVPiQHoopsMobile\src\features\profile\hooks\useProfile.ts
 
 import { useQuery } from '@tanstack/react-query'
-import { getPlayerProfileByUserId, getAllAthletes } from '../api/profile.api'
+import { getPlayerByUserId, getAllAthletes } from '../api/profile.api'
 
 export const useProfile = (userId?: string) => {
     return useQuery({
         queryKey: ['profile', userId],
-        queryFn: () => getPlayerProfileByUserId(userId!),
+        queryFn: () => getPlayerByUserId(userId!),
         enabled: !!userId,
     })
 }
@@ -14,7 +14,7 @@ export const useProfile = (userId?: string) => {
 export const useProfileById = (profileId?: string) => {
     return useQuery({
         queryKey: ['profile', profileId],
-        queryFn: () => getPlayerProfileByUserId(profileId!),
+        queryFn: () => getPlayerByUserId(profileId!),
         enabled: !!profileId,
     })
 }

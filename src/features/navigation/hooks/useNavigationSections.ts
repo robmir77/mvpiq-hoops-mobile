@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getNavigationSections, checkSectionAccess } from '../api/navigation.api'
 import { NavigationSection } from '@/features/auth/types/auth.types'
-import { showErrorAlert, isAuthError, isPermissionError } from '@/shared/utils/errorHandler'
+import { isAuthError, isPermissionError, handleApiError } from '@/shared/utils/errorHandler'
 
 export const useNavigationSections = () => {
     const queryClient = useQueryClient()
@@ -20,11 +20,9 @@ export const useNavigationSections = () => {
             try {
                 return await getNavigationSections()
             } catch (err: any) {
-                if (isAuthError(err)) {
-                    showErrorAlert('Errore Autenticazione', err)
-                } else if (isPermissionError(err)) {
-                    showErrorAlert('Errore Permessi', err)
-                }
+                // Log error ma non mostrare alert in queryFn
+                // L'errore verrà gestito dal componente che usa questo hook
+                console.error('Errore caricamento navigazione:', err)
                 throw err
             }
         },

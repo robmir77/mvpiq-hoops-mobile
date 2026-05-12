@@ -44,7 +44,11 @@ export default function AppNavigator() {
                     <Stack.Screen
                         name="EditCv"
                         component={EditCvScreen}
-                        options={{ title: 'Curriculum Sportivo' }}
+                        options={{
+                            title: 'Curriculum Sportivo',
+                            headerStyle: { backgroundColor: '#0b0f1a' },
+                            headerTintColor: '#fff',
+                        }}
                     />
 
                     <Stack.Screen

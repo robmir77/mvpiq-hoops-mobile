@@ -6,19 +6,20 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { useTeams } from '../hooks/useTeams'
 import { Team, TeamInvitation } from '../types/teams.types'
 import { TEAM_CATEGORY_LABELS, TEAM_STATUS_LABELS } from '../api/teams.api'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 export default function TeamsHomeScreen() {
   const navigation = useNavigation()
   const { teams, invitations, loading, selectTeam, respondToInvitation } = useTeams()
   const [searchQuery, setSearchQuery] = useState('')
   const [showInvitations, setShowInvitations] = useState(false)
+  const { alert, showSuccess, showError } = useCustomAlert()
 
   const filteredTeams = teams.filter(team => 
     team.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -27,18 +28,18 @@ export default function TeamsHomeScreen() {
 
   const handleViewTeam = (team: Team) => {
     selectTeam(team)
-    navigation.navigate('TeamDetail' as any, { teamId: team.id })
+    ;(navigation.navigate as any)('TeamDetail', { teamId: team.id })
   }
 
   const handleRespondToInvitation = async (invitation: TeamInvitation, accept: boolean) => {
     try {
       await respondToInvitation(invitation.id, accept)
-      Alert.alert(
+      showSuccess(
         'Successo', 
         accept ? 'Sei entrato nella squadra!' : 'Invito rifiutato'
       )
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile rispondere all\'invito')
+      showError('Errore', 'Impossibile rispondere all\'invito')
     }
   }
 
@@ -127,74 +128,77 @@ export default function TeamsHomeScreen() {
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Le Tue Squadre</Text>
-        <TouchableOpacity 
-          style={styles.createButton}
-          onPress={() => navigation.navigate('CreateTeam' as any)}
-        >
-          <Text style={styles.createButtonText}>+</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchSection}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Cerca squadre..."
-          placeholderTextColor="#6B7280"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
-      {invitations.length > 0 && (
-        <View style={styles.invitationsSection}>
+    <View style={styles.container}>
+      <ScrollView>
+        <View style={styles.header}>
+          <Text style={styles.title}>Le Tue Squadre</Text>
           <TouchableOpacity 
-            style={styles.invitationsHeader}
-            onPress={() => setShowInvitations(!showInvitations)}
+            style={styles.createButton}
+            onPress={() => (navigation.navigate as any)('CreateTeam')}
           >
-            <Text style={styles.invitationsTitle}>
-              Inviti ({invitations.length})
-            </Text>
-            <Text style={styles.invitationsToggle}>
-              {showInvitations ? '▼' : '▶'}
-            </Text>
+            <Text style={styles.createButtonText}>+</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.searchSection}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Cerca squadre..."
+            placeholderTextColor="#6B7280"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+
+        {invitations.length > 0 && (
+          <View style={styles.invitationsSection}>
+            <TouchableOpacity 
+              style={styles.invitationsHeader}
+              onPress={() => setShowInvitations(!showInvitations)}
+            >
+              <Text style={styles.invitationsTitle}>
+                Inviti ({invitations.length})
+              </Text>
+              <Text style={styles.invitationsToggle}>
+                {showInvitations ? '▼' : '▶'}
+              </Text>
+            </TouchableOpacity>
+            
+            {showInvitations && (
+              <View style={styles.invitationsList}>
+                {invitations.map(renderInvitationCard)}
+              </View>
+            )}
+          </View>
+        )}
+
+        <View style={styles.teamsSection}>
+          <Text style={styles.sectionTitle}>
+            Le Tue Squadre ({filteredTeams.length})
+          </Text>
           
-          {showInvitations && (
-            <View style={styles.invitationsList}>
-              {invitations.map(renderInvitationCard)}
+          {filteredTeams.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>Nessuna squadra</Text>
+              <Text style={styles.emptyDescription}>
+                Crea una nuova squadra o unisciti a una esistente
+              </Text>
+              <TouchableOpacity 
+                style={styles.joinButton}
+                onPress={() => (navigation.navigate as any)('SearchTeams')}
+              >
+                <Text style={styles.joinButtonText}>Cerca Squadre</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.teamsList}>
+              {filteredTeams.map(renderTeamCard)}
             </View>
           )}
         </View>
-      )}
-
-      <View style={styles.teamsSection}>
-        <Text style={styles.sectionTitle}>
-          Le Tue Squadre ({filteredTeams.length})
-        </Text>
-        
-        {filteredTeams.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>Nessuna squadra</Text>
-            <Text style={styles.emptyDescription}>
-              Crea una nuova squadra o unisciti a una esistente
-            </Text>
-            <TouchableOpacity 
-              style={styles.joinButton}
-              onPress={() => navigation.navigate('SearchTeams' as any)}
-            >
-              <Text style={styles.joinButtonText}>Cerca Squadre</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.teamsList}>
-            {filteredTeams.map(renderTeamCard)}
-          </View>
-        )}
-      </View>
-    </ScrollView>
+      </ScrollView>
+      <CustomAlert {...alert} />
+    </View>
   )
 }
 

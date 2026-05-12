@@ -8,7 +8,6 @@ import {
     ScrollView,
     TouchableOpacity,
     TextInput,
-    Alert,
 } from 'react-native'
 
 import { useNavigation } from '@react-navigation/native'
@@ -21,6 +20,7 @@ import {
 import { PositionCard } from '@/shared/components/PositionCard'
 import { getAllPositions } from '@/features/positions/api/positions.api'
 import { PositionMetadata } from '@/features/positions/types/positions.types'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 export default function AiTrainingGeneratorScreen() {
     const navigation = useNavigation<any>()
@@ -30,6 +30,7 @@ export default function AiTrainingGeneratorScreen() {
 
     const { user } = auth
     const generateMutation = useGenerateTrainingProgram()
+    const { alert, showError, showSuccess } = useCustomAlert()
 
     const [goal, setGoal] = useState('')
     const [skillLevel, setSkillLevel] = useState<SkillLevel>(SkillLevel.INTERMEDIATE)
@@ -46,27 +47,19 @@ export default function AiTrainingGeneratorScreen() {
             try {
                 const data = await getAllPositions()
                 setPositions(data)
-                
-                // Imposta la posizione principale dell'utente come default
-                if (user?.mainPosition) {
-                    const userPosition = data.find(p => p.code === user.mainPosition)
-                    if (userPosition) {
-                        setPositionId(userPosition.id)
-                    }
-                }
             } catch {
-                Alert.alert('Errore', 'Impossibile caricare posizioni')
+                showError('Errore', 'Impossibile caricare posizioni')
             } finally {
                 setLoadingPositions(false)
             }
         }
 
         loadPositions()
-    }, [user?.mainPosition])
+    }, [])
 
     const handleGenerate = () => {
         if (!goal.trim()) {
-            Alert.alert('Errore', 'Inserisci un obiettivo valido')
+            showError('Errore', 'Inserisci un obiettivo valido')
             return
         }
 
@@ -86,15 +79,10 @@ export default function AiTrainingGeneratorScreen() {
         generateMutation.mutate(request, {
             onSuccess: (data: any) => {
                 if (data?.program) {
-                    Alert.alert(
+                    showSuccess(
                         'Successo',
                         'Programma di allenamento generato con successo!',
-                        [
-                            { text: 'OK', onPress: () => {
-                                // Naviga al programma generato
-                                navigation.navigate('AiTrainingProgram', { programId: data.program.id })
-                            }}
-                        ]
+                        () => navigation.navigate('AiTrainingProgram', { programId: data.program.id })
                     )
                 }
             }
@@ -225,6 +213,7 @@ export default function AiTrainingGeneratorScreen() {
                     </View>
                 )}
             </ScrollView>
+            <CustomAlert {...alert} />
         </View>
     )
 }

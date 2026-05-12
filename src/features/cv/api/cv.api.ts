@@ -3,11 +3,11 @@ import { PlayerCv } from '../types/cv.types'
 
 export const getPlayerCv = async (playerId: string): Promise<PlayerCv> => {
     try {
-        const response = await apiClient.get<{ data: PlayerCv }>(
+        const response = await apiClient.get<PlayerCv>(
             `/players/${playerId}/cv`
         )
 
-        return response.data.data
+        return response.data
     } catch (error: any) {
         console.error(
             'Errore caricamento CV giocatore:',
@@ -37,12 +37,12 @@ export const updatePlayerCv = async (
     data: PlayerCv
 ): Promise<PlayerCv> => {
     try {
-        const response = await apiClient.put<{ data: PlayerCv }>(
+        const response = await apiClient.put<PlayerCv>(
             `/players/${playerId}/cv`,
             data
         )
 
-        return response.data.data
+        return response.data
     } catch (error: any) {
         console.error(
             'Errore aggiornamento CV giocatore:',

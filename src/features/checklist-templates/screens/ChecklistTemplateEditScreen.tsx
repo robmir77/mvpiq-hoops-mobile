@@ -7,12 +7,12 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    Alert,
 } from 'react-native'
 import { useNavigation, useRoute } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useChecklistTemplate, useCreateChecklistTemplate, useUpdateChecklistTemplate } from '../hooks/useChecklistTemplates'
 import { ChecklistTemplate, ChecklistTemplateItem, DataType, SelectSource, EntryType } from '../types/checklist-templates.types'
+import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 type NavigationProp = NativeStackNavigationProp<any>
 type RouteProp = any
@@ -97,6 +97,7 @@ export default function ChecklistTemplateEditScreen() {
     const { data: existingTemplate, isLoading: isLoadingTemplate } = useChecklistTemplate(templateId || '')
     const createMutation = useCreateChecklistTemplate()
     const updateMutation = useUpdateChecklistTemplate()
+    const { alert, showError, showSuccess } = useCustomAlert()
 
     const [code, setCode] = useState('')
     const [name, setName] = useState('')
@@ -146,18 +147,18 @@ export default function ChecklistTemplateEditScreen() {
         console.log('TemplateId:', templateId)
 
         if (!code || !name) {
-            Alert.alert('Errore', 'Compila tutti i campi obbligatori')
+            showError('Errore', 'Compila tutti i campi obbligatori')
             return
         }
 
         if (items.length === 0) {
-            Alert.alert('Errore', 'Aggiungi almeno un item alla checklist')
+            showError('Errore', 'Aggiungi almeno un item alla checklist')
             return
         }
 
         const invalidItem = items.find(item => !item.label || !item.dataType)
         if (invalidItem) {
-            Alert.alert('Errore', 'Compila tutti i campi degli items')
+            showError('Errore', 'Compila tutti i campi degli items')
             return
         }
 
@@ -174,19 +175,17 @@ export default function ChecklistTemplateEditScreen() {
             if (templateId) {
                 console.log('Aggiornamento template esistente:', templateId)
                 await updateMutation.mutateAsync({ id: templateId, payload })
-                Alert.alert('Successo', 'Template aggiornato con successo')
+                showSuccess('Successo', 'Template aggiornato con successo', () => navigation.goBack())
             } else {
                 console.log('Creazione nuovo template')
                 await createMutation.mutateAsync(payload as any)
-                Alert.alert('Successo', 'Template creato con successo')
+                showSuccess('Successo', 'Template creato con successo', () => navigation.goBack())
             }
-
-            navigation.goBack()
         } catch (error: any) {
             console.error('Errore salvataggio:', error)
             console.error('Error response:', error?.response?.data)
             console.error('Error message:', error?.message)
-            Alert.alert('Errore', error?.response?.data?.message || error.message || 'Impossibile salvare il template')
+            showError('Errore', error?.response?.data?.message || error.message || 'Impossibile salvare il template')
         }
     }
 
@@ -285,6 +284,7 @@ export default function ChecklistTemplateEditScreen() {
                     )}
                 </TouchableOpacity>
             </ScrollView>
+            <CustomAlert {...alert} />
         </View>
     )
 }
