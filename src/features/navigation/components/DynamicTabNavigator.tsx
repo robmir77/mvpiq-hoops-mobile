@@ -16,6 +16,7 @@ import AiTrainingNavigator from '@/features/ai-training/navigation/AiTrainingNav
 import JournalHomeScreen from '@/features/journal/screens/JournalHomeScreen'
 import JournalNavigator from '@/features/journal/navigation/JournalNavigator'
 import RankingScreen from '@/features/ranking/screens/RankingScreen'
+import WorkoutNavigator from '@/features/workouts/navigation/WorkoutNavigator'
 import ChecklistTemplatesNavigator from '@/features/checklist-templates/navigation/ChecklistTemplatesNavigator'
 import OnlineUsersScreen from '@/features/users/screens/OnlineUsersScreen'
 
@@ -39,6 +40,7 @@ export const DynamicTabNavigator: React.FC = () => {
             player_goals: { active: '🎯', inactive: '🎯' },
             player_journal: { active: '📝', inactive: '📝' },
             player_training: { active: '🏋️', inactive: '🏋️' },
+            player_workouts: { active: '🏀', inactive: '🏀' },
             player_media: { active: '📸', inactive: '📸' },
             player_cv: { active: '📄', inactive: '📄' },
             scout_search: { active: '🔍', inactive: '🔍' },
@@ -82,6 +84,7 @@ export const DynamicTabNavigator: React.FC = () => {
             player_goals: GoalsScreen,
             player_journal: JournalNavigator,
             player_training: AiTrainingNavigator,
+            player_workouts: WorkoutNavigator,
             player_media: () => <PlaceholderScreen title="Media" />,
             player_cv: CvScreen,
             scout_search: ScoutingScreen,
@@ -116,6 +119,7 @@ export const DynamicTabNavigator: React.FC = () => {
             player_goals: 'Goals',
             player_journal: 'Diario',
             player_training: 'Training',
+            player_workouts: 'Tiri',
             player_media: 'Media',
             player_cv: 'CV',
             scout_search: 'Ricerca',
