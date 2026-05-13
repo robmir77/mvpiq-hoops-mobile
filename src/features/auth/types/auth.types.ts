@@ -32,6 +32,7 @@ export interface User {
     hasGoals?: boolean
     publicProfile?: boolean
     bio?: string
+    mainPosition?: string
     // Roles are now managed through UserRoleAssignment entity (RBAC system)
     // isCreator and isTrainer removed - use role assignments instead
     roles?: UserRole[] // Array of roles for multi-role support

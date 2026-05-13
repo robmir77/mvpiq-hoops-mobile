@@ -4,17 +4,18 @@ import {
     Text,
     TextInput,
     StyleSheet,
-    Button,
     ScrollView,
     TouchableOpacity, Modal,
+    Image,
+    Alert,
 } from 'react-native'
 import { useNavigation, useRoute } from '@react-navigation/native'
-import { useQueryClient } from '@tanstack/react-query'
+import * as ImagePicker from 'expo-image-picker'
 
 import { useProfile } from '../hooks/useProfile'
 import { useUpdateProfile } from '../hooks/useUpdateProfile'
 import { getPositions, PositionMetadata } from '../api/position.api'
-import { Player } from '../types/profile.types'
+import { uploadProfileImage } from '../api/profile.api'
 
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { PositionCard } from '@/shared/components/PositionCard'
@@ -49,6 +50,9 @@ export default function EditProfileScreen() {
     const [mainPositionId, setMainPositionId] = useState<string | undefined>(undefined)
     const [secondaryPositionIds, setSecondaryPositionIds] = useState<string[]>([])
     const [publicProfile, setPublicProfile] = useState(true)
+    const [profileImage, setProfileImage] = useState<string | null>(null)
+    const [showImagePickerModal, setShowImagePickerModal] = useState(false)
+    const [uploadingImage, setUploadingImage] = useState(false)
 
     // Update form when profile data is loaded
     useEffect(() => {
@@ -58,6 +62,7 @@ export default function EditProfileScreen() {
             setCountry(profile.country ?? '')
             setBirthDate(profile.birthDate ?? '')
             setPublicProfile(profile.publicProfile ?? true)
+            setProfileImage(profile.avatarUrl ?? null)
             
             // Initialize date picker values if birthDate exists
             if (profile.birthDate) {
@@ -103,6 +108,52 @@ export default function EditProfileScreen() {
         load()
     }, [])
 
+    // Request camera permissions
+    useEffect(() => {
+        (async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync()
+            if (status !== 'granted') {
+                Alert.alert('Permessi necessari', 'È necessario concedere i permessi per la camera per scattare foto.')
+            }
+        })()
+    }, [])
+
+    const pickImageFromGallery = async () => {
+        try {
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.8,
+            })
+
+            if (!result.canceled && result.assets[0]) {
+                setProfileImage(result.assets[0].uri)
+            }
+            setShowImagePickerModal(false)
+        } catch (error) {
+            showError('Errore', 'Impossibile selezionare l\'immagine')
+        }
+    }
+
+    const takePhoto = async () => {
+        try {
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.8,
+            })
+
+            if (!result.canceled && result.assets[0]) {
+                setProfileImage(result.assets[0].uri)
+            }
+            setShowImagePickerModal(false)
+        } catch (error) {
+            showError('Errore', 'Impossibile scattare la foto')
+        }
+    }
+
     const toggleSecondary = (positionId: string) => {
         if (positionId === mainPositionId) {
             showWarning(
@@ -122,15 +173,38 @@ export default function EditProfileScreen() {
     }
 
     const handleSave = async () => {
-        console.log('handleSave - profile:', profile)
-        console.log('handleSave - profile.id:', profile?.id)
-        
+        console.log('🔧 handleSave - Start')
+        console.log('🔧 profile:', profile)
+        console.log('🔧 profile.id:', profile?.id)
+        console.log('🔧 profileImage:', profileImage)
+        console.log('🔧 profile.avatarUrl:', profile?.avatarUrl)
+
         if (!profile?.id) {
             showError('Errore', 'ID profilo non valido')
             return
         }
 
         try {
+            let finalAvatarUrl = profile.avatarUrl
+
+            // Upload image if it has changed
+            if (profileImage && profileImage !== profile.avatarUrl) {
+                console.log('📸 Image changed, starting upload...')
+                setUploadingImage(true)
+                try {
+                    const uploadResult = await uploadProfileImage(profile.id, profileImage)
+                    console.log('✅ Upload result:', uploadResult)
+                    finalAvatarUrl = uploadResult.avatarUrl
+                } catch (uploadError: any) {
+                    console.error('❌ Error uploading image:', uploadError)
+                    showError('Errore', 'Impossibile caricare l\'immagine')
+                    setUploadingImage(false)
+                    return
+                }
+            } else {
+                console.log('ℹ️ Image not changed, skipping upload')
+            }
+
             console.log('Updating profile:', {
                 profileId: profile.id,
                 data: {
@@ -168,12 +242,34 @@ export default function EditProfileScreen() {
             console.error('Error updating profile:', error)
             const errorMessage = error?.response?.data?.message || error?.message || 'Impossibile aggiornare il profilo'
             showError('Errore', errorMessage)
+        } finally {
+            setUploadingImage(false)
         }
     }
 
     return (
         <>
             <ScrollView style={globalStyles.container}>
+            <Text style={globalStyles.sectionTitle}>
+                Foto Profilo
+            </Text>
+
+            <TouchableOpacity
+                style={styles.profileImageContainer}
+                onPress={() => setShowImagePickerModal(true)}
+            >
+                {profileImage ? (
+                    <Image source={{ uri: profileImage }} style={styles.profileImage} />
+                ) : (
+                    <View style={styles.profileImagePlaceholder}>
+                        <Text style={styles.profileImagePlaceholderText}>+</Text>
+                    </View>
+                )}
+                <View style={styles.cameraIconContainer}>
+                    <Text style={styles.cameraIcon}>📷</Text>
+                </View>
+            </TouchableOpacity>
+
             <Text style={globalStyles.sectionTitle}>
                 Informazioni Base
             </Text>
@@ -295,19 +391,23 @@ export default function EditProfileScreen() {
             <View style={{ marginTop: 30, marginBottom: 40 }}>
                 <TouchableOpacity
                     style={{
-                        backgroundColor: '#F97316',
+                        backgroundColor: uploadingImage ? '#94A3B8' : '#F97316',
                         padding: 16,
                         borderRadius: 12,
                         alignItems: 'center',
                     }}
-                    onPress={handleSave}
+                    onPress={() => {
+                        console.log('🔘 Button pressed!')
+                        handleSave()
+                    }}
+                    disabled={uploadingImage}
                 >
                     <Text style={{
                         color: '#FFFFFF',
                         fontWeight: '600',
                         fontSize: 16,
                     }}>
-                        Salva modifiche
+                        {uploadingImage ? 'Caricamento immagine...' : 'Salva modifiche'}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -429,6 +529,40 @@ export default function EditProfileScreen() {
                 </View>
             </View>
         </Modal>
+
+        {/* Image Picker Modal */}
+        <Modal
+            visible={showImagePickerModal}
+            transparent
+            animationType="slide"
+        >
+            <View style={styles.modalOverlay}>
+                <View style={styles.imagePickerModalContent}>
+                    <Text style={styles.modalTitle}>Scegli foto profilo</Text>
+
+                    <TouchableOpacity
+                        style={styles.imagePickerOption}
+                        onPress={takePhoto}
+                    >
+                        <Text style={styles.imagePickerOptionText}>📷 Scatta foto</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.imagePickerOption}
+                        onPress={pickImageFromGallery}
+                    >
+                        <Text style={styles.imagePickerOptionText}>🖼️ Scegli dalla galleria</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => setShowImagePickerModal(false)}
+                    >
+                        <Text style={styles.cancelButtonText}>Annulla</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
         </>
     )
 }
@@ -439,6 +573,50 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         gap: 10,
         marginTop: 10,
+    },
+    profileImageContainer: {
+        alignSelf: 'center',
+        marginBottom: 20,
+        position: 'relative',
+    },
+    profileImage: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        borderWidth: 3,
+        borderColor: '#F97316',
+    },
+    profileImagePlaceholder: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: '#334155',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 3,
+        borderColor: '#F97316',
+        borderStyle: 'dashed',
+    },
+    profileImagePlaceholderText: {
+        fontSize: 48,
+        color: '#94A3B8',
+        fontWeight: '300',
+    },
+    cameraIconContainer: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: '#F97316',
+        borderRadius: 20,
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 3,
+        borderColor: '#1E293B',
+    },
+    cameraIcon: {
+        fontSize: 20,
     },
     modalOverlay: {
         flex: 1,
@@ -453,6 +631,26 @@ const styles = StyleSheet.create({
         padding: 25,
         width: '90%',
         maxWidth: 400,
+    },
+    imagePickerModalContent: {
+        backgroundColor: '#1E293B',
+        margin: 20,
+        borderRadius: 20,
+        padding: 25,
+        width: '90%',
+        maxWidth: 350,
+    },
+    imagePickerOption: {
+        backgroundColor: '#334155',
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    imagePickerOptionText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600',
     },
     modalTitle: {
         fontSize: 20,

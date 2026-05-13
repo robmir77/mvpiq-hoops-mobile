@@ -2,6 +2,7 @@
 
 import apiClient from '@/shared/api/apiClient'
 import { Player, UpdatePlayer } from '@/features/profile/types/profile.types'
+import * as FileSystem from 'expo-file-system'
 
 // API CORRETTE secondo documentazione
 export const getPlayer = async (
@@ -402,3 +403,59 @@ export const updatePlayerProfile = updatePlayer
 export const deletePlayerProfile = deletePlayer
 export const getPublicPlayerProfiles = getPublicPlayers
 export const searchPlayerProfiles = searchPlayers
+
+// Profile Image Upload
+export const uploadProfileImage = async (
+    playerId: string,
+    imageUri: string
+): Promise<{ avatarUrl: string }> => {
+    try {
+        console.log('📸 uploadProfileImage - Start')
+        console.log('📸 playerId:', playerId)
+        console.log('📸 imageUri:', imageUri)
+
+        // Convert URI to file info
+        const fileInfo = await FileSystem.getInfoAsync(imageUri)
+        console.log('📸 fileInfo:', fileInfo)
+
+        if (!fileInfo.exists) {
+            console.error('❌ File does not exist')
+            throw new Error('File does not exist')
+        }
+
+        // Create FormData
+        const formData = new FormData()
+
+        // Determine file type from URI
+        const uriParts = imageUri.split('.')
+        const fileType = uriParts[uriParts.length - 1] || 'jpg'
+
+        console.log('📸 fileType:', fileType)
+
+        formData.append('file', {
+            uri: imageUri,
+            name: `profile.${fileType}`,
+            type: `image/${fileType}`,
+        } as any)
+
+        console.log('📸 FormData created, sending to API...')
+
+        const response = await apiClient.put<{ avatarUrl: string }>(
+            `/players/${playerId}/profile-image`,
+            formData
+        )
+
+        console.log('✅ Upload successful:', response.data)
+        return response.data
+    } catch (error: any) {
+        console.error('❌ Errore upload immagine profilo:')
+        console.error('❌ error:', error)
+        console.error('❌ error.response:', error?.response)
+        console.error('❌ error.response.data:', error?.response?.data)
+        console.error('❌ error.message:', error?.message)
+
+        throw new Error(
+            error?.response?.data?.message || error?.message || 'Errore upload immagine profilo'
+        )
+    }
+}
