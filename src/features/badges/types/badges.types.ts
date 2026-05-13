@@ -23,6 +23,8 @@ export type Badge = {
   unlockedAt?: string
   progress?: number
   maxProgress?: number
+  // New field from database migration
+  active?: boolean
 }
 
 export type UserBadge = Badge & {

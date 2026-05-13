@@ -9,6 +9,12 @@ export enum UserRole {
     TRAINER = 'TRAINER'
 }
 
+export enum UserStatus {
+    ACTIVE = 'ACTIVE',
+    SUSPENDED = 'SUSPENDED',
+    DELETED = 'DELETED'
+}
+
 export interface UserRoleAssignment {
     id: string
     userId: string
@@ -29,6 +35,10 @@ export interface User {
     // Roles are now managed through UserRoleAssignment entity (RBAC system)
     // isCreator and isTrainer removed - use role assignments instead
     roles?: UserRole[] // Array of roles for multi-role support
+    // New fields from database migration
+    status?: UserStatus
+    updatedAt?: string
+    deletedAt?: string
 }
 
 export interface LoginResponse {

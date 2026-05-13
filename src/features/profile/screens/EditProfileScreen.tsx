@@ -48,6 +48,7 @@ export default function EditProfileScreen() {
     const [weightKg, setWeightKg] = useState('')
     const [mainPositionId, setMainPositionId] = useState<string | undefined>(undefined)
     const [secondaryPositionIds, setSecondaryPositionIds] = useState<string[]>([])
+    const [publicProfile, setPublicProfile] = useState(true)
 
     // Update form when profile data is loaded
     useEffect(() => {
@@ -56,6 +57,7 @@ export default function EditProfileScreen() {
             setCity(profile.city ?? '')
             setCountry(profile.country ?? '')
             setBirthDate(profile.birthDate ?? '')
+            setPublicProfile(profile.publicProfile ?? true)
             
             // Initialize date picker values if birthDate exists
             if (profile.birthDate) {
@@ -140,6 +142,7 @@ export default function EditProfileScreen() {
                     weightKg: weightKg ? Number(weightKg) : undefined,
                     mainPositionId,
                     secondaryPositionIds,
+                    publicProfile,
                 }
             })
 
@@ -154,6 +157,7 @@ export default function EditProfileScreen() {
                     weightKg: weightKg ? Number(weightKg) : undefined,
                     mainPositionId: mainPositionId || undefined,
                     secondaryPositionIds: secondaryPositionIds.length > 0 ? secondaryPositionIds : undefined,
+                    publicProfile,
                 },
             })
 

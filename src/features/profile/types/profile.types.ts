@@ -23,6 +23,10 @@ export interface Player {
     bio?: string
     // Backend positions structure
     positions?: PlayerPosition[]
+    // New fields from database migration
+    wingspanCm?: number
+    verticalJumpCm?: number
+    preferredPositionId?: string
 }
 
 export interface PlayerPosition {
@@ -59,6 +63,7 @@ export interface UpdatePlayer {
     secondaryPositionIds?: string[]
 
     avatarUrl?: string
+    publicProfile?: boolean
 }
 
 // Backward compatibility aliases

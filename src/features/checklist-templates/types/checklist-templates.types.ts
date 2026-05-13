@@ -20,6 +20,10 @@ export type ChecklistTemplateItem = {
     sortOrder: number
     selectSource?: SelectSource
     options: ChecklistTemplateOption[]
+    // New fields from database migration
+    placeholder?: string
+    helpText?: string
+    validationRules?: Record<string, any> // JSONB
 }
 
 export type ChecklistTemplate = {

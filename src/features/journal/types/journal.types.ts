@@ -26,6 +26,10 @@ export type ChecklistTemplateItem = {
     selectSource?: SelectSource
     selectQuery?: string // Required when selectSource is SQL
     options?: ChecklistTemplateOption[]
+    // New fields from database migration
+    placeholder?: string
+    helpText?: string
+    validationRules?: Record<string, any> // JSONB
 }
 
 export type ChecklistTemplate = {
@@ -34,4 +38,21 @@ export type ChecklistTemplate = {
     name: string
     entryType: EntryType
     items: ChecklistTemplateItem[]
+}
+
+export type JournalEntry = {
+    id: string
+    userId: string
+    entryType: EntryType
+    date: string
+    moodRating?: number
+    performanceRating?: number
+    notes?: string
+    duration?: number
+    // New fields from database migration
+    checklistCompleted?: boolean
+    tags?: string[] // JSONB
+    deletedAt?: string
+    createdAt: string
+    updatedAt: string
 }

@@ -63,6 +63,10 @@ export interface WorkoutSession {
     missedShots: number
     shootingPercentage: number
     duration?: number // in seconds
+    // New fields from database migration
+    notes?: string
+    averageShotDistance?: number
+    workoutScore?: number
 }
 
 /**
@@ -90,6 +94,9 @@ export interface ShotEvent {
     detectionConfidence: number
     trackingData?: string // JSON string
     zone?: CourtZone
+    // New fields from database migration
+    shotZone?: string
+    releaseTimeMs?: number
 }
 
 /**

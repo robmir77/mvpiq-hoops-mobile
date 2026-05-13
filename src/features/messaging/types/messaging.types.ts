@@ -15,6 +15,10 @@ export type Message = {
   updatedAt: string
   attachments?: MessageAttachment[]
   replyTo?: string
+  // New fields from database migration
+  editedAt?: string
+  deletedAt?: string
+  replyToMessageId?: string
 }
 
 export type MessageAttachment = {

@@ -14,7 +14,10 @@ export interface VideoAnalysisSession {
     id: string
     analysisTypeId: string
     videoUrl: string
-    status: "UPLOADED" | "PROCESSING" | "COMPLETED"
+    status: "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED"
+    // New fields from database migration
+    errorMessage?: string
+    retryCount?: number
 }
 
 export interface VideoAnalysisResult {
