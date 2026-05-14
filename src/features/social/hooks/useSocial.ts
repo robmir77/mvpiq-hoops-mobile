@@ -11,12 +11,15 @@ import {
   likePost,
   unlikePost,
   commentOnPost,
-  trackUserActivity,
+  trackUserActivity
+} from '../api/social.api'
+import { 
   UserFollowStats,
   Activity,
+  ActivityType,
   CommunityPost,
   SocialFeed
-} from '../api/social.api'
+} from '../types/social.types'
 
 export const useSocial = () => {
   const auth = useContext(AuthContext)
@@ -89,7 +92,7 @@ export const useSocial = () => {
         ...prev,
         activities: prev.activities.map(activity => 
           activity.id === activityId 
-            ? { ...activity, isLiked: true, likes: [...activity.likes, { id: 'temp', userId: auth!.user!.id, activityId, createdAt: new Date().toISOString() }] }
+            ? { ...activity, isLiked: true, likes: [...activity.likes, { id: 'temp', userId: auth!.user!.id, activityId, createdAt: new Date().toISOString(), user: { id: auth!.user!.id, username: auth!.user!.username || '', displayName: auth!.user!.displayName || '', roles: auth!.user!.roles || [] } }] }
             : activity
         )
       }))
@@ -150,9 +153,9 @@ export const useSocial = () => {
     }
   }
 
-  const trackActivity = async (type: string, data?: any) => {
+  const trackActivity = async (type: ActivityType, data?: any) => {
     try {
-      const activity = await trackUserActivity(type as any, data)
+      const activity = await trackUserActivity(type, data)
       // Add to beginning of feed
       setFeed(prev => ({
         ...prev,
@@ -161,6 +164,26 @@ export const useSocial = () => {
       return activity
     } catch (error) {
       console.error('Error tracking activity:', error)
+      throw error
+    }
+  }
+
+  const handleCommentOnActivity = async (activityId: string, content: string) => {
+    try {
+      await commentOnActivity(activityId, content)
+      loadFeed()
+    } catch (error) {
+      console.error('Error commenting on activity:', error)
+      throw error
+    }
+  }
+
+  const handleCommentOnPost = async (postId: string, content: string) => {
+    try {
+      await commentOnPost(postId, content)
+      loadFeed()
+    } catch (error) {
+      console.error('Error commenting on post:', error)
       throw error
     }
   }
@@ -177,8 +200,10 @@ export const useSocial = () => {
     unfollowUser: handleUnfollowUser,
     likeActivity: handleLikeActivity,
     unlikeActivity: handleUnlikeActivity,
+    commentOnActivity: handleCommentOnActivity,
     likePost: handleLikePost,
     unlikePost: handleUnlikePost,
+    commentOnPost: handleCommentOnPost,
     trackActivity,
     refresh
   }

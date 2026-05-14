@@ -2,7 +2,7 @@
 
 import apiClient from '@/shared/api/apiClient'
 import { Player, UpdatePlayer } from '@/features/profile/types/profile.types'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 
 // API CORRETTE secondo documentazione
 export const getPlayer = async (
