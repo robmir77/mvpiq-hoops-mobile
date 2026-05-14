@@ -442,7 +442,12 @@ export const uploadProfileImage = async (
 
         const response = await apiClient.put<{ avatarUrl: string }>(
             `/players/${playerId}/profile-image`,
-            formData
+            formData,
+            {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            }
         )
 
         console.log('✅ Upload successful:', response.data)
