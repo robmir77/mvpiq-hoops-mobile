@@ -33,7 +33,7 @@ apiClient.interceptors.request.use(
         console.log('➡️ TOKEN:', isPublicRoute ? 'SKIPPED' : (token ? 'PRESENT' : 'MISSING'))
 
         if (token && !isPublicRoute) {
-            config.headers.set('Authorization', `Bearer ${token}`)
+            config.headers.Authorization = `Bearer ${token}`
         }
 
         return config

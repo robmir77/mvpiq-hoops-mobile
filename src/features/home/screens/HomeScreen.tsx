@@ -18,6 +18,7 @@ import { useRolePermissions } from '@/features/auth/hooks/useRolePermissions'
 import { useProfile } from '@/features/profile/hooks/useProfile'
 import { useGoals } from '@/features/goals/hooks/useGoals'
 import { useCreateGoal } from '@/features/goals/hooks/useCreateGoal'
+import { useDeleteGoal } from '@/features/goals/hooks/useGoals'
 import { useOnlineUsers } from '@/features/users/hooks/useOnlineUsers'
 import { NavigationMenu } from '@/features/navigation/components/NavigationMenu'
 import { MainStackParamList } from '@/app/navigation/types'
@@ -30,7 +31,7 @@ export default function HomeScreen() {
     const auth = useContext(AuthContext)
     const navigation = useNavigation<NavigationProp>()
     const { getRoleLabel, getRoleColor } = useRolePermissions()
-    const { alert, showWarning } = useCustomAlert()
+    const { alert, showWarning, showError, showSuccess } = useCustomAlert()
     
     if (!auth) return null
 
@@ -62,6 +63,7 @@ export default function HomeScreen() {
     } = useOnlineUsers(isAdmin ? 15 : undefined)
 
     const createGoalMutation = useCreateGoal()
+    const deleteGoalMutation = useDeleteGoal()
     const queryClient = useQueryClient()
 
     const [modalVisible, setModalVisible] = useState(false)
@@ -69,6 +71,7 @@ export default function HomeScreen() {
     const [description, setDescription] = useState('')
     const [showNavigationMenu, setShowNavigationMenu] = useState(false)
     const [refreshing, setRefreshing] = useState(false)
+    const [deletingId, setDeletingId] = useState<string | null>(null)
 
     const onRefresh = async () => {
         setRefreshing(true)
@@ -82,6 +85,25 @@ export default function HomeScreen() {
         goals.filter((g) => g.completed).length
 
     const isDataLoading = profileLoading || goalsLoading || auth.isLoading
+
+    const handleDeleteGoal = (goalId: string) => {
+        showWarning(
+            'Elimina goal',
+            'Sei sicuro di voler eliminare questo goal? L\'azione non è reversibile.',
+            async () => {
+                setDeletingId(goalId)
+                try {
+                    await deleteGoalMutation.mutateAsync(goalId)
+                    showSuccess('Eliminato', 'Goal eliminato con successo')
+                } catch (error) {
+                    showError('Errore', 'Impossibile eliminare il goal')
+                } finally {
+                    setDeletingId(null)
+                }
+            },
+            () => {}
+        )
+    }
 
     // Check if user has no goals and show wizard
     useEffect(() => {
@@ -210,27 +232,41 @@ export default function HomeScreen() {
                         </Text>
                     )}
 
-                    {goals.map((goal) => (
-                        <View key={goal.id} style={styles.goalCard}>
-                            <Text style={styles.goalTitle}>
-                                {goal.title}
-                            </Text>
-                            <Text
-                                style={[
-                                    styles.goalStatus,
-                                    {
-                                        color: goal.completed
-                                            ? '#00ff99'
-                                            : '#ff8c00',
-                                    },
-                                ]}
-                            >
-                                {goal.completed
-                                    ? 'Completato'
-                                    : 'In corso'}
-                            </Text>
-                        </View>
-                    ))}
+                    {goals.map((goal) => {
+                        const isDeleting = deletingId === goal.id
+                        return (
+                            <View key={goal.id} style={styles.goalCard}>
+                                <View style={styles.goalCardContent}>
+                                    <Text style={styles.goalTitle}>
+                                        {goal.title}
+                                    </Text>
+                                    <Text
+                                        style={[
+                                            styles.goalStatus,
+                                            {
+                                                color: goal.completed
+                                                    ? '#00ff99'
+                                                    : '#ff8c00',
+                                            },
+                                        ]}
+                                    >
+                                        {goal.completed
+                                            ? 'Completato'
+                                            : 'In corso'}
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    style={styles.deleteButton}
+                                    onPress={() => handleDeleteGoal(goal.id)}
+                                    disabled={isDeleting}
+                                >
+                                    <Text style={styles.deleteButtonText}>
+                                        {isDeleting ? '⏳' : '🗑️'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        )
+                    })}
                 </>
             )}
 
@@ -455,6 +491,11 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         flexDirection: 'row',
         justifyContent: 'space-between',
+        borderWidth: 1,
+        borderColor: '#2a2a2a',
+    },
+    goalCardContent: {
+        flex: 1,
     },
     goalTitle: {
         color: 'white',
@@ -462,6 +503,15 @@ const styles = StyleSheet.create({
     },
     goalStatus: {
         fontWeight: 'bold',
+    },
+    deleteButton: {
+        width: 30,
+        height: 30,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    deleteButtonText: {
+        fontSize: 16,
     },
     modalContainer: {
         flex: 1,

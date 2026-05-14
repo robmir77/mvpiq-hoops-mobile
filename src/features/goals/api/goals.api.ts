@@ -1,4 +1,6 @@
 import apiClient from '@/shared/api/apiClient'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { API_BASE_URL } from '@/config/appConfig'
 import { Goal, CreateGoalRequest } from '../types/goals.types'
 
 export const getGoalsByAthlete = async (
@@ -37,6 +39,35 @@ export const updateGoal = async (
         )
         throw new Error(
             error?.response?.data?.message || 'Errore aggiornamento goal'
+        )
+    }
+}
+
+export const deleteGoal = async (goalId: string): Promise<void> => {
+    try {
+        const token = await AsyncStorage.getItem('token')
+        const response = await fetch(
+            `${API_BASE_URL}/api/goals/${goalId}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        )
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}))
+            throw new Error(errorData.message || `HTTP ${response.status}`)
+        }
+    } catch (error: any) {
+        console.error(
+            'Errore eliminazione goal:',
+            error?.response?.data || error.message
+        )
+        throw new Error(
+            error?.response?.data?.message || 'Errore eliminazione goal'
         )
     }
 }
