@@ -13,6 +13,8 @@ import {
     Share,
     Clipboard,
 } from 'react-native'
+import * as Print from 'expo-print'
+import * as Sharing from 'expo-sharing'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { MainStackParamList } from '@/app/navigation/types'
@@ -65,7 +67,7 @@ export default function CvScreen() {
 
     const { user } = auth
     const { data: cv, isLoading, isError, refetch } = useCv(user?.id)
-    const { alert, showInfo } = useCustomAlert()
+    const { alert, showInfo, showSuccess } = useCustomAlert()
     const [isSharing, setIsSharing] = useState(false)
 
     const handleEditCv = () => {
@@ -116,32 +118,35 @@ export default function CvScreen() {
                 refetch()
                 setIsSharing(false)
 
-                // Show options after enabling
-                Alert.alert(
-                    'CV Pubblicato!',
-                    'Il tuo CV è ora condivisibile',
-                    [
-                        {
-                            text: 'Copia link',
-                            onPress: () => {
-                                if (shareUrl) {
-                                    Clipboard.setString(shareUrl)
-                                    showInfo('Link copiato', 'Il link è stato copiato negli appunti')
+                // Show success alert with custom alert
+                showSuccess('CV Pubblicato!', 'Il tuo CV è ora condivisibile', () => {
+                    // After confirming, show sharing options
+                    Alert.alert(
+                        'Condividi CV',
+                        'Scegli come condividere il tuo CV',
+                        [
+                            {
+                                text: 'Copia link',
+                                onPress: () => {
+                                    if (shareUrl) {
+                                        Clipboard.setString(shareUrl)
+                                        showInfo('Link copiato', 'Il link è stato copiato negli appunti')
+                                    }
                                 }
-                            }
-                        },
-                        {
-                            text: 'Condividi',
-                            onPress: async () => {
-                                await Share.share({
-                                    message: `Guarda il mio CV sportivo: ${shareUrl}`,
-                                    url: shareUrl,
-                                })
-                            }
-                        },
-                        { text: 'OK', style: 'cancel' }
-                    ]
-                )
+                            },
+                            {
+                                text: 'Condividi',
+                                onPress: async () => {
+                                    await Share.share({
+                                        message: `Guarda il mio CV sportivo: ${shareUrl}`,
+                                        url: shareUrl,
+                                    })
+                                }
+                            },
+                            { text: 'Annulla', style: 'cancel' }
+                        ]
+                    )
+                })
             }
         } catch (error: any) {
             console.error('Errore condivisione CV:', error)
@@ -174,6 +179,100 @@ export default function CvScreen() {
                 }
             ]
         )
+    }
+
+    const generateCvHtml = () => {
+        const teamsHtml = cv?.teams?.map(team => `
+            <div style="margin-bottom: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px;">
+                <h3 style="margin: 0 0 8px 0; color: #333;">${team.teamName || 'N/A'}</h3>
+                <p style="margin: 4px 0; color: #666;">Categoria: ${team.categoryId || 'N/A'}</p>
+                ${team.startYear ? `<p style="margin: 4px 0; color: #666;">Anno inizio: ${team.startYear}</p>` : ''}
+                ${team.endYear ? `<p style="margin: 4px 0; color: #666;">Anno fine: ${team.endYear}</p>` : ''}
+                ${team.notes ? `<p style="margin: 4px 0; color: #666;">Note: ${team.notes}</p>` : ''}
+            </div>
+        `).join('') || '<p style="color: #666;">Nessuna squadra registrata</p>'
+
+        const highlightsHtml = cv?.highlights?.map(highlight => `
+            <div style="margin-bottom: 16px; padding: 12px; background: #e8f4f8; border-radius: 8px;">
+                <h3 style="margin: 0 0 8px 0; color: #333;">${highlight.title || 'Senza titolo'}</h3>
+                ${highlight.description ? `<p style="margin: 4px 0; color: #666;">${highlight.description}</p>` : ''}
+                ${highlight.externalUrl ? `<p style="margin: 4px 0; color: #007bff;">${highlight.externalUrl}</p>` : ''}
+            </div>
+        `).join('') || '<p style="color: #666;">Nessun highlight aggiunto</p>'
+
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>CV Sportivo</title>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        padding: 20px;
+                        color: #333;
+                    }
+                    h1 {
+                        color: #ff8c00;
+                        margin-bottom: 8px;
+                    }
+                    h2 {
+                        color: #333;
+                        margin-top: 24px;
+                        margin-bottom: 12px;
+                        border-bottom: 2px solid #ff8c00;
+                        padding-bottom: 8px;
+                    }
+                    p {
+                        margin: 8px 0;
+                        line-height: 1.5;
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>CV Sportivo</h1>
+                ${cv?.headline ? `<p style="font-size: 18px; font-weight: bold; margin-bottom: 16px;">${cv.headline}</p>` : ''}
+                ${cv?.summary ? `<p style="margin-bottom: 24px;">${cv.summary}</p>` : ''}
+
+                <h2>Squadre</h2>
+                ${teamsHtml}
+
+                <h2>Highlights</h2>
+                ${highlightsHtml}
+
+                <p style="margin-top: 32px; color: #999; font-size: 12px;">
+                    Generato da MVPIQ Hoops - ${new Date().toLocaleDateString('it-IT')}
+                </p>
+            </body>
+            </html>
+        `
+    }
+
+    const handlePrintPdf = async () => {
+        try {
+            const html = generateCvHtml()
+            const { uri } = await Print.printToFileAsync({ html })
+            
+            // Ask if user wants to share the PDF using custom alert
+            showSuccess('PDF Generato', 'Il PDF è stato salvato', () => {
+                Alert.alert(
+                    'Condividi PDF',
+                    'Vuoi condividere il PDF?',
+                    [
+                        { text: 'No', style: 'cancel' },
+                        {
+                            text: 'Sì',
+                            onPress: async () => {
+                                await Sharing.shareAsync(uri)
+                            }
+                        }
+                    ]
+                )
+            })
+        } catch (error: any) {
+            console.error('Errore generazione PDF:', error)
+            showInfo('Errore', 'Impossibile generare il PDF')
+        }
     }
 
     if (isLoading) {
@@ -308,9 +407,9 @@ export default function CvScreen() {
                         <Text style={styles.actionButtonText}>Modifica CV</Text>
                     </TouchableOpacity>
                     
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={[styles.actionButton, styles.secondaryButton]}
-                        onPress={() => showInfo('Anteprima', 'Funzionalità di anteprima PDF in arrivo')}
+                        onPress={handlePrintPdf}
                     >
                         <Text style={[styles.actionButtonText, styles.secondaryButtonText]}>
                             Anteprima PDF
