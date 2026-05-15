@@ -11,6 +11,7 @@ import {
     RefreshControl,
     Alert,
     Share,
+    Clipboard,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -80,26 +81,67 @@ export default function CvScreen() {
 
         try {
             if (cv?.sharing?.shareEnabled) {
-                // Already sharing, show share sheet
+                // Already sharing, show options
                 const shareUrl = cv.sharing.publicUrl || `https://app.mvpiq-hoops.com/public/cv/${cv.sharing.shareToken}`
-                await Share.share({
-                    message: `Guarda il mio CV sportivo: ${shareUrl}`,
-                    url: shareUrl,
-                })
+                Alert.alert(
+                    'Condividi CV',
+                    'Scegli come condividere il tuo CV',
+                    [
+                        {
+                            text: 'Copia link',
+                            onPress: () => {
+                                if (shareUrl) {
+                                    Clipboard.setString(shareUrl)
+                                    showInfo('Link copiato', 'Il link è stato copiato negli appunti')
+                                }
+                            }
+                        },
+                        {
+                            text: 'Condividi',
+                            onPress: async () => {
+                                await Share.share({
+                                    message: `Guarda il mio CV sportivo: ${shareUrl}`,
+                                    url: shareUrl,
+                                })
+                            }
+                        },
+                        { text: 'Annulla', style: 'cancel' }
+                    ]
+                )
             } else {
                 // Enable sharing first
                 setIsSharing(true)
                 const sharingData = await enableCvSharing(user.id)
-                showInfo('Condivisione abilitata', 'Il tuo CV è ora condivisibile')
+                const shareUrl = sharingData.publicUrl
                 refetch()
                 setIsSharing(false)
 
-                // Show share sheet
-                const shareUrl = sharingData.publicUrl
-                await Share.share({
-                    message: `Guarda il mio CV sportivo: ${shareUrl}`,
-                    url: shareUrl,
-                })
+                // Show options after enabling
+                Alert.alert(
+                    'CV Pubblicato!',
+                    'Il tuo CV è ora condivisibile',
+                    [
+                        {
+                            text: 'Copia link',
+                            onPress: () => {
+                                if (shareUrl) {
+                                    Clipboard.setString(shareUrl)
+                                    showInfo('Link copiato', 'Il link è stato copiato negli appunti')
+                                }
+                            }
+                        },
+                        {
+                            text: 'Condividi',
+                            onPress: async () => {
+                                await Share.share({
+                                    message: `Guarda il mio CV sportivo: ${shareUrl}`,
+                                    url: shareUrl,
+                                })
+                            }
+                        },
+                        { text: 'OK', style: 'cancel' }
+                    ]
+                )
             }
         } catch (error: any) {
             console.error('Errore condivisione CV:', error)
