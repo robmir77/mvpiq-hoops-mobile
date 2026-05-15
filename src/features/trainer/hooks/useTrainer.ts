@@ -25,6 +25,7 @@ export const useTrainer = (trainerId?: string) => {
   }, [userId])
 
   const loadTrainerData = async () => {
+    if (!userId) return
     try {
       setLoading(true)
       const [profileData, programsData] = await Promise.all([
@@ -46,10 +47,11 @@ export const useTrainer = (trainerId?: string) => {
   }
 
   const createProfile = async (profileData: Partial<TrainerProfile>) => {
+    if (!userId) throw new Error('User ID is required')
     try {
       const newProfile = await createTrainerProfile({
         ...profileData,
-        userId: userId!
+        userId
       })
       setProfile(newProfile)
       return newProfile
@@ -60,8 +62,9 @@ export const useTrainer = (trainerId?: string) => {
   }
 
   const updateProfile = async (updates: Partial<TrainerProfile>) => {
+    if (!userId) throw new Error('User ID is required')
     try {
-      const updatedProfile = await updateTrainerProfile(userId!, updates)
+      const updatedProfile = await updateTrainerProfile(userId, updates)
       setProfile(updatedProfile)
       return updatedProfile
     } catch (error) {

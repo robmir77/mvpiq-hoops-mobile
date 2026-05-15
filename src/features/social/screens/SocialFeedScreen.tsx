@@ -44,24 +44,30 @@ export default function SocialFeedScreen() {
     }
   }
 
-  const handleLikeActivity = async (activity: Activity) => {
+  const handleLikeActivity = async (item: Activity | CommunityPost) => {
     try {
-      if (activity.isLiked) {
-        await unlikeActivity(activity.id)
-      } else {
-        await likeActivity(activity.id)
+      if ('user' in item) {
+        // It's an Activity
+        if (item.isLiked) {
+          await unlikeActivity(item.id)
+        } else {
+          await likeActivity(item.id)
+        }
       }
     } catch (error) {
       showError('Errore', 'Impossibile aggiornare il like')
     }
   }
 
-  const handleLikePost = async (post: CommunityPost) => {
+  const handleLikePost = async (item: Activity | CommunityPost) => {
     try {
-      if (post.isLiked) {
-        await unlikePost(post.id)
-      } else {
-        await likePost(post.id)
+      if (!('user' in item)) {
+        // It's a CommunityPost
+        if (item.isLiked) {
+          await unlikePost(item.id)
+        } else {
+          await likePost(item.id)
+        }
       }
     } catch (error) {
       showError('Errore', 'Impossibile aggiornare il like')
@@ -243,7 +249,7 @@ export default function SocialFeedScreen() {
           {/* Mix activities and posts chronologically */}
           {[...feed.activities, ...feed.posts]
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-            .map(item => 'user' in item ? renderActivity(item) : renderPost(item))}
+            .map(item => 'description' in item ? renderActivity(item as Activity) : renderPost(item as CommunityPost))}
 
           {feed.hasMore && (
             <TouchableOpacity style={styles.loadMoreButton} onPress={loadMore}>

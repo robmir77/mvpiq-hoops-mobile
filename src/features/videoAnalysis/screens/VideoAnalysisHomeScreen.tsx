@@ -1,6 +1,7 @@
 import React from "react"
-import { View, Text, FlatList, TouchableOpacity } from "react-native"
+import { View, Text, FlatList, StyleSheet } from "react-native"
 import { useAnalysisTypes } from "../hooks/useAnalysisTypes"
+import { AnalysisTypeCard } from "../components/AnalysisTypeCard"
 
 import { NativeStackNavigationProp } from "@react-navigation/native-stack"
 import { RootStackParamList } from "@/app/navigation/types"
@@ -18,25 +19,35 @@ export default function VideoAnalysisHomeScreen({ navigation }: Props) {
     const { types, loading } = useAnalysisTypes()
 
     if (loading) {
-        return <Text>Loading...</Text>
+        return (
+            <View style={styles.centerContainer}>
+                <Text>Loading...</Text>
+            </View>
+        )
     }
 
     return (
         <FlatList<VideoAnalysisType>
             data={types}
             keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContainer}
             renderItem={({ item }) => (
-                <TouchableOpacity
-                    onPress={() =>
-                        navigation.navigate("VideoRecorder", { type: item })
-                    }
-                >
-                    <View style={{ padding: 16 }}>
-                        <Text>{item.name}</Text>
-                        <Text>{item.description}</Text>
-                    </View>
-                </TouchableOpacity>
+                <AnalysisTypeCard
+                    type={item}
+                    onPress={() => navigation.navigate("VideoRecorder", { type: item })}
+                />
             )}
         />
     )
 }
+
+const styles = StyleSheet.create({
+    centerContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    listContainer: {
+        padding: 16,
+    },
+})

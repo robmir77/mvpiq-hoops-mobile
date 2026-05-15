@@ -81,7 +81,7 @@ export default function RankingScreen() {
 
                 {/* Ranking List */}
                 {ranking.map((item, index) => {
-                    const isCurrentUser = item.playerId === user.id
+                    const isCurrentUser = user ? item.playerId === user.id : false
 
                     return (
                         <View

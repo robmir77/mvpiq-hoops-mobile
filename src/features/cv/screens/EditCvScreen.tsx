@@ -134,13 +134,13 @@ export default function EditCvScreen() {
                                 ? String(team.startYear)
                                 : ''
                         }
-                        onChangeText={text =>
-                            updateTeam(
-                                index,
-                                'startYear',
-                                Number(text)
-                            )
-                        }
+                        onChangeText={text => {
+                            const year = Number(text)
+                            // Validate year is reasonable (between 1900 and current year + 10)
+                            if (text === '' || (year >= 1900 && year <= new Date().getFullYear() + 10)) {
+                                updateTeam(index, 'startYear', text === '' ? undefined : year)
+                            }
+                        }}
                     />
 
                     <TextInput
@@ -152,13 +152,13 @@ export default function EditCvScreen() {
                                 ? String(team.endYear)
                                 : ''
                         }
-                        onChangeText={text =>
-                            updateTeam(
-                                index,
-                                'endYear',
-                                Number(text)
-                            )
-                        }
+                        onChangeText={text => {
+                            const year = Number(text)
+                            // Validate year is reasonable (between 1900 and current year + 10)
+                            if (text === '' || (year >= 1900 && year <= new Date().getFullYear() + 10)) {
+                                updateTeam(index, 'endYear', text === '' ? undefined : year)
+                            }
+                        }}
                     />
 
                     <TouchableOpacity

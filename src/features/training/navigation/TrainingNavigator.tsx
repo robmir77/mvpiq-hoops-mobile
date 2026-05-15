@@ -5,13 +5,21 @@ import VideoAnalysisHomeScreen from '../../videoAnalysis/screens/VideoAnalysisHo
 import VideoAnalysisRecorderScreen from '../../videoAnalysis/screens/VideoAnalysisRecorderScreen'
 import VideoAnalysisProcessingScreen from '../../videoAnalysis/screens/VideoAnalysisProcessingScreen'
 import VideoAnalysisResultScreen from '../../videoAnalysis/screens/VideoAnalysisResultScreen'
+import { VideoAnalysisType } from '../../videoAnalysis/types/videoAnalysis.types'
 
-const Stack = createNativeStackNavigator()
+export type TrainingStackParamList = {
+    TrainingHome: undefined
+    VideoAnalysisHome: undefined
+    VideoRecorder: { type: VideoAnalysisType }
+    VideoProcessing: { videoUrl: string; type: VideoAnalysisType }
+    VideoResult: { sessionId: string }
+}
+
+const Stack = createNativeStackNavigator<TrainingStackParamList>()
 
 export default function TrainingNavigator() {
     return (
-        <Stack.Navigator>
-
+        <Stack.Navigator screenOptions={{}}>
             <Stack.Screen
                 name="TrainingHome"
                 component={TrainingScreen}
@@ -38,7 +46,6 @@ export default function TrainingNavigator() {
                 name="VideoResult"
                 component={VideoAnalysisResultScreen}
             />
-
         </Stack.Navigator>
     )
 }

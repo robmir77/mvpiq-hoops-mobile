@@ -11,6 +11,19 @@ import {
   TeamCategory 
 } from '../types/teams.types'
 
+// Export types for use in other components
+export type { 
+  Team, 
+  TeamMember, 
+  TeamGame, 
+  TeamInvitation,
+  CreateTeamPayload,
+  UpdateTeamPayload,
+  JoinTeamRequest,
+  TeamRole,
+  TeamCategory 
+}
+
 export const getUserTeams = async (userId: string): Promise<Team[]> => {
   try {
     const response = await apiClient.get(`/users/${userId}/teams`)

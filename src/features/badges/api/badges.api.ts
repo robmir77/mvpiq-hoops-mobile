@@ -1,6 +1,9 @@
 import apiClient from '@/shared/api/apiClient'
 import { Badge, UserBadge, BadgeProgress } from '../types/badges.types'
 
+// Export types for use in other components
+export type { Badge, UserBadge, BadgeProgress }
+
 export const getUserBadges = async (userId: string): Promise<UserBadge[]> => {
   try {
     const response = await apiClient.get(`/users/${userId}/badges`)

@@ -9,19 +9,10 @@ import * as ImagePicker from "expo-image-picker"
 import { AuthContext } from "@/features/auth/context/AuthContext"
 import { useContext } from "react"
 import { globalStyles } from "@/shared/theme/globalStyles"
-
-type VideoAnalysisStackParamList = {
-    VideoRecorder: {
-        type: VideoAnalysisType
-    }
-    VideoProcessing: {
-        videoUrl: string
-        type: VideoAnalysisType
-    }
-}
+import { TrainingStackParamList } from "../../training/navigation/TrainingNavigator"
 
 type Props = NativeStackScreenProps<
-    VideoAnalysisStackParamList,
+    TrainingStackParamList,
     "VideoRecorder"
 >
 

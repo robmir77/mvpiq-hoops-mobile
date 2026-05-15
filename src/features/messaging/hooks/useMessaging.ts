@@ -7,7 +7,8 @@ import {
   markMessagesAsRead,
   Conversation, 
   Message,
-  SendMessagePayload 
+  SendMessagePayload,
+  SendMessageRequest 
 } from '../api/messaging.api'
 
 export const useMessaging = () => {
@@ -57,9 +58,14 @@ export const useMessaging = () => {
     )
   }
 
-  const sendNewMessage = async (payload: SendMessagePayload) => {
+  const sendNewMessage = async (conversationId: string, payload: SendMessagePayload) => {
     try {
-      const newMessage = await sendMessage(payload)
+      const request: SendMessageRequest = {
+        senderId: auth!.user!.id,
+        content: payload.content,
+        messageType: payload.type,
+      }
+      const newMessage = await sendMessage(conversationId, request)
       
       // Update messages in current conversation
       if (currentConversation) {
@@ -86,7 +92,7 @@ export const useMessaging = () => {
     messages,
     loading,
     selectConversation,
-    sendNewMessage,
+    sendNewMessage: (payload: SendMessagePayload) => sendNewMessage(currentConversation?.id || '', payload),
     refreshConversations,
   }
 }

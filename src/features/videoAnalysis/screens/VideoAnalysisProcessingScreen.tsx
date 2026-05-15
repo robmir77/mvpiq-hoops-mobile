@@ -1,32 +1,31 @@
 import React, { useEffect } from "react"
-import { View, Text } from "react-native"
-import { createAnalysisSession } from "../api/videoAnalysis.api"
+import { View, Text, StyleSheet } from "react-native"
+import { NativeStackScreenProps } from "@react-navigation/native-stack"
+import { useCreateSession } from "../hooks/useCreateSession"
+import { TrainingStackParamList } from "../../training/navigation/TrainingNavigator"
 
-export default function VideoAnalysisProcessingScreen({ route, navigation }: any) {
+type Props = NativeStackScreenProps<TrainingStackParamList, "VideoProcessing">
+
+export default function VideoAnalysisProcessingScreen({ route, navigation }: Props) {
 
     const { videoUrl, type } = route.params
+    const { createSession, loading, error } = useCreateSession()
 
     useEffect(() => {
 
         const process = async () => {
 
-            try {
+            const session = await createSession({
+                analysisCode: type.code,
+                videoUrl: videoUrl,
+                videoSeconds: 10,
+                videoSizeMb: 5
+            })
 
-                const session = await createAnalysisSession({
-                    analysisCode: type.code,
-                    videoUrl: videoUrl,      // ✅ è già una stringa
-                    videoSeconds: 10,        // temporaneo
-                    videoSizeMb: 5           // temporaneo
-                })
-
+            if (session) {
                 navigation.replace("VideoResult", {
                     sessionId: session.id
                 })
-
-            } catch (error) {
-
-                console.error("Analysis session error:", error)
-
             }
         }
 
@@ -35,8 +34,27 @@ export default function VideoAnalysisProcessingScreen({ route, navigation }: any
     }, [])
 
     return (
-        <View>
-            <Text>Analyzing your movement...</Text>
+        <View style={styles.container}>
+            <Text style={styles.text}>Analyzing your movement...</Text>
+            {error && <Text style={styles.error}>{error}</Text>}
         </View>
     )
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 16,
+    },
+    text: {
+        fontSize: 18,
+        color: '#333',
+    },
+    error: {
+        fontSize: 14,
+        color: 'red',
+        marginTop: 8,
+    },
+})
