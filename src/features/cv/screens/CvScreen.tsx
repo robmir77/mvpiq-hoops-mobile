@@ -1,6 +1,6 @@
 // src/features/cv/screens/CvScreen.tsx
 
-import React, { useContext } from 'react'
+import React, { useContext, useState } from 'react'
 import {
     View,
     Text,
@@ -9,14 +9,17 @@ import {
     TouchableOpacity,
     ActivityIndicator,
     RefreshControl,
+    Alert,
+    Share,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { MainStackParamList } from '@/app/navigation/types'
 import { useCv } from '../hooks/useCv'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { PlayerCv } from '../types/cv.types'
+import { PlayerCv, PlayerCvHighlight } from '../types/cv.types'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { enableCvSharing, disableCvSharing } from '../api/cv.api'
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>
 
@@ -39,6 +42,20 @@ const TeamCard = ({ team }: { team: any }) => {
     )
 }
 
+const HighlightCard = ({ highlight }: { highlight: PlayerCvHighlight }) => {
+    return (
+        <View style={styles.highlightCard}>
+            <Text style={styles.highlightTitle}>{highlight.title || 'Senza titolo'}</Text>
+            {highlight.description && (
+                <Text style={styles.highlightDescription}>{highlight.description}</Text>
+            )}
+            {highlight.externalUrl && (
+                <Text style={styles.highlightUrl}>{highlight.externalUrl}</Text>
+            )}
+        </View>
+    )
+}
+
 export default function CvScreen() {
     const navigation = useNavigation<NavigationProp>()
     const auth = useContext(AuthContext)
@@ -48,6 +65,7 @@ export default function CvScreen() {
     const { user } = auth
     const { data: cv, isLoading, isError, refetch } = useCv(user?.id)
     const { alert, showInfo } = useCustomAlert()
+    const [isSharing, setIsSharing] = useState(false)
 
     const handleEditCv = () => {
         navigation.navigate('EditCv' as any, { playerId: user?.id })
@@ -55,6 +73,65 @@ export default function CvScreen() {
 
     const handleRefresh = () => {
         refetch()
+    }
+
+    const handleShareCv = async () => {
+        if (!user?.id) return
+
+        try {
+            if (cv?.sharing?.shareEnabled) {
+                // Already sharing, show share sheet
+                const shareUrl = cv.sharing.publicUrl || `https://app.mvpiq-hoops.com/public/cv/${cv.sharing.shareToken}`
+                await Share.share({
+                    message: `Guarda il mio CV sportivo: ${shareUrl}`,
+                    url: shareUrl,
+                })
+            } else {
+                // Enable sharing first
+                setIsSharing(true)
+                const sharingData = await enableCvSharing(user.id)
+                showInfo('Condivisione abilitata', 'Il tuo CV è ora condivisibile')
+                refetch()
+                setIsSharing(false)
+
+                // Show share sheet
+                const shareUrl = sharingData.publicUrl
+                await Share.share({
+                    message: `Guarda il mio CV sportivo: ${shareUrl}`,
+                    url: shareUrl,
+                })
+            }
+        } catch (error: any) {
+            console.error('Errore condivisione CV:', error)
+            setIsSharing(false)
+            showInfo('Errore', 'Impossibile condividere il CV')
+        }
+    }
+
+    const handleDisableSharing = async () => {
+        if (!user?.id) return
+
+        Alert.alert(
+            'Disabilita condivisione',
+            'Sei sicuro di voler disabilitare la condivisione del tuo CV? Il link pubblico non sarà più accessibile.',
+            [
+                { text: 'Annulla', style: 'cancel' },
+                {
+                    text: 'Disabilita',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await disableCvSharing(user.id)
+                            showInfo('Condivisione disabilitata', 'Il tuo CV non è più pubblico')
+                            refetch()
+                        } catch (error: any) {
+                            console.error('Errore disabilitazione condivisione:', error)
+                            showInfo('Errore', 'Impossibile disabilitare la condivisione')
+                        }
+                    }
+                }
+            ]
+        )
     }
 
     if (isLoading) {
@@ -81,9 +158,20 @@ export default function CvScreen() {
         <View style={styles.container}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Il Mio CV</Text>
-                <TouchableOpacity style={styles.editButton} onPress={handleEditCv}>
-                    <Text style={styles.editButtonText}>Modifica</Text>
-                </TouchableOpacity>
+                <View style={styles.headerButtons}>
+                    <TouchableOpacity style={styles.editButton} onPress={handleEditCv}>
+                        <Text style={styles.editButtonText}>Modifica</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.shareButton, cv?.sharing?.shareEnabled && styles.shareButtonActive]}
+                        onPress={handleShareCv}
+                        disabled={isSharing}
+                    >
+                        <Text style={styles.shareButtonText}>
+                            {isSharing ? '...' : cv?.sharing?.shareEnabled ? 'Condividi' : 'Pubblica'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView
@@ -141,6 +229,34 @@ export default function CvScreen() {
                     )}
                 </View>
 
+                {/* Highlights */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Highlights</Text>
+                    {cv?.highlights && cv.highlights.length > 0 ? (
+                        cv.highlights.map((highlight, index) => (
+                            <HighlightCard key={index} highlight={highlight} />
+                        ))
+                    ) : (
+                        <Text style={styles.emptyText}>Nessun highlight aggiunto</Text>
+                    )}
+                </View>
+
+                {/* Sharing Status */}
+                {cv?.sharing?.shareEnabled && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>Condivisione</Text>
+                        <Text style={styles.sharingStatus}>
+                            CV pubblico attivo dal {new Date(cv.sharing.publicUpdatedAt || '').toLocaleDateString()}
+                        </Text>
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.dangerButton]}
+                            onPress={handleDisableSharing}
+                        >
+                            <Text style={styles.actionButtonText}>Disabilita condivisione</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 {/* Action Buttons */}
                 <View style={styles.actionButtons}>
                     <TouchableOpacity 
@@ -183,6 +299,10 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#fff',
     },
+    headerButtons: {
+        flexDirection: 'row',
+        gap: 8,
+    },
     editButton: {
         backgroundColor: '#ff8c00',
         paddingHorizontal: 16,
@@ -190,6 +310,22 @@ const styles = StyleSheet.create({
         borderRadius: 20,
     },
     editButtonText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    shareButton: {
+        backgroundColor: '#333',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#ff8c00',
+    },
+    shareButtonActive: {
+        backgroundColor: '#ff8c00',
+    },
+    shareButtonText: {
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 14,
@@ -260,6 +396,35 @@ const styles = StyleSheet.create({
     teamDate: {
         color: '#888',
         fontSize: 12,
+    },
+    highlightCard: {
+        backgroundColor: '#333',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 8,
+    },
+    highlightTitle: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginBottom: 4,
+    },
+    highlightDescription: {
+        color: '#ccc',
+        fontSize: 14,
+        marginBottom: 4,
+    },
+    highlightUrl: {
+        color: '#ff8c00',
+        fontSize: 12,
+    },
+    sharingStatus: {
+        color: '#ccc',
+        fontSize: 14,
+        marginBottom: 12,
+    },
+    dangerButton: {
+        backgroundColor: '#dc3545',
     },
     emptyText: {
         color: '#888',
