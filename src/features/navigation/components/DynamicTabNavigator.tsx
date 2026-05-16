@@ -52,6 +52,8 @@ const AdminSubscriptionsScreen = makePlaceholder('Abbonamenti')
 const AdminGamificationScreen  = makePlaceholder('Gamification')
 const MediaScreen              = makePlaceholder('Media')
 const SettingsScreen           = makePlaceholder('Impostazioni')
+const VideoAnalysisScreen      = makePlaceholder('Analisi Video')
+const LiveShotTrackingScreen   = makePlaceholder('Conteggio Live')
 const ComingSoonScreen         = makePlaceholder('Coming Soon')
 
 // Mappa section_key → componente (referenze stabili)
@@ -85,6 +87,8 @@ const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
     messages:             MessagingHomeScreen,
     notifications:        NotificationsScreen,
     settings:             SettingsScreen,
+    video_analysis:       VideoAnalysisScreen,
+    live_shot_tracking:   LiveShotTrackingScreen,
 }
 
 // ─── Icona Lucide dinamica ────────────────────────────────────
@@ -230,14 +234,8 @@ export const DynamicTabNavigator: React.FC = () => {
     const hiddenTabs  = allTabs.slice(MAX_VISIBLE_TABS)
 
     const handleSectionPress = (section: NavigationSection) => {
-        // Naviga usando il parent StackNavigator invece del TabNavigator
-        const parentNavigation = navigation.getParent()
-        if (parentNavigation) {
-            parentNavigation.navigate(section.id as never)
-        } else {
-            // Fallback: naviga nel TabNavigator (solo per tab visibili)
-            navigation.navigate(section.id as never)
-        }
+        // Naviga nel TabNavigator per tutte le schermate tab
+        navigation.navigate(section.id as never)
     }
 
     return (

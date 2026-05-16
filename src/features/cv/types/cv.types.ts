@@ -1,3 +1,5 @@
+// src/features/cv/types/cv.types.ts
+
 export interface PlayerCvTeam {
     id?: string
     teamName: string
@@ -12,8 +14,8 @@ export interface PlayerCvHighlight {
     id?: string
     title?: string
     description?: string
-    externalUrl?: string
-    sortOrder?: number
+    externalUrl?: string   // Link YouTube/Vimeo
+    storageUrl?: string    // Upload diretto
     thumbnailUrl?: string
     mediaId?: string
 }
@@ -21,8 +23,8 @@ export interface PlayerCvHighlight {
 export interface PlayerCvSharing {
     shareToken?: string
     shareEnabled?: boolean
-    publicUpdatedAt?: string
     publicUrl?: string
+    publicUpdatedAt?: string
 }
 
 export interface PlayerCv {

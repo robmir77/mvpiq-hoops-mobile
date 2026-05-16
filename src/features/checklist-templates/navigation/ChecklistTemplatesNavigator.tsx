@@ -12,7 +12,10 @@ const Stack = createNativeStackNavigator<ChecklistTemplatesStackParamList>()
 
 export default function ChecklistTemplatesNavigator() {
     return (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator screenOptions={{
+            headerStyle: { backgroundColor: '#0b0f1a' },
+            headerTintColor: '#fff',
+        }}>
             <Stack.Screen name="ChecklistTemplatesAdmin" component={ChecklistTemplatesAdminScreen} />
             <Stack.Screen name="ChecklistTemplateEdit" component={ChecklistTemplateEditScreen} />
         </Stack.Navigator>

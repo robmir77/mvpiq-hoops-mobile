@@ -12,7 +12,8 @@ export default function AiTrainingNavigator() {
     return (
         <Stack.Navigator
             screenOptions={{
-                headerShown: false,
+                headerStyle: { backgroundColor: '#0b0f1a' },
+                headerTintColor: '#fff',
             }}
         >
             <Stack.Screen 

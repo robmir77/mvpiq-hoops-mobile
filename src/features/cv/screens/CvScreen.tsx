@@ -11,8 +11,8 @@ import {
     RefreshControl,
     Alert,
     Share,
-    Clipboard,
 } from 'react-native'
+import * as ExpoClipboard from 'expo-clipboard'
 import * as Print from 'expo-print'
 import * as Sharing from 'expo-sharing'
 import { useNavigation } from '@react-navigation/native'
@@ -31,14 +31,14 @@ const TeamCard = ({ team }: { team: any }) => {
         <View style={styles.teamCard}>
             <Text style={styles.teamName}>{team.teamName}</Text>
             <Text style={styles.teamCategory}>Categoria: {team.categoryId}</Text>
-            {team.startDate && (
+            {team.startYear && (
                 <Text style={styles.teamDate}>
-                    Dal: {new Date(team.startDate).toLocaleDateString()}
+                    Anno inizio: {team.startYear}
                 </Text>
             )}
-            {team.endDate && (
+            {team.endYear && (
                 <Text style={styles.teamDate}>
-                    Al: {new Date(team.endDate).toLocaleDateString()}
+                    Anno fine: {team.endYear}
                 </Text>
             )}
         </View>
@@ -93,7 +93,7 @@ export default function CvScreen() {
                             text: 'Copia link',
                             onPress: () => {
                                 if (shareUrl) {
-                                    Clipboard.setString(shareUrl)
+                                    ExpoClipboard.setStringAsync(shareUrl)
                                     showInfo('Link copiato', 'Il link è stato copiato negli appunti')
                                 }
                             }
@@ -129,7 +129,7 @@ export default function CvScreen() {
                                 text: 'Copia link',
                                 onPress: () => {
                                     if (shareUrl) {
-                                        Clipboard.setString(shareUrl)
+                                        ExpoClipboard.setStringAsync(shareUrl)
                                         showInfo('Link copiato', 'Il link è stato copiato negli appunti')
                                     }
                                 }

@@ -20,7 +20,10 @@ const Stack = createNativeStackNavigator<WorkoutStackParamList>()
 
 export default function WorkoutNavigator() {
     return (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator screenOptions={{
+            headerStyle: { backgroundColor: '#0b0f1a' },
+            headerTintColor: '#fff',
+        }}>
             <Stack.Screen name="WorkoutHome" component={WorkoutHomeScreen} />
             <Stack.Screen name="WorkoutSetup" component={WorkoutSetupScreen} />
             <Stack.Screen name="Calibration" component={CalibrationScreen} />
