@@ -230,7 +230,14 @@ export const DynamicTabNavigator: React.FC = () => {
     const hiddenTabs  = allTabs.slice(MAX_VISIBLE_TABS)
 
     const handleSectionPress = (section: NavigationSection) => {
-        navigation.navigate(section.id as never)
+        // Naviga usando il parent StackNavigator invece del TabNavigator
+        const parentNavigation = navigation.getParent()
+        if (parentNavigation) {
+            parentNavigation.navigate(section.id as never)
+        } else {
+            // Fallback: naviga nel TabNavigator (solo per tab visibili)
+            navigation.navigate(section.id as never)
+        }
     }
 
     return (
