@@ -27,7 +27,7 @@ export default function RankingScreen() {
     const { data: roleRanking, isLoading: roleLoading, refetch: refetchRole } = useRoleRanking(user?.mainPosition)
     
     const isLoading = globalLoading || roleLoading
-    const ranking = scope === 'ROLE' ? (roleRanking || []) : (globalRanking || [])
+    const ranking = scope === 'ROLE' ? (Array.isArray(roleRanking) ? roleRanking : []) : (Array.isArray(globalRanking) ? globalRanking : [])
     
     const handleRefresh = () => {
         refetchGlobal()
