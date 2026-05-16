@@ -72,9 +72,11 @@ export interface NavigationSection {
     id: string
     title: string
     description: string
-    icon: string | null
+    icon: string | null        // nome Lucide kebab-case (es. "notebook-pen")
+    iconColor?: string | null  // colore HEX opzionale (es. "#ff8c00")
     accessible: boolean
     sortOrder: number
+    sectionKey?: string        // alias di id, utile quando il BE lo restituisce separatamente
 }
 
 export interface NavigationResponse {

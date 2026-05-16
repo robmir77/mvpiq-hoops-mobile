@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getNavigationSections, checkSectionAccess } from '../api/navigation.api'
 import { NavigationSection } from '@/features/auth/types/auth.types'
-import { isAuthError, isPermissionError, handleApiError } from '@/shared/utils/errorHandler'
+import { isAuthError, isPermissionError } from '@/shared/utils/errorHandler'
 
 export const useNavigationSections = () => {
     const queryClient = useQueryClient()
@@ -20,8 +20,6 @@ export const useNavigationSections = () => {
             try {
                 return await getNavigationSections()
             } catch (err: any) {
-                // Log error ma non mostrare alert in queryFn
-                // L'errore verrà gestito dal componente che usa questo hook
                 console.error('Errore caricamento navigazione:', err)
                 throw err
             }
@@ -29,7 +27,7 @@ export const useNavigationSections = () => {
         staleTime: 5 * 60 * 1000, // 5 minuti
         retry: (failureCount, error: any) => {
             if (isAuthError(error) || isPermissionError(error)) {
-                return false // Non retry per errori di auth/permessi
+                return false
             }
             return failureCount < 1
         },
@@ -45,13 +43,8 @@ export const useNavigationSections = () => {
 
     const hasSectionAccess = async (sectionId: string): Promise<boolean> => {
         try {
-            // Prima controlla nei dati già caricati
             const cachedSection = sections.find(s => s.id === sectionId)
-            if (cachedSection) {
-                return cachedSection.accessible
-            }
-
-            // Se non trovato, fai chiamata API
+            if (cachedSection) return cachedSection.accessible
             const response = await checkSectionAccess(sectionId)
             return response.data
         } catch (error) {

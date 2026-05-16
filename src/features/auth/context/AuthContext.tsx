@@ -2,12 +2,14 @@ import React, { createContext, useState, useEffect } from 'react'
 import { logout } from '../api/auth'
 import { loadAuth } from '@/shared/storage/authStorage'
 import { AuthContextType, User } from '../types/auth.types'
+import { useQueryClient } from '@tanstack/react-query'
 
 export const AuthContext = createContext<AuthContextType | null>(null)
 
 export const AuthProvider = ({ children }: any) => {
     const [user, setUser] = useState<User | null>(null)
     const [isLoading, setIsLoading] = useState(true)
+    const queryClient = useQueryClient()
 
     // Carica l'utente salvato all'avvio
     useEffect(() => {
@@ -27,6 +29,10 @@ export const AuthProvider = ({ children }: any) => {
 
     const handleLogout = async () => {
         try {
+            // Invalida la cache della navigazione
+            queryClient.invalidateQueries({ queryKey: ['navigation-sections'] })
+            queryClient.clear()
+            
             await logout()
             setUser(null)
         } catch (error) {
