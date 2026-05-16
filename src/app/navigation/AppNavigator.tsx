@@ -13,6 +13,7 @@ import ChatScreen from '@/features/messaging/screens/ChatScreen'
 import NewChatScreen from '@/features/messaging/screens/NewChatScreen'
 import MessagingHomeScreen from '@/features/messaging/screens/MessagingHomeScreen'
 import NotificationsScreen from '@/features/notifications/screens/NotificationsScreen'
+import VideoAnalysisHomeScreen from '@/features/videoAnalysis/screens/VideoAnalysisHomeScreen'
 import HomeScreen from '@/features/home/screens/HomeScreen'
 import ProfileScreen from '@/features/profile/screens/ProfileScreen'
 import GoalsScreen from '@/features/goals/screens/GoalsScreen'
@@ -354,7 +355,7 @@ export default function AppNavigator() {
 
                     <Stack.Screen
                         name="video_analysis"
-                        component={VideoAnalysisScreen}
+                        component={VideoAnalysisHomeScreen}
                         options={{
                             headerShown: false,
                         }}

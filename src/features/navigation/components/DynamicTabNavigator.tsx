@@ -23,6 +23,7 @@ import ChecklistTemplatesNavigator from '@/features/checklist-templates/navigati
 import OnlineUsersScreen from '@/features/users/screens/OnlineUsersScreen'
 import MessagingHomeScreen from '@/features/messaging/screens/MessagingHomeScreen'
 import RankingScreen from '@/features/ranking/screens/RankingScreen'
+import VideoAnalysisHomeScreen from '@/features/videoAnalysis/screens/VideoAnalysisHomeScreen'
 
 // ─── Placeholder stabile ─────────────────────────────────────
 // IMPORTANTE: mai definire componenti inline dentro render o dentro Record.
@@ -88,7 +89,7 @@ const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
     messages:             MessagingHomeScreen,
     notifications:        NotificationsScreen,
     settings:             SettingsScreen,
-    video_analysis:       VideoAnalysisScreen,
+    video_analysis:       VideoAnalysisHomeScreen,
     live_shot_tracking:   LiveShotTrackingScreen,
 }
 
