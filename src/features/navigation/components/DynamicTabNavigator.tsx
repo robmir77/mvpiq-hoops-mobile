@@ -24,35 +24,10 @@ import OnlineUsersScreen from '@/features/users/screens/OnlineUsersScreen'
 import MessagingHomeScreen from '@/features/messaging/screens/MessagingHomeScreen'
 import RankingScreen from '@/features/ranking/screens/RankingScreen'
 
-// ─── Icona Lucide dinamica ────────────────────────────────────
-// Il DB salva nomi kebab-case (es. "notebook-pen").
-// Lucide esporta PascalCase (es. "NotebookPen").
-// Convertiamo al volo senza mappe hardcoded.
-const toPascalCase = (kebab: string): string =>
-    kebab.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('')
-
-interface LucideIconProps {
-    name: string | null
-    size?: number
-    color?: string
-}
-
-const LucideIcon: React.FC<LucideIconProps> = ({ name, size = 22, color = '#888' }) => {
-    if (!name) return <Text style={{ fontSize: size - 2 }}>📱</Text>
-    const Icon = (LucideIcons as any)[toPascalCase(name)]
-    if (!Icon) {
-        console.warn(`[Nav] Lucide icon not found: "${name}"`)
-        return <Text style={{ fontSize: size - 2 }}>📱</Text>
-    }
-    return <Icon size={size} color={color} strokeWidth={2} />
-}
-
-// ─── Placeholder stabili ──────────────────────────────────────
-// REGOLA CRITICA: mai definire componenti inline dentro render()
-// o dentro un Record dinamico. React Navigation crea un nuovo
-// componente a ogni render → smonta e rimonta il tab continuamente.
-// Tutti i placeholder devono essere istanziati UNA VOLTA qui.
-
+// ─── Placeholder stabile ─────────────────────────────────────
+// IMPORTANTE: mai definire componenti inline dentro render o dentro Record.
+// React Navigation tratta ogni nuova referenza come un nuovo componente
+// e smonta/rimonta il tab ad ogni render.
 const makePlaceholder = (label: string): React.FC => {
     const Screen: React.FC = () => (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
@@ -64,9 +39,9 @@ const makePlaceholder = (label: string): React.FC => {
     return Screen
 }
 
-const StatsScreen              = makePlaceholder('Statistiche')
+// Istanziati UNA VOLTA a livello di modulo
+const StatsPlaceholder         = makePlaceholder('Statistiche')
 const ScoutSearchScreen        = makePlaceholder('Ricerca Atleti')
-const ScoutReportsScreen       = makePlaceholder('Report Scout')
 const TrainerProgramsScreen    = makePlaceholder('Programmi')
 const TrainerClientsScreen     = makePlaceholder('Clienti')
 const TrainerExercisesScreen   = makePlaceholder('Esercizi')
@@ -79,38 +54,69 @@ const MediaScreen              = makePlaceholder('Media')
 const SettingsScreen           = makePlaceholder('Impostazioni')
 const ComingSoonScreen         = makePlaceholder('Coming Soon')
 
-// ─── Mappa section_key → componente ──────────────────────────
-// Tutte referenze STABILI (mai arrow functions inline).
+// Mappa section_key → componente (referenze stabili)
 const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
-    home:                HomeScreen,
-    profile:             ProfileScreen,
-    player_profile:      ProfileScreen,
-    player_stats:        StatsScreen,
-    player_goals:        GoalsScreen,
-    player_journal:      JournalNavigator,
-    player_training:     AiTrainingNavigator,
-    player_workouts:     WorkoutNavigator,
-    player_media:        MediaScreen,
-    player_cv:           CvScreen,
-    ai_training_tools:   AiTrainingNavigator,
-    scout_search:        ScoutSearchScreen,
-    scout_rankings:      RankingScreen,
-    scout_reports:       ScoutReportsScreen,
-    trainer_programs:    TrainerProgramsScreen,
-    trainer_clients:     TrainerClientsScreen,
-    trainer_exercises:   TrainerExercisesScreen,
-    trainer_ai:          AiTrainingNavigator,
-    creator_content:     CreatorContentScreen,
-    creator_templates:   CreatorTemplatesScreen,
-    creator_analytics:   CreatorAnalyticsScreen,
-    admin_users:         OnlineUsersScreen,
-    admin_subscriptions: AdminSubscriptionsScreen,
-    admin_gamification:  AdminGamificationScreen,
-    admin_notifications: NotificationsScreen,
-    admin_checklist:     ChecklistTemplatesNavigator,
-    messages:            MessagingHomeScreen,
-    notifications:       NotificationsScreen,
-    settings:            SettingsScreen,
+    home:                 HomeScreen,
+    profile:              ProfileScreen,
+    player_profile:       ProfileScreen,
+    player_stats:         StatsPlaceholder,
+    player_goals:         GoalsScreen,
+    player_journal:       JournalNavigator,
+    player_training:      AiTrainingNavigator,
+    player_workouts:      WorkoutNavigator,
+    player_media:         MediaScreen,
+    player_cv:            CvScreen,
+    ai_training_tools:    AiTrainingNavigator,
+    scout_search:         ScoutSearchScreen,
+    scout_rankings:       RankingScreen,
+    scout_reports:        ComingSoonScreen,
+    trainer_programs:     TrainerProgramsScreen,
+    trainer_clients:      TrainerClientsScreen,
+    trainer_exercises:    TrainerExercisesScreen,
+    trainer_ai:           AiTrainingNavigator,
+    creator_content:      CreatorContentScreen,
+    creator_templates:    CreatorTemplatesScreen,
+    creator_analytics:    CreatorAnalyticsScreen,
+    admin_users:          OnlineUsersScreen,
+    admin_subscriptions:  AdminSubscriptionsScreen,
+    admin_gamification:   AdminGamificationScreen,
+    admin_notifications:  NotificationsScreen,
+    admin_checklist:      ChecklistTemplatesNavigator,
+    messages:             MessagingHomeScreen,
+    notifications:        NotificationsScreen,
+    settings:             SettingsScreen,
+}
+
+// ─── Icona Lucide dinamica ────────────────────────────────────
+// I nomi nel DB sono kebab-case (es. "notebook-pen").
+// Lucide esporta in PascalCase (es. "NotebookPen").
+// Convertiamo al volo e rendiamo il componente corretto.
+
+const toPascalCase = (kebab: string): string =>
+    kebab
+        .split('-')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join('')
+
+interface LucideIconProps {
+    name: string | null
+    size?: number
+    color?: string
+}
+
+const LucideIcon: React.FC<LucideIconProps> = ({ name, size = 22, color = '#888' }) => {
+    if (!name) return <Text style={{ fontSize: size }}>📱</Text>
+
+    const pascal = toPascalCase(name)
+    const Icon = (LucideIcons as any)[pascal]
+
+    if (!Icon) {
+        // Icona non trovata in Lucide → fallback testo
+        console.warn(`Lucide icon not found: "${name}" (tried "${pascal}")`)
+        return <Text style={{ fontSize: size - 2 }}>📱</Text>
+    }
+
+    return <Icon size={size} color={color} strokeWidth={2} />
 }
 
 // ─── Tab "Altro" ──────────────────────────────────────────────
@@ -124,7 +130,6 @@ const MoreTabScreen: React.FC<MoreTabProps> = ({ sections, onSectionPress, previ
     const navigation = useNavigation()
     const focusCountRef = useRef(0)
 
-    // Se l'utente clicca "Altro" quando è già aperto, torna al tab precedente
     useFocusEffect(
         useCallback(() => {
             focusCountRef.current += 1
@@ -147,7 +152,7 @@ const MoreTabScreen: React.FC<MoreTabProps> = ({ sections, onSectionPress, previ
                         style={{
                             backgroundColor: colors.card,
                             borderRadius: 12,
-                            padding: 14,
+                            padding: 16,
                             marginBottom: 10,
                             flexDirection: 'row',
                             alignItems: 'center',
@@ -157,20 +162,8 @@ const MoreTabScreen: React.FC<MoreTabProps> = ({ sections, onSectionPress, previ
                         onPress={() => onSectionPress(section)}
                         activeOpacity={0.7}
                     >
-                        <View style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 10,
-                            backgroundColor: 'rgba(255,140,0,0.1)',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            marginRight: 14,
-                        }}>
-                            <LucideIcon
-                                name={section.icon}
-                                size={22}
-                                color={section.iconColor ?? colors.primary}
-                            />
+                        <View style={{ width: 36, alignItems: 'center', marginRight: 14 }}>
+                            <LucideIcon name={section.icon} size={22} color={colors.primary} />
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={{ fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 2 }}>
@@ -182,7 +175,7 @@ const MoreTabScreen: React.FC<MoreTabProps> = ({ sections, onSectionPress, previ
                                 </Text>
                             ) : null}
                         </View>
-                        <Text style={{ fontSize: 20, color: colors.primary }}>›</Text>
+                        <Text style={{ fontSize: 18, color: colors.primary }}>›</Text>
                     </TouchableOpacity>
                 ))}
             </ScrollView>
@@ -198,7 +191,7 @@ const HOME_SECTION: NavigationSection = {
     id: 'home',
     title: 'Home',
     description: 'Pagina principale',
-    icon: 'house',
+    icon: 'house',   // nome Lucide
     accessible: true,
     sortOrder: 0,
 }
@@ -264,15 +257,15 @@ export const DynamicTabNavigator: React.FC = () => {
                         fontWeight: '600',
                         marginTop: 2,
                     },
-                    // Icona: nome Lucide direttamente dal DB, nessuna mappa hardcoded
+                    // Icona: usa il nome Lucide dal DB
                     tabBarIcon: ({ focused, color }) => (
                         <LucideIcon
                             name={section?.icon ?? null}
                             size={22}
-                            color={focused ? (section?.iconColor ?? colors.primary) : '#555'}
+                            color={color}
                         />
                     ),
-                    // Label: title dal DB
+                    // Label: usa il title dal DB (già breve)
                     tabBarLabel: section?.title ?? route.name,
                 }
             }}
