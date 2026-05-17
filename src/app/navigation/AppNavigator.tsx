@@ -3,6 +3,7 @@ import { useContext } from 'react'
 import { Text, View } from 'react-native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { colors } from '@/shared/theme/colors'
+import { RootStackParamList } from './types'
 
 import MainNavigator from './MainNavigator'
 import AuthNavigator from './AuthNavigator'
@@ -14,6 +15,8 @@ import NewChatScreen from '@/features/messaging/screens/NewChatScreen'
 import MessagingHomeScreen from '@/features/messaging/screens/MessagingHomeScreen'
 import NotificationsScreen from '@/features/notifications/screens/NotificationsScreen'
 import VideoAnalysisHomeScreen from '@/features/videoAnalysis/screens/VideoAnalysisHomeScreen'
+import VideoAnalysisRecorderScreen from '@/features/videoAnalysis/screens/VideoAnalysisRecorderScreen'
+import VideoAnalysisProcessingScreen from '@/features/videoAnalysis/screens/VideoAnalysisProcessingScreen'
 import HomeScreen from '@/features/home/screens/HomeScreen'
 import ProfileScreen from '@/features/profile/screens/ProfileScreen'
 import GoalsScreen from '@/features/goals/screens/GoalsScreen'
@@ -53,7 +56,7 @@ const VideoAnalysisScreen = makePlaceholder('Analisi Video')
 const LiveShotTrackingScreen = makePlaceholder('Conteggio Live')
 const ComingSoonScreen = makePlaceholder('Coming Soon')
 
-const Stack = createNativeStackNavigator()
+const Stack = createNativeStackNavigator<RootStackParamList>()
 
 export default function AppNavigator() {
     const auth = useContext(AuthContext)
@@ -356,6 +359,22 @@ export default function AppNavigator() {
                     <Stack.Screen
                         name="video_analysis"
                         component={VideoAnalysisHomeScreen}
+                        options={{
+                            headerShown: false,
+                        }}
+                    />
+
+                    <Stack.Screen
+                        name="VideoRecorder"
+                        component={VideoAnalysisRecorderScreen}
+                        options={{
+                            headerShown: false,
+                        }}
+                    />
+
+                    <Stack.Screen
+                        name="VideoProcessing"
+                        component={VideoAnalysisProcessingScreen}
                         options={{
                             headerShown: false,
                         }}

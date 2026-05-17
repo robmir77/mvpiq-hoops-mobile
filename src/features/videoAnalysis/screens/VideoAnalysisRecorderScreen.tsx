@@ -4,17 +4,13 @@ import { View, TouchableOpacity, Text, StyleSheet } from "react-native"
 import { CameraView, useCameraPermissions } from "expo-camera"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { uploadVideo } from "../api/videoUpload.api"
-import { VideoAnalysisType } from "../types/videoAnalysis.types"
+import { RootStackParamList } from "@/app/navigation/types"
 import * as ImagePicker from "expo-image-picker"
 import { AuthContext } from "@/features/auth/context/AuthContext"
 import { useContext } from "react"
 import { globalStyles } from "@/shared/theme/globalStyles"
-import { TrainingStackParamList } from "../../training/navigation/TrainingNavigator"
 
-type Props = NativeStackScreenProps<
-    TrainingStackParamList,
-    "VideoRecorder"
->
+type Props = NativeStackScreenProps<RootStackParamList, "VideoRecorder">
 
 export default function VideoAnalysisRecorderScreen({
                                                         route,

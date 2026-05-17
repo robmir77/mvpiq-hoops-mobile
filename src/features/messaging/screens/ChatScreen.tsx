@@ -1,219 +1,149 @@
+// src/features/messaging/screens/ChatScreen.tsx
+
 import React, { useState, useRef, useEffect, useContext } from 'react'
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
+    View, Text, ScrollView, StyleSheet, TextInput,
+    TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native'
 import { useRoute, useNavigation } from '@react-navigation/native'
-import { useMessaging } from '../hooks/useMessaging'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { Message } from '../types/messaging.types'
+import { useMessaging } from '../hooks/useMessaging'
+import { Message, getOtherParticipant } from '../types/messaging.types'
 
 export default function ChatScreen() {
-  const route = useRoute()
-  const navigation = useNavigation()
-  const auth = useContext(AuthContext)
-  const { conversationId } = route.params as { conversationId: string }
-  const { messages, currentConversation, sendNewMessage } = useMessaging()
-  const [newMessage, setNewMessage] = useState('')
-  const [sending, setSending] = useState(false)
-  const scrollViewRef = useRef<ScrollView>(null)
+    const route = useRoute()
+    const navigation = useNavigation()
+    const auth = useContext(AuthContext)
+    const { conversationId } = route.params as { conversationId: string }
+    const { messages, currentConversation, sendNewMessage } = useMessaging()
+    const [newMessage, setNewMessage] = useState('')
+    const [sending, setSending] = useState(false)
+    const scrollViewRef = useRef<ScrollView>(null)
 
-  const currentUserId = auth?.user?.id
+    const currentUserId = auth?.user?.id ?? ''
 
-  useEffect(() => {
-    if (scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true })
-      }, 100)
+    useEffect(() => {
+        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100)
+    }, [messages])
+
+    // ✅ Fix: confronta senderId con l'ID dell'utente autenticato
+    const isMyMessage = (message: Message): boolean =>
+        message.senderId === currentUserId
+
+    // ✅ Fix: usa getOtherParticipant per trovare il nome dell'altro
+    const getHeaderTitle = (): string => {
+        if (!currentConversation) return 'Chat'
+        const other = getOtherParticipant(currentConversation, currentUserId)
+        return other?.displayName || other?.username || currentConversation.title || 'Chat'
     }
-  }, [messages])
 
-  const handleSendMessage = async () => {
-    if (newMessage.trim() === '' || !currentConversation) return
-
-    setSending(true)
-    try {
-      await sendNewMessage({
-        receiverId: getOtherParticipantId(),
-        content: newMessage.trim(),
-        type: 'TEXT',
-      })
-      setNewMessage('')
-    } catch (error) {
-      console.error('Error sending message:', error)
-    } finally {
-      setSending(false)
+    const handleSend = async () => {
+        if (!newMessage.trim()) return
+        setSending(true)
+        try {
+            await sendNewMessage(
+                { receiverId: '', content: newMessage.trim(), type: 'TEXT' },
+                conversationId
+            )
+            setNewMessage('')
+        } catch (e) {
+            console.error('Errore invio:', e)
+        } finally {
+            setSending(false)
+        }
     }
-  }
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleTimeString('it-IT', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
+    const formatTime = (dateString: string) =>
+        new Date(dateString).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
 
-  // ✅ Fix: confronta con l'ID dell'utente autenticato, non con participant1Id
-  const isMyMessage = (message: Message): boolean => {
-    return message.senderId === currentUserId
-  }
-
-  // ✅ Fix: identifica l'altro partecipante guardando chi NON è l'utente corrente
-  const getOtherParticipantId = (): string => {
-    if (!currentConversation) return ''
-    return currentConversation.participant1Id === currentUserId
-      ? currentConversation.participant2Id
-      : currentConversation.participant1Id
-  }
-
-  // ✅ Fix: mostra il nome dell'altro partecipante, non sempre participant1
-  const getParticipantName = (): string => {
-    if (!currentConversation) return 'Sconosciuto'
-    const isP1 = currentConversation.participant1Id === currentUserId
-    const other = isP1 ? currentConversation.participant2 : currentConversation.participant1
-    return other?.displayName || other?.username || 'Sconosciuto'
-  }
-
-  const renderMessage = (message: Message) => {
-    const isMyMsg = isMyMessage(message)
+    if (!currentConversation) {
+        return (
+            <View style={styles.center}>
+                <ActivityIndicator size="large" color="#F97316" />
+            </View>
+        )
+    }
 
     return (
-      <View
-        key={message.id}
-        style={[styles.messageContainer, isMyMsg ? styles.myMessage : styles.otherMessage]}
-      >
-        <View style={[styles.messageBubble, isMyMsg ? styles.myBubble : styles.otherBubble]}>
-          <Text style={[styles.messageText, isMyMsg ? styles.myMessageText : styles.otherMessageText]}>
-            {message.content}
-          </Text>
-          <Text style={[styles.messageTime, isMyMsg ? styles.myMessageTime : styles.otherMessageTime]}>
-            {formatTime(message.createdAt)}
-          </Text>
-        </View>
-      </View>
-    )
-  }
-
-  if (!currentConversation) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#F97316" />
-      </View>
-    )
-  }
-
-  return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backButtonText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{getParticipantName()}</Text>
-        <View style={styles.headerRight} />
-      </View>
-
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.messagesList}
-        contentContainerStyle={styles.messagesContainer}
-      >
-        {messages.map(renderMessage)}
-      </ScrollView>
-
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.textInput}
-          placeholder="Scrivi un messaggio..."
-          placeholderTextColor="#6B7280"
-          value={newMessage}
-          onChangeText={setNewMessage}
-          multiline
-          maxLength={1000}
-        />
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            (newMessage.trim() === '' || sending) && styles.sendButtonDisabled,
-          ]}
-          onPress={handleSendMessage}
-          disabled={newMessage.trim() === '' || sending}
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {sending ? (
-            <ActivityIndicator size="small" color="white" />
-          ) : (
-            <Text style={styles.sendButtonText}>Invia</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
-  )
+            <View style={styles.header}>
+                <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+                    <Text style={styles.backText}>←</Text>
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
+                <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView
+                ref={scrollViewRef}
+                style={styles.messagesList}
+                contentContainerStyle={styles.messagesContainer}
+            >
+                {messages.map(message => {
+                    const mine = isMyMessage(message)
+                    return (
+                        <View key={message.id} style={[styles.msgWrap, mine ? styles.myWrap : styles.otherWrap]}>
+                            <View style={[styles.bubble, mine ? styles.myBubble : styles.otherBubble]}>
+                                <Text style={styles.msgText}>{message.content}</Text>
+                                <Text style={[styles.msgTime, mine ? styles.myTime : styles.otherTime]}>
+                                    {formatTime(message.createdAt)}
+                                </Text>
+                            </View>
+                        </View>
+                    )
+                })}
+            </ScrollView>
+
+            <View style={styles.inputContainer}>
+                <TextInput
+                    style={styles.textInput}
+                    placeholder="Scrivi un messaggio..."
+                    placeholderTextColor="#6B7280"
+                    value={newMessage}
+                    onChangeText={setNewMessage}
+                    multiline
+                    maxLength={1000}
+                />
+                <TouchableOpacity
+                    style={[styles.sendBtn, (!newMessage.trim() || sending) && styles.sendBtnDisabled]}
+                    onPress={handleSend}
+                    disabled={!newMessage.trim() || sending}
+                >
+                    {sending
+                        ? <ActivityIndicator size="small" color="white" />
+                        : <Text style={styles.sendBtnText}>Invia</Text>
+                    }
+                </TouchableOpacity>
+            </View>
+        </KeyboardAvoidingView>
+    )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0F1A' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0B0F1A' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1F2937',
-  },
-  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backButtonText: { color: '#F97316', fontSize: 20, fontWeight: 'bold' },
-  headerTitle: { flex: 1, color: 'white', fontSize: 18, fontWeight: '600', textAlign: 'center' },
-  headerRight: { width: 40 },
-  messagesList: { flex: 1 },
-  messagesContainer: { padding: 16 },
-  messageContainer: { marginVertical: 4 },
-  myMessage: { alignItems: 'flex-end' },
-  otherMessage: { alignItems: 'flex-start' },
-  messageBubble: { maxWidth: '80%', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 18 },
-  myBubble: { backgroundColor: '#F97316' },
-  otherBubble: { backgroundColor: '#1F2937' },
-  messageText: { fontSize: 16, lineHeight: 20 },
-  myMessageText: { color: 'white' },
-  otherMessageText: { color: 'white' },
-  messageTime: { fontSize: 11, marginTop: 4 },
-  myMessageTime: { color: 'rgba(255,255,255,0.7)', textAlign: 'right' },
-  otherMessageTime: { color: '#6B7280' },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#1F2937',
-    alignItems: 'flex-end',
-  },
-  textInput: {
-    flex: 1,
-    backgroundColor: '#1F2937',
-    color: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
-    marginRight: 8,
-    maxHeight: 100,
-    fontSize: 16,
-  },
-  sendButton: {
-    backgroundColor: '#F97316',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendButtonDisabled: { backgroundColor: '#374151' },
-  sendButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
+    container: { flex: 1, backgroundColor: '#0B0F1A' },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0B0F1A' },
+    header: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#1F2937' },
+    backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+    backText: { color: '#F97316', fontSize: 20, fontWeight: 'bold' },
+    headerTitle: { flex: 1, color: 'white', fontSize: 18, fontWeight: '600', textAlign: 'center' },
+    messagesList: { flex: 1 },
+    messagesContainer: { padding: 16 },
+    msgWrap: { marginVertical: 4 },
+    myWrap: { alignItems: 'flex-end' },
+    otherWrap: { alignItems: 'flex-start' },
+    bubble: { maxWidth: '80%', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 18 },
+    myBubble: { backgroundColor: '#F97316' },
+    otherBubble: { backgroundColor: '#1F2937' },
+    msgText: { color: 'white', fontSize: 16, lineHeight: 20 },
+    msgTime: { fontSize: 11, marginTop: 4 },
+    myTime: { color: 'rgba(255,255,255,0.7)', textAlign: 'right' },
+    otherTime: { color: '#6B7280' },
+    inputContainer: { flexDirection: 'row', padding: 16, borderTopWidth: 1, borderTopColor: '#1F2937', alignItems: 'flex-end' },
+    textInput: { flex: 1, backgroundColor: '#1F2937', color: 'white', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20, marginRight: 8, maxHeight: 100, fontSize: 16 },
+    sendBtn: { backgroundColor: '#F97316', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+    sendBtnDisabled: { backgroundColor: '#374151' },
+    sendBtnText: { color: 'white', fontSize: 16, fontWeight: '600' },
 })

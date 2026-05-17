@@ -2,11 +2,9 @@ import React, { useEffect } from "react"
 import { View, Text, StyleSheet } from "react-native"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { useCreateSession } from "../hooks/useCreateSession"
-import { TrainingStackParamList } from "../../training/navigation/TrainingNavigator"
+import { RootStackParamList } from "@/app/navigation/types"
 
-type Props = NativeStackScreenProps<TrainingStackParamList, "VideoProcessing">
-
-export default function VideoAnalysisProcessingScreen({ route, navigation }: Props) {
+const VideoAnalysisProcessingScreen = ({ route, navigation }: NativeStackScreenProps<RootStackParamList, "VideoProcessing">) => {
 
     const { videoUrl, type } = route.params
     const { createSession, loading, error } = useCreateSession()
@@ -40,6 +38,8 @@ export default function VideoAnalysisProcessingScreen({ route, navigation }: Pro
         </View>
     )
 }
+
+export default VideoAnalysisProcessingScreen
 
 const styles = StyleSheet.create({
     container: {
