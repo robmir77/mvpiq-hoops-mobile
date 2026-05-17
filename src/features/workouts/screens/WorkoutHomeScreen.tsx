@@ -96,7 +96,7 @@ export default function WorkoutHomeScreen({ navigation }: any) {
                     </View>
                     <View style={styles.statItem}>
                         <Text style={styles.statLabel}>%</Text>
-                        <Text style={styles.statValue}>{item.shootingPercentage.toFixed(0)}%</Text>
+                        <Text style={styles.statValue}>{item.shootingPercentage?.toFixed(0) || 0}%</Text>
                     </View>
                 </View>
 

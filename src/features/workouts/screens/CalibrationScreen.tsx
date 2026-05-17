@@ -121,15 +121,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 </CameraView>
             </View>
 
-            {/* Istruzioni */}
-            <View style={styles.instructionsContainer}>
-                <Text style={styles.instructionTitle}>Istruzioni:</Text>
-                <Text style={styles.instructionText}>1. Posiziona il telefono stabilmente</Text>
-                <Text style={styles.instructionText}>2. Assicurati che il canestro sia visibile</Text>
-                <Text style={styles.instructionText}>3. Tocca il centro del ferro del canestro</Text>
-                <Text style={styles.instructionText}>4. Premi "Salva Calibrazione"</Text>
-            </View>
-
             {/* Pulsanti */}
             <View style={styles.buttonContainer}>
                 <TouchableOpacity
@@ -141,14 +132,30 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={[globalStyles.button, styles.saveButton]}
+                    style={[
+                        globalStyles.button,
+                        styles.saveButton,
+                        (!hoopCenter || isCalibrating) && styles.disabledButton
+                    ]}
                     onPress={handleSaveCalibration}
                     disabled={!hoopCenter || isCalibrating}
                 >
-                    <Text style={globalStyles.buttonText}>
+                    <Text style={[
+                        globalStyles.buttonText,
+                        (!hoopCenter || isCalibrating) && styles.disabledButtonText
+                    ]}>
                         {isCalibrating ? 'Salvataggio...' : 'Salva Calibrazione'}
                     </Text>
                 </TouchableOpacity>
+            </View>
+
+            {/* Istruzioni */}
+            <View style={styles.instructionsContainer}>
+                <Text style={styles.instructionTitle}>Istruzioni:</Text>
+                <Text style={styles.instructionText}>1. Posiziona il telefono stabilmente</Text>
+                <Text style={styles.instructionText}>2. Assicurati che il canestro sia visibile</Text>
+                <Text style={styles.instructionText}>3. Tocca il centro del ferro del canestro</Text>
+                <Text style={styles.instructionText}>4. Premi "Salva Calibrazione"</Text>
             </View>
 
             <CustomAlert {...alert} />
@@ -161,6 +168,7 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#0b0f1a',
         padding: 20,
+        paddingBottom: 40,
     },
     title: {
         fontSize: 22,
@@ -278,5 +286,12 @@ const styles = StyleSheet.create({
     saveButton: {
         flex: 2,
         backgroundColor: '#ff8c00',
+    },
+    disabledButton: {
+        backgroundColor: '#3a3a3a',
+        opacity: 0.6,
+    },
+    disabledButtonText: {
+        color: '#888',
     },
 })

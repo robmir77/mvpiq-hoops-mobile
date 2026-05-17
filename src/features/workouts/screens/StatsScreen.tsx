@@ -95,9 +95,9 @@ export default function StatsScreen({ navigation, route }: any) {
                                 styles.zonePercentage,
                                 zone.percentage >= 50 ? styles.goodPercentage : styles.badPercentage
                             ]}>
-                                {zone.percentage.toFixed(0)}%
+                                {zone.percentage?.toFixed(0) || 0}%
                             </Text>
-                            <Text style={styles.zoneDistance}>{zone.averageDistance.toFixed(1)}m</Text>
+                            <Text style={styles.zoneDistance}>{zone.averageDistance?.toFixed(1) || 0}m</Text>
                         </View>
                     </View>
                 ))}
@@ -168,11 +168,11 @@ export default function StatsScreen({ navigation, route }: any) {
                         <Text style={styles.careerLabel}>Tiri Totali</Text>
                     </View>
                     <View style={styles.careerItem}>
-                        <Text style={styles.careerValue}>{careerStats.overallPercentage.toFixed(0)}%</Text>
+                        <Text style={styles.careerValue}>{careerStats.overallPercentage?.toFixed(0) || 0}%</Text>
                         <Text style={styles.careerLabel}>Percentuale</Text>
                     </View>
                     <View style={styles.careerItem}>
-                        <Text style={styles.careerValue}>{careerStats.bestSessionPercentage.toFixed(0)}%</Text>
+                        <Text style={styles.careerValue}>{careerStats.bestSessionPercentage?.toFixed(0) || 0}%</Text>
                         <Text style={styles.careerLabel}>Miglior Sessione</Text>
                     </View>
                 </View>
@@ -185,7 +185,7 @@ export default function StatsScreen({ navigation, route }: any) {
                     <View style={styles.highlightItem}>
                         <Text style={styles.highlightLabel}>Durata Media</Text>
                         <Text style={styles.highlightValue}>
-                            {Math.floor(careerStats.averageSessionDuration / 60)}:{(careerStats.averageSessionDuration % 60).toFixed(0).padStart(2, '0')}
+                            {Math.floor((careerStats.averageSessionDuration || 0) / 60)}:{((careerStats.averageSessionDuration || 0) % 60).toFixed(0).padStart(2, '0')}
                         </Text>
                     </View>
                 </View>

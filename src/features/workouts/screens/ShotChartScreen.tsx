@@ -124,7 +124,7 @@ export default function ShotChartScreen({ navigation, route }: any) {
                                 styles.zoneStatPercentage,
                                 zone.data.percentage >= 50 ? styles.goodPercentage : styles.badPercentage
                             ]}>
-                                {zone.data.percentage.toFixed(0)}%
+                                {zone.data.percentage?.toFixed(0) || 0}%
                             </Text>
                         </View>
                     </View>
@@ -150,11 +150,11 @@ export default function ShotChartScreen({ navigation, route }: any) {
                         <Text style={styles.statLabel}>Segnati</Text>
                     </View>
                     <View style={styles.statItem}>
-                        <Text style={styles.statValue}>{shotChart.sessionStats.shootingPercentage.toFixed(0)}%</Text>
+                        <Text style={styles.statValue}>{shotChart.sessionStats.shootingPercentage?.toFixed(0) || 0}%</Text>
                         <Text style={styles.statLabel}>Percentuale</Text>
                     </View>
                     <View style={styles.statItem}>
-                        <Text style={styles.statValue}>{shotChart.sessionStats.averageDistance.toFixed(1)}m</Text>
+                        <Text style={styles.statValue}>{shotChart.sessionStats.averageDistance?.toFixed(1) || 0}m</Text>
                         <Text style={styles.statLabel}>Distanza Media</Text>
                     </View>
                 </View>
