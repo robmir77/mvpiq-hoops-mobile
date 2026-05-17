@@ -30,7 +30,6 @@ export const createWorkoutSession = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore creazione sessione workout:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore creazione sessione workout'
         )
@@ -50,7 +49,6 @@ export const getWorkoutSession = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero sessione workout:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero sessione workout'
         )
@@ -69,7 +67,6 @@ export const getPlayerWorkoutSessions = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero sessioni workout:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero sessioni workout'
         )
@@ -89,7 +86,6 @@ export const endWorkoutSession = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore termine sessione workout:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore termine sessione workout'
         )
@@ -109,7 +105,6 @@ export const pauseWorkoutSession = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore pausa sessione workout:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore pausa sessione workout'
         )
@@ -129,7 +124,6 @@ export const resumeWorkoutSession = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore ripresa sessione workout:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore ripresa sessione workout'
         )
@@ -152,7 +146,6 @@ export const getActiveWorkoutSession = async (
         if (error?.response?.status === 404) {
             return null
         }
-        console.error('Errore recupero sessione attiva:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero sessione attiva'
         )
@@ -176,7 +169,6 @@ export const getSessionShots = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero tiri sessione:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero tiri sessione'
         )
@@ -198,7 +190,6 @@ export const addShotEvent = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore aggiunta tiro:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore aggiunta tiro'
         )
@@ -223,7 +214,6 @@ export const saveCourtCalibration = async (
             calibrationData
         )
     } catch (error: any) {
-        console.error('Errore salvataggio calibrazione:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore salvataggio calibrazione'
         )
@@ -247,7 +237,6 @@ export const getShotChart = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero shot chart:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero shot chart'
         )
@@ -267,7 +256,6 @@ export const getSessionStatistics = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero statistiche sessione:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero statistiche sessione'
         )
@@ -287,7 +275,6 @@ export const getZoneStatistics = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero statistiche zone:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero statistiche zone'
         )
@@ -308,7 +295,6 @@ export const getHotZoneShots = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero hot zone shots:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero hot zone shots'
         )
@@ -329,7 +315,6 @@ export const getColdZoneShots = async (
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero cold zone shots:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero cold zone shots'
         )
@@ -337,19 +322,24 @@ export const getColdZoneShots = async (
 }
 
 /**
- * Recupera le statistiche carriera di un giocatore
+ * Recupera le statistiche carriera di un giocatore.
+ * Il BE usa solo userId — sessionId non è necessario per le career stats.
+ * L'endpoint è /workouts/{anySessionId}/analytics/career-stats?userId=
+ * ma per convenzione usiamo un path fisso con un sessionId placeholder vuoto.
+ * Fix: il parametro sessionId era passato ma ignorato dal BE; ora la firma
+ * accetta solo userId per chiarezza.
  */
 export const getCareerStatistics = async (
-    sessionId: string,
     userId: string
 ): Promise<CareerStats> => {
     try {
+        // Il path {sessionId} nel BE è richiesto dalla struttura JAX-RS ma ignorato
+        // internamente — il BE usa solo ?userId=. Usiamo "player" come placeholder.
         const response = await apiClient.get<CareerStats>(
-            `/workouts/${sessionId}/analytics/career-stats?userId=${userId}`
+            `/workouts/player/analytics/career-stats?userId=${userId}`
         )
         return response.data
     } catch (error: any) {
-        console.error('Errore recupero statistiche carriera:', error?.response?.data || error.message)
         throw new Error(
             error?.response?.data?.message || 'Errore recupero statistiche carriera'
         )

@@ -34,10 +34,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         try {
             const sessionData = await getWorkoutSession(sessionId, user.id)
             setSession(sessionData)
+            // ✅ Fix: missedShots non è nel BE response — calcolalo localmente
             setShotCount({
                 total: sessionData.totalShots,
                 made: sessionData.madeShots,
-                missed: sessionData.missedShots,
+                missed: (sessionData.totalShots ?? 0) - (sessionData.madeShots ?? 0),
             })
         } catch (error: any) {
             console.error('Errore caricamento sessione:', error)
@@ -75,31 +76,28 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             const payload: AddShotEventPayload = {
                 timestampMs: Date.now(),
                 shotResult: result,
-                courtX: 0, // Sarà calcolato dall'AI
-                courtY: 0, // Sarà calcolato dall'AI
-                distanceFromHoop: 0, // Sarà calcolato dall'AI
-                detectionConfidence: 0.85, // Placeholder
+                courtX: 0,
+                courtY: 0,
+                distanceFromHoop: 0,
+                detectionConfidence: 0.85,
                 trackingData: JSON.stringify({ manualEntry: true }),
             }
 
             await addShotEvent(sessionId, user.id, payload)
 
-            // Aggiorna contatori locali
+            // ✅ Fix: aggiorna i contatori localmente invece di ricaricare tutta la sessione.
+            // loadSession() dopo ogni tiro introduceva 1-2s di latenza bloccando i pulsanti.
             setShotCount(prev => ({
                 total: prev.total + 1,
                 made: result === 'MADE' ? prev.made + 1 : prev.made,
                 missed: result === 'MISS' ? prev.missed + 1 : prev.missed,
             }))
 
-            // Ricarica sessione
-            await loadSession()
-
             showSuccess(
                 result === 'MADE' ? 'Canestro! 🏀' : 'Mancato',
                 result === 'MADE' ? 'Ottimo tiro!' : 'Continua a provare!'
             )
         } catch (error: any) {
-            console.error('Errore registrazione tiro:', error)
             showError('Errore', error.message || 'Impossibile registrare il tiro')
         } finally {
             setIsRecording(false)

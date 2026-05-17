@@ -33,7 +33,8 @@ export default function StatsScreen({ navigation, route }: any) {
                 getZoneStatistics(sessionId, user.id),
                 getHotZoneShots(sessionId, user.id, 5),
                 getColdZoneShots(sessionId, user.id, 5),
-                getCareerStatistics(sessionId, user.id),
+                // ✅ Fix: getCareerStatistics ora accetta solo userId (non sessionId)
+                getCareerStatistics(user.id),
             ])
 
             setSessionStats(session)

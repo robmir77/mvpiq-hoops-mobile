@@ -62,7 +62,7 @@ const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
     home:                 HomeScreen,
     profile:              ProfileScreen,
     player_profile:       ProfileScreen,
-    player_stats:         StatsPlaceholder,
+    player_stats:         StatsPlaceholder,     // ✅ Fix: non era RankingScreen
     player_goals:         GoalsScreen,
     player_journal:       JournalNavigator,
     player_training:      AiTrainingNavigator,
