@@ -6,21 +6,9 @@ export type SessionStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED'
 export type ShotResult = 'MADE' | 'MISS' | 'BLOCKED' | 'AIRBALL'
 export type CourtZone = 'PAINT' | 'MID_RANGE' | 'THREE_POINT' | 'CORNER'
 
-export interface CalibrationData {
-    homographyMatrix: number[]
-    hoopCenter: { x: number; y: number }
-    freeThrowLine?: { x: number; y: number }
-    courtCorners?: {
-        topLeft: { x: number; y: number }
-        topRight: { x: number; y: number }
-        bottomLeft: { x: number; y: number }
-        bottomRight: { x: number; y: number }
-    }
-}
-
+// ─── Sessione ─────────────────────────────────────────────────
 export interface WorkoutSession {
     id: string
-    // Il BE manda "playerId" (nuovo) — "userId" mantenuto per retrocompatibilità
     userId?: string
     playerId?: string
     cameraMode: CameraMode
@@ -30,18 +18,15 @@ export interface WorkoutSession {
     endTime?: string
     totalShots: number
     madeShots: number
-    // ✅ Fix: missedShots non è nel WorkoutSessionResponse BE — è optional
-    // Usa getMissedShots() per accedervi in modo sicuro
-    missedShots?: number
+    missedShots?: number      // non nel BE response — usa getMissedShots()
     shootingPercentage: number
     notes?: string
     averageShotDistance?: number
     workoutScore?: number
 }
 
-// ✅ Helper: calcola missedShots localmente se non presente nella risposta BE
-export const getMissedShots = (session: WorkoutSession): number =>
-    session.missedShots ?? ((session.totalShots ?? 0) - (session.madeShots ?? 0))
+export const getMissedShots = (s: WorkoutSession): number =>
+    s.missedShots ?? ((s.totalShots ?? 0) - (s.madeShots ?? 0))
 
 export interface CreateWorkoutSessionPayload {
     cameraMode: CameraMode
@@ -49,6 +34,7 @@ export interface CreateWorkoutSessionPayload {
     calibrationData?: string
 }
 
+// ─── Tiri ─────────────────────────────────────────────────────
 export interface ShotEvent {
     id: string
     sessionId: string
@@ -78,14 +64,101 @@ export interface AddShotEventPayload {
     trackingData?: string
 }
 
-export interface ShotChartPoint {
-    x: number
-    y: number
-    made: boolean
-    distance: number
-    zone: string
+// ─── Calibrazione ─────────────────────────────────────────────
+export interface CalibrationData {
+    homographyMatrix: number[]
+    hoopCenter: { x: number; y: number }
+    freeThrowLine?: { x: number; y: number }
+    courtCorners?: {
+        topLeft: { x: number; y: number }
+        topRight: { x: number; y: number }
+        bottomLeft: { x: number; y: number }
+        bottomRight: { x: number; y: number }
+    }
 }
 
+// ─── AI Tracking ──────────────────────────────────────────────
+export interface DetectionResult {
+    class: 'basketball' | 'hoop' | 'player'
+    confidence: number
+    bbox: { x: number; y: number; width: number; height: number }
+    centerX: number
+    centerY: number
+}
+
+export interface TrackingState {
+    ballPosition: { x: number; y: number } | null
+    ballVelocity: { vx: number; vy: number } | null
+    hoopPosition: { x: number; y: number } | null
+    shotDetected: boolean
+    shotResult: ShotResult | null
+    trajectory: Array<{ x: number; y: number; t: number }>
+    confidence: number
+}
+
+export interface PoseKeypoints {
+    leftShoulder?: { x: number; y: number; score: number }
+    rightShoulder?: { x: number; y: number; score: number }
+    leftElbow?: { x: number; y: number; score: number }
+    rightElbow?: { x: number; y: number; score: number }
+    leftWrist?: { x: number; y: number; score: number }
+    rightWrist?: { x: number; y: number; score: number }
+    leftHip?: { x: number; y: number; score: number }
+    rightHip?: { x: number; y: number; score: number }
+    leftKnee?: { x: number; y: number; score: number }
+    rightKnee?: { x: number; y: number; score: number }
+    leftAnkle?: { x: number; y: number; score: number }
+    rightAnkle?: { x: number; y: number; score: number }
+}
+
+export interface FrameDataPayload {
+    frameTimestamp: number
+    ballX?: number
+    ballY?: number
+    ballConfidence?: number
+    hoopX?: number
+    hoopY?: number
+    hoopConfidence?: number
+    poseData?: Record<string, any>
+    trajectoryData?: Record<string, any>
+    ballVelocityX?: number
+    ballVelocityY?: number
+    shotDetected?: boolean
+}
+
+export interface PoseAnalysisPayload {
+    shotEventId?: string
+    elbowAngle?: number
+    kneeAngle?: number
+    shoulderAngle?: number
+    wristAngle?: number
+    releaseHeight?: number
+    releaseAngle?: number
+    releaseVelocity?: number
+    shotSmoothness?: number
+    followThroughScore?: number
+    balanceScore?: number
+}
+
+// ─── Realtime Stats (WebSocket) ───────────────────────────────
+export interface RealtimeStats {
+    sessionId: string
+    shotCount: number
+    fieldGoalPercentage: number
+    shotStreak: number
+    releaseAngleAvg: number
+    releaseVelocityAvg: number
+    heatZones: Record<string, number>
+    recentShots: Array<{
+        courtX: number
+        courtY: number
+        result: ShotResult
+        timestamp: number
+    }>
+    sessionDuration: number
+}
+
+// ─── Analytics ────────────────────────────────────────────────
 export interface ZoneStats {
     attempts: number
     made: number
@@ -102,6 +175,10 @@ export interface SessionStats {
     worstZone: string
 }
 
+export interface ShotChartPoint {
+    x: number; y: number; made: boolean; distance: number; zone: string
+}
+
 export interface ShotChartResponse {
     shots: ShotChartPoint[]
     sessionStats: SessionStats
@@ -114,16 +191,10 @@ export interface ShotChartResponse {
 }
 
 export interface ZoneStatistics {
-    zone: string
-    attempts: number
-    made: number
-    missed: number
-    percentage: number
-    averageDistance: number
+    zone: string; attempts: number; made: number; missed: number
+    percentage: number; averageDistance: number
 }
 
-// ✅ Fix: allineato al CareerStatsDTO BE (non Map<String,Double>)
-// I campi corrispondono esattamente a quelli serializzati dal DTO Java
 export interface CareerStats {
     totalSessions: number
     totalShots: number

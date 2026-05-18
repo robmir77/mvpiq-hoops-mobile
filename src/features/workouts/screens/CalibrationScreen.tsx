@@ -1,162 +1,269 @@
-import React, { useState, useContext, useRef } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native'
-import { globalStyles } from '@/shared/theme/globalStyles'
+// src/features/workouts/screens/CalibrationScreen.tsx
+
+import React, { useState, useContext } from 'react'
+import {
+    View, Text, StyleSheet, TouchableOpacity,
+    Dimensions, ScrollView, Platform,
+} from 'react-native'
+import Svg, { Circle, Line, Polyline } from 'react-native-svg'
+import { CameraView, useCameraPermissions } from 'expo-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { CameraMode, CalibrationData } from '../types/workouts.types'
+import { CalibrationData } from '../types/workouts.types'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
-import { CameraView, useCameraPermissions } from 'expo-camera'
 
-const { width, height } = Dimensions.get('window')
+const { width: SW, height: SH } = Dimensions.get('window')
+const CAM_H = SH * 0.50
 
+type CalibStep = 'hoop' | 'corners' | 'done'
+interface Point { x: number; y: number }
+
+// ─── SVG Overlay calibrazione ─────────────────────────────────
+const CalibrationOverlay = ({
+    hoopCenter, corners,
+}: { hoopCenter: Point | null; corners: Point[] }) => {
+    // Linee tra angoli consecutivi
+    const cornerLines: { x1: number; y1: number; x2: number; y2: number }[] = []
+    for (let i = 1; i < corners.length; i++) {
+        cornerLines.push({
+            x1: corners[i - 1].x, y1: corners[i - 1].y,
+            x2: corners[i].x,     y2: corners[i].y,
+        })
+    }
+    // Chiudi il poligono se 4 angoli
+    if (corners.length === 4) {
+        cornerLines.push({
+            x1: corners[3].x, y1: corners[3].y,
+            x2: corners[0].x, y2: corners[0].y,
+        })
+    }
+
+    return (
+        <Svg
+            style={StyleSheet.absoluteFill}
+            width={SW}
+            height={CAM_H}
+            pointerEvents="none"
+        >
+            {/* Linee campo */}
+            {cornerLines.map((l, i) => (
+                <Line
+                    key={`l${i}`}
+                    x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+                    stroke="rgba(74,222,128,0.7)"
+                    strokeWidth={1.5}
+                />
+            ))}
+
+            {/* Marker angoli */}
+            {corners.map((c, i) => (
+                <React.Fragment key={`c${i}`}>
+                    <Circle cx={c.x} cy={c.y} r={14}
+                        fill="rgba(74,222,128,0.25)" stroke="#4ade80" strokeWidth={2} />
+                    <Circle cx={c.x} cy={c.y} r={4} fill="#4ade80" />
+                </React.Fragment>
+            ))}
+
+            {/* Marker canestro */}
+            {hoopCenter && (
+                <>
+                    <Circle cx={hoopCenter.x} cy={hoopCenter.y} r={22}
+                        fill="rgba(255,140,0,0.2)" stroke="#ff8c00" strokeWidth={2.5} />
+                    <Circle cx={hoopCenter.x} cy={hoopCenter.y} r={5} fill="#ff8c00" />
+                    {/* Mirino orizzontale */}
+                    <Line
+                        x1={hoopCenter.x - 30} y1={hoopCenter.y}
+                        x2={hoopCenter.x - 24} y2={hoopCenter.y}
+                        stroke="#ff8c00" strokeWidth={1.5}
+                    />
+                    <Line
+                        x1={hoopCenter.x + 24} y1={hoopCenter.y}
+                        x2={hoopCenter.x + 30} y2={hoopCenter.y}
+                        stroke="#ff8c00" strokeWidth={1.5}
+                    />
+                    {/* Mirino verticale */}
+                    <Line
+                        x1={hoopCenter.x} y1={hoopCenter.y - 30}
+                        x2={hoopCenter.x} y2={hoopCenter.y - 24}
+                        stroke="#ff8c00" strokeWidth={1.5}
+                    />
+                    <Line
+                        x1={hoopCenter.x} y1={hoopCenter.y + 24}
+                        x2={hoopCenter.x} y2={hoopCenter.y + 30}
+                        stroke="#ff8c00" strokeWidth={1.5}
+                    />
+                </>
+            )}
+        </Svg>
+    )
+}
+
+// ─── Schermata ────────────────────────────────────────────────
 export default function CalibrationScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode } = route.params || {}
+    const { sessionId } = route.params || {}
     const auth = useContext(AuthContext)
     const { user } = auth || {}
 
     const [permission, requestPermission] = useCameraPermissions()
-    const [isCalibrating, setIsCalibrating] = useState(false)
-    const [hoopCenter, setHoopCenter] = useState<{ x: number; y: number } | null>(null)
-    const { alert, showError, showSuccess } = useCustomAlert()
+    const [step, setStep] = useState<CalibStep>('hoop')
+    const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
+    const [corners, setCorners] = useState<Point[]>([])
+    const [isSaving, setIsSaving] = useState(false)
+    const { alert, showError, showSuccess, showWarning } = useCustomAlert()
 
-    if (!permission) {
-        return <View />
-    }
+    if (!permission) return <View style={styles.container} />
 
     if (!permission.granted) {
         return (
-            <View style={styles.container}>
-                <Text style={styles.title}>Permesso Camera Richiesto</Text>
-                <Text style={styles.subtitle}>
-                    Abbiamo bisogno del permesso per accedere alla camera per calibrare il campo
-                </Text>
-                <TouchableOpacity
-                    style={[globalStyles.button, styles.permissionButton]}
-                    onPress={requestPermission}
-                >
-                    <Text style={globalStyles.buttonText}>Concedi Permesso</Text>
+            <View style={[styles.container, styles.center]}>
+                <Text style={styles.title}>📷 Permesso Camera</Text>
+                <Text style={styles.subtitle}>Necessario per la calibrazione del campo</Text>
+                <TouchableOpacity style={styles.primaryBtn} onPress={requestPermission}>
+                    <Text style={styles.primaryBtnText}>Concedi Permesso</Text>
                 </TouchableOpacity>
             </View>
         )
     }
 
+    const normalizePoint = (rawX: number, rawY: number): Point => ({
+        x: Math.max(0, Math.min(1, rawX / SW)),
+        y: Math.max(0, Math.min(1, rawY / CAM_H)),
+    })
+
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
-        setHoopCenter({ x: locationX, y: locationY })
+        if (step === 'hoop') {
+            setHoopCenter({ x: locationX, y: locationY })
+        } else if (step === 'corners' && corners.length < 4) {
+            const updated = [...corners, { x: locationX, y: locationY }]
+            setCorners(updated)
+            if (updated.length === 4) setStep('done')
+        }
     }
 
-    const handleSaveCalibration = async () => {
+    const handleSave = async () => {
         if (!hoopCenter || !user?.id || !sessionId) {
             showError('Errore', 'Seleziona prima il centro del canestro')
             return
         }
-
-        setIsCalibrating(true)
+        setIsSaving(true)
         try {
-            const calibrationData: CalibrationData = {
-                homographyMatrix: [], // Sarà calcolata dal backend o da un algoritmo più complesso
-                hoopCenter,
-                freeThrowLine: undefined,
-                courtCorners: undefined,
+            const normHoop = normalizePoint(hoopCenter.x, hoopCenter.y)
+            let courtCorners
+            if (corners.length === 4) {
+                const nc = corners.map(c => normalizePoint(c.x, c.y))
+                courtCorners = {
+                    topLeft: nc[0], topRight: nc[1],
+                    bottomRight: nc[2], bottomLeft: nc[3],
+                }
             }
-
+            const calibrationData: CalibrationData = {
+                homographyMatrix: corners.length === 4 ? [1,0,0, 0,1,0, 0,0,1] : [],
+                hoopCenter: normHoop,
+                courtCorners,
+            }
             await saveCourtCalibration(sessionId, user.id, calibrationData)
-            showSuccess('Calibrazione Completata', 'Il campo è stato calibrato con successo')
-            
-            // Naviga alla sessione attiva
+            showSuccess('Calibrazione salvata', 'Il campo è stato calibrato')
             navigation.navigate('WorkoutSession', { sessionId })
-        } catch (error: any) {
-            console.error('Errore salvataggio calibrazione:', error)
-            showError('Errore', error.message || 'Impossibile salvare la calibrazione')
+        } catch (e: any) {
+            showError('Errore', e.message || 'Impossibile salvare la calibrazione')
         } finally {
-            setIsCalibrating(false)
+            setIsSaving(false)
         }
     }
 
-    const handleSkipCalibration = () => {
-        // Naviga alla sessione senza calibrazione
-        navigation.navigate('WorkoutSession', { sessionId })
+    const handleSkip = () => {
+        showWarning(
+            'Salta calibrazione',
+            'Senza calibrazione il tracking delle coordinate sarà meno preciso.',
+            () => navigation.navigate('WorkoutSession', { sessionId })
+        )
     }
+
+    const resetAll = () => { setCorners([]); setStep('hoop'); setHoopCenter(null) }
+
+    const CORNER_LABELS = ['Ang. SX alto', 'Ang. DX alto', 'Ang. DX basso', 'Ang. SX basso']
+    const si = {
+        hoop:    { label: '1/2 — Canestro', hint: 'Tocca il centro del ferro', color: '#ff8c00' },
+        corners: { label: '2/2 — Angoli campo', hint: `Tocca: ${CORNER_LABELS[corners.length] ?? ''}`, color: '#4ade80' },
+        done:    { label: '✓ Pronto', hint: 'Calibrazione completa', color: '#4ade80' },
+    }[step]
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Calibrazione Campo</Text>
-            <Text style={styles.subtitle}>
-                Tocca il centro del canestro nella vista camera per calibrare
-            </Text>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={handleSkip}>
+                    <Text style={styles.skipText}>Salta</Text>
+                </TouchableOpacity>
+                <View style={styles.headerCenter}>
+                    <Text style={[styles.stepLabel, { color: si.color }]}>{si.label}</Text>
+                    <Text style={styles.stepHint}>{si.hint}</Text>
+                </View>
+                <TouchableOpacity onPress={resetAll}>
+                    <Text style={styles.resetText}>↺ Reset</Text>
+                </TouchableOpacity>
+            </View>
 
-            {/* Camera View */}
-            <View style={styles.cameraContainer}>
-                <CameraView
-                    style={styles.camera}
-                    facing="back"
-                    onTouchStart={handleCameraTouch}
-                >
-                    {/* Overlay Overlay */}
-                    <View style={styles.overlayContainer}>
-                        {/* Linee guida */}
-                        <View style={styles.guidelineHorizontal} />
-                        <View style={styles.guidelineVertical} />
-                        
-                        {/* Cerchio centrale */}
-                        <View style={styles.centerCircle} />
-                        
-                        {/* Marker per il canestro selezionato */}
-                        {hoopCenter && (
-                            <View style={[
-                                styles.hoopMarker,
-                                { left: hoopCenter.x - 20, top: hoopCenter.y - 20 }
-                            ]}>
-                                <View style={styles.hoopMarkerInner} />
-                            </View>
-                        )}
-
-                        {/* Informazioni overlay */}
-                        <View style={styles.overlayInfo}>
-                            <Text style={styles.overlayInfoText}>
-                                Modalità: {cameraMode === 'ANGLE_45' ? '45°' : cameraMode === 'LATERAL' ? 'Laterale' : 'Frontale'}
-                            </Text>
-                        </View>
+            {/* Camera + overlay SVG */}
+            <View style={{ height: CAM_H }} onTouchEnd={handleCameraTouch}>
+                <CameraView style={StyleSheet.absoluteFill} facing="back">
+                    <View style={styles.guideH} />
+                    <View style={styles.guideV} />
+                    <View style={styles.tapHintWrap}>
+                        <Text style={styles.tapHintText}>
+                            {step === 'hoop'
+                                ? '👆 Tocca il canestro'
+                                : step === 'corners'
+                                    ? `👆 ${CORNER_LABELS[corners.length] ?? 'Tocca...'}`
+                                    : '✅ Tutti i punti posizionati'}
+                        </Text>
                     </View>
                 </CameraView>
+                <CalibrationOverlay hoopCenter={hoopCenter} corners={corners} />
             </View>
 
-            {/* Pulsanti */}
-            <View style={styles.buttonContainer}>
-                <TouchableOpacity
-                    style={[globalStyles.button, styles.skipButton]}
-                    onPress={handleSkipCalibration}
-                    disabled={isCalibrating}
-                >
-                    <Text style={globalStyles.buttonText}>Salta</Text>
-                </TouchableOpacity>
+            {/* Bottom panel */}
+            <ScrollView style={styles.bottomPanel} contentContainerStyle={{ paddingBottom: 24 }}>
+                {/* Step indicator */}
+                <View style={styles.stepsRow}>
+                    <TouchableOpacity
+                        style={[styles.stepBtn, step === 'hoop' && styles.stepBtnActive]}
+                        onPress={() => setStep('hoop')}
+                    >
+                        <Text style={styles.stepBtnNum}>1</Text>
+                        <Text style={styles.stepBtnLabel}>Canestro{hoopCenter ? ' ✓' : ''}</Text>
+                    </TouchableOpacity>
+                    <View style={styles.stepConnector} />
+                    <TouchableOpacity
+                        style={[styles.stepBtn, (step === 'corners' || step === 'done') && styles.stepBtnActive]}
+                        onPress={() => hoopCenter && setStep('corners')}
+                        disabled={!hoopCenter}
+                    >
+                        <Text style={styles.stepBtnNum}>2</Text>
+                        <Text style={styles.stepBtnLabel}>
+                            Angoli {corners.length > 0 ? `${corners.length}/4` : '(opz.)'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Azioni */}
+                {step === 'hoop' && hoopCenter && (
+                    <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('corners')}>
+                        <Text style={styles.secondaryBtnText}>Calibra anche gli angoli →</Text>
+                    </TouchableOpacity>
+                )}
 
                 <TouchableOpacity
-                    style={[
-                        globalStyles.button,
-                        styles.saveButton,
-                        (!hoopCenter || isCalibrating) && styles.disabledButton
-                    ]}
-                    onPress={handleSaveCalibration}
-                    disabled={!hoopCenter || isCalibrating}
+                    style={[styles.primaryBtn, (!hoopCenter || isSaving) && styles.primaryBtnDisabled]}
+                    onPress={handleSave}
+                    disabled={!hoopCenter || isSaving}
                 >
-                    <Text style={[
-                        globalStyles.buttonText,
-                        (!hoopCenter || isCalibrating) && styles.disabledButtonText
-                    ]}>
-                        {isCalibrating ? 'Salvataggio...' : 'Salva Calibrazione'}
+                    <Text style={styles.primaryBtnText}>
+                        {isSaving ? 'Salvataggio...' : 'Salva e inizia sessione'}
                     </Text>
                 </TouchableOpacity>
-            </View>
-
-            {/* Istruzioni */}
-            <View style={styles.instructionsContainer}>
-                <Text style={styles.instructionTitle}>Istruzioni:</Text>
-                <Text style={styles.instructionText}>1. Posiziona il telefono stabilmente</Text>
-                <Text style={styles.instructionText}>2. Assicurati che il canestro sia visibile</Text>
-                <Text style={styles.instructionText}>3. Tocca il centro del ferro del canestro</Text>
-                <Text style={styles.instructionText}>4. Premi "Salva Calibrazione"</Text>
-            </View>
+            </ScrollView>
 
             <CustomAlert {...alert} />
         </View>
@@ -164,134 +271,58 @@ export default function CalibrationScreen({ navigation, route }: any) {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0b0f1a',
-        padding: 20,
-        paddingBottom: 40,
-    },
-    title: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: 'white',
-        marginBottom: 5,
-    },
-    subtitle: {
-        fontSize: 14,
-        color: '#888',
-        marginBottom: 15,
-    },
-    permissionButton: {
-        marginTop: 20,
-    },
-    cameraContainer: {
-        width: '100%',
-        height: height * 0.45,
-        borderRadius: 12,
-        overflow: 'hidden',
-        marginBottom: 15,
-    },
-    camera: {
-        flex: 1,
-    },
-    overlayContainer: {
-        flex: 1,
-        position: 'relative',
-    },
-    guidelineHorizontal: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        top: '50%',
-        height: 1,
-        backgroundColor: 'rgba(255, 140, 0, 0.5)',
-    },
-    guidelineVertical: {
-        position: 'absolute',
-        top: 0,
-        bottom: 0,
-        left: '50%',
-        width: 1,
-        backgroundColor: 'rgba(255, 140, 0, 0.5)',
-    },
-    centerCircle: {
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        width: 40,
-        height: 40,
-        marginLeft: -20,
-        marginTop: -20,
-        borderRadius: 20,
-        borderWidth: 2,
-        borderColor: 'rgba(255, 140, 0, 0.8)',
-        borderStyle: 'dashed',
-    },
-    hoopMarker: {
-        position: 'absolute',
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        borderWidth: 3,
-        borderColor: '#ff8c00',
-        backgroundColor: 'rgba(255, 140, 0, 0.2)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    hoopMarkerInner: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#ff8c00',
-    },
-    overlayInfo: {
-        position: 'absolute',
-        top: 10,
-        left: 10,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 6,
-    },
-    overlayInfoText: {
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    instructionsContainer: {
+    container: { flex: 1, backgroundColor: '#0b0f1a' },
+    center: { justifyContent: 'center', alignItems: 'center', padding: 24 },
+    header: {
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingTop: Platform.OS === 'ios' ? 44 : 12,
+        paddingBottom: 10,
         backgroundColor: '#121826',
-        borderRadius: 12,
-        padding: 15,
-        marginBottom: 15,
+        borderBottomWidth: 1, borderBottomColor: '#2a2a2a',
     },
-    instructionTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginBottom: 8,
+    skipText: { color: '#888', fontSize: 14 },
+    resetText: { color: '#888', fontSize: 14 },
+    headerCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
+    stepLabel: { fontSize: 13, fontWeight: '700' },
+    stepHint: { fontSize: 11, color: '#888', marginTop: 2 },
+    guideH: {
+        position: 'absolute', left: 0, right: 0, top: '50%',
+        height: 1, backgroundColor: 'rgba(255,140,0,0.25)',
     },
-    instructionText: {
-        fontSize: 13,
-        color: '#aaa',
-        marginBottom: 4,
+    guideV: {
+        position: 'absolute', top: 0, bottom: 0, left: '50%',
+        width: 1, backgroundColor: 'rgba(255,140,0,0.25)',
     },
-    buttonContainer: {
-        flexDirection: 'row',
-        gap: 10,
+    tapHintWrap: {
+        position: 'absolute', bottom: 12, left: 0, right: 0, alignItems: 'center',
     },
-    skipButton: {
-        flex: 1,
-        backgroundColor: '#2a2a2a',
+    tapHintText: {
+        backgroundColor: 'rgba(0,0,0,0.65)', color: '#fff',
+        fontSize: 12, fontWeight: '600',
+        paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
     },
-    saveButton: {
-        flex: 2,
-        backgroundColor: '#ff8c00',
+    bottomPanel: { flex: 1, padding: 16 },
+    stepsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+    stepBtn: {
+        flex: 1, alignItems: 'center', backgroundColor: '#1e2433',
+        borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#2a2a2a',
     },
-    disabledButton: {
-        backgroundColor: '#3a3a3a',
-        opacity: 0.6,
+    stepBtnActive: { borderColor: '#ff8c00' },
+    stepBtnNum: { fontSize: 18, fontWeight: '800', color: '#ff8c00' },
+    stepBtnLabel: { fontSize: 11, color: '#888', marginTop: 3 },
+    stepConnector: { width: 20, height: 1, backgroundColor: '#2a2a2a', marginHorizontal: 6 },
+    primaryBtn: {
+        backgroundColor: '#ff8c00', borderRadius: 12,
+        paddingVertical: 14, alignItems: 'center', marginBottom: 10,
     },
-    disabledButtonText: {
-        color: '#888',
+    primaryBtnDisabled: { opacity: 0.4 },
+    primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    secondaryBtn: {
+        borderRadius: 12, paddingVertical: 12, alignItems: 'center',
+        borderWidth: 1, borderColor: '#4ade80', marginBottom: 10,
     },
+    secondaryBtnText: { color: '#4ade80', fontWeight: '600', fontSize: 14 },
+    title: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 12 },
+    subtitle: { fontSize: 14, color: '#888', marginBottom: 24 },
 })

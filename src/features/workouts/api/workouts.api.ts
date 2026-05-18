@@ -1,347 +1,206 @@
 // src/features/workouts/api/workouts.api.ts
+// Aggiornamento: saveCourtCalibration ora invia campi flat
+// allineati al CalibrationRequest BE (hoopCenterX/Y, non hoopCenter.x/y)
 
 import apiClient from '@/shared/api/apiClient'
 import {
-    WorkoutSession,
-    CreateWorkoutSessionPayload,
-    ShotEvent,
-    AddShotEventPayload,
-    CalibrationData,
-    ShotChartResponse,
-    ZoneStatistics,
-    CareerStats,
+    WorkoutSession, CreateWorkoutSessionPayload,
+    ShotEvent, AddShotEventPayload,
+    CalibrationData, ShotChartResponse,
+    ZoneStatistics, CareerStats,
+    FrameDataPayload, PoseAnalysisPayload,
 } from '../types/workouts.types'
 
-/* =========================
-   WORKOUT SESSIONS
-========================= */
+// ─── Sessioni ─────────────────────────────────────────────────
 
-/**
- * Crea una nuova sessione di workout
- */
 export const createWorkoutSession = async (
-    userId: string,
-    payload: CreateWorkoutSessionPayload
+    userId: string, payload: CreateWorkoutSessionPayload
 ): Promise<WorkoutSession> => {
-    try {
-        const response = await apiClient.post<WorkoutSession>(
-            `/workouts/sessions?userId=${userId}`,
-            payload
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore creazione sessione workout'
-        )
-    }
+    const r = await apiClient.post<WorkoutSession>(
+        `/workouts/sessions?userId=${userId}`, payload)
+    return r.data
 }
 
-/**
- * Recupera i dettagli di una sessione
- */
 export const getWorkoutSession = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<WorkoutSession> => {
-    try {
-        const response = await apiClient.get<WorkoutSession>(
-            `/workouts/sessions/${sessionId}?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero sessione workout'
-        )
-    }
+    const r = await apiClient.get<WorkoutSession>(
+        `/workouts/sessions/${sessionId}?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Recupera tutte le sessioni di un giocatore
- */
 export const getPlayerWorkoutSessions = async (
     userId: string
 ): Promise<WorkoutSession[]> => {
-    try {
-        const response = await apiClient.get<WorkoutSession[]>(
-            `/workouts/sessions?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero sessioni workout'
-        )
-    }
+    const r = await apiClient.get<WorkoutSession[]>(
+        `/workouts/sessions?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Termina una sessione di workout
- */
 export const endWorkoutSession = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<WorkoutSession> => {
-    try {
-        const response = await apiClient.post<WorkoutSession>(
-            `/workouts/sessions/${sessionId}/end?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore termine sessione workout'
-        )
-    }
+    const r = await apiClient.post<WorkoutSession>(
+        `/workouts/sessions/${sessionId}/end?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Mette in pausa una sessione di workout
- */
 export const pauseWorkoutSession = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<WorkoutSession> => {
-    try {
-        const response = await apiClient.post<WorkoutSession>(
-            `/workouts/sessions/${sessionId}/pause?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore pausa sessione workout'
-        )
-    }
+    const r = await apiClient.post<WorkoutSession>(
+        `/workouts/sessions/${sessionId}/pause?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Riprende una sessione di workout in pausa
- */
 export const resumeWorkoutSession = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<WorkoutSession> => {
-    try {
-        const response = await apiClient.post<WorkoutSession>(
-            `/workouts/sessions/${sessionId}/resume?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore ripresa sessione workout'
-        )
-    }
+    const r = await apiClient.post<WorkoutSession>(
+        `/workouts/sessions/${sessionId}/resume?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Recupera la sessione attiva di un giocatore
- */
 export const getActiveWorkoutSession = async (
     userId: string
 ): Promise<WorkoutSession | null> => {
     try {
-        const response = await apiClient.get<WorkoutSession>(
-            `/workouts/sessions/active?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        // Se non c'è sessione attiva, ritorna null
-        if (error?.response?.status === 404) {
-            return null
-        }
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero sessione attiva'
-        )
+        const r = await apiClient.get<WorkoutSession>(
+            `/workouts/sessions/active?userId=${userId}`)
+        return r.data
+    } catch (e: any) {
+        if (e?.response?.status === 404) return null
+        throw e
     }
 }
 
-/* =========================
-   SHOT EVENTS
-========================= */
+// ─── Tiri ─────────────────────────────────────────────────────
 
-/**
- * Recupera tutti i tiri di una sessione
- */
 export const getSessionShots = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<ShotEvent[]> => {
-    try {
-        const response = await apiClient.get<ShotEvent[]>(
-            `/workouts/sessions/${sessionId}/shots?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero tiri sessione'
-        )
-    }
+    const r = await apiClient.get<ShotEvent[]>(
+        `/workouts/sessions/${sessionId}/shots?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Aggiunge un evento tiro a una sessione
- */
 export const addShotEvent = async (
-    sessionId: string,
-    userId: string,
-    payload: AddShotEventPayload
+    sessionId: string, userId: string, payload: AddShotEventPayload
 ): Promise<ShotEvent> => {
-    try {
-        const response = await apiClient.post<ShotEvent>(
-            `/workouts/sessions/${sessionId}/shots?userId=${userId}`,
-            payload
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore aggiunta tiro'
-        )
-    }
+    const r = await apiClient.post<ShotEvent>(
+        `/workouts/sessions/${sessionId}/shots?userId=${userId}`, payload)
+    return r.data
 }
 
-/* =========================
-   COURT CALIBRATION
-========================= */
+// ─── Calibrazione ─────────────────────────────────────────────
+// Il BE CalibrationRequest usa campi FLAT (hoopCenterX, hoopCenterY)
+// con @NotNull su hoopCenterX e hoopCenterY.
+// Il FE CalibrationData usa struttura nested (hoopCenter: {x, y}).
+// Qui facciamo il mapping prima di inviare.
 
-/**
- * Salva i dati di calibrazione del campo
- */
 export const saveCourtCalibration = async (
     sessionId: string,
     userId: string,
-    calibrationData: CalibrationData
+    data: CalibrationData
+): Promise<void> => {
+    const body: Record<string, any> = {
+        // ✅ Flatten: hoopCenter.x/y → hoopCenterX/Y
+        hoopCenterX: data.hoopCenter.x,
+        hoopCenterY: data.hoopCenter.y,
+        homographyMatrix: data.homographyMatrix.length > 0
+            ? data.homographyMatrix
+            : null,
+    }
+
+    // Angoli campo opzionali
+    if (data.courtCorners) {
+        const { topLeft, topRight, bottomRight, bottomLeft } = data.courtCorners
+        body.threePointLineTopX    = topLeft.x
+        body.threePointLineTopY    = topLeft.y
+        body.threePointLineRightX  = topRight.x
+        body.threePointLineRightY  = topRight.y
+        body.sidelineRightX        = bottomRight.x
+        body.sidelineRightY        = bottomRight.y
+        body.sidelineLeftX         = bottomLeft.x
+        body.sidelineLeftY         = bottomLeft.y
+    }
+
+    await apiClient.post(
+        `/workouts/sessions/${sessionId}/calibration?userId=${userId}`,
+        body
+    )
+}
+
+// ─── AI Tracking — Frame Data ─────────────────────────────────
+
+export const saveFrameData = async (
+    sessionId: string, userId: string, payload: FrameDataPayload
 ): Promise<void> => {
     try {
         await apiClient.post(
-            `/workouts/sessions/${sessionId}/calibration?userId=${userId}`,
-            calibrationData
-        )
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore salvataggio calibrazione'
-        )
+            `/workouts/sessions/${sessionId}/frames?userId=${userId}`, payload)
+    } catch {
+        // best-effort — non blocca la sessione
     }
 }
 
-/* =========================
-   ANALYTICS & STATISTICS
-========================= */
+// ─── AI Tracking — Pose Analysis ─────────────────────────────
 
-/**
- * Recupera lo shot chart di una sessione
- */
+export const savePoseAnalysis = async (
+    sessionId: string, userId: string, payload: PoseAnalysisPayload
+): Promise<void> => {
+    try {
+        await apiClient.post(
+            `/workouts/sessions/${sessionId}/pose-analysis?userId=${userId}`, payload)
+    } catch {
+        // best-effort
+    }
+}
+
+// ─── Analytics ────────────────────────────────────────────────
+
 export const getShotChart = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<ShotChartResponse> => {
-    try {
-        const response = await apiClient.get<ShotChartResponse>(
-            `/workouts/${sessionId}/analytics/shot-chart?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero shot chart'
-        )
-    }
+    const r = await apiClient.get<ShotChartResponse>(
+        `/workouts/${sessionId}/analytics/shot-chart?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Recupera le statistiche di una sessione
- */
 export const getSessionStatistics = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<any> => {
-    try {
-        const response = await apiClient.get(
-            `/workouts/${sessionId}/analytics/stats?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero statistiche sessione'
-        )
-    }
+    const r = await apiClient.get(
+        `/workouts/${sessionId}/analytics/stats?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Recupera le statistiche per zona
- */
 export const getZoneStatistics = async (
-    sessionId: string,
-    userId: string
+    sessionId: string, userId: string
 ): Promise<ZoneStatistics[]> => {
-    try {
-        const response = await apiClient.get<ZoneStatistics[]>(
-            `/workouts/${sessionId}/analytics/zones?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero statistiche zone'
-        )
-    }
+    const r = await apiClient.get<ZoneStatistics[]>(
+        `/workouts/${sessionId}/analytics/zones?userId=${userId}`)
+    return r.data
 }
 
-/**
- * Recupera i tiri nelle hot zones
- */
 export const getHotZoneShots = async (
-    sessionId: string,
-    userId: string,
-    limit: number = 10
+    sessionId: string, userId: string, limit = 10
 ): Promise<ShotEvent[]> => {
-    try {
-        const response = await apiClient.get<ShotEvent[]>(
-            `/workouts/${sessionId}/analytics/hot-zones?userId=${userId}&limit=${limit}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero hot zone shots'
-        )
-    }
+    const r = await apiClient.get<ShotEvent[]>(
+        `/workouts/${sessionId}/analytics/hot-zones?userId=${userId}&limit=${limit}`)
+    return r.data
 }
 
-/**
- * Recupera i tiri nelle cold zones
- */
 export const getColdZoneShots = async (
-    sessionId: string,
-    userId: string,
-    limit: number = 10
+    sessionId: string, userId: string, limit = 10
 ): Promise<ShotEvent[]> => {
-    try {
-        const response = await apiClient.get<ShotEvent[]>(
-            `/workouts/${sessionId}/analytics/cold-zones?userId=${userId}&limit=${limit}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero cold zone shots'
-        )
-    }
+    const r = await apiClient.get<ShotEvent[]>(
+        `/workouts/${sessionId}/analytics/cold-zones?userId=${userId}&limit=${limit}`)
+    return r.data
 }
 
-/**
- * Recupera le statistiche carriera di un giocatore.
- * Il BE usa solo userId — sessionId non è necessario per le career stats.
- * L'endpoint è /workouts/{anySessionId}/analytics/career-stats?userId=
- * ma per convenzione usiamo un path fisso con un sessionId placeholder vuoto.
- * Fix: il parametro sessionId era passato ma ignorato dal BE; ora la firma
- * accetta solo userId per chiarezza.
- */
-export const getCareerStatistics = async (
-    userId: string
-): Promise<CareerStats> => {
-    try {
-        // Il path {sessionId} nel BE è richiesto dalla struttura JAX-RS ma ignorato
-        // internamente — il BE usa solo ?userId=. Usiamo "player" come placeholder.
-        const response = await apiClient.get<CareerStats>(
-            `/workouts/player/analytics/career-stats?userId=${userId}`
-        )
-        return response.data
-    } catch (error: any) {
-        throw new Error(
-            error?.response?.data?.message || 'Errore recupero statistiche carriera'
-        )
-    }
+export const getCareerStatistics = async (userId: string): Promise<CareerStats> => {
+    const r = await apiClient.get<CareerStats>(
+        `/workouts/player/analytics/career-stats?userId=${userId}`)
+    return r.data
 }
