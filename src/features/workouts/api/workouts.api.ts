@@ -16,8 +16,10 @@ import {
 export const createWorkoutSession = async (
     userId: string, payload: CreateWorkoutSessionPayload
 ): Promise<WorkoutSession> => {
+    console.log('API call: POST /workouts/sessions', { userId, payload })
     const r = await apiClient.post<WorkoutSession>(
         `/workouts/sessions?userId=${userId}`, payload)
+    console.log('API response:', r.data)
     return r.data
 }
 
@@ -35,6 +37,12 @@ export const getPlayerWorkoutSessions = async (
     const r = await apiClient.get<WorkoutSession[]>(
         `/workouts/sessions?userId=${userId}`)
     return r.data
+}
+
+export const deleteWorkoutSession = async (
+    sessionId: string, userId: string
+): Promise<void> => {
+    await apiClient.delete(`/workouts/sessions/${sessionId}?userId=${userId}`)
 }
 
 export const endWorkoutSession = async (

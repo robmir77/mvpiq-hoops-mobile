@@ -127,14 +127,20 @@ export const fetchJournalEntry = async (playerId: string, entryId: string) => {
 export const deleteJournalEntry = async (playerId: string, entryId: string): Promise<void> => {
     try {
         const token = await AsyncStorage.getItem('token')
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        }
+        
+        // FIX: verifica che il token sia una stringa non vuota prima di settare l'header
+        if (token && typeof token === 'string' && token.trim() !== '') {
+            headers['Authorization'] = `Bearer ${token}`
+        }
+        
         const response = await fetch(
             `${API_BASE_URL}/api/players/${playerId}/journal/${entryId}`,
             {
                 method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
+                headers
             }
         )
 

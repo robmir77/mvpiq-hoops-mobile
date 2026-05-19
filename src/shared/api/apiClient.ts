@@ -22,7 +22,9 @@ apiClient.interceptors.request.use(
         const publicRoutes = ['/auth/login', '/auth/register']
         const isPublicRoute = publicRoutes.some((route) => config.url?.includes(route))
 
-        if (token && !isPublicRoute) {
+        // FIX: verifica che il token sia una stringa non vuota prima di settare l'header.
+        // axios lancia "header name must be a non-empty string" se il valore è null/undefined.
+        if (token && typeof token === 'string' && token.trim() !== '' && !isPublicRoute) {
             config.headers.Authorization = `Bearer ${token}`
         }
 
@@ -37,12 +39,10 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
     (response) => response,
     async (error) => {
-        // Token scaduto: pulisci lo storage
         if (error?.response?.status === 401) {
             await AsyncStorage.removeItem('token')
             await AsyncStorage.removeItem('auth_user')
         }
-
         return Promise.reject(error)
     }
 )

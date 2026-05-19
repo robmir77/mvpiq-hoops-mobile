@@ -28,6 +28,9 @@ export default function WorkoutSetupScreen({ navigation }: any) {
                 courtType,
             }
 
+            console.log('Creazione sessione con payload:', payload)
+            console.log('User ID:', user.id)
+
             const session = await createWorkoutSession(user.id, payload)
             showSuccess('Sessione creata', 'Allenamento avviato con successo')
             
@@ -35,7 +38,9 @@ export default function WorkoutSetupScreen({ navigation }: any) {
             navigation.navigate('Calibration', { sessionId: session.id })
         } catch (error: any) {
             console.error('Errore creazione sessione:', error)
-            showError('Errore', error.message || 'Impossibile creare la sessione')
+            console.error('Response data:', error?.response?.data)
+            console.error('Response status:', error?.response?.status)
+            showError('Errore', error?.response?.data?.message || error.message || 'Impossibile creare la sessione')
         } finally {
             setIsCreating(false)
         }

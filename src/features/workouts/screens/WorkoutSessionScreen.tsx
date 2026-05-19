@@ -565,7 +565,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
             {/* ── Camera + Overlay SVG ──────────────────────────────────────── */}
             <View style={styles.cameraContainer}>
-                <CameraView style={styles.camera} facing="back">
+                <CameraView style={styles.camera} facing="back" />
+                
+                {/* Overlay elements positioned absolutely over camera */}
+                <View style={StyleSheet.absoluteFill}>
                     <View style={styles.guideH} />
                     <View style={styles.guideV} />
 
@@ -591,7 +594,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             </Text>
                         </Animated.View>
                     )}
-                </CameraView>
+                </View>
 
                 {/* Overlay SVG con palla, canestro, traiettoria e scheletro */}
                 <TrackingOverlay
@@ -600,42 +603,52 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 />
             </View>
 
-            {/* ── Controlli manuali ─────────────────────────────────────────── */}
+            {/* ── Controlli ────────────────────────────────────────────────── */}
             <View style={styles.controls}>
                 {isPaused && (
                     <Text style={styles.pausedLabel}>⏸ Sessione in pausa</Text>
                 )}
 
-                {/* Canestro — pulsante principale, grande */}
-                <TouchableOpacity
-                    style={[styles.madeBtnPrimary, (isRecording || isPaused || isEnding) && styles.shotBtnDisabled]}
-                    onPress={() => handleManualShot('MADE')}
-                    disabled={isRecording || isPaused || isEnding}
-                    activeOpacity={0.75}
-                >
-                    <Text style={styles.madeBtnIcon}>🏀</Text>
-                    <Text style={styles.madeBtnText}>Canestro</Text>
-                </TouchableOpacity>
-
-                {/* Riga secondaria: Mancato + Termina */}
-                <View style={styles.secondaryRow}>
-                    <TouchableOpacity
-                        style={[styles.missBtnSecondary, (isRecording || isPaused || isEnding) && styles.shotBtnDisabled]}
-                        onPress={() => handleManualShot('MISS')}
-                        disabled={isRecording || isPaused || isEnding}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={styles.missBtnText}>❌ Mancato</Text>
-                    </TouchableOpacity>
-
+                {/* Stato auto-detection */}
+                <View style={styles.autoRow}>
+                    <View style={styles.autoStatus}>
+                        <View style={[
+                            styles.autoDot,
+                            trackingState?.ballPosition ? styles.autoDotActive : styles.autoDotIdle,
+                        ]} />
+                        <Text style={styles.autoLabel}>
+                            {trackingState?.ballPosition
+                                ? 'Rilevamento automatico attivo'
+                                : 'In attesa della palla…'}
+                        </Text>
+                    </View>
                     <TouchableOpacity
                         style={[styles.endBtn, isEnding && styles.endBtnDisabled]}
                         onPress={handleEndSession}
                         disabled={isEnding}
                     >
-                        <Text style={styles.endBtnText}>
-                            {isEnding ? '...' : '⏹ Fine'}
-                        </Text>
+                        <Text style={styles.endBtnText}>{isEnding ? '...' : '⏹ Fine'}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Fallback manuale — sempre visibili ma visivamente secondari */}
+                <View style={styles.manualRow}>
+                    <Text style={styles.manualLabel}>Correzione manuale:</Text>
+                    <TouchableOpacity
+                        style={[styles.manualMadeBtn, (isRecording || isPaused || isEnding) && styles.shotBtnDisabled]}
+                        onPress={() => handleManualShot('MADE')}
+                        disabled={isRecording || isPaused || isEnding}
+                        activeOpacity={0.75}
+                    >
+                        <Text style={styles.manualMadeBtnText}>🏀 Canestro</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.manualMissBtn, (isRecording || isPaused || isEnding) && styles.shotBtnDisabled]}
+                        onPress={() => handleManualShot('MISS')}
+                        disabled={isRecording || isPaused || isEnding}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.manualMissBtnText}>❌ Mancato</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -718,40 +731,49 @@ const styles = StyleSheet.create({
         borderTopColor: '#2a2a2a',
         padding: 14,
     },
-    pausedLabel: { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 10, fontWeight: '600' },
+    pausedLabel: { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
 
-    // Canestro — pulsante principale grande
-    madeBtnPrimary: {
-        backgroundColor: '#22c55e', borderRadius: 14,
-        paddingVertical: 18, alignItems: 'center',
-        flexDirection: 'row', justifyContent: 'center', gap: 10,
-        marginBottom: 10,
-        shadowColor: '#22c55e', shadowOpacity: 0.35,
-        shadowOffset: { width: 0, height: 4 }, shadowRadius: 10,
-        elevation: 6,
+    // Auto-detection row
+    autoRow: {
+        flexDirection: 'row', alignItems: 'center',
+        justifyContent: 'space-between', marginBottom: 10,
     },
-    madeBtnIcon: { fontSize: 24 },
-    madeBtnText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.5 },
+    autoStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
+    autoDot: { width: 9, height: 9, borderRadius: 4.5 },
+    autoDotActive: { backgroundColor: '#4ade80' },
+    autoDotIdle: { backgroundColor: '#555' },
+    autoLabel: { fontSize: 12, color: '#aaa', fontWeight: '500' },
 
-    // Riga secondaria
-    secondaryRow: { flexDirection: 'row', gap: 10 },
-
-    missBtnSecondary: {
-        flex: 1, backgroundColor: '#1e2433',
-        borderWidth: 1.5, borderColor: '#ef4444',
-        borderRadius: 12, paddingVertical: 12, alignItems: 'center',
+    // Bottoni fallback manuale — piccoli e discreti
+    manualRow: {
+        flexDirection: 'row', alignItems: 'center', gap: 8,
+        borderTopWidth: 1, borderTopColor: '#1e2433',
+        paddingTop: 10,
     },
-    missBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 14 },
-
+    manualLabel: { fontSize: 11, color: '#555', fontWeight: '600', marginRight: 2 },
+    manualMadeBtn: {
+        flex: 1, paddingVertical: 9, borderRadius: 10,
+        backgroundColor: '#14301a',
+        borderWidth: 1, borderColor: '#22c55e',
+        alignItems: 'center',
+    },
+    manualMadeBtnText: { color: '#22c55e', fontWeight: '700', fontSize: 12 },
+    manualMissBtn: {
+        flex: 1, paddingVertical: 9, borderRadius: 10,
+        backgroundColor: '#2a1414',
+        borderWidth: 1, borderColor: '#ef4444',
+        alignItems: 'center',
+    },
+    manualMissBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 12 },
     shotBtnDisabled: { opacity: 0.4 },
 
     endBtn: {
-        flex: 1, backgroundColor: '#1e2433',
-        borderWidth: 1, borderColor: '#555',
-        borderRadius: 12, paddingVertical: 12, alignItems: 'center',
+        backgroundColor: '#1e2433', borderWidth: 1,
+        borderColor: '#555', borderRadius: 10,
+        paddingVertical: 8, paddingHorizontal: 14, alignItems: 'center',
     },
     endBtnDisabled: { opacity: 0.5 },
-    endBtnText: { color: '#888', fontWeight: '600', fontSize: 14 },
+    endBtnText: { color: '#888', fontWeight: '600', fontSize: 13 },
     permissionTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 12 },
     permissionDesc: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
     permissionBtn: { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },

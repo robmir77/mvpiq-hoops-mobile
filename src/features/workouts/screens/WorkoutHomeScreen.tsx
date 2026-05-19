@@ -16,7 +16,7 @@ import { useWorkoutSessions } from '../hooks/useWorkoutSessions'
 import { useQueryClient } from '@tanstack/react-query'
 import { WorkoutSession } from '../types/workouts.types'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
-import apiClient from '@/shared/api/apiClient'
+import { deleteWorkoutSession } from '../api/workouts.api'
 
 type FilterType = 'ALL' | 'ACTIVE' | 'COMPLETED'
 
@@ -59,9 +59,7 @@ export default function WorkoutHomeScreen({ navigation }: any) {
                 if (!user?.id) return
                 setDeletingId(session.id)
                 try {
-                    await apiClient.delete(
-                        `/workouts/sessions/${session.id}?userId=${user.id}`
-                    )
+                    await deleteWorkoutSession(session.id, user.id)
                     await queryClient.invalidateQueries({ queryKey: ['workoutSessions', user.id] })
                     showSuccess('Eliminata', 'Sessione eliminata con successo')
                 } catch (e: any) {
