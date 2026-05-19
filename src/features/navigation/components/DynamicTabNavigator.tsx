@@ -6,7 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { useNavigation, useNavigationState, useFocusEffect } from '@react-navigation/native'
 import * as LucideIcons from 'lucide-react-native'
 
-import { useNavigationSections } from '../hooks/useNavigationSections'
+import { useNavigationSections } from '@/features/navigation/hooks/useNavigationSections'
 import { NavigationSection } from '@/features/auth/types/auth.types'
 import { colors } from '@/shared/theme/colors'
 
@@ -225,7 +225,7 @@ export const DynamicTabNavigator: React.FC = () => {
     // Home sempre prima, poi le altre ordinate per sortOrder
     const allTabs: NavigationSection[] = [
         HOME_SECTION,
-        ...accessibleSections.filter(s => s.id !== 'home'),
+        ...accessibleSections.filter((s: NavigationSection) => s.id !== 'home'),
     ].sort((a, b) => {
         if (a.id === 'home') return -1
         if (b.id === 'home') return 1

@@ -13,7 +13,7 @@ import {
 import { useNavigation } from '@react-navigation/native'
 import * as LucideIcons from 'lucide-react-native'
 
-import { useNavigationSections } from '../hooks/useNavigationSections'
+import { useNavigationSections } from '@/features/navigation/hooks/useNavigationSections'
 import { NavigationSection } from '@/features/auth/types/auth.types'
 import { colors } from '@/shared/theme/colors'
 
@@ -115,7 +115,7 @@ export const NavigationMenu: React.FC<NavigationMenuProps> = ({ onSectionPress }
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Menu Principale</Text>
 
-                {visibleSections.map((section) => (
+                {visibleSections.map((section: NavigationSection) => (
                     <MenuItem
                         key={section.id}
                         section={section}
@@ -164,7 +164,7 @@ export const NavigationMenu: React.FC<NavigationMenuProps> = ({ onSectionPress }
                         </View>
 
                         <ScrollView style={styles.modalScroll}>
-                            {hiddenSections.map((section) => (
+                            {hiddenSections.map((section: NavigationSection) => (
                                 <MenuItem
                                     key={section.id}
                                     section={section}

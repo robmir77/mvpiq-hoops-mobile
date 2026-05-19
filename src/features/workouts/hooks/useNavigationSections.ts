@@ -1,7 +1,7 @@
 // src/features/navigation/hooks/useNavigationSections.ts
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getNavigationSections, checkSectionAccess } from '../api/navigation.api'
+import { getNavigationSections, checkSectionAccess } from '@/features/navigation/api/navigation.api'
 import { NavigationSection } from '@/features/auth/types/auth.types'
 import { isAuthError, isPermissionError } from '@/shared/utils/errorHandler'
 
@@ -33,7 +33,7 @@ export const useNavigationSections = () => {
         },
     })
 
-    const sections: NavigationSection[] = navigationData?.data || []
+    const sections = navigationData?.data || []
 
     const getAccessibleSections = (): NavigationSection[] => {
         return sections

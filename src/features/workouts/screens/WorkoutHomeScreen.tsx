@@ -1,124 +1,169 @@
-import React, { useState, useContext } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl } from 'react-native'
-import { globalStyles } from '@/shared/theme/globalStyles'
+// src/features/workouts/screens/WorkoutHomeScreen.tsx
+//
+// NOVITÀ:
+//  - Delete singola sessione con swipe-to-reveal o long-press → conferma alert
+//  - Auto-refresh della lista ogni volta che la schermata torna in focus (useFocusEffect)
+//  - staleTime azzerata nell'hook così il focus invalida subito
+
+import React, { useState, useContext, useCallback } from 'react'
+import {
+    View, Text, StyleSheet, TouchableOpacity, FlatList,
+    RefreshControl, Animated, Platform,
+} from 'react-native'
+import { useFocusEffect } from '@react-navigation/native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useWorkoutSessions } from '../hooks/useWorkoutSessions'
 import { useQueryClient } from '@tanstack/react-query'
-import { WorkoutSession, SessionStatus } from '../types/workouts.types'
+import { WorkoutSession } from '../types/workouts.types'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import apiClient from '@/shared/api/apiClient'
 
 type FilterType = 'ALL' | 'ACTIVE' | 'COMPLETED'
 
 export default function WorkoutHomeScreen({ navigation }: any) {
     const auth = useContext(AuthContext)
-    const [filter, setFilter] = useState<FilterType>('ALL')
     const { user } = auth || {}
-
     const queryClient = useQueryClient()
+
+    const [filter, setFilter] = useState<FilterType>('ALL')
+    const [refreshing, setRefreshing] = useState(false)
+    const [deletingId, setDeletingId] = useState<string | null>(null)
+    const { alert, showWarning, showError, showSuccess } = useCustomAlert()
+
     const { data: sessions, isLoading, error } = useWorkoutSessions(user?.id || '')
 
-    const [refreshing, setRefreshing] = useState(false)
-    const { alert, showWarning, showError, showSuccess } = useCustomAlert()
+    // ── Auto-refresh quando si ritorna su questa schermata ────────────────────
+    useFocusEffect(
+        useCallback(() => {
+            if (user?.id) {
+                queryClient.invalidateQueries({ queryKey: ['workoutSessions', user.id] })
+            }
+        }, [user?.id])
+    )
 
     const onRefresh = async () => {
         setRefreshing(true)
-        await queryClient.invalidateQueries({ queryKey: ['workoutSessions'] })
+        await queryClient.invalidateQueries({ queryKey: ['workoutSessions', user?.id] })
         setRefreshing(false)
     }
 
-    // Filtra le sessioni in base allo stato
-    const filteredSessions = sessions?.filter((session: WorkoutSession) => {
-        if (filter === 'ALL') return true
-        if (filter === 'ACTIVE') return session.status === 'ACTIVE' || session.status === 'PAUSED'
-        if (filter === 'COMPLETED') return session.status === 'COMPLETED'
+    // ── Delete ────────────────────────────────────────────────────────────────
+    const handleDeleteSession = (session: WorkoutSession) => {
+        const label = new Date(session.startTime).toLocaleDateString('it-IT', {
+            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+        })
+        showWarning(
+            'Elimina allenamento',
+            `Vuoi eliminare la sessione del ${label}? L'operazione non è reversibile.`,
+            async () => {
+                if (!user?.id) return
+                setDeletingId(session.id)
+                try {
+                    await apiClient.delete(
+                        `/workouts/sessions/${session.id}?userId=${user.id}`
+                    )
+                    await queryClient.invalidateQueries({ queryKey: ['workoutSessions', user.id] })
+                    showSuccess('Eliminata', 'Sessione eliminata con successo')
+                } catch (e: any) {
+                    showError('Errore', e.message || 'Impossibile eliminare la sessione')
+                } finally {
+                    setDeletingId(null)
+                }
+            }
+        )
+    }
+
+    // ── Filtro ────────────────────────────────────────────────────────────────
+    const filteredSessions = (sessions ?? []).filter((s: WorkoutSession) => {
+        if (filter === 'ACTIVE')    return s.status === 'ACTIVE' || s.status === 'PAUSED'
+        if (filter === 'COMPLETED') return s.status === 'COMPLETED'
         return true
-    }) || []
+    })
 
-    const renderFilterButton = (type: FilterType, label: string) => (
-        <TouchableOpacity
-            style={[
-                styles.filterButton,
-                filter === type && styles.filterButtonActive
-            ]}
-            onPress={() => setFilter(type)}
-        >
-            <Text style={[
-                styles.filterButtonText,
-                filter === type && styles.filterButtonTextActive
-            ]}>
-                {label}
-            </Text>
-        </TouchableOpacity>
-    )
-
+    // ── Render ────────────────────────────────────────────────────────────────
     const renderSessionCard = ({ item }: { item: WorkoutSession }) => {
-        const isActive = item.status === 'ACTIVE' || item.status === 'PAUSED'
-        const isPaused = item.status === 'PAUSED'
+        const isActive  = item.status === 'ACTIVE' || item.status === 'PAUSED'
+        const isPaused  = item.status === 'PAUSED'
+        const isDeleting = deletingId === item.id
+
+        const fgPct = item.totalShots > 0
+            ? ((item.madeShots / item.totalShots) * 100).toFixed(0)
+            : '0'
+
+        const cameraLabel =
+            item.cameraMode === 'ANGLE_45' ? '45°' :
+            item.cameraMode === 'LATERAL'  ? 'Laterale' : 'Frontale'
 
         return (
-            <TouchableOpacity
-                style={styles.sessionCard}
-                onPress={() => navigation.navigate('WorkoutSession', { sessionId: item.id })}
-            >
+            <View style={[styles.card, isDeleting && styles.cardDeleting]}>
+                {/* Riga header: data + badge stato */}
                 <View style={styles.cardHeader}>
-                    <Text style={styles.sessionDate}>
+                    <Text style={styles.cardDate}>
                         {new Date(item.startTime).toLocaleDateString('it-IT', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
+                            day: 'numeric', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
                         })}
                     </Text>
                     <View style={[
-                        styles.statusBadge,
-                        isActive && styles.statusBadgeActive,
-                        item.status === 'COMPLETED' && styles.statusBadgeCompleted
+                        styles.badge,
+                        isActive ? styles.badgeActive : styles.badgeCompleted,
                     ]}>
-                        <Text style={[
-                            styles.statusText,
-                            isActive && styles.statusTextActive,
-                            item.status === 'COMPLETED' && styles.statusTextCompleted
-                        ]}>
-                            {isPaused ? '⏸️ In Pausa' : isActive ? '🔴 Attiva' : '✅ Completata'}
+                        <Text style={styles.badgeText}>
+                            {isPaused ? '⏸ Pausa' : isActive ? '🔴 Attiva' : '✅ Completata'}
                         </Text>
                     </View>
                 </View>
 
+                {/* Stats */}
                 <View style={styles.statsRow}>
-                    <View style={styles.statItem}>
-                        <Text style={styles.statLabel}>Tiri</Text>
-                        <Text style={styles.statValue}>{item.totalShots}</Text>
-                    </View>
-                    <View style={styles.statItem}>
-                        <Text style={styles.statLabel}>Segnati</Text>
-                        <Text style={styles.statValue}>{item.madeShots}</Text>
-                    </View>
-                    <View style={styles.statItem}>
-                        <Text style={styles.statLabel}>%</Text>
-                        <Text style={styles.statValue}>{item.shootingPercentage?.toFixed(0) || 0}%</Text>
-                    </View>
+                    <StatCell label="Tiri" value={item.totalShots} />
+                    <StatCell label="Segnati" value={item.madeShots} highlight />
+                    <StatCell label="FG%" value={`${fgPct}%`} highlight />
+                    {item.averageShotDistance != null && (
+                        <StatCell label="Dist" value={`${item.averageShotDistance.toFixed(1)}m`} />
+                    )}
                 </View>
 
+                {/* Footer: angolo camera + azioni */}
                 <View style={styles.cardFooter}>
-                    <Text style={styles.cameraMode}>
-                        📷 {item.cameraMode === 'ANGLE_45' ? '45°' : item.cameraMode === 'LATERAL' ? 'Laterale' : 'Frontale'}
-                    </Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('Stats', { sessionId: item.id })}>
-                        <Text style={styles.viewDetails}>Vedi dettagli →</Text>
-                    </TouchableOpacity>
+                    <Text style={styles.cameraMode}>📷 {cameraLabel}</Text>
+
+                    <View style={styles.footerActions}>
+                        {/* Dettagli / Riprendi */}
+                        <TouchableOpacity
+                            style={styles.detailBtn}
+                            onPress={() => navigation.navigate(
+                                isActive ? 'WorkoutSession' : 'Stats',
+                                { sessionId: item.id }
+                            )}
+                        >
+                            <Text style={styles.detailBtnText}>
+                                {isActive ? 'Riprendi →' : 'Dettagli →'}
+                            </Text>
+                        </TouchableOpacity>
+
+                        {/* Elimina */}
+                        <TouchableOpacity
+                            style={[styles.deleteBtn, isDeleting && styles.deleteBtnDisabled]}
+                            onPress={() => handleDeleteSession(item)}
+                            disabled={isDeleting}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Text style={styles.deleteBtnText}>
+                                {isDeleting ? '...' : '🗑'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-            </TouchableOpacity>
+            </View>
         )
     }
 
-    const renderEmptyState = () => (
-        <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>🏀</Text>
-            <Text style={styles.emptyStateTitle}>Nessuna sessione</Text>
-            <Text style={styles.emptyStateText}>
-                Inizia il tuo primo allenamento di tiro
-            </Text>
+    const renderEmpty = () => (
+        <View style={styles.empty}>
+            <Text style={styles.emptyIcon}>🏀</Text>
+            <Text style={styles.emptyTitle}>Nessuna sessione</Text>
+            <Text style={styles.emptyText}>Inizia il tuo primo allenamento di tiro</Text>
         </View>
     )
 
@@ -126,205 +171,149 @@ export default function WorkoutHomeScreen({ navigation }: any) {
         <View style={styles.container}>
             <Text style={styles.title}>Allenamenti Tiro</Text>
 
-            {/* Pulsante Crea */}
+            {/* Nuovo allenamento */}
             <TouchableOpacity
-                style={[globalStyles.button, styles.createButton]}
+                style={styles.newBtn}
                 onPress={() => navigation.navigate('WorkoutSetup')}
             >
-                <Text style={globalStyles.buttonText}>+ Nuovo Allenamento</Text>
+                <Text style={styles.newBtnText}>+ Nuovo Allenamento</Text>
             </TouchableOpacity>
 
             {/* Filtri */}
-            <View style={styles.filterContainer}>
-                {renderFilterButton('ALL', 'Tutte')}
-                {renderFilterButton('ACTIVE', 'Attive')}
-                {renderFilterButton('COMPLETED', 'Completate')}
+            <View style={styles.filters}>
+                {(['ALL', 'ACTIVE', 'COMPLETED'] as FilterType[]).map(f => (
+                    <TouchableOpacity
+                        key={f}
+                        style={[styles.filterBtn, filter === f && styles.filterBtnActive]}
+                        onPress={() => setFilter(f)}
+                    >
+                        <Text style={[styles.filterBtnText, filter === f && styles.filterBtnTextActive]}>
+                            {f === 'ALL' ? 'Tutte' : f === 'ACTIVE' ? 'Attive' : 'Completate'}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
             </View>
 
-            {/* Lista Sessioni */}
+            {/* Lista */}
             {isLoading ? (
-                <View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Caricamento...</Text>
+                <View style={styles.centered}>
+                    <Text style={styles.mutedText}>Caricamento...</Text>
                 </View>
             ) : error ? (
-                <View style={styles.errorContainer}>
+                <View style={styles.centered}>
                     <Text style={styles.errorText}>Errore nel caricamento</Text>
+                    <TouchableOpacity onPress={onRefresh} style={{ marginTop: 12 }}>
+                        <Text style={styles.detailBtnText}>Riprova</Text>
+                    </TouchableOpacity>
                 </View>
             ) : (
                 <FlatList
                     data={filteredSessions}
                     renderItem={renderSessionCard}
-                    keyExtractor={(item) => item.id}
-                    contentContainerStyle={filteredSessions.length === 0 ? styles.emptyList : undefined}
-                    ListEmptyComponent={renderEmptyState}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={filteredSessions.length === 0 ? styles.emptyList : { paddingBottom: 24 }}
+                    ListEmptyComponent={renderEmpty}
                     showsVerticalScrollIndicator={false}
                     refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor="#ff8c00"
+                        />
                     }
                 />
             )}
+
             <CustomAlert {...alert} />
         </View>
     )
 }
 
+const StatCell = ({ label, value, highlight }: {
+    label: string; value: string | number; highlight?: boolean
+}) => (
+    <View style={styles.statCell}>
+        <Text style={styles.statCellLabel}>{label}</Text>
+        <Text style={[styles.statCellValue, highlight && styles.statCellValueHL]}>{value}</Text>
+    </View>
+)
+
 const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#0b0f1a',
-        padding: 20,
+        paddingHorizontal: 16,
+        paddingTop: Platform.OS === 'ios' ? 56 : 20,
     },
-    title: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: 'white',
-        marginBottom: 15,
+    title: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 14 },
+
+    newBtn: {
+        backgroundColor: '#ff8c00', borderRadius: 12,
+        paddingVertical: 13, alignItems: 'center', marginBottom: 14,
     },
-    createButton: {
-        marginBottom: 15,
-        backgroundColor: '#ff8c00',
+    newBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+    filters: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+    filterBtn: {
+        flex: 1, paddingVertical: 9, alignItems: 'center',
+        borderRadius: 8, backgroundColor: '#1a1a1a',
+        borderWidth: 1, borderColor: '#2a2a2a',
     },
-    filterContainer: {
-        flexDirection: 'row',
-        marginBottom: 15,
-        gap: 8,
+    filterBtnActive: { backgroundColor: '#ff8c00', borderColor: '#ff8c00' },
+    filterBtnText: { fontSize: 12, fontWeight: '600', color: '#888' },
+    filterBtnTextActive: { color: '#fff' },
+
+    // Card
+    card: {
+        backgroundColor: '#121826', borderRadius: 12,
+        padding: 14, marginBottom: 12,
+        borderWidth: 1, borderColor: '#2a2a2a',
     },
-    filterButton: {
-        flex: 1,
-        paddingVertical: 10,
-        paddingHorizontal: 15,
-        borderRadius: 8,
-        backgroundColor: '#1a1a1a',
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        alignItems: 'center',
-    },
-    filterButtonActive: {
-        backgroundColor: '#ff8c00',
-        borderColor: '#ff8c00',
-    },
-    filterButtonText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#888',
-    },
-    filterButtonTextActive: {
-        color: '#fff',
-    },
-    sessionCard: {
-        backgroundColor: '#121826',
-        borderRadius: 12,
-        padding: 15,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-    },
+    cardDeleting: { opacity: 0.5 },
     cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 12,
+        flexDirection: 'row', justifyContent: 'space-between',
+        alignItems: 'center', marginBottom: 10,
     },
-    sessionDate: {
-        fontSize: 12,
-        color: '#888',
-        fontWeight: '500',
-    },
-    statusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6,
-        backgroundColor: '#2a2a2a',
-    },
-    statusBadgeActive: {
-        backgroundColor: '#ef4444',
-    },
-    statusBadgeCompleted: {
-        backgroundColor: '#22c55e',
-    },
-    statusText: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: '#888',
-    },
-    statusTextActive: {
-        color: '#fff',
-    },
-    statusTextCompleted: {
-        color: '#fff',
-    },
+    cardDate: { fontSize: 12, color: '#888', fontWeight: '500' },
+    badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+    badgeActive: { backgroundColor: '#ef4444' },
+    badgeCompleted: { backgroundColor: '#22c55e' },
+    badgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+
     statsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        marginBottom: 12,
-        paddingVertical: 10,
-        backgroundColor: '#1a1a1a',
-        borderRadius: 8,
+        flexDirection: 'row', justifyContent: 'space-around',
+        backgroundColor: '#1a1a1a', borderRadius: 8,
+        paddingVertical: 10, marginBottom: 10,
     },
-    statItem: {
-        alignItems: 'center',
-    },
-    statLabel: {
-        fontSize: 11,
-        color: '#888',
-        marginBottom: 4,
-    },
-    statValue: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
+    statCell: { alignItems: 'center' },
+    statCellLabel: { fontSize: 10, color: '#888', marginBottom: 3 },
+    statCellValue: { fontSize: 17, fontWeight: '800', color: '#fff' },
+    statCellValueHL: { color: '#ff8c00' },
+
     cardFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     },
-    cameraMode: {
-        fontSize: 12,
-        color: '#ff8c00',
-        fontWeight: '600',
+    cameraMode: { fontSize: 12, color: '#ff8c00', fontWeight: '600' },
+    footerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+
+    detailBtn: {},
+    detailBtnText: { fontSize: 13, color: '#ff8c00', fontWeight: '600' },
+
+    deleteBtn: {
+        width: 32, height: 32, borderRadius: 8,
+        backgroundColor: '#1e2433', borderWidth: 1,
+        borderColor: '#3a2a2a', justifyContent: 'center', alignItems: 'center',
     },
-    viewDetails: {
-        fontSize: 13,
-        color: '#ff8c00',
-        fontWeight: '600',
-    },
-    emptyState: {
-        alignItems: 'center',
-        paddingVertical: 40,
-    },
-    emptyStateIcon: {
-        fontSize: 48,
-        marginBottom: 15,
-    },
-    emptyStateTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginBottom: 8,
-    },
-    emptyStateText: {
-        fontSize: 14,
-        color: '#888',
-        textAlign: 'center',
-    },
-    emptyList: {
-        flexGrow: 1,
-    },
-    loadingContainer: {
-        alignItems: 'center',
-        paddingVertical: 40,
-    },
-    loadingText: {
-        color: '#888',
-        fontSize: 14,
-    },
-    errorContainer: {
-        alignItems: 'center',
-        paddingVertical: 40,
-    },
-    errorText: {
-        color: '#ef4444',
-        fontSize: 14,
-    },
+    deleteBtnDisabled: { opacity: 0.4 },
+    deleteBtnText: { fontSize: 15 },
+
+    // Empty / loading
+    emptyList: { flexGrow: 1 },
+    empty: { alignItems: 'center', paddingTop: 60 },
+    emptyIcon: { fontSize: 48, marginBottom: 14 },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 6 },
+    emptyText: { fontSize: 13, color: '#888', textAlign: 'center' },
+    centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    mutedText: { color: '#888', fontSize: 14 },
+    errorText: { color: '#ef4444', fontSize: 14 },
 })

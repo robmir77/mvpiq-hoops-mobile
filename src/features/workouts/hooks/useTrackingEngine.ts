@@ -1,12 +1,11 @@
 // src/features/workouts/hooks/useTrackingEngine.ts
 //
-// Motore di tracking on-device per il Fase 1 MVP:
-// - Kalman filter per smoothing posizione pallone
-// - Shot detection basata su velocità e direzione
-// - Calcolo traiettoria parabola
+// FIX #7 — Shot detection migliorata:
+//   - MADE richiede palla in discesa (vy > 0) + vicinanza al canestro
+//   - MISS richiede traiettoria che ha superato il picco e si allontana
+//   - shotConfirmedAt: debounce per evitare doppi rilevamenti
 //
-// La detection YOLO (fase 2) avviene nel frame processor nativo.
-// Questo hook gestisce la logica stateful del tracking.
+// FIX #8 — getState() esposto correttamente per il loop esterno
 
 import { useRef, useCallback } from 'react'
 import { TrackingState, ShotResult } from '../types/workouts.types'
@@ -14,8 +13,8 @@ import { TrackingState, ShotResult } from '../types/workouts.types'
 interface KalmanState {
     x: number; y: number
     vx: number; vy: number
-    px: number; py: number  // process noise
-    mx: number; my: number  // measurement noise
+    px: number; py: number
+    mx: number; my: number
 }
 
 const INITIAL_KALMAN: KalmanState = {
@@ -24,9 +23,16 @@ const INITIAL_KALMAN: KalmanState = {
     mx: 2, my: 2,
 }
 
-const SHOT_VELOCITY_THRESHOLD = 5.0       // min velocità verticale ascendente
-const SHOT_DIRECTION_TOWARD_HOOP = 0.6    // cos angolo verso canestro
-const MIN_TRAJECTORY_FRAMES = 5           // frame minimi per analisi traiettoria
+// Velocità verticale minima (unità normalizzate/s) per considerare un tiro in volo
+const SHOT_LAUNCH_THRESHOLD = 3.0
+// Raggio normalizzato entro cui la palla deve passare per essere MADE
+const HOOP_RADIUS_MADE = 0.08
+// La palla deve scendere (vy > 0 nello spazio schermo) per il check MADE
+const DESCENDING_VY_THRESHOLD = 0.5
+// Frame minimi prima di poter rilevare un tiro
+const MIN_TRAJECTORY_FRAMES = 6
+// ms di cooldown tra un tiro e l'altro
+const SHOT_COOLDOWN_MS = 800
 
 export const useTrackingEngine = () => {
     const kalman = useRef<KalmanState>({ ...INITIAL_KALMAN })
@@ -41,21 +47,20 @@ export const useTrackingEngine = () => {
         confidence: 0,
     })
     const lastFrameTs = useRef<number>(0)
+    const lastShotTs = useRef<number>(0)
+    const peakY = useRef<number>(Infinity)   // minimo y = punto più alto (y cresce verso il basso)
+    const inFlight = useRef<boolean>(false)  // palla è in fase di volo ascendente
 
-    // Kalman filter update — 1D per X e Y indipendentemente
     const kalmanUpdate = useCallback((measX: number, measY: number): { x: number; y: number } => {
         const k = kalman.current
-        const dt = 1 / 30  // 30fps
+        const dt = Math.max(0.01, Math.min(0.1, (Date.now() - lastFrameTs.current) / 1000))
 
-        // Predict
         const predX = k.x + k.vx * dt
         const predY = k.y + k.vy * dt
 
-        // Gain
         const gx = k.px / (k.px + k.mx)
         const gy = k.py / (k.py + k.my)
 
-        // Update
         k.x = predX + gx * (measX - predX)
         k.y = predY + gy * (measY - predY)
         k.vx = (k.x - predX) / dt
@@ -66,13 +71,13 @@ export const useTrackingEngine = () => {
         return { x: k.x, y: k.y }
     }, [])
 
-    // Aggiorna lo stato dal frame processor
     const processFrame = useCallback((
         ballDetection: { x: number; y: number; confidence: number } | null,
         hoopDetection: { x: number; y: number; confidence: number } | null,
         frameTs: number
     ): TrackingState => {
         const current = state.current
+        const now = Date.now()
 
         if (ballDetection && ballDetection.confidence > 0.4) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y)
@@ -80,30 +85,58 @@ export const useTrackingEngine = () => {
             current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }
             current.confidence = ballDetection.confidence
 
-            // Accumula traiettoria
             trajectory.current.push({ x: smoothed.x, y: smoothed.y, t: frameTs })
-            if (trajectory.current.length > 60) trajectory.current.shift()  // max 2s a 30fps
+            if (trajectory.current.length > 90) trajectory.current.shift()
             current.trajectory = [...trajectory.current]
+
+            // Aggiorna picco massimo (y minima = punto più alto nell'immagine)
+            if (smoothed.y < peakY.current) peakY.current = smoothed.y
         }
 
         if (hoopDetection && hoopDetection.confidence > 0.5) {
             current.hoopPosition = { x: hoopDetection.x, y: hoopDetection.y }
         }
 
-        // Shot detection: pallone con velocità verticale positiva (verso l'alto nello schermo = y negativa)
-        if (current.ballVelocity && current.hoopPosition && current.ballPosition) {
-            const vy = current.ballVelocity.vy
-            const rising = vy < -SHOT_VELOCITY_THRESHOLD  // y diminuisce = verso l'alto
+        // ── Shot detection migliorata ──────────────────────────────
+        const vel = current.ballVelocity
+        const hoop = current.hoopPosition
+        const ball = current.ballPosition
+        const cooldownOk = (now - lastShotTs.current) > SHOT_COOLDOWN_MS
 
-            if (rising && !current.shotDetected && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
-                current.shotDetected = true
-                // Classifica made/miss in base alla vicinanza al canestro
-                // (logica semplificata — sarà affinata con più dati)
-                const dx = current.ballPosition.x - current.hoopPosition.x
-                const dy = current.ballPosition.y - current.hoopPosition.y
+        if (vel && hoop && ball && cooldownOk && !current.shotDetected) {
+            const rising = vel.vy < -SHOT_LAUNCH_THRESHOLD  // palla che sale (y diminuisce)
+            const descending = vel.vy > DESCENDING_VY_THRESHOLD  // palla che scende
+
+            // Fase lancio: la palla inizia a salire
+            if (rising && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
+                inFlight.current = true
+            }
+
+            // Fase atterraggio: la palla scende dopo essere salita
+            if (inFlight.current && descending) {
+                const dx = ball.x - hoop.x
+                const dy = ball.y - hoop.y
                 const dist = Math.sqrt(dx * dx + dy * dy)
-                // Se il pallone è entro ~15% della larghezza del frame dal canestro → MADE (provvisorio)
-                current.shotResult = dist < 0.15 ? 'MADE' : 'MISS'
+
+                // MADE: scende verso il canestro e gli si avvicina abbastanza
+                // MISS: scende ma passa lontano dal canestro
+                const isDescendingTowardHoop = dy > 0 && dist < HOOP_RADIUS_MADE * 2
+
+                if (isDescendingTowardHoop && dist < HOOP_RADIUS_MADE) {
+                    current.shotDetected = true
+                    current.shotResult = 'MADE'
+                    lastShotTs.current = now
+                } else if (isDescendingTowardHoop && dist >= HOOP_RADIUS_MADE) {
+                    // Fuori ma puntava verso il canestro
+                    current.shotDetected = true
+                    current.shotResult = 'MISS'
+                    lastShotTs.current = now
+                } else if (descending && vel.vy > SHOT_LAUNCH_THRESHOLD * 2) {
+                    // Scende velocemente lontano dal canestro = airball/miss netto
+                    current.shotDetected = true
+                    current.shotResult = dist < 0.25 ? 'MISS' : 'AIRBALL'
+                    lastShotTs.current = now
+                }
             }
         }
 
@@ -115,18 +148,28 @@ export const useTrackingEngine = () => {
         state.current.shotDetected = false
         state.current.shotResult = null
         trajectory.current = []
+        peakY.current = Infinity
+        inFlight.current = false
     }, [])
 
     const resetAll = useCallback(() => {
         kalman.current = { ...INITIAL_KALMAN }
         trajectory.current = []
+        peakY.current = Infinity
+        inFlight.current = false
+        lastShotTs.current = 0
         state.current = {
             ballPosition: null, ballVelocity: null, hoopPosition: null,
             shotDetected: false, shotResult: null, trajectory: [], confidence: 0,
         }
     }, [])
 
-    // Calcola metriche parabola dalla traiettoria (regressione quadratica semplificata)
+    // Inizializza la posizione del canestro dalla calibrazione
+    // (FIX #5 — la sessione carica la calibrazione e la passa qui)
+    const setHoopFromCalibration = useCallback((hoopX: number, hoopY: number) => {
+        state.current.hoopPosition = { x: hoopX, y: hoopY }
+    }, [])
+
     const computeTrajectoryMetrics = useCallback((): {
         arcHeight: number; releaseAngle: number; smoothness: number
     } => {
@@ -137,20 +180,18 @@ export const useTrackingEngine = () => {
         const startY = traj[0].y
         const arcHeight = Math.max(0, startY - minY)
 
-        // Angolo rilascio: direzione del vettore nel primo 30% della traiettoria
         const n = Math.max(2, Math.floor(traj.length * 0.3))
         const dx = traj[n].x - traj[0].x
         const dy = traj[n].y - traj[0].y
         const releaseAngle = Math.abs(Math.atan2(-dy, Math.abs(dx)) * (180 / Math.PI))
 
-        // Smoothness: varianza delle accelerazioni
         let smoothness = 1.0
         if (traj.length >= 3) {
             const accels: number[] = []
             for (let i = 1; i < traj.length - 1; i++) {
-                const ax = traj[i+1].x - 2*traj[i].x + traj[i-1].x
-                const ay = traj[i+1].y - 2*traj[i].y + traj[i-1].y
-                accels.push(Math.sqrt(ax*ax + ay*ay))
+                const ax = traj[i + 1].x - 2 * traj[i].x + traj[i - 1].x
+                const ay = traj[i + 1].y - 2 * traj[i].y + traj[i - 1].y
+                accels.push(Math.sqrt(ax * ax + ay * ay))
             }
             const mean = accels.reduce((a, b) => a + b, 0) / accels.length
             const variance = accels.reduce((s, a) => s + (a - mean) ** 2, 0) / accels.length
@@ -160,5 +201,15 @@ export const useTrackingEngine = () => {
         return { arcHeight, releaseAngle, smoothness }
     }, [])
 
-    return { processFrame, resetShot, resetAll, computeTrajectoryMetrics, getState: () => state.current }
+    // FIX #8 — getState ritorna sempre una copia fresca (non stale ref)
+    const getState = useCallback((): TrackingState => ({ ...state.current }), [])
+
+    return {
+        processFrame,
+        resetShot,
+        resetAll,
+        setHoopFromCalibration,
+        computeTrajectoryMetrics,
+        getState,
+    }
 }
