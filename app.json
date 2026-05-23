@@ -16,7 +16,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.robmir77.MVPiQHoopsMobile",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "MVPiQ Hoops richiede la camera per il tracking dei tiri"
       }
     },
     "android": {
@@ -24,9 +25,11 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.robmir77.MVPiQHoopsMobile"
+      "package": "com.robmir77.MVPiQHoopsMobile",
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,6 +40,8 @@
       }
     },
     "plugins": [
+      "expo-asset",
+      "expo-sharing",
       "@react-native-firebase/app",
       "@react-native-firebase/messaging"
     ]
