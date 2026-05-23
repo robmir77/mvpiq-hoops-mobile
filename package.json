@@ -36,6 +36,7 @@
     "expo-system-ui": "~55.0.18",
     "hermes-compiler": "^250829098.0.2",
     "lucide-react-native": "^1.16.0",
+    "onnxruntime-react-native": "^1.14.0",
     "onnxruntime-web": "^1.26.0",
     "react": "19.2.0",
     "react-native": "0.83.6",

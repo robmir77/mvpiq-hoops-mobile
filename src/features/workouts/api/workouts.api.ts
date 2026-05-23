@@ -74,7 +74,7 @@ export const getActiveWorkoutSession = async (
 ): Promise<WorkoutSession | null> => {
     try {
         const r = await apiClient.get<WorkoutSession>(
-            `/workouts/sessions/active?userId=${userId}`)
+            `/workouts/sessions/active-session?userId=${userId}`)
         return r.data
     } catch (e: any) {
         if (e?.response?.status === 404) return null
