@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "949009929996",
+    "project_id": "mvpiqhoopsmobile",
+    "storage_bucket": "mvpiqhoopsmobile.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949009929996:android:d8bbb1a7a573430d875b29",
+        "android_client_info": {
+          "package_name": "com.mvpiqhoopsmobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDz727uqypr-YnytLHiDPnAImMBh2naEiY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
