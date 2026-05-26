@@ -1,365 +1,208 @@
 // src/features/workouts/hooks/useBallDetection.ts
 
 import { useEffect, useRef, useCallback } from 'react'
-
-import {
-    useFrameProcessor,
-    Frame,
-} from 'react-native-vision-camera'
-
+import { useFrameProcessor, Frame } from 'react-native-vision-camera'
 import { Worklets } from 'react-native-worklets-core'
-
-import {
-    InferenceSession,
-    Tensor,
-} from 'onnxruntime-react-native'
-
+import { InferenceSession, Tensor } from 'onnxruntime-react-native'
 import { Asset } from 'expo-asset'
+import { useSharedValue } from 'react-native-reanimated'
 
 import { DetectionResult } from '../types/workouts.types'
 
 const MODEL_ASSET = require('../../../../assets/models/ball_detection.onnx')
 
-const CONF_THRESHOLD = 0.45
-const NMS_IOU_THRESHOLD = 0.4
 const INPUT_SIZE = 320
-
 const SKIP_FRAMES = 2
+const CONF_THRESHOLD = 0.25
 
-const CLASSES = [
-    'basketball',
-    'hoop',
-    'player',
-] as const
+const CLASSES = ['basketball', 'hoop', 'player'] as const
 
-function iou(a: number[], b: number[]): number {
-    const [ax1, ay1, ax2, ay2] = a
-    const [bx1, by1, bx2, by2] = b
+// -------------------- HOOK --------------------
+export const useBallDetection = (onDetection: (r: any) => void) => {
 
-    const interX1 = Math.max(ax1, bx1)
-    const interY1 = Math.max(ay1, by1)
-    const interX2 = Math.min(ax2, bx2)
-    const interY2 = Math.min(ay2, by2)
-
-    const interArea =
-        Math.max(0, interX2 - interX1) *
-        Math.max(0, interY2 - interY1)
-
-    const aArea = (ax2 - ax1) * (ay2 - ay1)
-    const bArea = (bx2 - bx1) * (by2 - by1)
-
-    return interArea / (aArea + bArea - interArea + 1e-6)
-}
-
-function nms(
-    detections: number[][],
-    iouThresh: number
-): number[][] {
-    const sorted = [...detections].sort(
-        (a, b) => b[4] - a[4]
-    )
-
-    const kept: number[][] = []
-    const suppressed = new Set<number>()
-
-    for (let i = 0; i < sorted.length; i++) {
-        if (suppressed.has(i)) continue
-
-        kept.push(sorted[i])
-
-        for (let j = i + 1; j < sorted.length; j++) {
-            if (
-                iou(sorted[i], sorted[j]) >
-                iouThresh
-            ) {
-                suppressed.add(j)
-            }
-        }
-    }
-
-    return kept
-}
-
-function parseYoloOutput(
-    output: Float32Array,
-    numDetections: number,
-    imgW: number,
-    imgH: number
-): DetectionResult[] {
-    const rawDets: number[][] = []
-
-    for (let i = 0; i < numDetections; i++) {
-        const offset = i * 6
-
-        const cx = output[offset + 0]
-        const cy = output[offset + 1]
-        const w = output[offset + 2]
-        const h = output[offset + 3]
-        const conf = output[offset + 4]
-        const cls = Math.round(output[offset + 5])
-
-        if (conf < CONF_THRESHOLD) continue
-
-        const x1 = (cx - w / 2) / INPUT_SIZE
-        const y1 = (cy - h / 2) / INPUT_SIZE
-        const x2 = (cx + w / 2) / INPUT_SIZE
-        const y2 = (cy + h / 2) / INPUT_SIZE
-
-        rawDets.push([
-            x1,
-            y1,
-            x2,
-            y2,
-            conf,
-            cls,
-        ])
-    }
-
-    const afterNMS = nms(
-        rawDets,
-        NMS_IOU_THRESHOLD
-    )
-
-    return afterNMS.map(
-        ([x1, y1, x2, y2, conf, cls]) => ({
-            class:
-                CLASSES[cls] ?? 'basketball',
-
-            confidence: conf,
-
-            bbox: {
-                x: x1 * imgW,
-                y: y1 * imgH,
-                width: (x2 - x1) * imgW,
-                height: (y2 - y1) * imgH,
-            },
-
-            centerX: (x1 + x2) / 2,
-            centerY: (y1 + y2) / 2,
-        })
-    )
-}
-
-export interface BallDetectionResult {
-    ball: DetectionResult | null
-    hoop: DetectionResult | null
-    player: DetectionResult | null
-    frameTimestamp: number
-}
-
-export const useBallDetection = (
-    onDetection: (
-        result: BallDetectionResult
-    ) => void
-) => {
-    const sessionRef =
-        useRef<InferenceSession | null>(null)
-
+    const sessionRef = useRef<InferenceSession | null>(null)
     const isInferring = useRef(false)
+    const frameCounter = useRef(0)
 
-    const frameCounterRef = useRef(0)
+    // -------------------- OVERLAY STATE --------------------
+    const ballX = useSharedValue(0)
+    const ballY = useSharedValue(0)
+    const ballW = useSharedValue(0)
+    const ballH = useSharedValue(0)
+    const ballConf = useSharedValue(0)
 
+    // -------------------- LOAD MODEL --------------------
     useEffect(() => {
         let mounted = true
 
-        const loadModel = async () => {
+        const load = async () => {
             try {
-                const asset =
-                    Asset.fromModule(MODEL_ASSET)
+                console.log('[BallDetection] Loading ONNX asset...')
 
+                const asset = Asset.fromModule(MODEL_ASSET)
                 await asset.downloadAsync()
 
                 if (!asset.localUri) {
-                    throw new Error(
-                        'Model localUri is null'
-                    )
+                    throw new Error('Model localUri missing')
                 }
 
-                const modelPath =
-                    asset.localUri.replace(
-                        'file://',
-                        ''
-                    )
+                const modelPath = asset.localUri.replace('file://', '')
 
-                console.log(
-                    '[BallDetection] FINAL MODEL PATH:',
-                    modelPath
-                )
+                console.log('[BallDetection] MODEL PATH:', modelPath)
 
-                const session =
-                    await InferenceSession.create(
-                        modelPath,
-                        {
-                            executionProviders: [
-                                'cpu',
-                            ],
-                            graphOptimizationLevel:
-                                'all',
-                        }
-                    )
+                const session = await InferenceSession.create(modelPath, {
+                    executionProviders: ['cpu'],
+                    graphOptimizationLevel: 'all',
+                })
 
-                if (mounted) {
-                    sessionRef.current = session
+                if (!mounted) return
 
-                    console.log(
-                        '[BallDetection] Modello ONNX caricato'
-                    )
-                }
+                sessionRef.current = session
+
+                console.log('[BallDetection] Input names:', session.inputNames)
+                console.log('[BallDetection] Output names:', session.outputNames)
+
             } catch (e) {
-                console.error(
-                    '[BallDetection] Errore caricamento modello:',
-                    e
-                )
+                console.error('[BallDetection] MODEL LOAD ERROR:', e)
             }
         }
 
-        loadModel()
+        load()
 
-        return () => {
-            mounted = false
-        }
+        return () => { mounted = false }
     }, [])
 
-    const handleDetection = useCallback(
-        onDetection,
-        []
-    )
+    const handleDetection = useCallback(onDetection, [])
 
-    const runInference = useCallback(
-        async (
-            width: number,
-            height: number,
-            ts: number
-        ) => {
-            if (
-                !sessionRef.current ||
-                isInferring.current
-            ) {
+    // -------------------- INFERENCE --------------------
+    const runInference = useCallback(async (
+        w: number,
+        h: number,
+        ts: number
+    ) => {
+
+        if (!sessionRef.current || isInferring.current) return
+
+        isInferring.current = true
+
+        try {
+            console.log('[BallDetection] inference start', { w, h, ts })
+
+            const input = new Float32Array(1 * 3 * INPUT_SIZE * INPUT_SIZE)
+
+            const tensor = new Tensor('float32', input, [
+                1, 3, INPUT_SIZE, INPUT_SIZE
+            ])
+
+            const output = await sessionRef.current.run({
+                images: tensor
+            })
+
+            const out = output['output0']
+
+            if (!out) {
+                console.warn('[BallDetection] missing output0')
                 return
             }
 
-            isInferring.current = true
+            const data = out.data as Float32Array
+            const dims = out.dims
 
-            try {
-                const inputData =
-                    new Float32Array(
-                        1 *
-                        3 *
-                        INPUT_SIZE *
-                        INPUT_SIZE
-                    )
+            console.log('[BallDetection] dims:', dims)
 
-                const inputTensor =
-                    new Tensor(
-                        'float32',
-                        inputData,
-                        [
-                            1,
-                            3,
-                            INPUT_SIZE,
-                            INPUT_SIZE,
-                        ]
-                    )
+            const numBoxes = dims?.[2] ?? 2100
 
-                const feeds = {
-                    images: inputTensor,
-                }
+            let bestBall: any = null
+            let bestConf = 0
 
-                const outputMap =
-                    await sessionRef.current.run(
-                        feeds
-                    )
+            // -------------------- SIMPLE PARSER (SAFE) --------------------
+            for (let i = 0; i < numBoxes; i++) {
 
-                const outputTensor =
-                    outputMap['output0']
+                const base = i * 84
 
-                const outputData =
-                    outputTensor.data as Float32Array
+                const cx = data[base + 0]
+                const cy = data[base + 1]
+                const bw = data[base + 2]
+                const bh = data[base + 3]
+                const score = data[base + 4]
 
-                const numDetections =
-                    outputTensor.dims[1]
+                if (score < CONF_THRESHOLD) continue
 
-                const detections =
-                    parseYoloOutput(
-                        outputData,
-                        numDetections,
+                const conf = Math.max(0, Math.min(score, 1))
+
+                const x1 = (cx - bw / 2) / INPUT_SIZE
+                const y1 = (cy - bh / 2) / INPUT_SIZE
+                const x2 = (cx + bw / 2) / INPUT_SIZE
+                const y2 = (cy + bh / 2) / INPUT_SIZE
+
+                const width = (x2 - x1) * w
+                const height = (y2 - y1) * h
+
+                const cxPx = x1 * w
+                const cyPx = y1 * h
+
+                // 🟢 ONLY BALL tracking (per ora)
+                if (conf > bestConf) {
+                    bestConf = conf
+                    bestBall = {
+                        x: cxPx,
+                        y: cyPx,
                         width,
-                        height
-                    )
-
-                const result: BallDetectionResult =
-                    {
-                        ball:
-                            detections.find(
-                                d =>
-                                    d.class ===
-                                    'basketball'
-                            ) ?? null,
-
-                        hoop:
-                            detections.find(
-                                d =>
-                                    d.class ===
-                                    'hoop'
-                            ) ?? null,
-
-                        player:
-                            detections.find(
-                                d =>
-                                    d.class ===
-                                    'player'
-                            ) ?? null,
-
-                        frameTimestamp: ts,
+                        height,
+                        confidence: conf
                     }
-
-                handleDetection(result)
-            } catch (e) {
-                console.error(
-                    '[BallDetection] Inference error:',
-                    e
-                )
-            } finally {
-                isInferring.current = false
-            }
-        },
-        [handleDetection]
-    )
-
-    const runInferenceJS =
-        Worklets.createRunOnJS(
-            runInference
-        )
-
-    const frameProcessor =
-        useFrameProcessor(
-            (frame: Frame) => {
-                'worklet'
-
-                frameCounterRef.current++
-
-                if (
-                    frameCounterRef.current %
-                    (SKIP_FRAMES + 1) !==
-                    0
-                ) {
-                    return
                 }
+            }
 
-                runInferenceJS(
-                    frame.width,
-                    frame.height,
-                    frame.timestamp
-                )
-            },
-            []
-        )
+            // -------------------- UPDATE OVERLAY --------------------
+            if (bestBall) {
+                ballX.value = bestBall.x
+                ballY.value = bestBall.y
+                ballW.value = bestBall.width
+                ballH.value = bestBall.height
+                ballConf.value = bestBall.confidence
+            }
 
-    const isReady =
-        sessionRef.current !== null
+            // -------------------- CALLBACK --------------------
+            handleDetection({
+                ball: bestBall ?? null,
+                hoop: null,
+                player: null,
+                frameTimestamp: ts
+            })
+
+        } catch (e) {
+            console.error('[BallDetection] inference error:', e)
+        } finally {
+            isInferring.current = false
+        }
+
+    }, [handleDetection])
+
+    // -------------------- WORKLET BRIDGE --------------------
+    const runJS = Worklets.createRunOnJS(runInference)
+
+    // -------------------- FRAME PROCESSOR --------------------
+    const frameProcessor = useFrameProcessor((frame: Frame) => {
+        'worklet'
+
+        frameCounter.current++
+
+        if (frameCounter.current % (SKIP_FRAMES + 1) !== 0) return
+
+        runJS(frame.width, frame.height, frame.timestamp)
+
+    }, [])
 
     return {
         frameProcessor,
-        isReady,
+        isReady: sessionRef.current !== null,
+
+        // overlay values
+        ballX,
+        ballY,
+        ballW,
+        ballH,
+        ballConf,
     }
 }
