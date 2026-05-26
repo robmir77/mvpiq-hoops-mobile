@@ -267,8 +267,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         setPoseKeypoints(kp); setJointAngles(angles)
     }, [])
 
-    // v5: useBallDetection ora restituisce frameOutput (CameraFrameOutput), non frameProcessor
-    const { frameOutput, isReady: ballReady } = useBallDetection(handleDetection)
+    const { frameProcessor, isReady: ballReady } = useBallDetection(handleDetection)
     const { isReady: poseReady } = usePoseDetection(handlePose)
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -464,7 +463,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    outputs={modelsReady ? [frameOutput] : []}
+                    frameProcessor={modelsReady ? frameProcessor : undefined}
                 />
                 <TrackingOverlay trackingState={trackingState} poseKeypoints={poseKeypoints} />
 
