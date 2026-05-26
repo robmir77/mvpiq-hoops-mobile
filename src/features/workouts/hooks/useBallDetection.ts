@@ -4,9 +4,11 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useSharedValue, runOnJS } from 'react-native-reanimated'
 import { useFrameProcessor, Frame } from 'react-native-vision-camera'
 import { InferenceSession, Tensor } from 'onnxruntime-react-native'
+import { Asset } from 'expo-asset'
+
 import { DetectionResult } from '../types/workouts.types'
 
-const MODEL_PATH = require('../../../../assets/models/ball_detection.onnx')
+const MODEL_ASSET = require('../../../../assets/models/ball_detection.onnx')
 
 const CONF_THRESHOLD = 0.45
 const NMS_IOU_THRESHOLD = 0.4
@@ -121,17 +123,53 @@ export const useBallDetection = (
 
         const loadModel = async () => {
             try {
-                const session = await InferenceSession.create(MODEL_PATH, {
-                    executionProviders: ['cpu'],
-                    graphOptimizationLevel: 'all',
-                })
+                const asset = Asset.fromModule(MODEL_ASSET)
+
+                await asset.downloadAsync()
+
+                console.log(
+                    '[BallDetection] asset.localUri:',
+                    asset.localUri
+                )
+
+                console.log(
+                    '[BallDetection] asset.uri:',
+                    asset.uri
+                )
+
+                if (!asset.localUri) {
+                    throw new Error('Model localUri is null')
+                }
+
+                // ONNX Runtime Android vuole path filesystem puro
+                const modelPath =
+                    asset.localUri.replace('file://', '')
+
+                console.log(
+                    '[BallDetection] FINAL MODEL PATH:',
+                    modelPath
+                )
+
+                const session = await InferenceSession.create(
+                    modelPath,
+                    {
+                        executionProviders: ['cpu'],
+                        graphOptimizationLevel: 'all',
+                    }
+                )
 
                 if (mounted) {
                     sessionRef.current = session
-                    console.log('[BallDetection] Modello ONNX caricato')
+
+                    console.log(
+                        '[BallDetection] Modello ONNX caricato'
+                    )
                 }
             } catch (e) {
-                console.error('[BallDetection] Errore caricamento modello:', e)
+                console.error(
+                    '[BallDetection] Errore caricamento modello:',
+                    e
+                )
             }
         }
 
@@ -156,8 +194,12 @@ export const useBallDetection = (
         isInferring.current = true
 
         try {
-            // placeholder input
-            const inputData = new Float32Array(1 * 3 * INPUT_SIZE * INPUT_SIZE)
+            // TODO:
+            // sostituire con preprocessing reale del frame camera
+            const inputData =
+                new Float32Array(
+                    1 * 3 * INPUT_SIZE * INPUT_SIZE
+                )
 
             const inputTensor = new Tensor(
                 'float32',
@@ -169,11 +211,13 @@ export const useBallDetection = (
                 images: inputTensor,
             }
 
-            const outputMap = await sessionRef.current.run(feeds)
+            const outputMap =
+                await sessionRef.current.run(feeds)
 
             const outputTensor = outputMap['output0']
 
-            const outputData = outputTensor.data as Float32Array
+            const outputData =
+                outputTensor.data as Float32Array
 
             const numDetections = outputTensor.dims[1]
 
@@ -186,43 +230,61 @@ export const useBallDetection = (
 
             const result: BallDetectionResult = {
                 ball:
-                    detections.find(d => d.class === 'basketball') ?? null,
+                    detections.find(
+                        d => d.class === 'basketball'
+                    ) ?? null,
 
                 hoop:
-                    detections.find(d => d.class === 'hoop') ?? null,
+                    detections.find(
+                        d => d.class === 'hoop'
+                    ) ?? null,
 
                 player:
-                    detections.find(d => d.class === 'player') ?? null,
+                    detections.find(
+                        d => d.class === 'player'
+                    ) ?? null,
 
                 frameTimestamp: ts,
             }
 
             handleDetection(result)
         } catch (e) {
-            console.error('[BallDetection] Inference error:', e)
+            console.error(
+                '[BallDetection] Inference error:',
+                e
+            )
         } finally {
             isInferring.current = false
         }
     }, [handleDetection])
 
-    const frameProcessor = useFrameProcessor((frame: Frame) => {
-        'worklet'
+    const frameProcessor = useFrameProcessor(
+        (frame: Frame) => {
+            'worklet'
 
-        frameSkip.value =
-            (frameSkip.value + 1) % (SKIP_FRAMES + 1)
+            frameSkip.value =
+                (frameSkip.value + 1) %
+                (SKIP_FRAMES + 1)
 
-        if (frameSkip.value !== 0) {
-            return
-        }
+            if (frameSkip.value !== 0) {
+                return
+            }
 
-        const width = frame.width
-        const height = frame.height
-        const ts = frame.timestamp
+            const width = frame.width
+            const height = frame.height
+            const ts = frame.timestamp
 
-        runOnJS(runInference)(width, height, ts)
-    }, [])
+            runOnJS(runInference)(
+                width,
+                height,
+                ts
+            )
+        },
+        []
+    )
 
-    const isReady = sessionRef.current !== null
+    const isReady =
+        sessionRef.current !== null
 
     return {
         frameProcessor,
