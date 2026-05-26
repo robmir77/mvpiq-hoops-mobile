@@ -1,9 +1,19 @@
 // src/features/workouts/hooks/useBallDetection.ts
 
 import { useEffect, useRef, useCallback } from 'react'
-import { useSharedValue, runOnJS } from 'react-native-reanimated'
-import { useFrameProcessor, Frame } from 'react-native-vision-camera'
-import { InferenceSession, Tensor } from 'onnxruntime-react-native'
+
+import {
+    useFrameProcessor,
+    Frame,
+} from 'react-native-vision-camera'
+
+import { Worklets } from 'react-native-worklets-core'
+
+import {
+    InferenceSession,
+    Tensor,
+} from 'onnxruntime-react-native'
+
 import { Asset } from 'expo-asset'
 
 import { DetectionResult } from '../types/workouts.types'
@@ -14,7 +24,13 @@ const CONF_THRESHOLD = 0.45
 const NMS_IOU_THRESHOLD = 0.4
 const INPUT_SIZE = 320
 
-const CLASSES = ['basketball', 'hoop', 'player'] as const
+const SKIP_FRAMES = 2
+
+const CLASSES = [
+    'basketball',
+    'hoop',
+    'player',
+] as const
 
 function iou(a: number[], b: number[]): number {
     const [ax1, ay1, ax2, ay2] = a
@@ -35,8 +51,13 @@ function iou(a: number[], b: number[]): number {
     return interArea / (aArea + bArea - interArea + 1e-6)
 }
 
-function nms(detections: number[][], iouThresh: number): number[][] {
-    const sorted = [...detections].sort((a, b) => b[4] - a[4])
+function nms(
+    detections: number[][],
+    iouThresh: number
+): number[][] {
+    const sorted = [...detections].sort(
+        (a, b) => b[4] - a[4]
+    )
 
     const kept: number[][] = []
     const suppressed = new Set<number>()
@@ -47,7 +68,10 @@ function nms(detections: number[][], iouThresh: number): number[][] {
         kept.push(sorted[i])
 
         for (let j = i + 1; j < sorted.length; j++) {
-            if (iou(sorted[i], sorted[j]) > iouThresh) {
+            if (
+                iou(sorted[i], sorted[j]) >
+                iouThresh
+            ) {
                 suppressed.add(j)
             }
         }
@@ -81,23 +105,39 @@ function parseYoloOutput(
         const x2 = (cx + w / 2) / INPUT_SIZE
         const y2 = (cy + h / 2) / INPUT_SIZE
 
-        rawDets.push([x1, y1, x2, y2, conf, cls])
+        rawDets.push([
+            x1,
+            y1,
+            x2,
+            y2,
+            conf,
+            cls,
+        ])
     }
 
-    const afterNMS = nms(rawDets, NMS_IOU_THRESHOLD)
+    const afterNMS = nms(
+        rawDets,
+        NMS_IOU_THRESHOLD
+    )
 
-    return afterNMS.map(([x1, y1, x2, y2, conf, cls]): DetectionResult => ({
-        class: CLASSES[cls] ?? 'basketball',
-        confidence: conf,
-        bbox: {
-            x: x1 * imgW,
-            y: y1 * imgH,
-            width: (x2 - x1) * imgW,
-            height: (y2 - y1) * imgH,
-        },
-        centerX: (x1 + x2) / 2,
-        centerY: (y1 + y2) / 2,
-    }))
+    return afterNMS.map(
+        ([x1, y1, x2, y2, conf, cls]) => ({
+            class:
+                CLASSES[cls] ?? 'basketball',
+
+            confidence: conf,
+
+            bbox: {
+                x: x1 * imgW,
+                y: y1 * imgH,
+                width: (x2 - x1) * imgW,
+                height: (y2 - y1) * imgH,
+            },
+
+            centerX: (x1 + x2) / 2,
+            centerY: (y1 + y2) / 2,
+        })
+    )
 }
 
 export interface BallDetectionResult {
@@ -108,55 +148,55 @@ export interface BallDetectionResult {
 }
 
 export const useBallDetection = (
-    onDetection: (result: BallDetectionResult) => void
+    onDetection: (
+        result: BallDetectionResult
+    ) => void
 ) => {
-    const sessionRef = useRef<InferenceSession | null>(null)
-
-    const frameSkip = useSharedValue(0)
+    const sessionRef =
+        useRef<InferenceSession | null>(null)
 
     const isInferring = useRef(false)
 
-    const SKIP_FRAMES = 2
+    const frameCounterRef = useRef(0)
 
     useEffect(() => {
         let mounted = true
 
         const loadModel = async () => {
             try {
-                const asset = Asset.fromModule(MODEL_ASSET)
+                const asset =
+                    Asset.fromModule(MODEL_ASSET)
 
                 await asset.downloadAsync()
 
-                console.log(
-                    '[BallDetection] asset.localUri:',
-                    asset.localUri
-                )
-
-                console.log(
-                    '[BallDetection] asset.uri:',
-                    asset.uri
-                )
-
                 if (!asset.localUri) {
-                    throw new Error('Model localUri is null')
+                    throw new Error(
+                        'Model localUri is null'
+                    )
                 }
 
-                // ONNX Runtime Android vuole path filesystem puro
                 const modelPath =
-                    asset.localUri.replace('file://', '')
+                    asset.localUri.replace(
+                        'file://',
+                        ''
+                    )
 
                 console.log(
                     '[BallDetection] FINAL MODEL PATH:',
                     modelPath
                 )
 
-                const session = await InferenceSession.create(
-                    modelPath,
-                    {
-                        executionProviders: ['cpu'],
-                        graphOptimizationLevel: 'all',
-                    }
-                )
+                const session =
+                    await InferenceSession.create(
+                        modelPath,
+                        {
+                            executionProviders: [
+                                'cpu',
+                            ],
+                            graphOptimizationLevel:
+                                'all',
+                        }
+                    )
 
                 if (mounted) {
                     sessionRef.current = session
@@ -180,108 +220,140 @@ export const useBallDetection = (
         }
     }, [])
 
-    const handleDetection = useCallback(onDetection, [])
+    const handleDetection = useCallback(
+        onDetection,
+        []
+    )
 
-    const runInference = useCallback(async (
-        width: number,
-        height: number,
-        ts: number
-    ) => {
-        if (!sessionRef.current || isInferring.current) {
-            return
-        }
-
-        isInferring.current = true
-
-        try {
-            // TODO:
-            // sostituire con preprocessing reale del frame camera
-            const inputData =
-                new Float32Array(
-                    1 * 3 * INPUT_SIZE * INPUT_SIZE
-                )
-
-            const inputTensor = new Tensor(
-                'float32',
-                inputData,
-                [1, 3, INPUT_SIZE, INPUT_SIZE]
-            )
-
-            const feeds = {
-                images: inputTensor,
-            }
-
-            const outputMap =
-                await sessionRef.current.run(feeds)
-
-            const outputTensor = outputMap['output0']
-
-            const outputData =
-                outputTensor.data as Float32Array
-
-            const numDetections = outputTensor.dims[1]
-
-            const detections = parseYoloOutput(
-                outputData,
-                numDetections,
-                width,
-                height
-            )
-
-            const result: BallDetectionResult = {
-                ball:
-                    detections.find(
-                        d => d.class === 'basketball'
-                    ) ?? null,
-
-                hoop:
-                    detections.find(
-                        d => d.class === 'hoop'
-                    ) ?? null,
-
-                player:
-                    detections.find(
-                        d => d.class === 'player'
-                    ) ?? null,
-
-                frameTimestamp: ts,
-            }
-
-            handleDetection(result)
-        } catch (e) {
-            console.error(
-                '[BallDetection] Inference error:',
-                e
-            )
-        } finally {
-            isInferring.current = false
-        }
-    }, [handleDetection])
-
-    const frameProcessor = useFrameProcessor(
-        (frame: Frame) => {
-            'worklet'
-
-            frameSkip.value =
-                (frameSkip.value + 1) %
-                (SKIP_FRAMES + 1)
-
-            if (frameSkip.value !== 0) {
+    const runInference = useCallback(
+        async (
+            width: number,
+            height: number,
+            ts: number
+        ) => {
+            if (
+                !sessionRef.current ||
+                isInferring.current
+            ) {
                 return
             }
 
-            const width = frame.width
-            const height = frame.height
-            const ts = frame.timestamp
+            isInferring.current = true
 
-            runOnJS(runInference)(
-                width,
-                height,
-                ts
-            )
+            try {
+                const inputData =
+                    new Float32Array(
+                        1 *
+                        3 *
+                        INPUT_SIZE *
+                        INPUT_SIZE
+                    )
+
+                const inputTensor =
+                    new Tensor(
+                        'float32',
+                        inputData,
+                        [
+                            1,
+                            3,
+                            INPUT_SIZE,
+                            INPUT_SIZE,
+                        ]
+                    )
+
+                const feeds = {
+                    images: inputTensor,
+                }
+
+                const outputMap =
+                    await sessionRef.current.run(
+                        feeds
+                    )
+
+                const outputTensor =
+                    outputMap['output0']
+
+                const outputData =
+                    outputTensor.data as Float32Array
+
+                const numDetections =
+                    outputTensor.dims[1]
+
+                const detections =
+                    parseYoloOutput(
+                        outputData,
+                        numDetections,
+                        width,
+                        height
+                    )
+
+                const result: BallDetectionResult =
+                    {
+                        ball:
+                            detections.find(
+                                d =>
+                                    d.class ===
+                                    'basketball'
+                            ) ?? null,
+
+                        hoop:
+                            detections.find(
+                                d =>
+                                    d.class ===
+                                    'hoop'
+                            ) ?? null,
+
+                        player:
+                            detections.find(
+                                d =>
+                                    d.class ===
+                                    'player'
+                            ) ?? null,
+
+                        frameTimestamp: ts,
+                    }
+
+                handleDetection(result)
+            } catch (e) {
+                console.error(
+                    '[BallDetection] Inference error:',
+                    e
+                )
+            } finally {
+                isInferring.current = false
+            }
         },
-        []
+        [handleDetection]
     )
+
+    const runInferenceJS =
+        Worklets.createRunOnJS(
+            runInference
+        )
+
+    const frameProcessor =
+        useFrameProcessor(
+            (frame: Frame) => {
+                'worklet'
+
+                frameCounterRef.current++
+
+                if (
+                    frameCounterRef.current %
+                    (SKIP_FRAMES + 1) !==
+                    0
+                ) {
+                    return
+                }
+
+                runInferenceJS(
+                    frame.width,
+                    frame.height,
+                    frame.timestamp
+                )
+            },
+            []
+        )
 
     const isReady =
         sessionRef.current !== null
