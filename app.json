@@ -3,48 +3,73 @@
     "name": "MVPiQHoopsMobile",
     "slug": "MVPiQHoopsMobile",
     "version": "1.0.0",
+
     "orientation": "portrait",
+
     "icon": "./assets/icon.png",
+
     "userInterfaceStyle": "light",
+
     "newArchEnabled": true,
+
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mvpiqhoopsmobile",
+
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "MVPiQ Hoops richiede la camera per il tracking dei tiri"
       }
     },
+
     "android": {
       "googleServicesFile": "./google-services.json",
+
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+
       "predictiveBackGestureEnabled": false,
+
       "package": "com.mvpiqhoopsmobile",
+
       "permissions": [
         "android.permission.CAMERA"
       ]
     },
+
     "web": {
       "favicon": "./assets/favicon.png"
     },
+
     "extra": {
       "eas": {
         "projectId": "9b9975c2-4a59-492c-9041-6f17b635d536"
       }
     },
+
     "plugins": [
       "expo-asset",
+      "expo-font",
+      "expo-camera",
+      "expo-image-picker",
+
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "MVPiQ Hoops richiede accesso alla fotocamera"
+        }
+      ],
+
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
-      "expo-font"
+      "@react-native-firebase/messaging"
     ]
   }
 }
