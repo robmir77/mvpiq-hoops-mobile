@@ -17,7 +17,7 @@ import { DetectionResult } from '../types/workouts.types'
 const MODEL_ASSET = require('../../../../assets/models/ball_detection.onnx')
 
 const INPUT_SIZE           = 640
-const CONF_THRESHOLD       = 0.45
+const CONF_THRESHOLD       = 0.10  // debug: abbassato per vedere cosa arriva
 const NMS_IOU_THRESHOLD    = 0.4
 const INFERENCE_INTERVAL   = 250   // ms tra uno snapshot e il prossimo (~4 fps)
 
@@ -174,7 +174,13 @@ export const useBallDetection = (
                     executionProviders: ['cpu'],
                     graphOptimizationLevel: 'all',
                 })
-                if (mounted) { sessionRef.current = session; setIsReady(true); log('Model loaded ✓') }
+                if (mounted) {
+                    sessionRef.current = session
+                    setIsReady(true)
+                    log('Model loaded ✓')
+                    log('Input names:', session.inputNames)
+                    log('Output names:', session.outputNames)
+                }
             } catch (e) { console.error('[BallDetection] model load error:', e) }
         }
         load()
@@ -182,7 +188,7 @@ export const useBallDetection = (
     }, [])
 
     // ── Inference su un singolo snapshot ─────────────────────────────────
-    const runInferenceFromSnapshot = useCallback(async (cameraRef: React.RefObject<Camera>) => {
+    const runInferenceFromSnapshot = useCallback(async (cameraRef: React.RefObject<Camera | null>) => {
         if (!sessionRef.current || !cameraRef.current) return
         if (isInferring.current) { droppedFrames++; return }
         isInferring.current = true
@@ -207,6 +213,22 @@ export const useBallDetection = (
             const data       = output.data as Float32Array
             const dims       = output.dims
             log('dims:', dims)
+
+            // Debug: max scores per le classi di interesse
+            const N = NUM_DETECTIONS
+            let maxBall = 0, maxPerson = 0, maxAny = 0
+            for (let i = 0; i < N; i++) {
+                const sb = data[(4 + COCO_SPORTS_BALL) * N + i]
+                const sp = data[(4 + COCO_PERSON)      * N + i]
+                if (sb > maxBall)   maxBall   = sb
+                if (sp > maxPerson) maxPerson = sp
+                // trova anche il max assoluto su tutte le 80 classi
+                for (let c = 0; c < 80; c++) {
+                    const s = data[(4 + c) * N + i]
+                    if (s > maxAny) maxAny = s
+                }
+            }
+            log('max scores', { ball: maxBall.toFixed(3), person: maxPerson.toFixed(3), anyClass: maxAny.toFixed(3) })
 
             const detections = parseYoloOutput(data, width, height)
             log('detections:', detections.length)
@@ -241,7 +263,7 @@ export const useBallDetection = (
     }, [onDetection, onPoseFrame])
 
     // ── Loop inferenza: avvia/ferma timer ─────────────────────────────────
-    const startInferenceLoop = useCallback((cameraRef: React.RefObject<Camera>) => {
+    const startInferenceLoop = useCallback((cameraRef: React.RefObject<Camera | null>) => {
         if (timerRef.current) clearInterval(timerRef.current)
         log('Inference loop avviato')
         timerRef.current = setInterval(() => {

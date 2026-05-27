@@ -685,6 +685,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
+                    photo={true}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
