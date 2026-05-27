@@ -94,6 +94,10 @@ export interface TrackingState {
     shotResult: ShotResult | null
     trajectory: Array<{ x: number; y: number; t: number }>
     confidence: number
+    // ─── Shot flight state ──────────────────────────────────────
+    /** true dal momento in cui la palla inizia la parabola (sale + arco minimo),
+     *  false dopo resetShot() — guida l'overlay scia */
+    inFlight: boolean
 }
 
 export interface PoseKeypoints {

@@ -7,6 +7,11 @@
 //  - React Native Skia overlay GPU-accelerated (rimpiazza SVG)
 //  - useTrackingEngine Kalman + shot detection automatica
 //  - Bottoni manuali come fallback / correzione
+//
+// Overlay completo:
+//  - 🏀 Label "BALL XX%" sopra la palla rilevata
+//  - Scia della parabola (appare solo quando inFlight=true, con ritardo N punti)
+//  - Skeleton + punti pose del player (MoveNet keypoints)
 
 import React, {
     useState, useContext, useEffect, useCallback, useRef,
@@ -59,13 +64,13 @@ function toCourtMeters(
     const dx = courtX - COURT_WIDTH_M/2
     const dy = courtY - HOOP_Y_M
     return {
-        courtX: Math.round(courtX*100)/100,
-        courtY: Math.round(courtY*100)/100,
+        courtX:  Math.round(courtX*100)/100,
+        courtY:  Math.round(courtY*100)/100,
         distanceFromHoop: Math.round(Math.sqrt(dx*dx+dy*dy)*100)/100,
     }
 }
 
-// ─── Debug overlay calibrazione in sessione ───────────────────────────────────
+// ─── Debug overlay calibrazione ───────────────────────────────────────────────
 const MODE_LABELS: Record<string, string> = {
     ANGLE_45: '↗ 45°',
     LATERAL:  '→ Lat.',
@@ -154,6 +159,9 @@ const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = 
     ['rightHip','rightKnee'],       ['rightKnee','rightAnkle'],
 ]
 const KP_THRESH = 0.35
+// Punti di ritardo scia: salta gli ultimi N punti della traiettoria
+// per creare l'effetto "cometa — la scia segue la palla con un ritardo visivo"
+const TRAIL_DELAY_POINTS = 5
 
 const TrackingOverlay = React.memo(({
     trackingState, poseKeypoints,
@@ -161,55 +169,211 @@ const TrackingOverlay = React.memo(({
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
-    const trajectoryPath = React.useMemo(() => {
-        const traj = trackingState?.trajectory ?? []
-        if (traj.length < 2) return null
+    // Scia del tiro: visibile SOLO quando inFlight=true, con N punti di ritardo
+    const shotTrailPath = React.useMemo(() => {
+        if (!trackingState?.inFlight) return null
+        const traj   = trackingState.trajectory ?? []
+        // Salta gli ultimi TRAIL_DELAY_POINTS per creare il ritardo visivo
+        const points = traj.slice(0, Math.max(0, traj.length - TRAIL_DELAY_POINTS))
+        if (points.length < 2) return null
         const p = Skia.Path.Make()
-        p.moveTo(px(traj[0].x), py(traj[0].y))
-        for (let i = 1; i < traj.length; i++) p.lineTo(px(traj[i].x), py(traj[i].y))
+        p.moveTo(px(points[0].x), py(points[0].y))
+        for (let i = 1; i < points.length; i++) p.lineTo(px(points[i].x), py(points[i].y))
         return p
-    }, [trackingState?.trajectory?.length])
+    }, [trackingState?.inFlight, trackingState?.trajectory?.length])
+
+    // Posizione palla in pixel schermo
+    const ballSX = trackingState?.ballPosition != null ? px(trackingState.ballPosition.x) : null
+    const ballSY = trackingState?.ballPosition != null ? py(trackingState.ballPosition.y) : null
 
     return (
-        <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
-            {trajectoryPath && (
-                <SkiaPath path={trajectoryPath} color="rgba(255,140,0,0.75)"
-                    style="stroke" strokeWidth={2.5} strokeJoin="round" strokeCap="round" />
+        <>
+            {/* ── Canvas Skia: forme GPU (scia, cerchi, skeleton) ── */}
+            <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
+
+                {/* Scia parabola — solo durante il volo, con ritardo */}
+                {shotTrailPath && (
+                    <SkiaPath
+                        path={shotTrailPath}
+                        color="rgba(255,140,0,0.90)"
+                        style="stroke"
+                        strokeWidth={3.5}
+                        strokeJoin="round"
+                        strokeCap="round"
+                    />
+                )}
+
+                {/* Cerchio palla */}
+                {trackingState?.ballPosition && (
+                    <Group>
+                        <SkiaCircle
+                            cx={px(trackingState.ballPosition.x)}
+                            cy={py(trackingState.ballPosition.y)}
+                            r={16} color="rgba(255,140,0,0.22)"
+                        />
+                        <SkiaCircle
+                            cx={px(trackingState.ballPosition.x)}
+                            cy={py(trackingState.ballPosition.y)}
+                            r={16} color="#ff8c00" style="stroke" strokeWidth={2.5}
+                        />
+                    </Group>
+                )}
+
+                {/* Cerchio canestro */}
+                {trackingState?.hoopPosition && (
+                    <Group>
+                        <SkiaCircle
+                            cx={px(trackingState.hoopPosition.x)}
+                            cy={py(trackingState.hoopPosition.y)}
+                            r={20} color="rgba(74,222,128,0.18)"
+                        />
+                        <SkiaCircle
+                            cx={px(trackingState.hoopPosition.x)}
+                            cy={py(trackingState.hoopPosition.y)}
+                            r={20} color="#4ade80" style="stroke" strokeWidth={2.5}
+                        />
+                    </Group>
+                )}
+
+                {/* Skeleton pose + punti keypoints */}
+                {poseKeypoints && (
+                    <Group>
+                        {/* Linee skeleton */}
+                        {SKELETON_CONNECTIONS.map(([a, b], i) => {
+                            const kpA = poseKeypoints[a]
+                            const kpB = poseKeypoints[b]
+                            if (!kpA || !kpB || kpA.score < KP_THRESH || kpB.score < KP_THRESH) return null
+                            return (
+                                <SkiaLine
+                                    key={i}
+                                    p1={vec(px(kpA.x), py(kpA.y))}
+                                    p2={vec(px(kpB.x), py(kpB.y))}
+                                    color="rgba(96,165,250,0.80)"
+                                    strokeWidth={2.5}
+                                />
+                            )
+                        })}
+                        {/* Punti keypoints — cerchio esterno (glow) + interno */}
+                        {(Object.values(poseKeypoints) as Array<{x:number;y:number;score:number}>)
+                            .filter(kp => kp?.score >= KP_THRESH)
+                            .map((kp, i) => (
+                                <Group key={i}>
+                                    <SkiaCircle
+                                        cx={px(kp.x)} cy={py(kp.y)}
+                                        r={7} color="rgba(96,165,250,0.25)"
+                                    />
+                                    <SkiaCircle
+                                        cx={px(kp.x)} cy={py(kp.y)}
+                                        r={4.5} color="#60a5fa"
+                                    />
+                                    <SkiaCircle
+                                        cx={px(kp.x)} cy={py(kp.y)}
+                                        r={4.5} color="rgba(255,255,255,0.6)"
+                                        style="stroke" strokeWidth={1.2}
+                                    />
+                                </Group>
+                            ))
+                        }
+                    </Group>
+                )}
+            </Canvas>
+
+            {/* ── Label BALL (React Native Text, sopra il canvas) ── */}
+            {trackingState?.ballPosition && ballSX !== null && ballSY !== null && (
+                <View
+                    pointerEvents="none"
+                    style={[ovStyles.ballLabelWrap, {
+                        left: ballSX - 32,
+                        top:  ballSY - 44,
+                    }]}
+                >
+                    <View style={ovStyles.ballLabelBox}>
+                        <Text style={ovStyles.ballLabelText}>
+                            🏀 {Math.round((trackingState.confidence ?? 0) * 100)}%
+                        </Text>
+                    </View>
+                </View>
             )}
-            {trackingState?.ballPosition && (
-                <Group>
-                    <SkiaCircle cx={px(trackingState.ballPosition.x)} cy={py(trackingState.ballPosition.y)}
-                        r={14} color="rgba(255,140,0,0.3)" />
-                    <SkiaCircle cx={px(trackingState.ballPosition.x)} cy={py(trackingState.ballPosition.y)}
-                        r={14} color="#ff8c00" style="stroke" strokeWidth={2.5} />
-                </Group>
+
+            {/* ── Badge "IN VOLO" — visibile solo durante il tiro ── */}
+            {trackingState?.inFlight && (
+                <View pointerEvents="none" style={ovStyles.inFlightBadge}>
+                    <Text style={ovStyles.inFlightText}>✈ IN VOLO</Text>
+                </View>
             )}
+
+            {/* ── Label HOOP ── */}
             {trackingState?.hoopPosition && (
-                <Group>
-                    <SkiaCircle cx={px(trackingState.hoopPosition.x)} cy={py(trackingState.hoopPosition.y)}
-                        r={18} color="rgba(74,222,128,0.2)" />
-                    <SkiaCircle cx={px(trackingState.hoopPosition.x)} cy={py(trackingState.hoopPosition.y)}
-                        r={18} color="#4ade80" style="stroke" strokeWidth={2.5} />
-                </Group>
+                <View
+                    pointerEvents="none"
+                    style={[ovStyles.hoopLabelWrap, {
+                        left: px(trackingState.hoopPosition.x) - 22,
+                        top:  py(trackingState.hoopPosition.y) + 24,
+                    }]}
+                >
+                    <Text style={ovStyles.hoopLabelText}>🏀 CANESTRO</Text>
+                </View>
             )}
-            {poseKeypoints && (
-                <Group>
-                    {SKELETON_CONNECTIONS.map(([a, b], i) => {
-                        const kpA = poseKeypoints[a]; const kpB = poseKeypoints[b]
-                        if (!kpA || !kpB || kpA.score < KP_THRESH || kpB.score < KP_THRESH) return null
-                        return <SkiaLine key={i} p1={vec(px(kpA.x),py(kpA.y))} p2={vec(px(kpB.x),py(kpB.y))}
-                            color="rgba(96,165,250,0.75)" strokeWidth={2} />
-                    })}
-                    {(Object.values(poseKeypoints) as Array<{x:number;y:number;score:number}>)
-                        .filter(kp => kp?.score >= KP_THRESH)
-                        .map((kp, i) => <SkiaCircle key={i} cx={px(kp.x)} cy={py(kp.y)} r={5} color="#60a5fa" />)
-                    }
-                </Group>
-            )}
-        </Canvas>
+        </>
     )
 })
 
+const ovStyles = StyleSheet.create({
+    // Label BALL
+    ballLabelWrap: {
+        position: 'absolute',
+        alignItems: 'center',
+        minWidth: 64,
+    },
+    ballLabelBox: {
+        backgroundColor: 'rgba(0,0,0,0.72)',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: '#ff8c00',
+    },
+    ballLabelText: {
+        color: '#ff8c00',
+        fontSize: 11,
+        fontWeight: '800',
+        letterSpacing: 0.3,
+    },
+    // Badge IN VOLO
+    inFlightBadge: {
+        position: 'absolute',
+        bottom: 14,
+        left: 14,
+        backgroundColor: 'rgba(255,140,0,0.12)',
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,140,0,0.70)',
+    },
+    inFlightText: {
+        color: '#ff8c00',
+        fontSize: 11,
+        fontWeight: '900',
+        letterSpacing: 1,
+    },
+    // Label HOOP
+    hoopLabelWrap: {
+        position: 'absolute',
+    },
+    hoopLabelText: {
+        color: '#4ade80',
+        fontSize: 9,
+        fontWeight: '700',
+        letterSpacing: 0.4,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        paddingHorizontal: 5,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+})
+
+// ─── StatBox ──────────────────────────────────────────────────────────────────
 const StatBox = ({ label, value, highlight }: { label: string; value: any; highlight?: boolean }) => (
     <View style={styles.statBox}>
         <Text style={[styles.statValue, highlight && styles.statValueHL]}>{value}</Text>
@@ -222,16 +386,16 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sessionId, cameraMode } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
-    const [session, setSession] = useState<WorkoutSession | null>(null)
-    const [calibration, setCalibration] = useState<CalibrationData | null>(null)
-    const [isEnding, setIsEnding] = useState(false)
-    const [isRecording, setIsRecording] = useState(false)
-    const [shotCount, setShotCount] = useState({ total: 0, made: 0 })
+    const [session, setSession]             = useState<WorkoutSession | null>(null)
+    const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
+    const [isEnding, setIsEnding]           = useState(false)
+    const [isRecording, setIsRecording]     = useState(false)
+    const [shotCount, setShotCount]         = useState({ total: 0, made: 0 })
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
-    const [jointAngles, setJointAngles] = useState<Partial<JointAngles>>({})
+    const [jointAngles, setJointAngles]     = useState<Partial<JointAngles>>({})
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
-    const [modelsReady, setModelsReady] = useState(false)
+    const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
 
     const { alert, showError, showWarning } = useCustomAlert()
@@ -239,53 +403,76 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const tracking = useTrackingEngine()
     const { device, hasPermission, isActive, requestPermission, setIsActive } = useVisionCamera()
     const feedbackOpacity = useRef(new Animated.Value(0)).current
-    const isActiveRef = useRef(true)
-    const rafRef = useRef<number | null>(null)
-    const frameBatch = useRef<any[]>([])
-    const batchTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+    const isActiveRef     = useRef(true)
+    const rafRef          = useRef<number | null>(null)
+    const frameBatch      = useRef<any[]>([])
+    const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
 
-    // ── Detection callbacks ───────────────────────────────────────────────────
+    // ── Pose callback ─────────────────────────────────────────────────────
+    const handlePose = useCallback((kp: PoseKeypoints, angles: Partial<JointAngles>) => {
+        setPoseKeypoints(kp)
+        setJointAngles(angles)
+    }, [])
+
+    // ── Ball detection callback ───────────────────────────────────────────
     const handleDetection = useCallback((result: BallDetectionResult) => {
         const newState = tracking.processFrame(
-            result.ball ? { x: result.ball.centerX, y: result.ball.centerY, confidence: result.ball.confidence } : null,
-            result.hoop ? { x: result.hoop.centerX, y: result.hoop.centerY, confidence: result.hoop.confidence } : null,
+            result.ball  ? { x: result.ball.centerX,  y: result.ball.centerY,  confidence: result.ball.confidence }  : null,
+            result.hoop  ? { x: result.hoop.centerX,  y: result.hoop.centerY,  confidence: result.hoop.confidence }  : null,
             result.frameTimestamp
         )
         if (result.ball || result.hoop) {
             frameBatch.current.push({
-                frameTimestamp: result.frameTimestamp,
-                ballX: result.ball?.centerX, ballY: result.ball?.centerY, ballConfidence: result.ball?.confidence,
-                hoopX: result.hoop?.centerX, hoopY: result.hoop?.centerY, hoopConfidence: result.hoop?.confidence,
-                ballVelocityX: newState.ballVelocity?.vx, ballVelocityY: newState.ballVelocity?.vy,
-                shotDetected: newState.shotDetected,
-                trajectoryData: { points: newState.trajectory.slice(-10) },
+                frameTimestamp:   result.frameTimestamp,
+                ballX:            result.ball?.centerX,
+                ballY:            result.ball?.centerY,
+                ballConfidence:   result.ball?.confidence,
+                hoopX:            result.hoop?.centerX,
+                hoopY:            result.hoop?.centerY,
+                hoopConfidence:   result.hoop?.confidence,
+                ballVelocityX:    newState.ballVelocity?.vx,
+                ballVelocityY:    newState.ballVelocity?.vy,
+                shotDetected:     newState.shotDetected,
+                trajectoryData:   { points: newState.trajectory.slice(-10) },
             })
         }
     }, [tracking])
 
-    const handlePose = useCallback((kp: PoseKeypoints, angles: Partial<JointAngles>) => {
-        setPoseKeypoints(kp); setJointAngles(angles)
-    }, [])
+    // ── Hook: pose detection (runPoseFromFrame triggerato dal frame processor ball) ──
+    const { runPoseFromFrame, isReady: poseReady } = usePoseDetection(handlePose)
 
-    const { frameProcessor, isReady: ballReady } = useBallDetection(handleDetection)
-    const { isReady: poseReady } = usePoseDetection(handlePose)
+    // ── Hook: ball detection (passa runPoseFromFrame per la worklet condivisa) ──
+    const { frameProcessor, isReady: ballReady } = useBallDetection(handleDetection, runPoseFromFrame)
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
         loadSession()
         batchTimer.current = setInterval(flushFrameBatch, 2000)
+
         const rafLoop = () => {
             if (!isActiveRef.current) return
             const s = tracking.getState()
-            setTrackingState(prev => (!prev || prev.shotDetected !== s.shotDetected ||
-                prev.ballPosition?.x !== s.ballPosition?.x || prev.confidence !== s.confidence) ? s : prev)
+            setTrackingState(prev => {
+                if (!prev) return s
+                // Aggiorna solo se qualcosa è cambiato (evita re-render inutili)
+                if (
+                    prev.shotDetected !== s.shotDetected ||
+                    prev.inFlight     !== s.inFlight     ||
+                    prev.ballPosition?.x !== s.ballPosition?.x ||
+                    prev.confidence      !== s.confidence ||
+                    prev.trajectory.length !== s.trajectory.length
+                ) return s
+                return prev
+            })
             rafRef.current = requestAnimationFrame(rafLoop)
         }
         rafRef.current = requestAnimationFrame(rafLoop)
+
         return () => {
-            isActiveRef.current = false; setIsActive(false)
+            isActiveRef.current = false
+            setIsActive(false)
             if (batchTimer.current) clearInterval(batchTimer.current)
-            if (rafRef.current) cancelAnimationFrame(rafRef.current)
+            if (rafRef.current)     cancelAnimationFrame(rafRef.current)
         }
     }, [])
 
@@ -303,11 +490,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setSession(s)
             setShotCount({ total: s.totalShots, made: s.madeShots })
             try {
-                const r = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+                const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                 const cal: CalibrationData = {
                     homographyMatrix: r.data.homographyMatrix ?? [],
-                    hoopCenter: { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
-                    courtCorners: r.data.courtCorners,
+                    hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
+                    courtCorners:     r.data.courtCorners,
                 }
                 setCalibration(cal)
                 tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y)
@@ -326,24 +513,42 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         if (!user?.id || !sessionId || isRecording) return
         setIsRecording(true)
         try {
-            const state = tracking.getState()
+            const state   = tracking.getState()
             const metrics = tracking.computeTrajectoryMetrics()
-            const coords = toCourtMeters(state.ballPosition?.x ?? 0.5, state.ballPosition?.y ?? 0.5, calibration)
+            const coords  = toCourtMeters(
+                state.ballPosition?.x ?? 0.5,
+                state.ballPosition?.y ?? 0.5,
+                calibration
+            )
             const shot = await addShotEvent(sessionId, user.id, {
                 timestampMs: Date.now(), shotResult: result, ...coords,
-                releaseAngle: metrics.releaseAngle, detectionConfidence: state.confidence,
-                trackingData: JSON.stringify({ autoDetected: true, arcHeight: metrics.arcHeight, smoothness: metrics.smoothness }),
+                releaseAngle:        metrics.releaseAngle,
+                detectionConfidence: state.confidence,
+                trackingData: JSON.stringify({
+                    autoDetected: true,
+                    arcHeight:    metrics.arcHeight,
+                    smoothness:   metrics.smoothness,
+                }),
             })
             if (Object.keys(jointAngles).length > 0) {
                 await savePoseAnalysis(sessionId, user.id, {
-                    shotEventId: shot.id, ...jointAngles,
-                    releaseAngle: metrics.releaseAngle, releaseHeight: metrics.arcHeight, shotSmoothness: metrics.smoothness,
+                    shotEventId:   shot.id,
+                    ...jointAngles,
+                    releaseAngle:  metrics.releaseAngle,
+                    releaseHeight: metrics.arcHeight,
+                    shotSmoothness: metrics.smoothness,
                 })
             }
             setLastShotResult(result)
-            setShotCount(prev => ({ total: prev.total+1, made: result==='MADE' ? prev.made+1 : prev.made }))
+            setShotCount(prev => ({
+                total: prev.total + 1,
+                made:  result === 'MADE' ? prev.made + 1 : prev.made,
+            }))
             feedbackOpacity.setValue(1)
-            Animated.timing(feedbackOpacity, { toValue: 0, duration: 1400, easing: Easing.out(Easing.ease), useNativeDriver: true }).start()
+            Animated.timing(feedbackOpacity, {
+                toValue: 0, duration: 1400,
+                easing: Easing.out(Easing.ease), useNativeDriver: true,
+            }).start()
             tracking.resetShot()
         } catch (e: any) { showError('Errore tiro', e.message) }
         finally { setIsRecording(false) }
@@ -353,22 +558,33 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         if (!user?.id || !sessionId || isRecording) return
         setIsRecording(true)
         try {
-            const state = tracking.getState()
-            const coords = toCourtMeters(state.ballPosition?.x ?? 0.5, state.ballPosition?.y ?? 0.5, calibration)
+            const state  = tracking.getState()
+            const coords = toCourtMeters(
+                state.ballPosition?.x ?? 0.5,
+                state.ballPosition?.y ?? 0.5,
+                calibration
+            )
             await addShotEvent(sessionId, user.id, {
                 timestampMs: Date.now(), shotResult: result, ...coords,
-                detectionConfidence: 1.0, trackingData: JSON.stringify({ manualEntry: true }),
+                detectionConfidence: 1.0,
+                trackingData: JSON.stringify({ manualEntry: true }),
             })
             setLastShotResult(result)
-            setShotCount(prev => ({ total: prev.total+1, made: result==='MADE' ? prev.made+1 : prev.made }))
+            setShotCount(prev => ({
+                total: prev.total + 1,
+                made:  result === 'MADE' ? prev.made + 1 : prev.made,
+            }))
             feedbackOpacity.setValue(1)
-            Animated.timing(feedbackOpacity, { toValue: 0, duration: 1400, easing: Easing.out(Easing.ease), useNativeDriver: true }).start()
+            Animated.timing(feedbackOpacity, {
+                toValue: 0, duration: 1400,
+                easing: Easing.out(Easing.ease), useNativeDriver: true,
+            }).start()
         } catch (e: any) { showError('Errore', e.message) }
         finally { setIsRecording(false) }
     }
 
     const handleEndSession = () => {
-        showWarning('Termina Sessione', "Sei sicuro di voler terminare?", async () => {
+        showWarning('Termina Sessione', 'Sei sicuro di voler terminare?', async () => {
             setIsEnding(true)
             try {
                 await flushFrameBatch()
@@ -408,10 +624,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         </View>
     )
 
-    const isPaused = session?.status === 'PAUSED'
-    const fgPct = shotCount.total > 0 ? ((shotCount.made/shotCount.total)*100).toFixed(0) : '0'
-    const streak = wsStats?.shotStreak ?? 0
-    const elbowAngle = jointAngles.elbowAngle != null ? `${jointAngles.elbowAngle.toFixed(0)}°` : '—'
+    const isPaused    = session?.status === 'PAUSED'
+    const fgPct       = shotCount.total > 0 ? ((shotCount.made/shotCount.total)*100).toFixed(0) : '0'
+    const streak      = wsStats?.shotStreak ?? 0
+    const elbowAngle  = jointAngles.elbowAngle != null ? `${jointAngles.elbowAngle.toFixed(0)}°` : '—'
 
     return (
         <View style={styles.container}>
@@ -430,11 +646,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     </TouchableOpacity>
                 </View>
                 <View style={styles.statsRow}>
-                    <StatBox label="Tiri" value={shotCount.total} />
+                    <StatBox label="Tiri"    value={shotCount.total} />
                     <StatBox label="Segnati" value={shotCount.made} highlight />
-                    <StatBox label="FG%" value={`${fgPct}%`} highlight />
-                    <StatBox label="Streak" value={streak > 0 ? `${streak}🔥` : streak} />
-                    <StatBox label="Gomito" value={elbowAngle} />
+                    <StatBox label="FG%"     value={`${fgPct}%`} highlight />
+                    <StatBox label="Streak"  value={streak > 0 ? `${streak}🔥` : streak} />
+                    <StatBox label="Gomito"  value={elbowAngle} />
                 </View>
                 <View style={styles.wsRow}>
                     <View style={[styles.wsDot, wsStatus==='connected' ? styles.wsDotOn : styles.wsDotOff]} />
@@ -455,17 +671,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             </View>
 
             <View style={{ height: CAMERA_H }}>
-                {/* VisionCamera v5:
-                    - frameProcessor/fps/pixelFormat rimossi
-                    - outputs={[frameOutput]} collega il FrameOutput creato in useBallDetection
-                    - fps e pixelFormat sono ora configurati dentro useFrameOutput */}
                 <Camera
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
                     frameProcessor={modelsReady ? frameProcessor : undefined}
                 />
-                <TrackingOverlay trackingState={trackingState} poseKeypoints={poseKeypoints} />
+
+                {/* Overlay completo: scia + palla + canestro + pose */}
+                <TrackingOverlay
+                    trackingState={trackingState}
+                    poseKeypoints={poseKeypoints}
+                />
 
                 {/* Debug overlay calibrazione */}
                 {showCalibDebug && calibration && (
@@ -475,8 +692,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         hoopPosition={trackingState?.hoopPosition ?? null}
                     />
                 )}
+
                 <View style={styles.guideH} pointerEvents="none" />
                 <View style={styles.guideV} pointerEvents="none" />
+
                 <View style={styles.trackingBadge} pointerEvents="none">
                     <View style={[styles.trackingDot, trackingState?.ballPosition && styles.trackingDotActive]} />
                     <Text style={styles.trackingText}>
@@ -485,6 +704,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             : modelsReady ? 'Cerca palla...' : 'Caricamento AI...'}
                     </Text>
                 </View>
+
                 {lastShotResult && (
                     <Animated.View style={[styles.shotFeedback, {opacity: feedbackOpacity}]} pointerEvents="none">
                         <Text style={[styles.shotFeedbackText, lastShotResult==='MADE' ? styles.shotMadeText : styles.shotMissText]}>
@@ -500,23 +720,33 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     <View style={styles.autoStatus}>
                         <View style={[styles.autoDot, trackingState?.ballPosition ? styles.autoDotActive : styles.autoDotIdle]} />
                         <Text style={styles.autoLabel}>
-                            {!modelsReady ? 'Caricamento modelli AI...' :
+                            {!modelsReady             ? 'Caricamento modelli AI...' :
+                             trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
                              trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
                         </Text>
                     </View>
-                    <TouchableOpacity style={[styles.endBtn, isEnding && styles.endBtnDisabled]}
-                        onPress={handleEndSession} disabled={isEnding}>
+                    <TouchableOpacity
+                        style={[styles.endBtn, isEnding && styles.endBtnDisabled]}
+                        onPress={handleEndSession}
+                        disabled={isEnding}
+                    >
                         <Text style={styles.endBtnText}>{isEnding ? '...' : '⏹ Fine'}</Text>
                     </TouchableOpacity>
                 </View>
                 <View style={styles.manualRow}>
                     <Text style={styles.manualLabel}>Correzione:</Text>
-                    <TouchableOpacity style={[styles.manualMadeBtn, (isRecording||isPaused) && styles.btnDisabled]}
-                        onPress={() => handleManualShot('MADE')} disabled={isRecording||isPaused}>
+                    <TouchableOpacity
+                        style={[styles.manualMadeBtn, (isRecording||isPaused) && styles.btnDisabled]}
+                        onPress={() => handleManualShot('MADE')}
+                        disabled={isRecording||isPaused}
+                    >
                         <Text style={styles.manualMadeBtnText}>🏀 Canestro</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.manualMissBtn, (isRecording||isPaused) && styles.btnDisabled]}
-                        onPress={() => handleManualShot('MISS')} disabled={isRecording||isPaused}>
+                    <TouchableOpacity
+                        style={[styles.manualMissBtn, (isRecording||isPaused) && styles.btnDisabled]}
+                        onPress={() => handleManualShot('MISS')}
+                        disabled={isRecording||isPaused}
+                    >
                         <Text style={styles.manualMissBtnText}>❌ Mancato</Text>
                     </TouchableOpacity>
                 </View>
@@ -527,71 +757,68 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0b0f1a' },
-    center: { justifyContent: 'center', alignItems: 'center', padding: 24 },
-    header: { backgroundColor: '#121826', borderBottomWidth: 1, borderBottomColor: '#2a2a2a',
-        paddingHorizontal: 14, paddingTop: Platform.OS==='ios' ? 44 : 12, paddingBottom: 10 },
-    headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    headerBtn: { width: 36, height: 36, justifyContent: 'center' },
-    headerBtnText: { fontSize: 20, color: '#fff', fontWeight: 'bold' },
-    headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    headerTitle: { fontSize: 14, fontWeight: '700', color: '#fff' },
-    loadingBadge: { fontSize: 10, color: '#fbbf24', marginLeft: 6 },
-    statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
-    statusDotPaused: { backgroundColor: '#fbbf24' },
-    statsRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 6 },
-    statBox: { alignItems: 'center' },
-    statValue: { fontSize: 20, fontWeight: '800', color: '#fff' },
-    statValueHL: { color: '#ff8c00' },
-    statLabel: { fontSize: 10, color: '#888', marginTop: 1 },
-    wsRow: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end' },
-    wsDot: { width: 6, height: 6, borderRadius: 3 },
-    wsDotOn: { backgroundColor: '#4ade80' },
-    wsDotOff: { backgroundColor: '#555' },
-    wsText: { fontSize: 10, color: '#555' },
-    calBadge: { fontSize: 10, color: '#ff8c00', fontWeight: '700' },
-    calDebugBtn: {
-        marginLeft: 6, borderWidth: 1, borderColor: 'rgba(255,140,0,0.4)',
-        borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
-        backgroundColor: 'transparent',
-    },
-    calDebugBtnOn: { backgroundColor: '#ff8c00' },
-    guideH: { position: 'absolute', left: 0, right: 0, top: '50%', height: 1, backgroundColor: 'rgba(255,140,0,0.15)' },
-    guideV: { position: 'absolute', top: 0, bottom: 0, left: '50%', width: 1, backgroundColor: 'rgba(255,140,0,0.15)' },
-    trackingBadge: { position: 'absolute', top: 12, left: 12, flexDirection: 'row', alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-    trackingDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#555', marginRight: 6 },
+    container:         { flex: 1, backgroundColor: '#0b0f1a' },
+    center:            { justifyContent: 'center', alignItems: 'center', padding: 24 },
+    header:            { backgroundColor: '#121826', borderBottomWidth: 1, borderBottomColor: '#2a2a2a',
+                         paddingHorizontal: 14, paddingTop: Platform.OS==='ios' ? 44 : 12, paddingBottom: 10 },
+    headerTop:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    headerBtn:         { width: 36, height: 36, justifyContent: 'center' },
+    headerBtnText:     { fontSize: 20, color: '#fff', fontWeight: 'bold' },
+    headerCenter:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    headerTitle:       { fontSize: 14, fontWeight: '700', color: '#fff' },
+    loadingBadge:      { fontSize: 10, color: '#fbbf24', marginLeft: 6 },
+    statusDot:         { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
+    statusDotPaused:   { backgroundColor: '#fbbf24' },
+    statsRow:          { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 6 },
+    statBox:           { alignItems: 'center' },
+    statValue:         { fontSize: 20, fontWeight: '800', color: '#fff' },
+    statValueHL:       { color: '#ff8c00' },
+    statLabel:         { fontSize: 10, color: '#888', marginTop: 1 },
+    wsRow:             { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end' },
+    wsDot:             { width: 6, height: 6, borderRadius: 3 },
+    wsDotOn:           { backgroundColor: '#4ade80' },
+    wsDotOff:          { backgroundColor: '#555' },
+    wsText:            { fontSize: 10, color: '#555' },
+    calBadge:          { fontSize: 10, color: '#ff8c00', fontWeight: '700' },
+    calDebugBtn:       { marginLeft: 6, borderWidth: 1, borderColor: 'rgba(255,140,0,0.4)',
+                         borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: 'transparent' },
+    calDebugBtnOn:     { backgroundColor: '#ff8c00' },
+    guideH:            { position: 'absolute', left: 0, right: 0, top: '50%', height: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
+    guideV:            { position: 'absolute', top: 0, bottom: 0, left: '50%', width: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
+    trackingBadge:     { position: 'absolute', top: 12, left: 12, flexDirection: 'row', alignItems: 'center',
+                         backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+    trackingDot:       { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#555', marginRight: 6 },
     trackingDotActive: { backgroundColor: '#4ade80' },
-    trackingText: { color: '#fff', fontSize: 11, fontWeight: '600' },
-    shotFeedback: { position: 'absolute', top: '28%', left: 0, right: 0, alignItems: 'center' },
-    shotFeedbackText: { fontSize: 32, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.8)',
-        textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
-    shotMadeText: { color: '#4ade80' },
-    shotMissText: { color: '#f87171' },
-    controls: { backgroundColor: '#121826', borderTopWidth: 1, borderTopColor: '#2a2a2a', padding: 14 },
-    pausedLabel: { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
-    autoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    autoStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
-    autoDot: { width: 9, height: 9, borderRadius: 4.5 },
-    autoDotActive: { backgroundColor: '#4ade80' },
-    autoDotIdle: { backgroundColor: '#555' },
-    autoLabel: { fontSize: 12, color: '#aaa', fontWeight: '500' },
-    manualRow: { flexDirection: 'row', alignItems: 'center', gap: 8,
-        borderTopWidth: 1, borderTopColor: '#1e2433', paddingTop: 10 },
-    manualLabel: { fontSize: 11, color: '#555', fontWeight: '600' },
-    manualMadeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10,
-        backgroundColor: '#14301a', borderWidth: 1, borderColor: '#22c55e', alignItems: 'center' },
+    trackingText:      { color: '#fff', fontSize: 11, fontWeight: '600' },
+    shotFeedback:      { position: 'absolute', top: '28%', left: 0, right: 0, alignItems: 'center' },
+    shotFeedbackText:  { fontSize: 32, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.8)',
+                         textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
+    shotMadeText:      { color: '#4ade80' },
+    shotMissText:      { color: '#f87171' },
+    controls:          { backgroundColor: '#121826', borderTopWidth: 1, borderTopColor: '#2a2a2a', padding: 14 },
+    pausedLabel:       { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
+    autoRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+    autoStatus:        { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
+    autoDot:           { width: 9, height: 9, borderRadius: 4.5 },
+    autoDotActive:     { backgroundColor: '#4ade80' },
+    autoDotIdle:       { backgroundColor: '#555' },
+    autoLabel:         { fontSize: 12, color: '#aaa', fontWeight: '500' },
+    manualRow:         { flexDirection: 'row', alignItems: 'center', gap: 8,
+                         borderTopWidth: 1, borderTopColor: '#1e2433', paddingTop: 10 },
+    manualLabel:       { fontSize: 11, color: '#555', fontWeight: '600' },
+    manualMadeBtn:     { flex: 1, paddingVertical: 9, borderRadius: 10,
+                         backgroundColor: '#14301a', borderWidth: 1, borderColor: '#22c55e', alignItems: 'center' },
     manualMadeBtnText: { color: '#22c55e', fontWeight: '700', fontSize: 12 },
-    manualMissBtn: { flex: 1, paddingVertical: 9, borderRadius: 10,
-        backgroundColor: '#2a1414', borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' },
+    manualMissBtn:     { flex: 1, paddingVertical: 9, borderRadius: 10,
+                         backgroundColor: '#2a1414', borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' },
     manualMissBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 12 },
-    btnDisabled: { opacity: 0.4 },
-    endBtn: { backgroundColor: '#1e2433', borderWidth: 1, borderColor: '#555',
-        borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, alignItems: 'center' },
-    endBtnDisabled: { opacity: 0.5 },
-    endBtnText: { color: '#888', fontWeight: '600', fontSize: 13 },
-    permTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 12 },
-    permDesc: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
-    permBtn: { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
-    permBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+    btnDisabled:       { opacity: 0.4 },
+    endBtn:            { backgroundColor: '#1e2433', borderWidth: 1, borderColor: '#555',
+                         borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, alignItems: 'center' },
+    endBtnDisabled:    { opacity: 0.5 },
+    endBtnText:        { color: '#888', fontWeight: '600', fontSize: 13 },
+    permTitle:         { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 12 },
+    permDesc:          { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
+    permBtn:           { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
+    permBtnText:       { color: '#fff', fontWeight: '700', fontSize: 16 },
 })
