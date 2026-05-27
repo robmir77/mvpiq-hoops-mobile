@@ -79,8 +79,8 @@ const MODE_LABELS: Record<string, string> = {
 }
 
 const SessionCalibDebug = ({
-    calibration, cameraMode, hoopPosition,
-}: {
+                               calibration, cameraMode, hoopPosition,
+                           }: {
     calibration: CalibrationData
     cameraMode: CameraMode | undefined
     hoopPosition: { x: number; y: number } | null
@@ -122,7 +122,7 @@ const SessionCalibDebug = ({
                 <Text style={sdbg.key}>Δ hoop</Text>
                 <Text style={[sdbg.val, {
                     color: Math.abs(hoopPosition.x - calibration.hoopCenter.x) < 0.05
-                        && Math.abs(hoopPosition.y - calibration.hoopCenter.y) < 0.05
+                    && Math.abs(hoopPosition.y - calibration.hoopCenter.y) < 0.05
                         ? '#4ade80' : '#fbbf24'
                 }]}>
                     dx={Math.abs(hoopPosition.x - calibration.hoopCenter.x).toFixed(3)}
@@ -165,8 +165,8 @@ const KP_THRESH = 0.35
 const TRAIL_DELAY_POINTS = 5
 
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints,
-}: { trackingState: TrackingState | null; poseKeypoints: PoseKeypoints | null }) => {
+                                        trackingState, poseKeypoints,
+                                    }: { trackingState: TrackingState | null; poseKeypoints: PoseKeypoints | null }) => {
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
@@ -423,6 +423,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             result.hoop  ? { x: result.hoop.centerX,  y: result.hoop.centerY,  confidence: result.hoop.confidence }  : null,
             result.frameTimestamp
         )
+        // Aggiorna l'overlay direttamente — non aspettare il RAF loop
+        setTrackingState({ ...newState })
         if (result.ball || result.hoop) {
             frameBatch.current.push({
                 frameTimestamp:   result.frameTimestamp,
@@ -685,7 +687,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    photo={true}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
@@ -731,8 +732,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         <View style={[styles.autoDot, trackingState?.ballPosition ? styles.autoDotActive : styles.autoDotIdle]} />
                         <Text style={styles.autoLabel}>
                             {!modelsReady             ? 'Caricamento modelli AI...' :
-                             trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
-                             trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
+                                trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
+                                    trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
                         </Text>
                     </View>
                     <TouchableOpacity
@@ -770,7 +771,7 @@ const styles = StyleSheet.create({
     container:         { flex: 1, backgroundColor: '#0b0f1a' },
     center:            { justifyContent: 'center', alignItems: 'center', padding: 24 },
     header:            { backgroundColor: '#121826', borderBottomWidth: 1, borderBottomColor: '#2a2a2a',
-                         paddingHorizontal: 14, paddingTop: Platform.OS==='ios' ? 44 : 12, paddingBottom: 10 },
+        paddingHorizontal: 14, paddingTop: Platform.OS==='ios' ? 44 : 12, paddingBottom: 10 },
     headerTop:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     headerBtn:         { width: 36, height: 36, justifyContent: 'center' },
     headerBtnText:     { fontSize: 20, color: '#fff', fontWeight: 'bold' },
@@ -791,18 +792,18 @@ const styles = StyleSheet.create({
     wsText:            { fontSize: 10, color: '#555' },
     calBadge:          { fontSize: 10, color: '#ff8c00', fontWeight: '700' },
     calDebugBtn:       { marginLeft: 6, borderWidth: 1, borderColor: 'rgba(255,140,0,0.4)',
-                         borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: 'transparent' },
+        borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: 'transparent' },
     calDebugBtnOn:     { backgroundColor: '#ff8c00' },
     guideH:            { position: 'absolute', left: 0, right: 0, top: '50%', height: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
     guideV:            { position: 'absolute', top: 0, bottom: 0, left: '50%', width: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
     trackingBadge:     { position: 'absolute', top: 12, left: 12, flexDirection: 'row', alignItems: 'center',
-                         backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+        backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
     trackingDot:       { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#555', marginRight: 6 },
     trackingDotActive: { backgroundColor: '#4ade80' },
     trackingText:      { color: '#fff', fontSize: 11, fontWeight: '600' },
     shotFeedback:      { position: 'absolute', top: '28%', left: 0, right: 0, alignItems: 'center' },
     shotFeedbackText:  { fontSize: 32, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.8)',
-                         textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
+        textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
     shotMadeText:      { color: '#4ade80' },
     shotMissText:      { color: '#f87171' },
     controls:          { backgroundColor: '#121826', borderTopWidth: 1, borderTopColor: '#2a2a2a', padding: 14 },
@@ -814,17 +815,17 @@ const styles = StyleSheet.create({
     autoDotIdle:       { backgroundColor: '#555' },
     autoLabel:         { fontSize: 12, color: '#aaa', fontWeight: '500' },
     manualRow:         { flexDirection: 'row', alignItems: 'center', gap: 8,
-                         borderTopWidth: 1, borderTopColor: '#1e2433', paddingTop: 10 },
+        borderTopWidth: 1, borderTopColor: '#1e2433', paddingTop: 10 },
     manualLabel:       { fontSize: 11, color: '#555', fontWeight: '600' },
     manualMadeBtn:     { flex: 1, paddingVertical: 9, borderRadius: 10,
-                         backgroundColor: '#14301a', borderWidth: 1, borderColor: '#22c55e', alignItems: 'center' },
+        backgroundColor: '#14301a', borderWidth: 1, borderColor: '#22c55e', alignItems: 'center' },
     manualMadeBtnText: { color: '#22c55e', fontWeight: '700', fontSize: 12 },
     manualMissBtn:     { flex: 1, paddingVertical: 9, borderRadius: 10,
-                         backgroundColor: '#2a1414', borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' },
+        backgroundColor: '#2a1414', borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' },
     manualMissBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 12 },
     btnDisabled:       { opacity: 0.4 },
     endBtn:            { backgroundColor: '#1e2433', borderWidth: 1, borderColor: '#555',
-                         borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, alignItems: 'center' },
+        borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, alignItems: 'center' },
     endBtnDisabled:    { opacity: 0.5 },
     endBtnText:        { color: '#888', fontWeight: '600', fontSize: 13 },
     permTitle:         { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 12 },
@@ -832,3 +833,4 @@ const styles = StyleSheet.create({
     permBtn:           { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
     permBtnText:       { color: '#fff', fontWeight: '700', fontSize: 16 },
 })
+
