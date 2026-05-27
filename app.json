@@ -44,6 +44,8 @@
 
       "package": "com.mvpiqhoopsmobile",
 
+      "minSdkVersion": 26,
+
       "permissions": [
         "android.permission.CAMERA"
       ]
@@ -69,6 +71,15 @@
         "react-native-vision-camera",
         {
           "cameraPermissionText": "MVPiQ Hoops richiede accesso alla fotocamera"
+        }
+      ],
+
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
         }
       ],
 

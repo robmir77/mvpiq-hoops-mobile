@@ -31,6 +31,7 @@ import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useVisionCamera } from '../hooks/useVisionCamera'
 import { useBallDetection, BallDetectionResult } from '../hooks/useBallDetection'
+import type { Camera as CameraType } from 'react-native-vision-camera'
 import { usePoseDetection, JointAngles } from '../hooks/usePoseDetection'
 import {
     WorkoutSession, ShotResult, AddShotEventPayload,
@@ -407,6 +408,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
+    const cameraRef       = useRef<CameraType>(null)
 
     // ── Pose callback ─────────────────────────────────────────────────────
     const handlePose = useCallback((kp: PoseKeypoints, angles: Partial<JointAngles>) => {
@@ -442,7 +444,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { runPoseFromFrame, isReady: poseReady } = usePoseDetection(handlePose)
 
     // ── Hook: ball detection (passa runPoseFromFrame per la worklet condivisa) ──
-    const { frameProcessor, isReady: ballReady } = useBallDetection(handleDetection, runPoseFromFrame)
+    const ballDetection = useBallDetection(handleDetection, runPoseFromFrame)
+    const { isReady: ballReady } = ballDetection
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -471,12 +474,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return () => {
             isActiveRef.current = false
             setIsActive(false)
+            ballDetection.stopInferenceLoop()
             if (batchTimer.current) clearInterval(batchTimer.current)
             if (rafRef.current)     cancelAnimationFrame(rafRef.current)
         }
     }, [])
 
-    useEffect(() => { setModelsReady(ballReady && poseReady) }, [ballReady, poseReady])
+    useEffect(() => {
+        const ready = ballReady && poseReady
+        setModelsReady(ready)
+        if (ready) ballDetection.startInferenceLoop(cameraRef)
+        return () => ballDetection.stopInferenceLoop()
+    }, [ballReady, poseReady])
 
     useEffect(() => {
         if (trackingState?.shotDetected && trackingState.shotResult)
@@ -672,10 +681,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
             <View style={{ height: CAMERA_H }}>
                 <Camera
+                    ref={cameraRef}
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    frameProcessor={modelsReady ? frameProcessor : undefined}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
