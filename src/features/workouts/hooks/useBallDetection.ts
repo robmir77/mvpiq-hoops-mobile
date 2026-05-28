@@ -17,15 +17,21 @@ import { DetectionResult } from '../types/workouts.types'
 const MODEL_ASSET = require('../../../../assets/models/ball_detection.onnx')
 
 const INPUT_SIZE           = 640
-const CONF_THRESHOLD_BALL   = 0.08   // YOLOv8n COCO "sports ball" ha score bassi
-const CONF_THRESHOLD_PERSON = 0.35   // "person" è molto più affidabile
+const CONF_THRESHOLD_BALL   = 0.35   // modello fine-tunato → score alti
+const CONF_THRESHOLD_HOOP   = 0.35
+const CONF_THRESHOLD_PERSON = 0.35
 const NMS_IOU_THRESHOLD    = 0.4
 const INFERENCE_INTERVAL   = 250   // ms tra uno snapshot e il prossimo (~4 fps)
 
-// ─── YOLOv8n COCO class indices ───────────────────────────────────────────────
-const COCO_PERSON      = 0
-const COCO_SPORTS_BALL = 32
-const NUM_DETECTIONS   = 8400   // colonne output [1, 84, 8400]
+// ─── Classi del modello fine-tunato basketball ────────────────────────────────
+// "Basketball Players" - Roboflow Universe (YOLOv8n)
+// Classi: 0=Ball, 1=Hoop, 2=Player  (verificare con session.inputNames al primo run)
+// Se l'ordine è diverso verrà loggato e corretto
+const CLASS_BALL   = 0
+const CLASS_HOOP   = 1
+const CLASS_PLAYER = 2
+const NUM_CLASSES  = 3
+const NUM_DETECTIONS = 8400   // colonne output [1, 4+NUM_CLASSES, 8400]
 
 // ─── Exported result type ─────────────────────────────────────────────────────
 export interface BallDetectionResult {
@@ -99,14 +105,17 @@ function parseYoloOutput(output: Float32Array, imgW: number, imgH: number): Dete
     for (let i = 0; i < N; i++) {
         const cx = output[0 * N + i];  const cy = output[1 * N + i]
         const w  = output[2 * N + i];  const h  = output[3 * N + i]
-        const scoreBall   = output[(4 + COCO_SPORTS_BALL) * N + i]
-        const scorePerson = output[(4 + COCO_PERSON)      * N + i]
+        const scoreBall   = output[(4 + CLASS_BALL)   * N + i]
+        const scoreHoop   = output[(4 + CLASS_HOOP)   * N + i]
+        const scorePlayer = output[(4 + CLASS_PLAYER) * N + i]
 
         let bestScore = 0, bestClass = -1
-        if (scoreBall >= CONF_THRESHOLD_BALL && scoreBall >= scorePerson) {
-            bestScore = scoreBall;   bestClass = COCO_SPORTS_BALL
-        } else if (scorePerson >= CONF_THRESHOLD_PERSON && scorePerson > scoreBall) {
-            bestScore = scorePerson; bestClass = COCO_PERSON
+        if (scoreBall >= CONF_THRESHOLD_BALL && scoreBall >= scoreHoop && scoreBall >= scorePlayer) {
+            bestScore = scoreBall;   bestClass = CLASS_BALL
+        } else if (scoreHoop >= CONF_THRESHOLD_HOOP && scoreHoop >= scorePlayer) {
+            bestScore = scoreHoop;   bestClass = CLASS_HOOP
+        } else if (scorePlayer >= CONF_THRESHOLD_PERSON) {
+            bestScore = scorePlayer; bestClass = CLASS_PLAYER
         }
         if (bestClass === -1) continue
 
@@ -124,7 +133,7 @@ function parseYoloOutput(output: Float32Array, imgW: number, imgH: number): Dete
             return true
         })
         .map(([x1, y1, x2, y2, conf, cls]) => ({
-            class: cls === COCO_SPORTS_BALL ? 'basketball' : 'player',
+            class: cls === CLASS_BALL ? 'basketball' : cls === CLASS_HOOP ? 'hoop' : 'player',
             confidence: conf,
             bbox: { x: x1*imgW, y: y1*imgH, width: (x2-x1)*imgW, height: (y2-y1)*imgH },
             centerX: (x1 + x2) / 2,
@@ -231,26 +240,23 @@ export const useBallDetection = (
 
             // Debug: max scores per le classi di interesse
             const N = NUM_DETECTIONS
-            let maxBall = 0, maxPerson = 0, maxAny = 0
+            let maxBall = 0, maxHoop = 0, maxPlayer = 0
             for (let i = 0; i < N; i++) {
-                const sb = data[(4 + COCO_SPORTS_BALL) * N + i]
-                const sp = data[(4 + COCO_PERSON)      * N + i]
+                const sb = data[(4 + CLASS_BALL)   * N + i]
+                const sh = data[(4 + CLASS_HOOP)   * N + i]
+                const sp = data[(4 + CLASS_PLAYER) * N + i]
                 if (sb > maxBall)   maxBall   = sb
-                if (sp > maxPerson) maxPerson = sp
-                // trova anche il max assoluto su tutte le 80 classi
-                for (let c = 0; c < 80; c++) {
-                    const s = data[(4 + c) * N + i]
-                    if (s > maxAny) maxAny = s
-                }
+                if (sh > maxHoop)   maxHoop   = sh
+                if (sp > maxPlayer) maxPlayer = sp
             }
-            log('max scores', { ball: maxBall.toFixed(3), person: maxPerson.toFixed(3), anyClass: maxAny.toFixed(3) })
+            log('max scores', { ball: maxBall.toFixed(3), hoop: maxHoop.toFixed(3), player: maxPlayer.toFixed(3) })
 
             const detections = parseYoloOutput(data, width, height)
             log('detections:', detections.length)
 
             onDetection({
                 ball:   detections.find(d => d.class === 'basketball') ?? null,
-                hoop:   null,
+                hoop:   detections.find(d => d.class === 'hoop')       ?? null,
                 player: detections.find(d => d.class === 'player')     ?? null,
                 frameTimestamp: Date.now(),
             })
