@@ -17,7 +17,8 @@ import { DetectionResult } from '../types/workouts.types'
 const MODEL_ASSET = require('../../../../assets/models/ball_detection.onnx')
 
 const INPUT_SIZE           = 640
-const CONF_THRESHOLD       = 0.10  // debug: abbassato per vedere cosa arriva
+const CONF_THRESHOLD_BALL   = 0.08   // YOLOv8n COCO "sports ball" ha score bassi
+const CONF_THRESHOLD_PERSON = 0.35   // "person" è molto più affidabile
 const NMS_IOU_THRESHOLD    = 0.4
 const INFERENCE_INTERVAL   = 250   // ms tra uno snapshot e il prossimo (~4 fps)
 
@@ -102,9 +103,9 @@ function parseYoloOutput(output: Float32Array, imgW: number, imgH: number): Dete
         const scorePerson = output[(4 + COCO_PERSON)      * N + i]
 
         let bestScore = 0, bestClass = -1
-        if (scoreBall >= scorePerson && scoreBall >= CONF_THRESHOLD) {
+        if (scoreBall >= CONF_THRESHOLD_BALL && scoreBall >= scorePerson) {
             bestScore = scoreBall;   bestClass = COCO_SPORTS_BALL
-        } else if (scorePerson > scoreBall && scorePerson >= CONF_THRESHOLD) {
+        } else if (scorePerson >= CONF_THRESHOLD_PERSON && scorePerson > scoreBall) {
             bestScore = scorePerson; bestClass = COCO_PERSON
         }
         if (bestClass === -1) continue
@@ -114,13 +115,21 @@ function parseYoloOutput(output: Float32Array, imgW: number, imgH: number): Dete
         raw.push([x1, y1, x2, y2, bestScore, bestClass])
     }
 
-    return nms(raw, NMS_IOU_THRESHOLD).map(([x1, y1, x2, y2, conf, cls]) => ({
-        class: cls === COCO_SPORTS_BALL ? 'basketball' : 'player',
-        confidence: conf,
-        bbox: { x: x1*imgW, y: y1*imgH, width: (x2-x1)*imgW, height: (y2-y1)*imgH },
-        centerX: (x1 + x2) / 2,
-        centerY: (y1 + y2) / 2,
-    }))
+    return nms(raw, NMS_IOU_THRESHOLD)
+        .filter(([x1, y1, x2, y2, conf, cls]) => {
+            // Filtra bbox troppo grandi: una palla non occupa mai >25% del frame
+            const bboxW = x2 - x1
+            const bboxH = y2 - y1
+            if (cls === COCO_SPORTS_BALL && (bboxW > 0.25 || bboxH > 0.25)) return false
+            return true
+        })
+        .map(([x1, y1, x2, y2, conf, cls]) => ({
+            class: cls === COCO_SPORTS_BALL ? 'basketball' : 'player',
+            confidence: conf,
+            bbox: { x: x1*imgW, y: y1*imgH, width: (x2-x1)*imgW, height: (y2-y1)*imgH },
+            centerX: (x1 + x2) / 2,
+            centerY: (y1 + y2) / 2,
+        }))
 }
 
 // ─── Decode JPEG snapshot → RGB Uint8Array ────────────────────────────────────
@@ -196,7 +205,13 @@ export const useBallDetection = (
 
         let snapshotPath: string | null = null
         try {
-            const snapshot   = await cameraRef.current.takeSnapshot({ quality: 80 })
+            // Timeout di 2s: se takeSnapshot si appende, skippa il frame
+            const snapshot = await Promise.race([
+                cameraRef.current.takeSnapshot({ quality: 80 }),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(Object.assign(new Error('timeout'), { _snapshotFail: true })), 2000)
+                ),
+            ]).catch((e: any) => { throw Object.assign(e, { _snapshotFail: true }) })
             snapshotPath     = snapshot.path
             const { pixels, width, height } = await snapshotToRgb(snapshotPath)
             log('inference start', { width, height })
@@ -248,8 +263,10 @@ export const useBallDetection = (
                 log('stats', { totalInferences: inferenceCount, droppedFrames, detections: detections.length })
                 lastLogTime = now
             }
-        } catch (e) {
-            console.error('[BallDetection] inference error:', e)
+        } catch (e: any) {
+            // Ignora silenziosamente i fallimenti di takeSnapshot (camera session non pronta)
+            if (!e?._snapshotFail) console.error('[BallDetection] inference error:', e)
+            else log('snapshot skipped (camera not ready)')
         } finally {
             isInferring.current = false
             // Elimina il file snapshot per non riempire lo storage
