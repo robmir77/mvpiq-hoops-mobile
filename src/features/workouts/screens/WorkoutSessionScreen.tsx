@@ -202,18 +202,43 @@ const TrackingOverlay = React.memo(({
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
-    // Scia del tiro: visibile SOLO quando inFlight=true, con N punti di ritardo
+    // Scia del tiro:
+    //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
+    //  - dopo il tiro: mostra l'ultima traiettoria completa per 2.5s
+    //  - curva Bezier cubica per avere una parabola liscia invece di segmenti
     const shotTrailPath = React.useMemo(() => {
-        if (!trackingState?.inFlight) return null
-        const traj   = trackingState.trajectory ?? []
-        // Salta gli ultimi TRAIL_DELAY_POINTS per creare il ritardo visivo
-        const points = traj.slice(0, Math.max(0, traj.length - TRAIL_DELAY_POINTS))
+        const ts = trackingState as any
+        if (!ts?.showShotTrail) return null
+        const traj   = (ts?.shotTrajectory ?? ts?.trajectory ?? []) as Array<{x:number;y:number}>
+        const points = ts?.inFlight
+            ? traj.slice(0, Math.max(0, traj.length - TRAIL_DELAY_POINTS))
+            : traj
         if (points.length < 2) return null
+
         const p = Skia.Path.Make()
         p.moveTo(px(points[0].x), py(points[0].y))
-        for (let i = 1; i < points.length; i++) p.lineTo(px(points[i].x), py(points[i].y))
+
+        if (points.length === 2) {
+            // Solo 2 punti: linea retta
+            p.lineTo(px(points[1].x), py(points[1].y))
+        } else {
+            // 3+ punti: curva smooth con cubic Bezier catmull-rom
+            for (let i = 0; i < points.length - 1; i++) {
+                const p0 = points[Math.max(0, i - 1)]
+                const p1 = points[i]
+                const p2 = points[i + 1]
+                const p3 = points[Math.min(points.length - 1, i + 2)]
+                // Tangenti Catmull-Rom → control points Bezier
+                const cp1x = px(p1.x) + (px(p2.x) - px(p0.x)) / 6
+                const cp1y = py(p1.y) + (py(p2.y) - py(p0.y)) / 6
+                const cp2x = px(p2.x) - (px(p3.x) - px(p1.x)) / 6
+                const cp2y = py(p2.y) - (py(p3.y) - py(p1.y)) / 6
+                p.cubicTo(cp1x, cp1y, cp2x, cp2y, px(p2.x), py(p2.y))
+            }
+        }
         return p
-    }, [trackingState?.inFlight, trackingState?.trajectory?.length])
+    }, [(trackingState as any)?.showShotTrail, (trackingState as any)?.shotTrajectory?.length,
+        trackingState?.inFlight, trackingState?.trajectory?.length])
 
     // Posizione palla in pixel schermo
     const ballSX = trackingState?.ballPosition != null ? px(trackingState.ballPosition.x) : null
@@ -224,17 +249,27 @@ const TrackingOverlay = React.memo(({
             {/* ── Canvas Skia: forme GPU (scia, cerchi, skeleton) ── */}
             <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
 
-                {/* Scia parabola — solo durante il volo, con ritardo */}
-                {shotTrailPath && (
-                    <SkiaPath
-                        path={shotTrailPath}
-                        color="rgba(255,140,0,0.90)"
-                        style="stroke"
-                        strokeWidth={3.5}
-                        strokeJoin="round"
-                        strokeCap="round"
-                    />
-                )}
+                {/* Scia parabola — durante il volo arancione, dopo il tiro verde/rosso */}
+                {shotTrailPath && (() => {
+                    const ts = trackingState as any
+                    const color = ts?.inFlight
+                        ? 'rgba(255,140,0,0.90)'
+                        : ts?.shotResult === 'MADE'
+                            ? 'rgba(34,197,94,0.90)'
+                            : ts?.shotResult
+                                ? 'rgba(239,68,68,0.90)'
+                                : 'rgba(255,140,0,0.70)'
+                    return (
+                        <SkiaPath
+                            path={shotTrailPath}
+                            color={color}
+                            style="stroke"
+                            strokeWidth={3.5}
+                            strokeJoin="round"
+                            strokeCap="round"
+                        />
+                    )
+                })()}
 
                 {/* Cerchio palla */}
                 {trackingState?.ballPosition && (
@@ -334,10 +369,12 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
-            {/* ── Badge "IN VOLO" — visibile solo durante il tiro ── */}
-            {trackingState?.inFlight && (
+            {/* ── Badge IN VOLO / TIRO RILEVATO ── */}
+            {((trackingState as any)?.showShotTrail) && (
                 <View pointerEvents="none" style={ovStyles.inFlightBadge}>
-                    <Text style={ovStyles.inFlightText}>✈ IN VOLO</Text>
+                    <Text style={ovStyles.inFlightText}>
+                        {(trackingState as any)?.inFlight ? '✈ IN VOLO' : trackingState?.shotResult === 'MADE' ? '🟢 CANESTRO' : '🔴 MANCATO'}
+                    </Text>
                 </View>
             )}
 
@@ -781,7 +818,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    video={true}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
