@@ -23,6 +23,13 @@ const INPUT_SIZE         = 320   // standard YOLOv8n per migliori performance
 const NMS_IOU_THRESHOLD  = 0.4
 const INFERENCE_INTERVAL = 300   // ~3 fps: snapshot+JPEG decode+ONNX su CPU ~250ms
 
+// ── ROI Tracking Config ───────────────────────────────────────
+const ROI_SIZE_INITIAL   = 400   // dimensione ROI in modalità TRACK
+const ROI_SIZE_EXPAND_1  = 600   // prima espansione se palla persa
+const ROI_SIZE_EXPAND_2  = 800   // seconda espansione se palla persa
+const BALL_LOST_TIMEOUT  = 500   // ms prima di espandere ROI
+const CONF_THRESHOLD_TRACK = 0.05 // threshold più alto in modalità TRACK
+
 // ─────────────────────────────────────────────────────────────
 // MODEL CLASSES - YOLOv8n COCO Standard
 //
@@ -42,6 +49,8 @@ export interface BallDetectionResult {
     hoop:   DetectionResult | null
     player: DetectionResult | null
     frameTimestamp: number
+    trackingMode: 'SEARCH' | 'TRACK'
+    roiSize?: number
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -56,6 +65,65 @@ let lastLogTime    = Date.now()
 
 function log(...args: any[]) {
     if (DEBUG) console.log('[BallDetection]', ...args)
+}
+
+// ─────────────────────────────────────────────────────────────
+// CROP ROI — Extract region of interest from full frame
+// ─────────────────────────────────────────────────────────────
+
+interface CropResult {
+    pixels: Uint8Array
+    offsetX: number
+    offsetY: number
+    cropWidth: number
+    cropHeight: number
+}
+
+function cropROI(
+    src: Uint8Array,
+    srcWidth: number,
+    srcHeight: number,
+    centerX: number,
+    centerY: number,
+    roiSize: number
+): CropResult {
+    const halfSize = roiSize / 2
+    let x1 = Math.max(0, Math.floor(centerX - halfSize))
+    let y1 = Math.max(0, Math.floor(centerY - halfSize))
+    let x2 = Math.min(srcWidth, Math.floor(centerX + halfSize))
+    let y2 = Math.min(srcHeight, Math.floor(centerY + halfSize))
+
+    // Adjust if ROI goes out of bounds
+    if (x2 - x1 < roiSize) {
+        if (x1 === 0) x2 = Math.min(srcWidth, roiSize)
+        else x1 = Math.max(0, srcWidth - roiSize)
+    }
+    if (y2 - y1 < roiSize) {
+        if (y1 === 0) y2 = Math.min(srcHeight, roiSize)
+        else y1 = Math.max(0, srcHeight - roiSize)
+    }
+
+    const cropWidth = x2 - x1
+    const cropHeight = y2 - y1
+    const cropped = new Uint8Array(cropWidth * cropHeight * 3)
+
+    for (let y = 0; y < cropHeight; y++) {
+        for (let x = 0; x < cropWidth; x++) {
+            const srcIdx = ((y1 + y) * srcWidth + (x1 + x)) * 3
+            const dstIdx = (y * cropWidth + x) * 3
+            cropped[dstIdx] = src[srcIdx]
+            cropped[dstIdx + 1] = src[srcIdx + 1]
+            cropped[dstIdx + 2] = src[srcIdx + 2]
+        }
+    }
+
+    return {
+        pixels: cropped,
+        offsetX: x1,
+        offsetY: y1,
+        cropWidth,
+        cropHeight
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -128,13 +196,17 @@ function parseYoloOutput(
     output: Float32Array,
     dims: readonly number[],
     imgW: number,
-    imgH: number
+    imgH: number,
+    offsetX: number = 0,
+    offsetY: number = 0,
+    fullImgW: number = imgW,
+    fullImgH: number = imgH
 ): DetectionResult[] {
 
     const features   = dims[1]   // 84 = COCO (80 classi + 4 bbox)
     const N          = dims[2]   // 8400 per 640x640, 18900 per 960x960, ecc.
 
-    log('YOLOv8n COCO parser', { features, N, inputSize: INPUT_SIZE })
+    log('YOLOv8n COCO parser', { features, N, inputSize: INPUT_SIZE, offsetX, offsetY })
 
     // Debug max score per sports ball
     let mBall = 0
@@ -170,13 +242,13 @@ function parseYoloOutput(
             class: 'basketball',
             confidence: conf,
             bbox: {
-                x:      x1 * imgW,
-                y:      y1 * imgH,
+                x:      x1 * imgW + offsetX,
+                y:      y1 * imgH + offsetY,
                 width:  (x2 - x1) * imgW,
                 height: (y2 - y1) * imgH,
             },
-            centerX: (x1 + x2) / 2,
-            centerY: (y1 + y2) / 2,
+            centerX: (x1 + x2) / 2 + offsetX / fullImgW,
+            centerY: (y1 + y2) / 2 + offsetY / fullImgH,
         }))
 }
 
@@ -215,6 +287,13 @@ export const useBallDetection = (
     const isInferring = useRef(false)
     const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
     const [isReady, setIsReady] = useState(false)
+
+    // ── Tracking State ───────────────────────────────────────────
+    const trackingMode = useRef<'SEARCH' | 'TRACK'>('SEARCH')
+    const lastBallRef = useRef<{ x: number; y: number; ts: number } | null>(null)
+    const lastDetectionTime = useRef<number>(0)
+    const currentRoiSize = useRef<number>(ROI_SIZE_INITIAL)
+    const roiExpansionLevel = useRef<number>(0)
 
     // ── Caricamento modello ───────────────────────────────────
     useEffect(() => {
@@ -268,9 +347,55 @@ export const useBallDetection = (
 
             snapshotPath = snapshot.path
             const { pixels, width, height } = await snapshotToRgb(snapshotPath)
-            log('snapshot', { width, height })
+            log('snapshot', { width, height, mode: trackingMode.current })
 
-            const inputData = preprocessFrame(pixels, width, height)
+            // ── SEARCH/TRACK Mode Logic ─────────────────────────────
+            let pixelsToProcess = pixels
+            let processWidth = width
+            let processHeight = height
+            let offsetX = 0
+            let offsetY = 0
+            let currentRoi = 0
+
+            const now = Date.now()
+            const timeSinceLastDetection = now - lastDetectionTime.current
+
+            if (trackingMode.current === 'TRACK' && lastBallRef.current) {
+                // Check if ball is lost
+                if (timeSinceLastDetection > BALL_LOST_TIMEOUT) {
+                    roiExpansionLevel.current++
+                    if (roiExpansionLevel.current === 1) {
+                        currentRoiSize.current = ROI_SIZE_EXPAND_1
+                        log('Ball lost, expanding ROI to', ROI_SIZE_EXPAND_1)
+                    } else if (roiExpansionLevel.current === 2) {
+                        currentRoiSize.current = ROI_SIZE_EXPAND_2
+                        log('Ball still lost, expanding ROI to', ROI_SIZE_EXPAND_2)
+                    } else {
+                        // Switch back to SEARCH mode
+                        trackingMode.current = 'SEARCH'
+                        roiExpansionLevel.current = 0
+                        currentRoiSize.current = ROI_SIZE_INITIAL
+                        log('Ball lost too long, switching to SEARCH mode')
+                    }
+                }
+
+                if (trackingMode.current === 'TRACK') {
+                    // Crop ROI around last known ball position
+                    const lastBall = lastBallRef.current
+                    const centerX = lastBall.x * width
+                    const centerY = lastBall.y * height
+                    const roi = cropROI(pixels, width, height, centerX, centerY, currentRoiSize.current)
+                    pixelsToProcess = roi.pixels
+                    processWidth = roi.cropWidth
+                    processHeight = roi.cropHeight
+                    offsetX = roi.offsetX
+                    offsetY = roi.offsetY
+                    currentRoi = currentRoiSize.current
+                    log('TRACK mode', { roi: currentRoi, offsetX, offsetY })
+                }
+            }
+
+            const inputData = preprocessFrame(pixelsToProcess, processWidth, processHeight)
             const tensor    = new Tensor('float32', inputData, [1, 3, INPUT_SIZE, INPUT_SIZE])
             const outputs   = await sessionRef.current.run({ images: tensor })
 
@@ -280,22 +405,61 @@ export const useBallDetection = (
 
             log('output dims', output.dims)
 
-            const detections = parseYoloOutput(output.data as Float32Array, output.dims, width, height)
+            const detections = parseYoloOutput(
+                output.data as Float32Array,
+                output.dims,
+                processWidth,
+                processHeight,
+                offsetX,
+                offsetY,
+                width,
+                height
+            )
             log('detections', detections.length)
 
+            // ── Update Tracking State ───────────────────────────────
+            const ballDetection = detections.find(d => d.class === 'basketball') ?? null
+            const threshold = trackingMode.current === 'TRACK' ? CONF_THRESHOLD_TRACK : CONF_THRESHOLD_BALL
+            
+            if (ballDetection && ballDetection.confidence >= threshold) {
+                // Ball detected - update tracking state
+                lastBallRef.current = {
+                    x: ballDetection.centerX,
+                    y: ballDetection.centerY,
+                    ts: now
+                }
+                lastDetectionTime.current = now
+                roiExpansionLevel.current = 0
+                currentRoiSize.current = ROI_SIZE_INITIAL
+                
+                if (trackingMode.current === 'SEARCH') {
+                    trackingMode.current = 'TRACK'
+                    log('Ball found, switching to TRACK mode')
+                }
+            } else if (trackingMode.current === 'TRACK' && timeSinceLastDetection > BALL_LOST_TIMEOUT * 3) {
+                // Ball lost for too long - switch to SEARCH
+                trackingMode.current = 'SEARCH'
+                lastBallRef.current = null
+                roiExpansionLevel.current = 0
+                currentRoiSize.current = ROI_SIZE_INITIAL
+                log('Ball lost, switching to SEARCH mode')
+            }
+
             onDetection({
-                ball:   detections.find(d => d.class === 'basketball') ?? null,
-                hoop:   null,  // canestro dalla calibrazione, non dal modello
+                ball: ballDetection,
+                hoop: null,  // canestro dalla calibrazione, non dal modello
                 player: null,  // non rilevato in questa versione
-                frameTimestamp: Date.now(),
+                frameTimestamp: now,
+                trackingMode: trackingMode.current,
+                roiSize: trackingMode.current === 'TRACK' ? currentRoi : undefined,
             })
 
             await onPoseFrame?.(pixels, width, height)
 
-            const now = Date.now()
-            if (now - lastLogTime > 3000) {
-                log('stats', { totalInferences: inferenceCount, droppedFrames, detections: detections.length })
-                lastLogTime = now
+            const nowLog = Date.now()
+            if (nowLog - lastLogTime > 3000) {
+                log('stats', { totalInferences: inferenceCount, droppedFrames, detections: detections.length, mode: trackingMode.current })
+                lastLogTime = nowLog
             }
 
         } catch (e: any) {
@@ -326,5 +490,16 @@ export const useBallDetection = (
 
     const pauseInferenceLoop  = stopInferenceLoop
     const resumeInferenceLoop = startInferenceLoop
-    return { startInferenceLoop, stopInferenceLoop, pauseInferenceLoop, resumeInferenceLoop, isReady }
+
+    // ── Reset Tracking State ─────────────────────────────────────
+    const resetTracking = useCallback(() => {
+        trackingMode.current = 'SEARCH'
+        lastBallRef.current = null
+        lastDetectionTime.current = 0
+        currentRoiSize.current = ROI_SIZE_INITIAL
+        roiExpansionLevel.current = 0
+        log('Tracking state reset')
+    }, [])
+
+    return { startInferenceLoop, stopInferenceLoop, pauseInferenceLoop, resumeInferenceLoop, isReady, resetTracking }
 }
