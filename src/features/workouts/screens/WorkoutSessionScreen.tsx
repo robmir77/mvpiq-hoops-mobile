@@ -160,6 +160,38 @@ const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = 
     ['rightHip','rightKnee'],       ['rightKnee','rightAnkle'],
 ]
 const KP_THRESH = 0.35
+
+// Color map per differenziare gli arti
+const KP_COLORS: Record<keyof PoseKeypoints, { main: string; glow: string; label: string }> = {
+    leftShoulder:  { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Spalla SX' },
+    rightShoulder: { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Spalla DX' },
+    leftElbow:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Gomito SX' },
+    rightElbow:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Gomito DX' },
+    leftWrist:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Polso SX' },
+    rightWrist:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Polso DX' },
+    leftHip:       { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca SX' },
+    rightHip:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca DX' },
+    leftKnee:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio SX' },
+    rightKnee:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio DX' },
+    leftAnkle:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia SX' },
+    rightAnkle:    { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia DX' },
+}
+
+// Color map per le linee del skeleton
+const CONNECTION_COLORS: Record<string, string> = {
+    'leftShoulder-rightShoulder': '#a855f7',
+    'leftShoulder-leftElbow': '#ef4444',
+    'leftElbow-leftWrist': '#ef4444',
+    'rightShoulder-rightElbow': '#3b82f6',
+    'rightElbow-rightWrist': '#3b82f6',
+    'leftShoulder-leftHip': '#a855f7',
+    'rightShoulder-rightHip': '#a855f7',
+    'leftHip-rightHip': '#a855f7',
+    'leftHip-leftKnee': '#22c55e',
+    'leftKnee-leftAnkle': '#22c55e',
+    'rightHip-rightKnee': '#22c55e',
+    'rightKnee-rightAnkle': '#22c55e',
+}
 // Punti di ritardo scia: salta gli ultimi N punti della traiettoria
 // per creare l'effetto "cometa — la scia segue la palla con un ritardo visivo"
 const TRAIL_DELAY_POINTS = 5
@@ -239,41 +271,47 @@ const TrackingOverlay = React.memo(({
                 {/* Skeleton pose + punti keypoints */}
                 {poseKeypoints && (
                     <Group>
-                        {/* Linee skeleton */}
+                        {/* Linee skeleton con colori differenziati */}
                         {SKELETON_CONNECTIONS.map(([a, b], i) => {
                             const kpA = poseKeypoints[a]
                             const kpB = poseKeypoints[b]
                             if (!kpA || !kpB || kpA.score < KP_THRESH || kpB.score < KP_THRESH) return null
+                            const connectionKey = `${a}-${b}`
+                            const lineColor = CONNECTION_COLORS[connectionKey] || 'rgba(96,165,250,0.80)'
                             return (
                                 <SkiaLine
                                     key={i}
                                     p1={vec(px(kpA.x), py(kpA.y))}
                                     p2={vec(px(kpB.x), py(kpB.y))}
-                                    color="rgba(96,165,250,0.80)"
+                                    color={lineColor}
                                     strokeWidth={2.5}
                                 />
                             )
                         })}
-                        {/* Punti keypoints — cerchio esterno (glow) + interno */}
-                        {(Object.values(poseKeypoints) as Array<{x:number;y:number;score:number}>)
-                            .filter(kp => kp?.score >= KP_THRESH)
-                            .map((kp, i) => (
-                                <Group key={i}>
-                                    <SkiaCircle
-                                        cx={px(kp.x)} cy={py(kp.y)}
-                                        r={7} color="rgba(96,165,250,0.25)"
-                                    />
-                                    <SkiaCircle
-                                        cx={px(kp.x)} cy={py(kp.y)}
-                                        r={4.5} color="#60a5fa"
-                                    />
-                                    <SkiaCircle
-                                        cx={px(kp.x)} cy={py(kp.y)}
-                                        r={4.5} color="rgba(255,255,255,0.6)"
-                                        style="stroke" strokeWidth={1.2}
-                                    />
-                                </Group>
-                            ))
+                        {/* Punti keypoints con colori differenziati per arto */}
+                        {(Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
+                            .filter(([_, kp]) => kp?.score >= KP_THRESH)
+                            .map(([key, kp]) => {
+                                const colors = KP_COLORS[key]
+                                if (!colors) return null
+                                return (
+                                    <Group key={key}>
+                                        <SkiaCircle
+                                            cx={px(kp.x)} cy={py(kp.y)}
+                                            r={7} color={colors.glow}
+                                        />
+                                        <SkiaCircle
+                                            cx={px(kp.x)} cy={py(kp.y)}
+                                            r={4.5} color={colors.main}
+                                        />
+                                        <SkiaCircle
+                                            cx={px(kp.x)} cy={py(kp.y)}
+                                            r={4.5} color="rgba(255,255,255,0.6)"
+                                            style="stroke" strokeWidth={1.2}
+                                        />
+                                    </Group>
+                                )
+                            })
                         }
                     </Group>
                 )}
@@ -315,6 +353,29 @@ const TrackingOverlay = React.memo(({
                     <Text style={ovStyles.hoopLabelText}>🏀 CANESTRO</Text>
                 </View>
             )}
+
+            {/* ── Label POSE KEYPOINTS ── */}
+            {poseKeypoints && (Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
+                .filter(([_, kp]) => kp?.score >= KP_THRESH)
+                .map(([key, kp]) => {
+                    const colors = KP_COLORS[key]
+                    if (!colors) return null
+                    return (
+                        <View
+                            key={key}
+                            pointerEvents="none"
+                            style={[ovStyles.kpLabelWrap, {
+                                left: px(kp.x) + 12,
+                                top:  py(kp.y) - 8,
+                            }]}
+                        >
+                            <Text style={[ovStyles.kpLabelText, { color: colors.main }]}>
+                                {colors.label}
+                            </Text>
+                        </View>
+                    )
+                })
+            }
         </>
     )
 })
@@ -372,6 +433,19 @@ const ovStyles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 6,
     },
+    // Label POSE KEYPOINTS
+    kpLabelWrap: {
+        position: 'absolute',
+    },
+    kpLabelText: {
+        fontSize: 8,
+        fontWeight: '700',
+        letterSpacing: 0.2,
+        backgroundColor: 'rgba(0,0,0,0.65)',
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
 })
 
 // ─── StatBox ──────────────────────────────────────────────────────────────────
@@ -423,6 +497,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             result.hoop  ? { x: result.hoop.centerX,  y: result.hoop.centerY,  confidence: result.hoop.confidence }  : null,
             result.frameTimestamp
         )
+        // Aggiorna l'overlay direttamente — non aspettare il RAF loop
+        setTrackingState({ ...newState })
         if (result.ball || result.hoop) {
             frameBatch.current.push({
                 frameTimestamp:   result.frameTimestamp,
@@ -685,7 +761,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    photo={true}
+                    video={true}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
