@@ -15,6 +15,7 @@ import { DetectionResult } from '../types/workouts.types'
 // Download: https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx
 const MODEL_ASSET = require('../../../../assets/models/yolov8n.onnx')
 
+<<<<<<< HEAD
 // ─────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────
@@ -36,6 +37,24 @@ const CONF_THRESHOLD_BALL = 0.15
 // ─────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────
+=======
+const INPUT_SIZE           = 640
+const CONF_THRESHOLD_BALL   = 0.35   // modello fine-tunato → score alti
+const CONF_THRESHOLD_HOOP   = 0.35
+const CONF_THRESHOLD_PERSON = 0.35
+const NMS_IOU_THRESHOLD    = 0.4
+const INFERENCE_INTERVAL   = 250   // ms tra uno snapshot e il prossimo (~4 fps)
+
+// ─── Classi del modello fine-tunato basketball ────────────────────────────────
+// "Basketball Players" - Roboflow Universe (YOLOv8n)
+// Classi: 0=Ball, 1=Hoop, 2=Player  (verificare con session.inputNames al primo run)
+// Se l'ordine è diverso verrà loggato e corretto
+const CLASS_BALL   = 0
+const CLASS_HOOP   = 1
+const CLASS_PLAYER = 2
+const NUM_CLASSES  = 3
+const NUM_DETECTIONS = 8400   // colonne output [1, 4+NUM_CLASSES, 8400]
+>>>>>>> d298c3183973221c94b87dce5853c5ebbdd0d6b7
 
 export interface BallDetectionResult {
     ball:   DetectionResult | null
@@ -147,6 +166,7 @@ function parseYoloOutput(
     const raw: number[][] = []
 
     for (let i = 0; i < N; i++) {
+<<<<<<< HEAD
         const cx = output[0 * N + i]
         const cy = output[1 * N + i]
         const w  = output[2 * N + i]
@@ -162,10 +182,26 @@ function parseYoloOutput(
             const y2 = (cy + h / 2) / INPUT_SIZE
 
             raw.push([x1, y1, x2, y2, scoreBall, COCO_SPORTS_BALL])
+=======
+        const cx = output[0 * N + i];  const cy = output[1 * N + i]
+        const w  = output[2 * N + i];  const h  = output[3 * N + i]
+        const scoreBall   = output[(4 + CLASS_BALL)   * N + i]
+        const scoreHoop   = output[(4 + CLASS_HOOP)   * N + i]
+        const scorePlayer = output[(4 + CLASS_PLAYER) * N + i]
+
+        let bestScore = 0, bestClass = -1
+        if (scoreBall >= CONF_THRESHOLD_BALL && scoreBall >= scoreHoop && scoreBall >= scorePlayer) {
+            bestScore = scoreBall;   bestClass = CLASS_BALL
+        } else if (scoreHoop >= CONF_THRESHOLD_HOOP && scoreHoop >= scorePlayer) {
+            bestScore = scoreHoop;   bestClass = CLASS_HOOP
+        } else if (scorePlayer >= CONF_THRESHOLD_PERSON) {
+            bestScore = scorePlayer; bestClass = CLASS_PLAYER
+>>>>>>> d298c3183973221c94b87dce5853c5ebbdd0d6b7
         }
     }
 
     return nms(raw, NMS_IOU_THRESHOLD)
+<<<<<<< HEAD
         .map(([x1, y1, x2, y2, conf, cls]) => ({
             class: 'basketball',
             confidence: conf,
@@ -175,6 +211,19 @@ function parseYoloOutput(
                 width:  (x2 - x1) * imgW,
                 height: (y2 - y1) * imgH,
             },
+=======
+        .filter(([x1, y1, x2, y2, conf, cls]) => {
+            // Filtra bbox troppo grandi: una palla non occupa mai >25% del frame
+            const bboxW = x2 - x1
+            const bboxH = y2 - y1
+            if (cls === COCO_SPORTS_BALL && (bboxW > 0.25 || bboxH > 0.25)) return false
+            return true
+        })
+        .map(([x1, y1, x2, y2, conf, cls]) => ({
+            class: cls === CLASS_BALL ? 'basketball' : cls === CLASS_HOOP ? 'hoop' : 'player',
+            confidence: conf,
+            bbox: { x: x1*imgW, y: y1*imgH, width: (x2-x1)*imgW, height: (y2-y1)*imgH },
+>>>>>>> d298c3183973221c94b87dce5853c5ebbdd0d6b7
             centerX: (x1 + x2) / 2,
             centerY: (y1 + y2) / 2,
         }))
@@ -257,6 +306,7 @@ export const useBallDetection = (
 
         let snapshotPath: string | null = null
         try {
+<<<<<<< HEAD
             const snapshot = await Promise.race([
                 cameraRef.current.takeSnapshot({ quality: 60 }),
                 new Promise<never>((_, reject) =>
@@ -265,6 +315,16 @@ export const useBallDetection = (
             ])
 
             snapshotPath = snapshot.path
+=======
+            // Timeout di 2s: se takeSnapshot si appende, skippa il frame
+            const snapshot = await Promise.race([
+                cameraRef.current.takeSnapshot({ quality: 80 }),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(Object.assign(new Error('timeout'), { _snapshotFail: true })), 2000)
+                ),
+            ]).catch((e: any) => { throw Object.assign(e, { _snapshotFail: true }) })
+            snapshotPath     = snapshot.path
+>>>>>>> d298c3183973221c94b87dce5853c5ebbdd0d6b7
             const { pixels, width, height } = await snapshotToRgb(snapshotPath)
             log('snapshot', { width, height })
 
@@ -278,6 +338,7 @@ export const useBallDetection = (
 
             log('output dims', output.dims)
 
+<<<<<<< HEAD
             const detections = parseYoloOutput(output.data as Float32Array, output.dims, width, height)
             log('detections', detections.length)
 
@@ -285,6 +346,28 @@ export const useBallDetection = (
                 ball:   detections.find(d => d.class === 'basketball') ?? null,
                 hoop:   null,  // canestro dalla calibrazione, non dal modello
                 player: null,  // non rilevato in questa versione
+=======
+            // Debug: max scores per le classi di interesse
+            const N = NUM_DETECTIONS
+            let maxBall = 0, maxHoop = 0, maxPlayer = 0
+            for (let i = 0; i < N; i++) {
+                const sb = data[(4 + CLASS_BALL)   * N + i]
+                const sh = data[(4 + CLASS_HOOP)   * N + i]
+                const sp = data[(4 + CLASS_PLAYER) * N + i]
+                if (sb > maxBall)   maxBall   = sb
+                if (sh > maxHoop)   maxHoop   = sh
+                if (sp > maxPlayer) maxPlayer = sp
+            }
+            log('max scores', { ball: maxBall.toFixed(3), hoop: maxHoop.toFixed(3), player: maxPlayer.toFixed(3) })
+
+            const detections = parseYoloOutput(data, width, height)
+            log('detections:', detections.length)
+
+            onDetection({
+                ball:   detections.find(d => d.class === 'basketball') ?? null,
+                hoop:   detections.find(d => d.class === 'hoop')       ?? null,
+                player: detections.find(d => d.class === 'player')     ?? null,
+>>>>>>> d298c3183973221c94b87dce5853c5ebbdd0d6b7
                 frameTimestamp: Date.now(),
             })
 
@@ -295,10 +378,17 @@ export const useBallDetection = (
                 log('stats', { totalInferences: inferenceCount, droppedFrames, detections: detections.length })
                 lastLogTime = now
             }
+<<<<<<< HEAD
 
         } catch (e: any) {
             if (!e?._snapshotFail) console.error('[BallDetection] inference error:', e)
             else log('snapshot skipped')
+=======
+        } catch (e: any) {
+            // Ignora silenziosamente i fallimenti di takeSnapshot (camera session non pronta)
+            if (!e?._snapshotFail) console.error('[BallDetection] inference error:', e)
+            else log('snapshot skipped (camera not ready)')
+>>>>>>> d298c3183973221c94b87dce5853c5ebbdd0d6b7
         } finally {
             isInferring.current = false
             if (snapshotPath) {
