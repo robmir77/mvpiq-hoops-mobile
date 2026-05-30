@@ -21,7 +21,7 @@ const MODEL_ASSET = require('../../../../assets/models/yolov8n.onnx')
 
 const INPUT_SIZE         = 960
 const NMS_IOU_THRESHOLD  = 0.4
-const INFERENCE_INTERVAL = 500
+const INFERENCE_INTERVAL = 120   // ~8 fps per real-time tracking
 
 // ─────────────────────────────────────────────────────────────
 // MODEL CLASSES - YOLOv8n COCO Standard
@@ -31,7 +31,7 @@ const INFERENCE_INTERVAL = 500
 // ─────────────────────────────────────────────────────────────
 
 const COCO_SPORTS_BALL = 32
-const CONF_THRESHOLD_BALL = 0.15
+const CONF_THRESHOLD_BALL = 0.02   // threshold molto basso per rilevare palla
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
