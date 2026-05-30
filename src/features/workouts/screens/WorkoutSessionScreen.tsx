@@ -486,31 +486,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // ── Pose callback ─────────────────────────────────────────────────────
     const handlePose = useCallback((kp: PoseKeypoints, angles: Partial<JointAngles>) => {
-        console.log('[WorkoutSession] handlePose called', {
-            keypointsCount: Object.keys(kp).length,
-            anglesCount: Object.keys(angles).length,
-        })
         setPoseKeypoints(kp)
         setJointAngles(angles)
     }, [])
 
     // ── Ball detection callback ───────────────────────────────────────────
     const handleDetection = useCallback((result: BallDetectionResult) => {
-        console.log('[WorkoutSession] handleDetection called', {
-            hasBall: !!result.ball,
-            hasHoop: !!result.hoop,
-            hasPlayer: !!result.player,
-            ballConf: result.ball?.confidence,
-        })
         const newState = tracking.processFrame(
             result.ball  ? { x: result.ball.centerX,  y: result.ball.centerY,  confidence: result.ball.confidence }  : null,
             result.hoop  ? { x: result.hoop.centerX,  y: result.hoop.centerY,  confidence: result.hoop.confidence }  : null,
             result.frameTimestamp
         )
-        console.log('[WorkoutSession] tracking.processFrame result', {
-            ballPosition: newState.ballPosition,
-            confidence: newState.confidence,
-        })
         // Aggiorna l'overlay direttamente — non aspettare il RAF loop
         setTrackingState({ ...newState })
         if (result.ball || result.hoop) {

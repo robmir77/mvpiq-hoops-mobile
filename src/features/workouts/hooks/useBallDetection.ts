@@ -19,9 +19,9 @@ const MODEL_ASSET = require('../../../../assets/models/yolov8n.onnx')
 // CONFIG
 // ─────────────────────────────────────────────────────────────
 
-const INPUT_SIZE         = 960
+const INPUT_SIZE         = 320   // standard YOLOv8n per migliori performance
 const NMS_IOU_THRESHOLD  = 0.4
-const INFERENCE_INTERVAL = 120   // ~8 fps per real-time tracking
+const INFERENCE_INTERVAL = 150   // ~6-7 fps per bilanciare performance
 
 // ─────────────────────────────────────────────────────────────
 // MODEL CLASSES - YOLOv8n COCO Standard
@@ -281,10 +281,8 @@ export const useBallDetection = (
             const detections = parseYoloOutput(output.data as Float32Array, output.dims, width, height)
             log('detections', detections.length)
 
-            const ballDetection = detections.find(d => d.class === 'basketball') ?? null
-            log('calling onDetection', { hasBall: !!ballDetection, ballConf: ballDetection?.confidence })
             onDetection({
-                ball:   ballDetection,
+                ball:   detections.find(d => d.class === 'basketball') ?? null,
                 hoop:   null,  // canestro dalla calibrazione, non dal modello
                 player: null,  // non rilevato in questa versione
                 frameTimestamp: Date.now(),
