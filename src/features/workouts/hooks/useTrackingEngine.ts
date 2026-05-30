@@ -100,7 +100,7 @@ export const useTrackingEngine = () => {
         const current = state.current
         const now     = Date.now()
 
-        if (ballDetection && ballDetection.confidence > 0.4) {
+        if (ballDetection && ballDetection.confidence > 0.05) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y)
             current.ballPosition = smoothed
             current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }

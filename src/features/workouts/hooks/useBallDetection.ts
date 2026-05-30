@@ -281,8 +281,10 @@ export const useBallDetection = (
             const detections = parseYoloOutput(output.data as Float32Array, output.dims, width, height)
             log('detections', detections.length)
 
+            const ballDetection = detections.find(d => d.class === 'basketball') ?? null
+            log('calling onDetection', { hasBall: !!ballDetection, ballConf: ballDetection?.confidence })
             onDetection({
-                ball:   detections.find(d => d.class === 'basketball') ?? null,
+                ball:   ballDetection,
                 hoop:   null,  // canestro dalla calibrazione, non dal modello
                 player: null,  // non rilevato in questa versione
                 frameTimestamp: Date.now(),
