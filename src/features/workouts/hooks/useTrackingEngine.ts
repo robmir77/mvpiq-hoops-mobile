@@ -100,6 +100,11 @@ export const useTrackingEngine = () => {
         const current = state.current
         const now     = Date.now()
 
+        // Debug: verifica se hoopPosition è impostato
+        if (!current.hoopPosition && !hoopDetection) {
+            console.log('[TrackingEngine] No hoop position set')
+        }
+
         if (ballDetection && ballDetection.confidence > 0.05) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y)
             current.ballPosition = smoothed

@@ -465,6 +465,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
     const [isEnding, setIsEnding]           = useState(false)
     const [isRecording, setIsRecording]     = useState(false)
+    const isRecordingRef = useRef(false)
     const [shotCount, setShotCount]         = useState({ total: 0, made: 0 })
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
@@ -479,6 +480,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { device, hasPermission, isActive, requestPermission, setIsActive } = useVisionCamera()
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
+    // Sync isRecordingRef con lo state (per evitare stale closure)
+    useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -581,21 +584,34 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
                     courtCorners:     r.data.courtCorners,
                 }
+                console.log('[WorkoutSession] Calibration loaded', cal.hoopCenter)
                 setCalibration(cal)
                 tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y)
-            } catch { /* calibrazione opzionale */ }
+            } catch (e) {
+                console.log('[WorkoutSession] Calibration not loaded', e)
+                /* calibrazione opzionale */
+            }
         } catch (e: any) { showError('Errore', e.message) }
     }
 
+    // Usiamo una ref per sessionId/userId per evitare stale closures nel timer
+    const sessionIdRef = useRef(sessionId)
+    const userIdRef    = useRef(user?.id)
+    useEffect(() => { sessionIdRef.current = sessionId }, [sessionId])
+    useEffect(() => { userIdRef.current    = user?.id  }, [user?.id])
+
     const flushFrameBatch = useCallback(async () => {
-        if (!user?.id || !sessionId || frameBatch.current.length === 0) return
+        const sid = sessionIdRef.current
+        const uid = userIdRef.current
+        if (!uid || !sid || frameBatch.current.length === 0) return
         const last = frameBatch.current[frameBatch.current.length - 1]
         frameBatch.current = []
-        await saveFrameData(sessionId, user.id, last)
-    }, [sessionId, user?.id])
+        try { await saveFrameData(sid, uid, last) } catch (_) {}
+    }, [])
 
     const handleAutoShotDetected = useCallback(async (result: ShotResult) => {
-        if (!user?.id || !sessionId || isRecording) return
+        if (!user?.id || !sessionId || isRecordingRef.current) return
+        isRecordingRef.current = true
         setIsRecording(true)
         try {
             const state   = tracking.getState()
@@ -636,8 +652,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             }).start()
             tracking.resetShot()
         } catch (e: any) { showError('Errore tiro', e.message) }
-        finally { setIsRecording(false) }
-    }, [user?.id, sessionId, tracking, calibration, isRecording, jointAngles])
+        finally { isRecordingRef.current = false; setIsRecording(false) }
+    }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
     const handleManualShot = async (result: ShotResult) => {
         if (!user?.id || !sessionId || isRecording) return
@@ -685,10 +701,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         try {
             if (session.status === 'ACTIVE') {
                 await pauseWorkoutSession(sessionId, user.id)
-                setSession({ ...session, status: 'PAUSED' }); setIsActive(false)
+                setSession({ ...session, status: 'PAUSED' })
+                setIsActive(false)
+                ballDetection.stopInferenceLoop()   // ferma inference durante pausa
             } else {
                 await resumeWorkoutSession(sessionId, user.id)
-                setSession({ ...session, status: 'ACTIVE' }); setIsActive(true)
+                setSession({ ...session, status: 'ACTIVE' })
+                setIsActive(true)
+                ballDetection.startInferenceLoop(cameraRef)  // riprende
             }
         } catch (e: any) { showError('Errore', e.message) }
     }

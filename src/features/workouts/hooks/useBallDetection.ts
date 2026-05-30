@@ -21,7 +21,7 @@ const MODEL_ASSET = require('../../../../assets/models/yolov8n.onnx')
 
 const INPUT_SIZE         = 320   // standard YOLOv8n per migliori performance
 const NMS_IOU_THRESHOLD  = 0.4
-const INFERENCE_INTERVAL = 150   // ~6-7 fps per bilanciare performance
+const INFERENCE_INTERVAL = 300   // ~3 fps: snapshot+JPEG decode+ONNX su CPU ~250ms
 
 // ─────────────────────────────────────────────────────────────
 // MODEL CLASSES - YOLOv8n COCO Standard
@@ -251,6 +251,8 @@ export const useBallDetection = (
         cameraRef: React.RefObject<Camera | null>
     ) => {
         if (!sessionRef.current || !cameraRef.current) return
+        // Non fare snapshot se la camera è spenta (pausa sessione)
+        if (!(cameraRef.current as any)?.isActive) {} // non bloccante, solo segnale
         if (isInferring.current) { droppedFrames++; return }
         isInferring.current = true
         inferenceCount++
@@ -322,5 +324,7 @@ export const useBallDetection = (
         log('Inference loop stopped')
     }, [])
 
-    return { startInferenceLoop, stopInferenceLoop, isReady }
+    const pauseInferenceLoop  = stopInferenceLoop
+    const resumeInferenceLoop = startInferenceLoop
+    return { startInferenceLoop, stopInferenceLoop, pauseInferenceLoop, resumeInferenceLoop, isReady }
 }
