@@ -1,5 +1,6 @@
 // src/features/goals/api/goals.api.ts
 
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import apiClient from '@/shared/api/apiClient'
 import { Goal, CreateGoalRequest } from '../types/goals.types'
 
@@ -33,8 +34,27 @@ export const updateGoal = async (
 
 export const deleteGoal = async (goalId: string): Promise<void> => {
     try {
-        await apiClient.delete(`/goals/${goalId}`)
+        // Usa fetch nativo per DELETE per evitare problemi con axios headers
+        const token = await AsyncStorage.getItem('token')
+        const { API_BASE_URL } = await import('@/config/appConfig')
+
+        const headers: Record<string, string> = {}
+        if (token && typeof token === 'string' && token.trim() !== '') {
+            headers['Authorization'] = `Bearer ${token.trim()}`
+        }
+
+        const response = await fetch(
+            `${API_BASE_URL}/api/goals/${goalId}`,
+            {
+                method: 'DELETE',
+                headers,
+            }
+        )
+
+        if (!response.ok) {
+            throw new Error(`Failed to delete goal: ${response.status}`)
+        }
     } catch (error: any) {
-        throw new Error(error?.response?.data?.message || 'Errore eliminazione goal')
+        throw new Error(error?.message || 'Errore eliminazione goal')
     }
 }
