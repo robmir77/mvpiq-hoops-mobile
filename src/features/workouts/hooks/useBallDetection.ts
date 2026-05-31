@@ -24,11 +24,12 @@ const NMS_IOU_THRESHOLD  = 0.4
 const INFERENCE_INTERVAL = 300   // ~3 fps: snapshot+JPEG decode+ONNX su CPU ~250ms
 
 // ── ROI Tracking Config ───────────────────────────────────────
-const ROI_SIZE_INITIAL   = 400   // dimensione ROI in modalità TRACK
-const ROI_SIZE_EXPAND_1  = 600   // prima espansione se palla persa
-const ROI_SIZE_EXPAND_2  = 800   // seconda espansione se palla persa
-const BALL_LOST_TIMEOUT  = 500   // ms prima di espandere ROI
-const CONF_THRESHOLD_TRACK = 0.05 // threshold più alto in modalità TRACK
+const ROI_SIZE_INITIAL   = 500   // dimensione ROI in modalità TRACK (aumentata per catturare meglio palla in movimento)
+const ROI_SIZE_EXPAND_1  = 700   // prima espansione se palla persa
+const ROI_SIZE_EXPAND_2  = 900   // seconda espansione se palla persa
+const MAX_MISSED_FRAMES  = 3     // frame consecutivi persi prima di espandere ROI
+const MAX_MISSED_BEFORE_SEARCH = 8 // frame consecutivi persi prima di tornare a SEARCH
+const CONF_THRESHOLD_TRACK = 0.02 // threshold uguale a SEARCH per evitare falsi negativi
 
 // ─────────────────────────────────────────────────────────────
 // MODEL CLASSES - YOLOv8n COCO Standard
@@ -294,6 +295,8 @@ export const useBallDetection = (
     const lastDetectionTime = useRef<number>(0)
     const currentRoiSize = useRef<number>(ROI_SIZE_INITIAL)
     const roiExpansionLevel = useRef<number>(0)
+    const consecutiveMissedFrames = useRef<number>(0)
+    const ballVelocity = useRef<{ vx: number; vy: number } | null>(null)
 
     // ── Caricamento modello ───────────────────────────────────
     useEffect(() => {
@@ -358,41 +361,29 @@ export const useBallDetection = (
             let currentRoi = 0
 
             const now = Date.now()
-            const timeSinceLastDetection = now - lastDetectionTime.current
 
             if (trackingMode.current === 'TRACK' && lastBallRef.current) {
-                // Check if ball is lost
-                if (timeSinceLastDetection > BALL_LOST_TIMEOUT) {
-                    roiExpansionLevel.current++
-                    if (roiExpansionLevel.current === 1) {
-                        currentRoiSize.current = ROI_SIZE_EXPAND_1
-                        log('Ball lost, expanding ROI to', ROI_SIZE_EXPAND_1)
-                    } else if (roiExpansionLevel.current === 2) {
-                        currentRoiSize.current = ROI_SIZE_EXPAND_2
-                        log('Ball still lost, expanding ROI to', ROI_SIZE_EXPAND_2)
-                    } else {
-                        // Switch back to SEARCH mode
-                        trackingMode.current = 'SEARCH'
-                        roiExpansionLevel.current = 0
-                        currentRoiSize.current = ROI_SIZE_INITIAL
-                        log('Ball lost too long, switching to SEARCH mode')
-                    }
+                // Crop ROI around predicted ball position (with velocity prediction)
+                const lastBall = lastBallRef.current
+                let centerX = lastBall.x * width
+                let centerY = lastBall.y * height
+                
+                // Predict position based on velocity if available
+                if (ballVelocity.current && consecutiveMissedFrames.current > 0) {
+                    const dt = (now - lastBall.ts) / 1000 // seconds since last detection
+                    const predictionDistance = Math.min(dt * 2, 0.3) // limit prediction to 30% of frame
+                    centerX += ballVelocity.current.vx * width * predictionDistance
+                    centerY += ballVelocity.current.vy * height * predictionDistance
                 }
-
-                if (trackingMode.current === 'TRACK') {
-                    // Crop ROI around last known ball position
-                    const lastBall = lastBallRef.current
-                    const centerX = lastBall.x * width
-                    const centerY = lastBall.y * height
-                    const roi = cropROI(pixels, width, height, centerX, centerY, currentRoiSize.current)
-                    pixelsToProcess = roi.pixels
-                    processWidth = roi.cropWidth
-                    processHeight = roi.cropHeight
-                    offsetX = roi.offsetX
-                    offsetY = roi.offsetY
-                    currentRoi = currentRoiSize.current
-                    log('TRACK mode', { roi: currentRoi, offsetX, offsetY })
-                }
+                
+                const roi = cropROI(pixels, width, height, centerX, centerY, currentRoiSize.current)
+                pixelsToProcess = roi.pixels
+                processWidth = roi.cropWidth
+                processHeight = roi.cropHeight
+                offsetX = roi.offsetX
+                offsetY = roi.offsetY
+                currentRoi = currentRoiSize.current
+                log('TRACK mode', { roi: currentRoi, offsetX, offsetY, missedFrames: consecutiveMissedFrames.current })
             }
 
             const inputData = preprocessFrame(pixelsToProcess, processWidth, processHeight)
@@ -423,12 +414,26 @@ export const useBallDetection = (
             
             if (ballDetection && ballDetection.confidence >= threshold) {
                 // Ball detected - update tracking state
+                const prevBall = lastBallRef.current
+                
+                // Calculate velocity if we have previous position
+                if (prevBall) {
+                    const dt = (now - prevBall.ts) / 1000
+                    if (dt > 0) {
+                        ballVelocity.current = {
+                            vx: (ballDetection.centerX - prevBall.x) / dt,
+                            vy: (ballDetection.centerY - prevBall.y) / dt,
+                        }
+                    }
+                }
+                
                 lastBallRef.current = {
                     x: ballDetection.centerX,
                     y: ballDetection.centerY,
                     ts: now
                 }
                 lastDetectionTime.current = now
+                consecutiveMissedFrames.current = 0
                 roiExpansionLevel.current = 0
                 currentRoiSize.current = ROI_SIZE_INITIAL
                 
@@ -436,13 +441,30 @@ export const useBallDetection = (
                     trackingMode.current = 'TRACK'
                     log('Ball found, switching to TRACK mode')
                 }
-            } else if (trackingMode.current === 'TRACK' && timeSinceLastDetection > BALL_LOST_TIMEOUT * 3) {
-                // Ball lost for too long - switch to SEARCH
-                trackingMode.current = 'SEARCH'
-                lastBallRef.current = null
-                roiExpansionLevel.current = 0
-                currentRoiSize.current = ROI_SIZE_INITIAL
-                log('Ball lost, switching to SEARCH mode')
+            } else {
+                // Ball not detected in this frame
+                if (trackingMode.current === 'TRACK') {
+                    consecutiveMissedFrames.current++
+                    
+                    // Expand ROI after consecutive missed frames
+                    if (consecutiveMissedFrames.current > MAX_MISSED_FRAMES && roiExpansionLevel.current === 0) {
+                        roiExpansionLevel.current = 1
+                        currentRoiSize.current = ROI_SIZE_EXPAND_1
+                        log('Ball missed frames, expanding ROI to', ROI_SIZE_EXPAND_1)
+                    } else if (consecutiveMissedFrames.current > MAX_MISSED_FRAMES * 2 && roiExpansionLevel.current === 1) {
+                        roiExpansionLevel.current = 2
+                        currentRoiSize.current = ROI_SIZE_EXPAND_2
+                        log('Ball still missed, expanding ROI to', ROI_SIZE_EXPAND_2)
+                    } else if (consecutiveMissedFrames.current > MAX_MISSED_BEFORE_SEARCH) {
+                        // Switch back to SEARCH mode
+                        trackingMode.current = 'SEARCH'
+                        lastBallRef.current = null
+                        consecutiveMissedFrames.current = 0
+                        roiExpansionLevel.current = 0
+                        currentRoiSize.current = ROI_SIZE_INITIAL
+                        log('Ball lost too long, switching to SEARCH mode')
+                    }
+                }
             }
 
             onDetection({
@@ -498,6 +520,8 @@ export const useBallDetection = (
         lastDetectionTime.current = 0
         currentRoiSize.current = ROI_SIZE_INITIAL
         roiExpansionLevel.current = 0
+        consecutiveMissedFrames.current = 0
+        ballVelocity.current = null
         log('Tracking state reset')
     }, [])
 

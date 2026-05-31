@@ -2,6 +2,7 @@
 // Aggiornamento: saveCourtCalibration ora invia campi flat
 // allineati al CalibrationRequest BE (hoopCenterX/Y, non hoopCenter.x/y)
 
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import apiClient from '@/shared/api/apiClient'
 import {
     WorkoutSession, CreateWorkoutSessionPayload,
@@ -42,7 +43,26 @@ export const getPlayerWorkoutSessions = async (
 export const deleteWorkoutSession = async (
     sessionId: string, userId: string
 ): Promise<void> => {
-    await apiClient.delete(`/workouts/sessions/${sessionId}?userId=${userId}`)
+    // Usa fetch nativo per DELETE per evitare problemi con axios headers
+    const token = await AsyncStorage.getItem('token')
+    const { API_BASE_URL } = await import('@/config/appConfig')
+
+    const headers: Record<string, string> = {}
+    if (token && typeof token === 'string' && token.trim() !== '') {
+        headers['Authorization'] = `Bearer ${token.trim()}`
+    }
+
+    const response = await fetch(
+        `${API_BASE_URL}/api/workouts/sessions/${sessionId}?userId=${userId}`,
+        {
+            method: 'DELETE',
+            headers,
+        }
+    )
+
+    if (!response.ok) {
+        throw new Error(`Failed to delete session: ${response.status}`)
+    }
 }
 
 export const endWorkoutSession = async (

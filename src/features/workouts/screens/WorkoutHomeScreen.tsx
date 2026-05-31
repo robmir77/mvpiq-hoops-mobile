@@ -60,7 +60,7 @@ export default function WorkoutHomeScreen({ navigation }: any) {
                 setDeletingId(session.id)
                 try {
                     await deleteWorkoutSession(session.id, user.id)
-                    await queryClient.invalidateQueries({ queryKey: ['workoutSessions', user.id] })
+                    await onRefresh()
                     showSuccess('Eliminata', 'Sessione eliminata con successo')
                 } catch (e: any) {
                     showError('Errore', e.message || 'Impossibile eliminare la sessione')
