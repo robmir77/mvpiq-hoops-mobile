@@ -440,13 +440,13 @@ export const uploadProfileImage = async (
 
         console.log('📸 FormData created, sending to API...')
 
-        const response = await apiClient.put<{ avatarUrl: string }>(
-            `/players/${playerId}/profile-image`,
+        const response = await apiClient.post<{ avatarUrl: string }>(
+            `/athlet/${playerId}/profile-image`,
             formData,
             {
                 headers: {
-                    'Content-Type': 'multipart/form-data'
-                }
+                    'Content-Type': 'multipart/form-data',
+                },
             }
         )
 

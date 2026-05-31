@@ -1,62 +1,46 @@
 // src/shared/api/apiClient.ts
 
-import axios, { InternalAxiosRequestConfig, AxiosHeaders } from 'axios'
+import axios from 'axios'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { API_BASE_URL } from '@/config/appConfig'
 
 const apiClient = axios.create({
     baseURL: `${API_BASE_URL}/api`,
-    timeout: 10000,
+    timeout: 15000,
 })
 
-/* =========================
-   REQUEST INTERCEPTOR
-========================= */
 apiClient.interceptors.request.use(
-    async (config: InternalAxiosRequestConfig) => {
+    async (config) => {
+        const method      = (config.method ?? 'get').toUpperCase()
+        const isDelete    = method === 'DELETE'
+        const isMultipart = config.data instanceof FormData
 
+        // Leggi token prima di tutto
+        let token: string | null = null
         const publicRoutes = ['/auth/login', '/auth/register']
-        const isPublicRoute = publicRoutes.some(r => config.url?.includes(r))
+        const isPublic = publicRoutes.some(r => config.url?.includes(r))
+        if (!isPublic) {
+            try {
+                const raw = await AsyncStorage.getItem('token')
+                token = typeof raw === 'string' && raw.trim() ? raw.trim() : null
+            } catch (_) {}
+        }
 
-        // Per DELETE: resetta completamente gli header e aggiungi solo Authorization se necessario
-        // React Native fetch lancia "header name must be a non-empty string" con header problematici
-        if (config.method?.toUpperCase() === 'DELETE') {
-            console.log('[API] DELETE request, cleaning headers', config.url)
-
-            const headers = new AxiosHeaders()
-
-            if (!isPublicRoute) {
-                try {
-                    const token = await AsyncStorage.getItem('token')
-                    if (token && typeof token === 'string' && token.trim() !== '') {
-                        const authValue = `Bearer ${String(token).trim()}`
-                        headers.set('Authorization', authValue)
-                        console.log('[API] Set Authorization header for DELETE')
-                    }
-                } catch (_) {
-                    // AsyncStorage fallisce in alcuni edge case
-                }
+        if (isMultipart) {
+            // Per FormData: NON toccare Content-Type (axios aggiunge il boundary)
+            // Modifica solo Authorization sull'oggetto headers esistente
+            if (token) {
+                config.headers.set('Authorization', `Bearer ${token}`)
+            } else {
+                config.headers.delete('Authorization')
             }
-
-            config.headers = headers
-            console.log('[API] DELETE headers after cleaning:', JSON.stringify(headers.toJSON()))
         } else {
-            // Per altri metodi: gestisci Authorization e Content-Type normalmente
-            const headers = new AxiosHeaders()
-            headers.set('Content-Type', 'application/json')
-
-            if (!isPublicRoute) {
-                try {
-                    const token = await AsyncStorage.getItem('token')
-                    if (token && typeof token === 'string' && token.trim() !== '') {
-                        headers.set('Authorization', `Bearer ${String(token).trim()}`)
-                    }
-                } catch (_) {
-                    // AsyncStorage fallisce in alcuni edge case
-                }
-            }
-
-            config.headers = headers
+            // Per JSON e DELETE: ricostruisci headers come plain object pulito
+            // (fix "header name must be a non-empty string" in axios 1.x + RN)
+            const clean: Record<string, string> = {}
+            if (!isDelete) clean['Content-Type'] = 'application/json'
+            if (token)     clean['Authorization'] = `Bearer ${token}`
+            config.headers = new axios.AxiosHeaders(clean)
         }
 
         return config
@@ -64,9 +48,6 @@ apiClient.interceptors.request.use(
     (error) => Promise.reject(error)
 )
 
-/* =========================
-   RESPONSE INTERCEPTOR
-========================= */
 apiClient.interceptors.response.use(
     (response) => response,
     async (error) => {
