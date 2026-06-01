@@ -21,7 +21,7 @@ const MODEL_ASSET = require('../../../../assets/models/yolov8n.onnx')
 
 const INPUT_SIZE         = 320   // standard YOLOv8n per migliori performance
 const NMS_IOU_THRESHOLD  = 0.4
-const INFERENCE_INTERVAL = 275   // ~3.6 fps: snapshot+JPEG decode+ONNX su CPU ~250ms (ottimizzato)
+const INFERENCE_INTERVAL = 100   // ~10 fps: snapshot+JPEG decode+ONNX su CPU (aumentato per migliore tracking)
 
 // ── SEARCH Mode Config (crop centrale per ridurre carico CPU) ───
 const SEARCH_CROP_SIZE   = 800   // crop centrale 800×800 in modalità SEARCH

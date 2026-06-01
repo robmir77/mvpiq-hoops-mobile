@@ -171,7 +171,11 @@ export default function EventCreateScreen({ route, navigation }: any) {
                         display={Platform.OS === 'ios' ? 'inline' : 'default'}
                         minimumDate={new Date()}
                         onChange={(_, date) => {
-                            setShowStartPicker(false)
+                            if (Platform.OS === 'android') {
+                                setTimeout(() => setShowStartPicker(false), 100)
+                            } else {
+                                setShowStartPicker(false)
+                            }
                             if (date) setStartsAt(date)
                         }}
                     />
@@ -202,7 +206,11 @@ export default function EventCreateScreen({ route, navigation }: any) {
                                 display={Platform.OS === 'ios' ? 'inline' : 'default'}
                                 minimumDate={startsAt}
                                 onChange={(_, date) => {
-                                    setShowEndPicker(false)
+                                    if (Platform.OS === 'android') {
+                                        setTimeout(() => setShowEndPicker(false), 100)
+                                    } else {
+                                        setShowEndPicker(false)
+                                    }
                                     if (date) setEndsAt(date)
                                 }}
                             />

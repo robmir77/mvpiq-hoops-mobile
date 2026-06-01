@@ -98,6 +98,11 @@ export interface TrackingState {
     /** true dal momento in cui la palla inizia la parabola (sale + arco minimo),
      *  false dopo resetShot() — guida l'overlay scia */
     inFlight: boolean
+    // ─── Biomechanical analysis ─────────────────────────────────
+    releasePoint?: { x: number; y: number }
+    apexPoint?: { x: number; y: number }
+    releaseAngle?: number
+    shotQuality?: number
 }
 
 export interface PoseKeypoints {

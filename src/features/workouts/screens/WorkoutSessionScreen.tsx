@@ -196,9 +196,27 @@ const CONNECTION_COLORS: Record<string, string> = {
 // per creare l'effetto "cometa — la scia segue la palla con un ritardo visivo"
 const TRAIL_DELAY_POINTS = 5
 
+// Helper function for biomechanical angle coloring
+const getAngleColor = (angle: number): string => {
+    if (angle >= 80 && angle <= 110) return '#22c55e' // Green: optimal
+    if (angle >= 60 && angle <= 130) return '#f59e0b' // Yellow: acceptable
+    return '#ef4444' // Red: poor
+}
+
+// Helper function for release angle color coding
+const getReleaseColor = (angle: number): string => {
+    if (angle >= 45 && angle <= 55) return '#22c55e' // Green: optimal
+    if (angle >= 35 && angle <= 65) return '#f59e0b' // Yellow: acceptable
+    return '#ef4444' // Red: poor
+}
+
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints,
-}: { trackingState: TrackingState | null; poseKeypoints: PoseKeypoints | null }) => {
+    trackingState, poseKeypoints, jointAngles,
+}: {
+    trackingState: TrackingState | null
+    poseKeypoints: PoseKeypoints | null
+    jointAngles?: Partial<JointAngles>
+}) => {
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
@@ -303,6 +321,33 @@ const TrackingOverlay = React.memo(({
                     </Group>
                 )}
 
+                {/* Release Point */}
+                {trackingState?.releasePoint && (
+                    <Group>
+                        <SkiaCircle
+                            cx={px(trackingState.releasePoint.x)}
+                            cy={py(trackingState.releasePoint.y)}
+                            r={14} color="rgba(250,204,21,0.22)"
+                        />
+                        <SkiaCircle
+                            cx={px(trackingState.releasePoint.x)}
+                            cy={py(trackingState.releasePoint.y)}
+                            r={14} color="#facc15" style="stroke" strokeWidth={2}
+                        />
+                    </Group>
+                )}
+
+                {/* Apex Point */}
+                {trackingState?.apexPoint && (
+                    <Group>
+                        <SkiaCircle
+                            cx={px(trackingState.apexPoint.x)}
+                            cy={py(trackingState.apexPoint.y)}
+                            r={10} color="#22c55e"
+                        />
+                    </Group>
+                )}
+
                 {/* Skeleton pose + punti keypoints */}
                 {poseKeypoints && (
                     <Group>
@@ -378,6 +423,27 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
+            {/* ── Release Angle Badge ── */}
+            {trackingState?.releaseAngle != null && (
+                <View pointerEvents="none" style={ovStyles.releaseAngleBadge}>
+                    <Text style={{
+                        color: getReleaseColor(trackingState.releaseAngle),
+                        fontWeight: '900'
+                    }}>
+                        ↗ {Math.round(trackingState.releaseAngle)}°
+                    </Text>
+                </View>
+            )}
+
+            {/* ── Shot Quality Score ── */}
+            {trackingState?.shotQuality != null && (
+                <View pointerEvents="none" style={ovStyles.qualityBadge}>
+                    <Text style={ovStyles.qualityText}>
+                        🎯 {Math.round(trackingState.shotQuality)}
+                    </Text>
+                </View>
+            )}
+
             {/* ── Label HOOP ── */}
             {trackingState?.hoopPosition && (
                 <View
@@ -390,6 +456,60 @@ const TrackingOverlay = React.memo(({
                     <Text style={ovStyles.hoopLabelText}>🏀 CANESTRO</Text>
                 </View>
             )}
+
+            {/* ── Label RELEASE POINT ── */}
+            {trackingState?.releasePoint && (
+                <View
+                    pointerEvents="none"
+                    style={{
+                        position: 'absolute',
+                        left: px(trackingState.releasePoint.x) + 12,
+                        top: py(trackingState.releasePoint.y) - 18,
+                    }}
+                >
+                    <Text style={ovStyles.releaseLabel}>🎯 RELEASE</Text>
+                </View>
+            )}
+
+            {/* ── Label APEX POINT ── */}
+            {trackingState?.apexPoint && (
+                <View
+                    pointerEvents="none"
+                    style={{
+                        position: 'absolute',
+                        left: px(trackingState.apexPoint.x) + 10,
+                        top: py(trackingState.apexPoint.y) - 18,
+                    }}
+                >
+                    <Text style={ovStyles.apexLabel}>🏀 APEX</Text>
+                </View>
+            )}
+
+            {/* ── Elbow Angle Live ── */}
+            {(() => {
+                const elbow = poseKeypoints?.rightElbow ?? poseKeypoints?.leftElbow
+                if (elbow && jointAngles?.elbowAngle != null) {
+                    return (
+                        <View
+                            pointerEvents="none"
+                            style={{
+                                position: 'absolute',
+                                left: px(elbow.x) + 10,
+                                top: py(elbow.y) - 10,
+                            }}
+                        >
+                            <Text style={{
+                                color: getAngleColor(jointAngles.elbowAngle),
+                                fontWeight: '900',
+                                fontSize: 11,
+                            }}>
+                                {Math.round(jointAngles.elbowAngle)}°
+                            </Text>
+                        </View>
+                    )
+                }
+                return null
+            })()}
 
             {/* ── Label POSE KEYPOINTS ── */}
             {poseKeypoints && (Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
@@ -456,6 +576,31 @@ const ovStyles = StyleSheet.create({
         fontWeight: '900',
         letterSpacing: 1,
     },
+    // Release Angle Badge
+    releaseAngleBadge: {
+        position: 'absolute',
+        bottom: 14,
+        left: 14,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 10,
+    },
+    // Shot Quality Badge
+    qualityBadge: {
+        position: 'absolute',
+        top: 14,
+        left: 14,
+        backgroundColor: 'rgba(0,0,0,0.80)',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 10,
+    },
+    qualityText: {
+        color: '#22c55e',
+        fontSize: 13,
+        fontWeight: '800',
+    },
     // Label HOOP
     hoopLabelWrap: {
         position: 'absolute',
@@ -466,6 +611,28 @@ const ovStyles = StyleSheet.create({
         fontWeight: '700',
         letterSpacing: 0.4,
         backgroundColor: 'rgba(0,0,0,0.55)',
+        paddingHorizontal: 5,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    // Label RELEASE POINT
+    releaseLabel: {
+        color: '#facc15',
+        fontSize: 10,
+        fontWeight: '800',
+        letterSpacing: 0.3,
+        backgroundColor: 'rgba(0,0,0,0.65)',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 8,
+    },
+    // Label APEX POINT
+    apexLabel: {
+        color: '#22c55e',
+        fontSize: 9,
+        fontWeight: '700',
+        letterSpacing: 0.3,
+        backgroundColor: 'rgba(0,0,0,0.65)',
         paddingHorizontal: 5,
         paddingVertical: 2,
         borderRadius: 6,
@@ -825,6 +992,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 <TrackingOverlay
                     trackingState={trackingState}
                     poseKeypoints={poseKeypoints}
+                    jointAngles={jointAngles}
                 />
 
                 {/* Debug overlay calibrazione */}

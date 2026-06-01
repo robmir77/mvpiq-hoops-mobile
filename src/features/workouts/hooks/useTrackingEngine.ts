@@ -60,6 +60,10 @@ export const useTrackingEngine = () => {
         trajectory: [],
         confidence: 0,
         inFlight: false,
+        releasePoint: undefined,
+        apexPoint: undefined,
+        releaseAngle: undefined,
+        shotQuality: undefined,
     })
     const lastFrameTs  = useRef<number>(0)
     const lastShotTs   = useRef<number>(0)
@@ -149,11 +153,25 @@ export const useTrackingEngine = () => {
                 const arcSoFar = flightStartY.current - ball.y  // positivo = salita
                 if (arcSoFar >= MIN_ARC_HEIGHT && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
                     inFlight.current = true
+                    // Save release point when shot starts
+                    current.releasePoint = { x: ball.x, y: ball.y }
                 }
             }
         }
 
         current.inFlight = inFlight.current
+
+        // ── Calculate apex point from trajectory ─────────────────────────
+        if (inFlight.current && trajectory.current.length > 0) {
+            const apex = trajectory.current.reduce((min, p) => p.y < min.y ? p : min, trajectory.current[0])
+            current.apexPoint = { x: apex.x, y: apex.y }
+        }
+
+        // ── Calculate release angle from trajectory metrics ────────────────
+        if (inFlight.current && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
+            const metrics = computeTrajectoryMetrics()
+            current.releaseAngle = metrics.releaseAngle
+        }
 
         // ── Shot detection (MADE / MISS / AIRBALL) ────────────────────────
         const hoop       = current.hoopPosition
@@ -173,14 +191,41 @@ export const useTrackingEngine = () => {
                     current.shotDetected = true
                     current.shotResult   = 'MADE'
                     lastShotTs.current   = now
+                    // Calculate shot quality score
+                    const metrics = computeTrajectoryMetrics()
+                    const releaseAngleScore = current.releaseAngle
+                        ? (current.releaseAngle >= 45 && current.releaseAngle <= 55) ? 100
+                        : (current.releaseAngle >= 35 && current.releaseAngle <= 65) ? 70 : 30
+                        : 50
+                    const arcScore = Math.min(100, (metrics.arcHeight / 0.3) * 100)
+                    const smoothnessScore = metrics.smoothness * 100
+                    current.shotQuality = releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
                 } else if (descendingTowardHoop && dist >= HOOP_RADIUS_MADE) {
                     current.shotDetected = true
                     current.shotResult   = 'MISS'
                     lastShotTs.current   = now
+                    // Calculate shot quality score
+                    const metrics = computeTrajectoryMetrics()
+                    const releaseAngleScore = current.releaseAngle
+                        ? (current.releaseAngle >= 45 && current.releaseAngle <= 55) ? 100
+                        : (current.releaseAngle >= 35 && current.releaseAngle <= 65) ? 70 : 30
+                        : 50
+                    const arcScore = Math.min(100, (metrics.arcHeight / 0.3) * 100)
+                    const smoothnessScore = metrics.smoothness * 100
+                    current.shotQuality = releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
                 } else if (descending && vel.vy > SHOT_LAUNCH_THRESHOLD * 2) {
                     current.shotDetected = true
                     current.shotResult   = dist < 0.25 ? 'MISS' : 'AIRBALL'
                     lastShotTs.current   = now
+                    // Calculate shot quality score
+                    const metrics = computeTrajectoryMetrics()
+                    const releaseAngleScore = current.releaseAngle
+                        ? (current.releaseAngle >= 45 && current.releaseAngle <= 55) ? 100
+                        : (current.releaseAngle >= 35 && current.releaseAngle <= 65) ? 70 : 30
+                        : 50
+                    const arcScore = Math.min(100, (metrics.arcHeight / 0.3) * 100)
+                    const smoothnessScore = metrics.smoothness * 100
+                    current.shotQuality = releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
                 }
             }
         }
@@ -193,6 +238,10 @@ export const useTrackingEngine = () => {
         state.current.shotDetected = false
         state.current.shotResult   = null
         state.current.inFlight     = false
+        state.current.releasePoint = undefined
+        state.current.apexPoint    = undefined
+        state.current.releaseAngle = undefined
+        state.current.shotQuality = undefined
         trajectory.current         = []
         peakY.current              = Infinity
         inFlight.current           = false
@@ -212,6 +261,10 @@ export const useTrackingEngine = () => {
             ballPosition: null, ballVelocity: null, hoopPosition: null,
             shotDetected: false, shotResult: null, trajectory: [], confidence: 0,
             inFlight: false,
+            releasePoint: undefined,
+            apexPoint: undefined,
+            releaseAngle: undefined,
+            shotQuality: undefined,
         }
     }, [])
 
