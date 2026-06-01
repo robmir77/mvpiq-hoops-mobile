@@ -7,6 +7,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { Asset } from 'expo-asset'
 import { InferenceSession, Tensor } from 'onnxruntime-react-native'
 import { PoseKeypoints } from '../types/workouts.types'
+import { incrementMoveNetFps } from './usePerformanceMonitor'
 
 const MODEL_ASSET = require('../../../../assets/models/movenet_lightning.onnx')
 
@@ -146,6 +147,7 @@ export const usePoseDetection = (
         const now = Date.now()
         if (now - lastPoseTs.current < POSE_INTERVAL_MS) return
         lastPoseTs.current = now
+        incrementMoveNetFps()
 
         try {
             const inputData    = preprocessForMoveNet(pixels, width, height)

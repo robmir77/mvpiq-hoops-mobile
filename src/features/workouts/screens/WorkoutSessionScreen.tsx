@@ -33,6 +33,7 @@ import { useVisionCamera } from '../hooks/useVisionCamera'
 import { useBallDetection, BallDetectionResult } from '../hooks/useBallDetection'
 import type { Camera as CameraType } from 'react-native-vision-camera'
 import { usePoseDetection, JointAngles } from '../hooks/usePoseDetection'
+import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordOverlayRenderTime, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
 import {
     WorkoutSession, ShotResult, AddShotEventPayload,
     TrackingState, PoseKeypoints, CalibrationData, CameraMode,
@@ -211,20 +212,28 @@ const getReleaseColor = (angle: number): string => {
 }
 
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight,
 }: {
     trackingState: TrackingState | null
     poseKeypoints: PoseKeypoints | null
     jointAngles?: Partial<JointAngles>
+    releaseAngle?: number
+    arcHeight?: number
 }) => {
+    incrementOverlayRenders()
+
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
+
+    // Skeleton render time measurement
+    const renderStart = performance.now()
 
     // Scia del tiro:
     //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
     //  - dopo il tiro: mostra l'ultima traiettoria completa per 2.5s
     //  - curva Bezier cubica per avere una parabola liscia invece di segmenti
     const shotTrailPath = React.useMemo(() => {
+        const t0 = performance.now()
         const ts = trackingState as any
         if (!ts?.showShotTrail) return null
         const traj   = (ts?.shotTrajectory ?? ts?.trajectory ?? []) as Array<{x:number;y:number}>
@@ -254,6 +263,8 @@ const TrackingOverlay = React.memo(({
                 p.cubicTo(cp1x, cp1y, cp2x, cp2y, px(p2.x), py(p2.y))
             }
         }
+        const t1 = performance.now()
+        recordPathBuildTime(t1 - t0)
         return p
     }, [(trackingState as any)?.showShotTrail, (trackingState as any)?.shotTrajectory?.length,
         trackingState?.inFlight, trackingState?.trajectory?.length])
@@ -423,6 +434,41 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
+            {/* ── BIOMECHANICS PANEL ── */}
+            {jointAngles && (
+                <View pointerEvents="none" style={ovStyles.bioPanel}>
+                    {releaseAngle != null && (
+                        <Text style={ovStyles.bioText}>
+                            🚀 Angolo {releaseAngle.toFixed(1)}°
+                        </Text>
+                    )}
+
+                    {arcHeight != null && (
+                        <Text style={ovStyles.bioText}>
+                            📈 Arco {arcHeight.toFixed(2)}m
+                        </Text>
+                    )}
+
+                    {jointAngles.elbowAngle != null && (
+                        <Text style={ovStyles.bioText}>
+                            📐 Gomito {jointAngles.elbowAngle.toFixed(0)}°
+                        </Text>
+                    )}
+
+                    {jointAngles.shoulderAngle != null && (
+                        <Text style={ovStyles.bioText}>
+                            💪 Spalla {jointAngles.shoulderAngle.toFixed(0)}°
+                        </Text>
+                    )}
+
+                    {jointAngles.kneeAngle != null && (
+                        <Text style={ovStyles.bioText}>
+                            🦵 Ginocchio {jointAngles.kneeAngle.toFixed(0)}°
+                        </Text>
+                    )}
+                </View>
+            )}
+
             {/* ── Release Angle Badge ── */}
             {trackingState?.releaseAngle != null && (
                 <View pointerEvents="none" style={ovStyles.releaseAngleBadge}>
@@ -444,6 +490,45 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
+            {/* ── Shot Analytics Card ── */}
+            {trackingState?.shotResult && (
+                <View pointerEvents="none" style={ovStyles.analyticsCard}>
+                    <Text style={ovStyles.analyticsTitle}>🏀 SHOT ANALYSIS</Text>
+
+                    {releaseAngle != null && (
+                        <View style={ovStyles.analyticsRow}>
+                            <Text style={ovStyles.analyticsLabel}>Release Angle</Text>
+                            <Text style={ovStyles.analyticsValue}>{releaseAngle.toFixed(0)}°</Text>
+                        </View>
+                    )}
+
+                    {arcHeight != null && (
+                        <View style={ovStyles.analyticsRow}>
+                            <Text style={ovStyles.analyticsLabel}>Arc Height</Text>
+                            <Text style={ovStyles.analyticsValue}>{arcHeight.toFixed(2)}m</Text>
+                        </View>
+                    )}
+
+                    {jointAngles?.elbowAngle != null && (
+                        <View style={ovStyles.analyticsRow}>
+                            <Text style={ovStyles.analyticsLabel}>Elbow</Text>
+                            <Text style={ovStyles.analyticsValue}>{jointAngles.elbowAngle.toFixed(0)}°</Text>
+                        </View>
+                    )}
+
+                    {jointAngles?.kneeAngle != null && (
+                        <View style={ovStyles.analyticsRow}>
+                            <Text style={ovStyles.analyticsLabel}>Knee</Text>
+                            <Text style={ovStyles.analyticsValue}>{jointAngles.kneeAngle.toFixed(0)}°</Text>
+                        </View>
+                    )}
+
+                    {releaseAngle != null && releaseAngle >= 45 && releaseAngle <= 55 && (
+                        <Text style={ovStyles.analyticsFeedback}>✓ Ottimo rilascio</Text>
+                    )}
+                </View>
+            )}
+
             {/* ── Label HOOP ── */}
             {trackingState?.hoopPosition && (
                 <View
@@ -461,13 +546,15 @@ const TrackingOverlay = React.memo(({
             {trackingState?.releasePoint && (
                 <View
                     pointerEvents="none"
-                    style={{
-                        position: 'absolute',
-                        left: px(trackingState.releasePoint.x) + 12,
-                        top: py(trackingState.releasePoint.y) - 18,
-                    }}
+                    style={[
+                        ovStyles.markerLabel,
+                        {
+                            left: px(trackingState.releasePoint.x) + 16,
+                            top: py(trackingState.releasePoint.y) - 12,
+                        },
+                    ]}
                 >
-                    <Text style={ovStyles.releaseLabel}>🎯 RELEASE</Text>
+                    <Text style={ovStyles.releaseLabel}>🚀 RELEASE</Text>
                 </View>
             )}
 
@@ -475,13 +562,15 @@ const TrackingOverlay = React.memo(({
             {trackingState?.apexPoint && (
                 <View
                     pointerEvents="none"
-                    style={{
-                        position: 'absolute',
-                        left: px(trackingState.apexPoint.x) + 10,
-                        top: py(trackingState.apexPoint.y) - 18,
-                    }}
+                    style={[
+                        ovStyles.markerLabel,
+                        {
+                            left: px(trackingState.apexPoint.x) + 16,
+                            top: py(trackingState.apexPoint.y) - 12,
+                        },
+                    ]}
                 >
-                    <Text style={ovStyles.apexLabel}>🏀 APEX</Text>
+                    <Text style={ovStyles.apexLabel}>⬆ APEX</Text>
                 </View>
             )}
 
@@ -535,6 +624,11 @@ const TrackingOverlay = React.memo(({
             }
         </>
     )
+
+    useEffect(() => {
+        const renderTime = performance.now() - renderStart
+        recordOverlayRenderTime(renderTime)
+    })
 })
 
 const ovStyles = StyleSheet.create({
@@ -576,6 +670,24 @@ const ovStyles = StyleSheet.create({
         fontWeight: '900',
         letterSpacing: 1,
     },
+    // Biomechanics Panel
+    bioPanel: {
+        position: 'absolute',
+        top: 14,
+        right: 14,
+        backgroundColor: 'rgba(0,0,0,0.72)',
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.15)',
+    },
+    bioText: {
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: '700',
+        marginVertical: 1,
+    },
     // Release Angle Badge
     releaseAngleBadge: {
         position: 'absolute',
@@ -601,6 +713,46 @@ const ovStyles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '800',
     },
+    // Shot Analytics Card
+    analyticsCard: {
+        position: 'absolute',
+        top: 80,
+        left: 14,
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.15)',
+        minWidth: 180,
+    },
+    analyticsTitle: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '800',
+        marginBottom: 8,
+    },
+    analyticsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginVertical: 2,
+    },
+    analyticsLabel: {
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: 10,
+        fontWeight: '600',
+    },
+    analyticsValue: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '700',
+    },
+    analyticsFeedback: {
+        color: '#22c55e',
+        fontSize: 10,
+        fontWeight: '700',
+        marginTop: 6,
+    },
     // Label HOOP
     hoopLabelWrap: {
         position: 'absolute',
@@ -615,27 +767,21 @@ const ovStyles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 6,
     },
+    // Marker Label
+    markerLabel: {
+        position: 'absolute',
+    },
     // Label RELEASE POINT
     releaseLabel: {
         color: '#facc15',
         fontSize: 10,
-        fontWeight: '800',
-        letterSpacing: 0.3,
-        backgroundColor: 'rgba(0,0,0,0.65)',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 8,
+        fontWeight: '900',
     },
     // Label APEX POINT
     apexLabel: {
         color: '#22c55e',
-        fontSize: 9,
-        fontWeight: '700',
-        letterSpacing: 0.3,
-        backgroundColor: 'rgba(0,0,0,0.65)',
-        paddingHorizontal: 5,
-        paddingVertical: 2,
-        borderRadius: 6,
+        fontSize: 10,
+        fontWeight: '900',
     },
     // Label POSE KEYPOINTS
     kpLabelWrap: {
@@ -691,6 +837,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
     const cameraRef       = useRef<CameraType>(null)
 
+    // Performance monitoring - tracking state updates
+    useEffect(() => {
+        startPerfMonitor()
+        return () => stopPerfMonitor()
+    }, [])
+
     // ── Pose callback ─────────────────────────────────────────────────────
     const handlePose = useCallback((kp: PoseKeypoints, angles: Partial<JointAngles>) => {
         setPoseKeypoints(kp)
@@ -705,6 +857,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             result.frameTimestamp
         )
         // Aggiorna l'overlay direttamente — non aspettare il RAF loop
+        incrementTrackingUpdates()
         setTrackingState({ ...newState })
         if (result.ball || result.hoop) {
             frameBatch.current.push({
@@ -993,6 +1146,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     trackingState={trackingState}
                     poseKeypoints={poseKeypoints}
                     jointAngles={jointAngles}
+                    releaseAngle={trackingState?.releaseAngle}
+                    arcHeight={trackingState?.releasePoint && trackingState?.apexPoint
+                        ? trackingState.releasePoint.y - trackingState.apexPoint.y
+                        : undefined}
                 />
 
                 {/* Debug overlay calibrazione */}

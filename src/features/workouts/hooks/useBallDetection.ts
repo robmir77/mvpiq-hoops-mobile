@@ -10,6 +10,7 @@ import * as FileSystem from 'expo-file-system'
 import jpeg from 'jpeg-js'
 import { Camera } from 'react-native-vision-camera'
 import { DetectionResult } from '../types/workouts.types'
+import { incrementYoloFps, startPerfMonitor } from './usePerformanceMonitor'
 
 // Modello YOLOv8n COCO standard - deve essere scaricato e posizionato in assets/models/
 // Download: https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx
@@ -341,6 +342,7 @@ export const useBallDetection = (
         if (isInferring.current) { droppedFrames++; return }
         isInferring.current = true
         inferenceCount++
+        incrementYoloFps()
 
         let snapshotPath: string | null = null
         try {
