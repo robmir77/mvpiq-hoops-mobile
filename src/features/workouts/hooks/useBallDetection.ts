@@ -21,7 +21,10 @@ const MODEL_ASSET = require('../../../../assets/models/yolov8n.onnx')
 
 const INPUT_SIZE         = 320   // standard YOLOv8n per migliori performance
 const NMS_IOU_THRESHOLD  = 0.4
-const INFERENCE_INTERVAL = 300   // ~3 fps: snapshot+JPEG decode+ONNX su CPU ~250ms
+const INFERENCE_INTERVAL = 275   // ~3.6 fps: snapshot+JPEG decode+ONNX su CPU ~250ms (ottimizzato)
+
+// ── SEARCH Mode Config (crop centrale per ridurre carico CPU) ───
+const SEARCH_CROP_SIZE   = 800   // crop centrale 800×800 in modalità SEARCH
 
 // ── ROI Tracking Config ───────────────────────────────────────
 const ROI_SIZE_INITIAL   = 500   // dimensione ROI in modalità TRACK (aumentata per catturare meglio palla in movimento)
@@ -362,7 +365,19 @@ export const useBallDetection = (
 
             const now = Date.now()
 
-            if (trackingMode.current === 'TRACK' && lastBallRef.current) {
+            if (trackingMode.current === 'SEARCH') {
+                // Crop centrale 800×800 per ridurre carico CPU in modalità SEARCH
+                const centerX = width / 2
+                const centerY = height / 2
+                const searchCrop = cropROI(pixels, width, height, centerX, centerY, SEARCH_CROP_SIZE)
+                pixelsToProcess = searchCrop.pixels
+                processWidth = searchCrop.cropWidth
+                processHeight = searchCrop.cropHeight
+                offsetX = searchCrop.offsetX
+                offsetY = searchCrop.offsetY
+                currentRoi = SEARCH_CROP_SIZE
+                log('SEARCH mode - central crop', { crop: SEARCH_CROP_SIZE, offsetX, offsetY })
+            } else if (trackingMode.current === 'TRACK' && lastBallRef.current) {
                 // Crop ROI around predicted ball position (with velocity prediction)
                 const lastBall = lastBallRef.current
                 let centerX = lastBall.x * width

@@ -514,7 +514,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { alert, showError, showWarning } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
     const tracking = useTrackingEngine()
-    const { device, hasPermission, isActive, requestPermission, setIsActive } = useVisionCamera()
+    const { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat } = useVisionCamera()
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
     // Sync isRecordingRef con lo state (per evitare stale closure)
@@ -818,6 +818,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
+                    format={optimalFormat}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}

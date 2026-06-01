@@ -24,6 +24,7 @@ import OnlineUsersScreen from '@/features/users/screens/OnlineUsersScreen'
 import MessagingHomeScreen from '@/features/messaging/screens/MessagingHomeScreen'
 import RankingScreen from '@/features/ranking/screens/RankingScreen'
 import VideoAnalysisHomeScreen from '@/features/videoAnalysis/screens/VideoAnalysisHomeScreen'
+import EventsNavigator from '@/features/events/navigation/EventsNavigator'
 
 // ─── Placeholder stabile ─────────────────────────────────────
 // IMPORTANTE: mai definire componenti inline dentro render o dentro Record.
@@ -91,6 +92,7 @@ const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
     settings:             SettingsScreen,
     video_analysis:       VideoAnalysisHomeScreen,
     live_shot_tracking:   LiveShotTrackingScreen,
+    player_events:        EventsNavigator,
 }
 
 // ─── Icona Lucide dinamica ────────────────────────────────────
