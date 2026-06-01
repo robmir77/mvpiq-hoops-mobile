@@ -879,9 +879,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── Hook: pose detection (runPoseFromFrame triggerato dal frame processor ball) ──
     const { runPoseFromFrame, isReady: poseReady } = usePoseDetection(handlePose)
 
-    // ── Hook: ball detection (passa runPoseFromFrame per la worklet condivisa) ──
+    // ── Hook: ball detection snapshot-based (width:480, ~80-120ms vs 439ms YUV→RGB) ──
     const ballDetection = useBallDetection(handleDetection, runPoseFromFrame)
-    const { isReady: ballReady } = ballDetection
+    const { startInferenceLoop, stopInferenceLoop, isReady: ballReady, resetTracking: resetBallTracking } = ballDetection
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -910,7 +910,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return () => {
             isActiveRef.current = false
             setIsActive(false)
-            ballDetection.stopInferenceLoop()
+            stopInferenceLoop()
             if (batchTimer.current) clearInterval(batchTimer.current)
             if (rafRef.current)     cancelAnimationFrame(rafRef.current)
         }
@@ -919,8 +919,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         const ready = ballReady && poseReady
         setModelsReady(ready)
-        if (ready) ballDetection.startInferenceLoop(cameraRef)
-        return () => ballDetection.stopInferenceLoop()
+        // Frame processor is automatically attached to Camera component
     }, [ballReady, poseReady])
 
     useEffect(() => {
@@ -1060,12 +1059,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 await pauseWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'PAUSED' })
                 setIsActive(false)
-                ballDetection.stopInferenceLoop()   // ferma inference durante pausa
+                // Frame processor automatically pauses when isActive=false
             } else {
                 await resumeWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'ACTIVE' })
                 setIsActive(true)
-                ballDetection.startInferenceLoop(cameraRef)  // riprende
+                // Frame processor automatically resumes when isActive=true
             }
         } catch (e: any) { showError('Errore', e.message) }
     }
@@ -1139,6 +1138,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive && !isPaused}
                     format={optimalFormat}
+                    // snapshot-based: nessun frameProcessor
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}

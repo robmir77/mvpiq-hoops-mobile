@@ -65,6 +65,7 @@ export const useVisionCamera = (): VisionCameraSetup => {
     }, [device])
 
     const optimalFormat = getOptimalFormat()
+    console.log('[VisionCamera] optimalFormat:', optimalFormat ? `${optimalFormat.videoWidth || optimalFormat.photoWidth}x${optimalFormat.videoHeight || optimalFormat.photoHeight}` : 'undefined')
 
     return { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat }
 }
