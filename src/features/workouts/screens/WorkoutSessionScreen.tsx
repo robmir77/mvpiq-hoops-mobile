@@ -919,8 +919,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         const ready = ballReady && poseReady
         setModelsReady(ready)
-        // Frame processor is automatically attached to Camera component
-    }, [ballReady, poseReady])
+        // Start snapshot-based inference loop when models are ready
+        if (ready && cameraRef.current) {
+            console.log('[WorkoutSession] Starting inference loop - models ready')
+            startInferenceLoop(cameraRef)
+        }
+    }, [ballReady, poseReady, startInferenceLoop])
 
     useEffect(() => {
         if (trackingState?.shotDetected && trackingState.shotResult)

@@ -497,9 +497,11 @@ export const useBallDetection = (
 
     // ── Loop ─────────────────────────────────────────────────
     const startInferenceLoop = useCallback((cameraRef: React.RefObject<Camera | null>) => {
+        console.log('[BallDetection] startInferenceLoop')
         if (timerRef.current) clearInterval(timerRef.current)
         log('Inference loop started')
         timerRef.current = setInterval(() => {
+            console.log('[BallDetection] inference tick')
             runInferenceFromSnapshot(cameraRef)
         }, INFERENCE_INTERVAL)
     }, [runInferenceFromSnapshot])
