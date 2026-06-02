@@ -932,7 +932,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 loopStartedRef.current = false
             }
         }
-    }, [ballReady, poseReady, startInferenceLoop, stopInferenceLoop])
+    }, [ballReady, poseReady])
 
     useEffect(() => {
         if (trackingState?.shotDetected && trackingState.shotResult)

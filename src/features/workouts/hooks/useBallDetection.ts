@@ -42,8 +42,8 @@ const ROI_SIZE_EXPAND_1       = 620
 const ROI_SIZE_EXPAND_2       = 780
 const MAX_MISSED_FRAMES       = 3
 const MAX_MISSED_BEFORE_SEARCH = 8
-const CONF_THRESHOLD_BALL     = 0.02
-const CONF_THRESHOLD_TRACK    = 0.02
+const CONF_THRESHOLD_BALL     = 0.01
+const CONF_THRESHOLD_TRACK    = 0.01
 
 const COCO_SPORTS_BALL = 32
 
@@ -374,7 +374,11 @@ export const useBallDetection = (
         cameraRef: React.RefObject<Camera | null>
     ) => {
         if (!sessionRef.current || !cameraRef.current) return
-        if (isInferring.current) { droppedFrames++; return }
+        if (isInferring.current) {
+            console.log('[BallDetection] Dropped inference - already processing')
+            droppedFrames++
+            return
+        }
         isInferring.current = true
         inferenceCount++
         incrementYoloFps()
@@ -391,6 +395,7 @@ export const useBallDetection = (
                 ),
             ])
             const t1 = performance.now()
+            console.log('[SNAPSHOT]', snapshot.width, 'x', snapshot.height, snapshot.path)
             console.log('[PERF] snapshot', (t1 - t0).toFixed(1), 'ms |', snapshot.width, 'x', snapshot.height)
 
             snapshotPath = snapshot.path
