@@ -830,6 +830,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat } = useVisionCamera()
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
+    const loopStartedRef  = useRef(false)
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
     const rafRef          = useRef<number | null>(null)
@@ -919,12 +920,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         const ready = ballReady && poseReady
         setModelsReady(ready)
-        // Start snapshot-based inference loop when models are ready
-        if (ready && cameraRef.current) {
+        // Start snapshot-based inference loop when models are ready (only once)
+        if (ready && cameraRef.current && !loopStartedRef.current) {
             console.log('[WorkoutSession] Starting inference loop - models ready')
+            loopStartedRef.current = true
             startInferenceLoop(cameraRef)
         }
-    }, [ballReady, poseReady, startInferenceLoop])
+        return () => {
+            if (loopStartedRef.current) {
+                stopInferenceLoop()
+                loopStartedRef.current = false
+            }
+        }
+    }, [ballReady, poseReady, startInferenceLoop, stopInferenceLoop])
 
     useEffect(() => {
         if (trackingState?.shotDetected && trackingState.shotResult)

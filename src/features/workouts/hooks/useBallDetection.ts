@@ -123,7 +123,38 @@ async function snapshotToRgb(snapshotPath: string): Promise<{
         rgb[base + 2] = (px >>> 16) & 0xFF   // B
     }
 
-    return { pixels: rgb, width, height }
+    // DOWNSCALE a SNAPSHOT_WIDTH per ridurre il tempo di decode
+    // takeSnapshot non supporta width, quindi ridimensioniamo qui
+    const targetWidth = SNAPSHOT_WIDTH
+    const targetHeight = Math.round(height * (targetWidth / width))
+    
+    // Se l'immagine è già più piccola del target, non ridimensionare
+    if (width <= targetWidth) {
+        return { pixels: rgb, width, height }
+    }
+
+    // Downsampling semplice con box sampling per performance
+    const downscaled = new Uint8Array(targetWidth * targetHeight * 3)
+    const scaleX = width / targetWidth
+    const scaleY = height / targetHeight
+
+    for (let y = 0; y < targetHeight; y++) {
+        const srcY = Math.floor(y * scaleY)
+        const dstRow = y * targetWidth * 3
+        const srcRow = srcY * width * 3
+        
+        for (let x = 0; x < targetWidth; x++) {
+            const srcX = Math.floor(x * scaleX)
+            const srcIdx = srcRow + srcX * 3
+            const dstIdx = dstRow + x * 3
+            
+            downscaled[dstIdx]     = rgb[srcIdx]     // R
+            downscaled[dstIdx + 1] = rgb[srcIdx + 1] // G
+            downscaled[dstIdx + 2] = rgb[srcIdx + 2] // B
+        }
+    }
+
+    return { pixels: downscaled, width: targetWidth, height: targetHeight }
 }
 
 // ─────────────────────────────────────────────────────────────
