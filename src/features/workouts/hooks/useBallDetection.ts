@@ -86,11 +86,14 @@ async function snapshotToRgb(snapshotPath: string): Promise<{
     pixels: Uint8Array; width: number; height: number
 }> {
     const uri    = snapshotPath.startsWith('file://') ? snapshotPath : `file://${snapshotPath}`
+    console.time('[PERF] readBase64')
     const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
     })
+    console.timeEnd('[PERF] readBase64')
 
     // Buffer.from è C++ in Hermes → ~5x più veloce di atob() + charCodeAt
+    console.time('[PERF] bufferFrom')
     let jpegBytes: Uint8Array
     if (typeof Buffer !== 'undefined') {
         jpegBytes = new Uint8Array(Buffer.from(base64, 'base64').buffer)
@@ -99,14 +102,17 @@ async function snapshotToRgb(snapshotPath: string): Promise<{
         jpegBytes = new Uint8Array(bin.length)
         for (let i = 0; i < bin.length; i++) jpegBytes[i] = bin.charCodeAt(i)
     }
+    console.timeEnd('[PERF] bufferFrom')
 
     // formatAsRGBA=false non esiste in jpeg-js, usiamo RGBA e convertiamo
     // useTArray=true → restituisce Uint8Array diretto senza toString
+    console.time('[PERF] jpegDecode')
     const { data: rgba, width, height } = jpeg.decode(jpegBytes, {
         useTArray:            true,
         formatAsRGBA:         true,   // default, esplicito per chiarezza
         tolerantDecoding:     true,   // non lancia su JPEG mal-formati
     })
+    console.timeEnd('[PERF] jpegDecode')
 
     // RGBA → RGB: stride 4 → stride 3
     // Ottimizzazione: leggi 4 byte come Uint32 e scrivi 3 byte (evita bounds check per ogni canale)
@@ -424,12 +430,14 @@ export const useBallDetection = (
                 const lb = lastBallRef.current
                 let cx = lb.x * width
                 let cy = lb.y * height
+                console.log('[TRACK ROI] center:', cx.toFixed(1), cy.toFixed(1), 'size:', currentRoiSize.current)
                 if (ballVelocity.current && consecutiveMissedFrames.current > 0) {
                     const dt = Math.min((now - lb.ts) / 1000, 0.5)
                     cx += ballVelocity.current.vx * width  * dt
                     cy += ballVelocity.current.vy * height * dt
                 }
                 const roi = cropROI(pixels, width, height, cx, cy, currentRoiSize.current)
+                console.log('[TRACK ROI] crop:', roi.offsetX, roi.offsetY, roi.cropWidth, roi.cropHeight)
                 pixelsToProcess = roi.pixels
                 processWidth    = roi.cropWidth
                 processHeight   = roi.cropHeight
@@ -465,6 +473,10 @@ export const useBallDetection = (
             // ── Update Tracking ─────────────────────────────────────
             const ballDet = detections.find(d => d.class === 'basketball') ?? null
             const thr     = trackingMode.current === 'TRACK' ? CONF_THRESHOLD_TRACK : CONF_THRESHOLD_BALL
+
+            if (ballDet) {
+                console.log('[BALL]', ballDet.centerX.toFixed(3), ballDet.centerY.toFixed(3), ballDet.bbox.width.toFixed(1), ballDet.bbox.height.toFixed(1), ballDet.confidence.toFixed(3))
+            }
 
             if (ballDet && ballDet.confidence >= thr) {
                 const prev = lastBallRef.current
