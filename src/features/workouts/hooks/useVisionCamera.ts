@@ -1,14 +1,15 @@
 // src/features/workouts/hooks/useVisionCamera.ts
 //
-// Gestisce setup camera con react-native-vision-camera v5.
-// v5: requestPermission() restituisce boolean direttamente (non 'granted'/'denied').
+// Gestisce setup camera con react-native-vision-camera v4.
+// Supporta Frame Processor per eliminare il bottleneck JPEG.
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
     useCameraDevice,
     useCameraPermission,
     CameraDevice,
 } from 'react-native-vision-camera'
+import type { RefObject } from 'react'
 
 export interface VisionCameraSetup {
     device: CameraDevice | undefined
@@ -17,14 +18,16 @@ export interface VisionCameraSetup {
     requestPermission: () => Promise<boolean>
     setIsActive: (v: boolean) => void
     optimalFormat?: any
+    cameraRef: RefObject<any>
 }
 
 export const useVisionCamera = (): VisionCameraSetup => {
     const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
     const device = useCameraDevice('back')
     const [isActive, setIsActive] = useState(false)
+    const cameraRef = useRef<any>(null)
 
-    // v5: reqPerm() restituisce boolean (true = concesso)
+    // reqPerm() restituisce boolean (true = concesso)
     const requestPermission = async (): Promise<boolean> => {
         return reqPerm()
     }
@@ -34,12 +37,13 @@ export const useVisionCamera = (): VisionCameraSetup => {
         else setIsActive(false)
     }, [hasPermission])
 
-    // Seleziona formato camera ottimizzato per rilevamento palla (960×540)
+    // Seleziona formato camera ottimizzato per rilevamento palla (640×480 o 960×540)
+    // Per Frame Processor, preferiamo risoluzioni più basse per performance
     const getOptimalFormat = useCallback(() => {
         if (!device?.formats) return undefined
-        // Cerca formato più vicino a 960×540 per ridurre carico CPU
-        const targetWidth = 960
-        const targetHeight = 540
+        // Cerca formato più vicino a 640×480 per ridurre carico CPU nel frame processor
+        const targetWidth = 640
+        const targetHeight = 480
         const targetRatio = targetWidth / targetHeight
 
         let bestFormat = device.formats[0]
@@ -65,7 +69,10 @@ export const useVisionCamera = (): VisionCameraSetup => {
     }, [device])
 
     const optimalFormat = getOptimalFormat()
-    console.log('[VisionCamera] optimalFormat:', optimalFormat ? `${optimalFormat.videoWidth || optimalFormat.photoWidth}x${optimalFormat.videoHeight || optimalFormat.photoHeight}` : 'undefined')
 
-    return { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat }
+    useEffect(() => {
+        console.log('[VisionCamera] optimalFormat:', optimalFormat ? `${optimalFormat.videoWidth || optimalFormat.photoWidth}x${optimalFormat.videoHeight || optimalFormat.photoHeight}` : 'undefined')
+    }, [optimalFormat])
+
+    return { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat, cameraRef }
 }

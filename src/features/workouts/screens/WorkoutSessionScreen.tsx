@@ -827,7 +827,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { alert, showError, showWarning } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
     const tracking = useTrackingEngine()
-    const { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat } = useVisionCamera()
+    const { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat, cameraRef: visionCameraRef } = useVisionCamera()
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
     const loopStartedRef  = useRef(false)
@@ -880,9 +880,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── Hook: pose detection (runPoseFromFrame triggerato dal frame processor ball) ──
     const { runPoseFromFrame, isReady: poseReady } = usePoseDetection(handlePose)
 
-    // ── Hook: ball detection snapshot-based (width:480, ~80-120ms vs 439ms YUV→RGB) ──
+    // ── Hook: ball detection con Frame Processor (YUV nativo, niente JPEG) ──
     const ballDetection = useBallDetection(handleDetection, runPoseFromFrame)
-    const { startInferenceLoop, stopInferenceLoop, isReady: ballReady, resetTracking: resetBallTracking } = ballDetection
+    const { startInferenceLoop, stopInferenceLoop, isReady: ballReady, resetTracking: resetBallTracking, frameProcessor } = ballDetection
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -920,11 +920,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         const ready = ballReady && poseReady
         setModelsReady(ready)
-        // Start snapshot-based inference loop when models are ready (only once)
-        if (ready && cameraRef.current && !loopStartedRef.current) {
-            console.log('[WorkoutSession] Starting inference loop - models ready')
+        // Start frame processor when models are ready (only once)
+        if (ready && !loopStartedRef.current) {
+            console.log('[WorkoutSession] Starting Frame Processor - models ready')
             loopStartedRef.current = true
-            startInferenceLoop(cameraRef)
+            startInferenceLoop()
         }
         return () => {
             if (loopStartedRef.current) {
@@ -932,7 +932,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 loopStartedRef.current = false
             }
         }
-    }, [ballReady, poseReady])
+    }, [ballReady, poseReady, startInferenceLoop, stopInferenceLoop])
 
     useEffect(() => {
         if (trackingState?.shotDetected && trackingState.shotResult)
@@ -1150,7 +1150,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive && !isPaused}
                     format={optimalFormat}
-                    // snapshot-based: nessun frameProcessor
+                    frameProcessor={frameProcessor}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}

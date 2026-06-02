@@ -48,7 +48,8 @@
     "react-native-svg": "15.11.2",
     "react-native-vector-icons": "^10.3.0",
     "react-native-vision-camera": "4.7.2",
-    "react-native-worklets-core": "^1.6.2"
+    "react-native-worklets-core": "^1.6.2",
+    "vision-camera-resize-plugin": "^3.0.0"
   },
   "devDependencies": {
     "@types/react": "~19.0.10",

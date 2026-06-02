@@ -68,6 +68,7 @@ export const useTrackingEngine = () => {
     const lastFrameTs  = useRef<number>(0)
     const lastShotTs   = useRef<number>(0)
     const peakY        = useRef<number>(Infinity)   // min y = punto più alto
+    const apexPoint    = useRef<{ x: number; y: number } | null>(null)  // memorizza apex point
     const inFlight     = useRef<boolean>(false)
 
     // ── Filtro palleggio ──────────────────────────────────────
@@ -76,9 +77,9 @@ export const useTrackingEngine = () => {
     /** Y al primo frame di salita — per misurare l'arco */
     const flightStartY  = useRef<number>(1.0)
 
-    const kalmanUpdate = useCallback((measX: number, measY: number): { x: number; y: number } => {
+    const kalmanUpdate = useCallback((measX: number, measY: number, frameTs: number): { x: number; y: number } => {
         const k  = kalman.current
-        const dt = Math.max(0.01, Math.min(0.1, (Date.now() - lastFrameTs.current) / 1000))
+        const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
 
         const predX = k.x + k.vx * dt
         const predY = k.y + k.vy * dt
@@ -102,25 +103,25 @@ export const useTrackingEngine = () => {
         frameTs: number
     ): TrackingState => {
         const current = state.current
-        const now     = Date.now()
-
-        // Debug: verifica se hoopPosition è impostato
-        if (!current.hoopPosition && !hoopDetection) {
-            console.log('[TrackingEngine] No hoop position set')
-        }
 
         if (ballDetection && ballDetection.confidence > 0.05) {
-            const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y)
+            const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
             current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }
             current.confidence   = ballDetection.confidence
 
             trajectory.current.push({ x: smoothed.x, y: smoothed.y, t: frameTs })
             if (trajectory.current.length > 90) trajectory.current.shift()
-            current.trajectory = [...trajectory.current]
+            // Only copy trajectory for UI when inFlight (reduces copies by ~80%)
+            if (inFlight.current) {
+                current.trajectory = [...trajectory.current]
+            }
 
             // Aggiorna picco (y minima = punto più alto dell'immagine)
-            if (smoothed.y < peakY.current) peakY.current = smoothed.y
+            if (smoothed.y < peakY.current) {
+                peakY.current = smoothed.y
+                apexPoint.current = { x: smoothed.x, y: smoothed.y }
+            }
         }
 
         if (hoopDetection && hoopDetection.confidence > 0.5) {
@@ -161,21 +162,21 @@ export const useTrackingEngine = () => {
 
         current.inFlight = inFlight.current
 
-        // ── Calculate apex point from trajectory ─────────────────────────
-        if (inFlight.current && trajectory.current.length > 0) {
-            const apex = trajectory.current.reduce((min, p) => p.y < min.y ? p : min, trajectory.current[0])
-            current.apexPoint = { x: apex.x, y: apex.y }
+        // ── Calculate trajectory metrics once per frame ─────────────────────
+        let trajectoryMetrics = null
+        if (inFlight.current && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
+            trajectoryMetrics = computeTrajectoryMetrics()
+            current.releaseAngle = trajectoryMetrics.releaseAngle
         }
 
-        // ── Calculate release angle from trajectory metrics ────────────────
-        if (inFlight.current && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
-            const metrics = computeTrajectoryMetrics()
-            current.releaseAngle = metrics.releaseAngle
+        // ── Use cached apex point instead of recalculating ─────────────────
+        if (inFlight.current && apexPoint.current) {
+            current.apexPoint = apexPoint.current
         }
 
         // ── Shot detection (MADE / MISS / AIRBALL) ────────────────────────
         const hoop       = current.hoopPosition
-        const cooldownOk = (now - lastShotTs.current) > SHOT_COOLDOWN_MS
+        const cooldownOk = (frameTs - lastShotTs.current) > SHOT_COOLDOWN_MS
 
         if (vel && hoop && ball && cooldownOk && !current.shotDetected) {
             const descending = vel.vy > DESCENDING_VY_THRESHOLD
@@ -190,42 +191,24 @@ export const useTrackingEngine = () => {
                 if (descendingTowardHoop && dist < HOOP_RADIUS_MADE) {
                     current.shotDetected = true
                     current.shotResult   = 'MADE'
-                    lastShotTs.current   = now
-                    // Calculate shot quality score
-                    const metrics = computeTrajectoryMetrics()
-                    const releaseAngleScore = current.releaseAngle
-                        ? (current.releaseAngle >= 45 && current.releaseAngle <= 55) ? 100
-                        : (current.releaseAngle >= 35 && current.releaseAngle <= 65) ? 70 : 30
-                        : 50
-                    const arcScore = Math.min(100, (metrics.arcHeight / 0.3) * 100)
-                    const smoothnessScore = metrics.smoothness * 100
-                    current.shotQuality = releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
+                    lastShotTs.current   = frameTs
+                    // Calculate shot quality score (reuse metrics and function)
+                    const metrics = trajectoryMetrics || computeTrajectoryMetrics()
+                    current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
                 } else if (descendingTowardHoop && dist >= HOOP_RADIUS_MADE) {
                     current.shotDetected = true
                     current.shotResult   = 'MISS'
-                    lastShotTs.current   = now
-                    // Calculate shot quality score
-                    const metrics = computeTrajectoryMetrics()
-                    const releaseAngleScore = current.releaseAngle
-                        ? (current.releaseAngle >= 45 && current.releaseAngle <= 55) ? 100
-                        : (current.releaseAngle >= 35 && current.releaseAngle <= 65) ? 70 : 30
-                        : 50
-                    const arcScore = Math.min(100, (metrics.arcHeight / 0.3) * 100)
-                    const smoothnessScore = metrics.smoothness * 100
-                    current.shotQuality = releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
+                    lastShotTs.current   = frameTs
+                    // Calculate shot quality score (reuse metrics and function)
+                    const metrics = trajectoryMetrics || computeTrajectoryMetrics()
+                    current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
                 } else if (descending && vel.vy > SHOT_LAUNCH_THRESHOLD * 2) {
                     current.shotDetected = true
                     current.shotResult   = dist < 0.25 ? 'MISS' : 'AIRBALL'
-                    lastShotTs.current   = now
-                    // Calculate shot quality score
-                    const metrics = computeTrajectoryMetrics()
-                    const releaseAngleScore = current.releaseAngle
-                        ? (current.releaseAngle >= 45 && current.releaseAngle <= 55) ? 100
-                        : (current.releaseAngle >= 35 && current.releaseAngle <= 65) ? 70 : 30
-                        : 50
-                    const arcScore = Math.min(100, (metrics.arcHeight / 0.3) * 100)
-                    const smoothnessScore = metrics.smoothness * 100
-                    current.shotQuality = releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
+                    lastShotTs.current   = frameTs
+                    // Calculate shot quality score (reuse metrics and function)
+                    const metrics = trajectoryMetrics || computeTrajectoryMetrics()
+                    current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
                 }
             }
         }
@@ -244,6 +227,7 @@ export const useTrackingEngine = () => {
         state.current.shotQuality = undefined
         trajectory.current         = []
         peakY.current              = Infinity
+        apexPoint.current          = null
         inFlight.current           = false
         risingFrames.current       = 0
         flightStartY.current       = 1.0
@@ -253,6 +237,7 @@ export const useTrackingEngine = () => {
         kalman.current      = { ...INITIAL_KALMAN }
         trajectory.current  = []
         peakY.current       = Infinity
+        apexPoint.current  = null
         inFlight.current    = false
         risingFrames.current = 0
         flightStartY.current = 1.0
@@ -278,7 +263,11 @@ export const useTrackingEngine = () => {
         const traj = trajectory.current
         if (traj.length < MIN_TRAJECTORY_FRAMES) return { arcHeight: 0, releaseAngle: 0, smoothness: 0 }
 
-        const minY       = Math.min(...traj.map(p => p.y))
+        // Replace Math.min(...traj.map()) with loop for better performance
+        let minY = Infinity
+        for (const p of traj) {
+            if (p.y < minY) minY = p.y
+        }
         const startY     = traj[0].y
         const arcHeight  = Math.max(0, startY - minY)
 
@@ -301,6 +290,20 @@ export const useTrackingEngine = () => {
         }
 
         return { arcHeight, releaseAngle, smoothness }
+    }, [])
+
+    // Extract reusable shot quality calculation
+    const calculateShotQuality = useCallback((
+        metrics: { arcHeight: number; releaseAngle: number; smoothness: number },
+        releaseAngle: number | undefined
+    ): number => {
+        const releaseAngleScore = releaseAngle
+            ? (releaseAngle >= 45 && releaseAngle <= 55) ? 100
+            : (releaseAngle >= 35 && releaseAngle <= 65) ? 70 : 30
+            : 50
+        const arcScore = Math.min(100, (metrics.arcHeight / 0.3) * 100)
+        const smoothnessScore = metrics.smoothness * 100
+        return releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
     }, [])
 
     // Ritorna sempre una copia fresca (include inFlight aggiornato)
