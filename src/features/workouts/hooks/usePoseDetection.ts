@@ -13,7 +13,7 @@ const MODEL_ASSET = require('../../../../assets/models/movenet_lightning.onnx')
 
 const INPUT_SIZE       = 192
 const SCORE_THRESHOLD  = 0.3
-const POSE_INTERVAL_MS = 150
+const POSE_INTERVAL_MS = 333
 
 const KP_MAP: Record<number, keyof PoseKeypoints> = {
     5:  'leftShoulder',  6:  'rightShoulder',

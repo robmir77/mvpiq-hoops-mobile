@@ -100,7 +100,7 @@ function parseYoloOutput(
 // ─────────────────────────────────────────────────────────────
 
 function preprocessFrame(
-    src: Uint8Array,
+    src: Uint8Array | number[],
     srcWidth: number,
     srcHeight: number
 ): Float32Array {
@@ -217,36 +217,60 @@ export const useFrameProcessor = (
         processFrame()
     }, [enabled])
 
-    // Create runOnJS function using createRunOnJS - Test 3: ONNX inference
+    // SharedValue for lock (works across worklet/JS boundary)
+    const isProcessingShared = useSharedValue(0)
+
+    // Create runOnJS function using createRunOnJS - with SharedValue lock and timing
     const processFrameDataJS = useMemo(() => {
         return Worklets.createRunOnJS(async (rgbArray: number[]) => {
-            console.log('[JS] start preprocess')
-
-            const rgb = Uint8Array.from(rgbArray)
-
-            const inputData = preprocessFrame(rgb, INPUT_SIZE, INPUT_SIZE)
-
-            console.log('[JS] preprocess ok, input length:', inputData.length)
-
-            const tensor = new Tensor('float32', inputData, [1, 3, INPUT_SIZE, INPUT_SIZE])
-
-            console.log('[JS] tensor ok')
-
-            const currentSession = sessionRefCopy.current
-            if (!currentSession?.current) {
-                console.log('[JS] no session')
+            if (isProcessingShared.value === 1) {
                 return
             }
 
-            console.log('[JS] before inference')
+            isProcessingShared.value = 1
 
+            const p0 = performance.now()
+            const inputData = preprocessFrame(rgbArray, INPUT_SIZE, INPUT_SIZE)
+            console.log('[JS] preprocess time:', (performance.now() - p0).toFixed(1), 'ms')
+
+            const tensor = new Tensor('float32', inputData, [1, 3, INPUT_SIZE, INPUT_SIZE])
+
+            const currentSession = sessionRefCopy.current
+            if (!currentSession?.current) {
+                isProcessingShared.value = 0
+                return
+            }
+
+            const t0 = performance.now()
             const outputs = await currentSession.current.run({ images: tensor })
+            console.log('[JS] inference time:', (performance.now() - t0).toFixed(1), 'ms')
 
-            console.log('[JS] after inference')
+            const output = outputs[Object.keys(outputs)[0]]
+            if (!output) {
+                isProcessingShared.value = 0
+                return
+            }
+
+            const detections = parseYoloOutput(
+                output.data as Float32Array,
+                output.dims,
+                INPUT_SIZE,
+                INPUT_SIZE
+            )
+
+            const ballDet = detections.find(d => d.class === 'basketball') ?? null
+
+            const rgb = Uint8Array.from(rgbArray)
+            onDetectionRef.current({
+                ball: ballDet,
+                frameTimestamp: Date.now()
+            }, rgb, INPUT_SIZE, INPUT_SIZE)
+
+            isProcessingShared.value = 0
         })
     }, [])
 
-    // Frame processor worklet - Test 1: preprocess
+    // Frame processor worklet
     const frameProcessor = useVisionCameraFrameProcessor((frame: Frame) => {
         'worklet'
 
@@ -264,11 +288,7 @@ export const useFrameProcessor = (
         const t1 = performance.now()
         console.log('[PERF] native resize:', (t1 - t0).toFixed(1), 'ms')
 
-        console.log('[WORKLET] before, converting to array')
-
         processFrameDataJS(Array.from(resized))
-
-        console.log('[WORKLET] after')
     }, [enabled, resize, processFrameDataJS])
 
     // SharedValue for throttling
