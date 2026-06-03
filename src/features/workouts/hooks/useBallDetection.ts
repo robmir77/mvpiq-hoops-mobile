@@ -14,7 +14,7 @@ import { DetectionResult } from '../types/workouts.types'
 import { incrementYoloFps } from './usePerformanceMonitor'
 import { useFrameProcessor, FrameProcessorResult } from './useFrameProcessor'
 
-const MODEL_ASSET = require('../../../../assets/models/yolov8n.onnx')
+const MODEL_ASSET = require('../../../../assets/models/yolov8n_320_int8.onnx')
 
 // ─────────────────────────────────────────────────────────────
 // CONFIG
@@ -135,7 +135,7 @@ export const useBallDetection = (
     }, [])
 
     // ── Handle Frame Processor Output ───────────────────────
-    const handleFrameProcessorResult = useCallback(async (result: FrameProcessorResult, rgbData?: Uint8Array, width?: number, height?: number) => {
+    const handleFrameProcessorResult = useCallback(async (result: FrameProcessorResult) => {
         const now = Date.now()
         inferenceCount++
         incrementYoloFps()
@@ -186,16 +186,11 @@ export const useBallDetection = (
             roiSize: trackingMode.current === 'TRACK' ? currentRoiSize.current : undefined,
         })
 
-        // Pass RGB data to pose detection if available
-        if (rgbData && width && height) {
-            await onPoseFrame?.(rgbData, width, height)
-        }
-
         if (Date.now() - lastLogTime > 3000) {
             log('stats', { inferences: inferenceCount, mode: trackingMode.current })
             lastLogTime = Date.now()
         }
-    }, [onDetection, onPoseFrame])
+    }, [onDetection])
 
     // ── Frame Processor ───────────────────────────────────────
     const frameProcessor = useFrameProcessor(

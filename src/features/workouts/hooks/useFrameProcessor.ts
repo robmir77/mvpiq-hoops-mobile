@@ -102,9 +102,9 @@ function parseYoloOutput(
 function preprocessFrame(
     src: Uint8Array | number[],
     srcWidth: number,
-    srcHeight: number
-): Float32Array {
-    const out       = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE)
+    srcHeight: number,
+    out: Float32Array
+): void {
     const invW      = srcWidth  / INPUT_SIZE
     const invH      = srcHeight / INPUT_SIZE
     const plane     = INPUT_SIZE * INPUT_SIZE
@@ -123,7 +123,6 @@ function preprocessFrame(
             out[plane * 2 + outIdx] = src[srcIdx + 2] * inv255 // B plane
         }
     }
-    return out
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -137,13 +136,16 @@ export interface FrameProcessorResult {
 
 export const useFrameProcessor = (
     sessionRef: React.RefObject<InferenceSession | null>,
-    onDetection: (result: FrameProcessorResult, rgbData?: Uint8Array, width?: number, height?: number) => void,
+    onDetection: (result: FrameProcessorResult) => void,
     enabled: boolean = true
 ) => {
     const isProcessing = useRef(false)
     const onDetectionRef = useRef(onDetection)
     const sessionRefCopy = useRef(sessionRef)
     const lastProcessTime = useRef(0)
+
+    // Reuse tensor buffer to avoid GC pressure (1.2 MB allocation per frame)
+    const inputBufferRef = useRef(new Float32Array(3 * INPUT_SIZE * INPUT_SIZE))
 
     // Use native resize plugin
     const { resize } = useResizePlugin()
@@ -153,69 +155,6 @@ export const useFrameProcessor = (
         onDetectionRef.current = onDetection
         sessionRefCopy.current = sessionRef
     }, [onDetection, sessionRef])
-
-    // Process frame data function (runs on JS thread)
-    const processFrameData = useCallback((rgbData: Uint8Array, width: number, height: number, timestamp: number) => {
-        if (!enabled || isProcessing.current) return
-
-        const processFrame = async () => {
-            const currentSession = sessionRefCopy.current
-            if (!currentSession?.current) return
-
-            isProcessing.current = true
-            const t0 = performance.now()
-
-            try {
-                console.log('[FRAME PROC] Received RGB data:', rgbData?.length)
-
-                // Preprocess: RGB → CHW Float32
-                const inputData = preprocessFrame(rgbData, width, height)
-                const t1 = performance.now()
-                console.log('[PERF] preprocess:', (t1 - t0).toFixed(1), 'ms')
-
-                // Create tensor and run inference
-                const tensor = new Tensor('float32', inputData, [1, 3, INPUT_SIZE, INPUT_SIZE])
-                const outputs = await currentSession.current.run({ images: tensor })
-                const t2 = performance.now()
-                console.log('[PERF] ONNX inference:', (t2 - t1).toFixed(1), 'ms')
-
-                const output = outputs[Object.keys(outputs)[0]]
-                if (!output) {
-                    console.error('[FRAME PROC] No output from ONNX')
-                    return
-                }
-
-                // Parse detections
-                const detections = parseYoloOutput(
-                    output.data as Float32Array,
-                    output.dims,
-                    width,
-                    height
-                )
-                const t3 = performance.now()
-                console.log('[PERF] postprocess:', (t3 - t2).toFixed(1), 'ms')
-                console.log('[PERF] TOTAL FRAME PROC:', (t3 - t0).toFixed(1), 'ms | dets:', detections.length)
-
-                // Find ball detection
-                const ballDet = detections.find(d => d.class === 'basketball') ?? null
-                if (ballDet) {
-                    console.log('[BALL]', ballDet.centerX.toFixed(3), ballDet.centerY.toFixed(3), ballDet.confidence.toFixed(3))
-                }
-
-                onDetectionRef.current({
-                    ball: ballDet,
-                    frameTimestamp: timestamp
-                }, rgbData, width, height)
-
-            } catch (e) {
-                console.error('[FRAME PROC] Error:', e)
-            } finally {
-                isProcessing.current = false
-            }
-        }
-
-        processFrame()
-    }, [enabled])
 
     // SharedValue for lock (works across worklet/JS boundary)
     const isProcessingShared = useSharedValue(0)
@@ -229,11 +168,9 @@ export const useFrameProcessor = (
 
             isProcessingShared.value = 1
 
-            const p0 = performance.now()
-            const inputData = preprocessFrame(rgbArray, INPUT_SIZE, INPUT_SIZE)
-            console.log('[JS] preprocess time:', (performance.now() - p0).toFixed(1), 'ms')
+            preprocessFrame(rgbArray, INPUT_SIZE, INPUT_SIZE, inputBufferRef.current)
 
-            const tensor = new Tensor('float32', inputData, [1, 3, INPUT_SIZE, INPUT_SIZE])
+            const tensor = new Tensor('float32', inputBufferRef.current, [1, 3, INPUT_SIZE, INPUT_SIZE])
 
             const currentSession = sessionRefCopy.current
             if (!currentSession?.current) {
@@ -241,9 +178,7 @@ export const useFrameProcessor = (
                 return
             }
 
-            const t0 = performance.now()
             const outputs = await currentSession.current.run({ images: tensor })
-            console.log('[JS] inference time:', (performance.now() - t0).toFixed(1), 'ms')
 
             const output = outputs[Object.keys(outputs)[0]]
             if (!output) {
@@ -260,11 +195,10 @@ export const useFrameProcessor = (
 
             const ballDet = detections.find(d => d.class === 'basketball') ?? null
 
-            const rgb = Uint8Array.from(rgbArray)
             onDetectionRef.current({
                 ball: ballDet,
                 frameTimestamp: Date.now()
-            }, rgb, INPUT_SIZE, INPUT_SIZE)
+            })
 
             isProcessingShared.value = 0
         })
@@ -276,17 +210,12 @@ export const useFrameProcessor = (
 
         if (!enabled) return
 
-        const t0 = performance.now()
-
         // Use native resize from vision-camera-resize-plugin
         const resized = resize(frame, {
             scale: { width: INPUT_SIZE, height: INPUT_SIZE },
             pixelFormat: 'rgb',
             dataType: 'uint8'
         })
-
-        const t1 = performance.now()
-        console.log('[PERF] native resize:', (t1 - t0).toFixed(1), 'ms')
 
         processFrameDataJS(Array.from(resized))
     }, [enabled, resize, processFrameDataJS])
