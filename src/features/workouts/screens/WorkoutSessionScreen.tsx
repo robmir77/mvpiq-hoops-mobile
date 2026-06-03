@@ -846,6 +846,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // ── Pose callback ─────────────────────────────────────────────────────
     const handlePose = useCallback((kp: PoseKeypoints, angles: Partial<JointAngles>) => {
+        console.log('[WorkoutSession] Pose keypoints:', Object.keys(kp).length, 'joints')
         setPoseKeypoints(kp)
         setJointAngles(angles)
     }, [])

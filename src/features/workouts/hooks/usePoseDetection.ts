@@ -136,6 +136,7 @@ export const usePoseDetection = (
 ) => {
     const sessionRef = useRef<InferenceSession | null>(null)
     const lastPoseTs = useRef(0)
+    const frameCount = useRef(0)
     const [isReady, setIsReady] = useState(false)
 
     // ── Caricamento modello ───────────────────────────────────────────────
@@ -174,15 +175,23 @@ export const usePoseDetection = (
         height: number
     ) => {
         if (!sessionRef.current) return
+
+        // Only run MoveNet every 5 frames (6 pose/sec at 30 FPS camera)
+        frameCount.current++
+        if (frameCount.current % 5 !== 0) return
+
         const now = Date.now()
         if (now - lastPoseTs.current < POSE_INTERVAL_MS) return
         lastPoseTs.current = now
         incrementMoveNetFps()
 
         try {
+            const t0 = performance.now()
             const inputData    = preprocessForMoveNetFromFloat32(pixels, width, height)
             const inputTensor  = new Tensor('int32', inputData, [1, INPUT_SIZE, INPUT_SIZE, 3])
             const outputMap    = await sessionRef.current.run({ input: inputTensor })
+            const t1 = performance.now()
+            console.log('[PoseDetection] Inference time:', (t1 - t0).toFixed(1), 'ms | Input size:', width, 'x', height)
             const outputKeys   = Object.keys(outputMap)
             const outputTensor = outputMap[outputKeys[0]]
             if (!outputTensor) { console.warn('[PoseDetection] nessun output'); return }

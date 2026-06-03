@@ -203,7 +203,9 @@ export const useFrameProcessor = (
                 const ballDet = detections.find(d => d.class === 'basketball') ?? null
 
                 // Pass Float32Array to MoveNet (no copy) - run in parallel with YOLO
-                const posePromise = onPoseFrameRef.current
+                // MoveNet expects 192x192, not 320x320
+                // Only run MoveNet in TRACK mode (when ball is detected)
+                const posePromise = ballDet && onPoseFrameRef.current
                     ? onPoseFrameRef.current(inputBufferRef.current, INPUT_SIZE, INPUT_SIZE)
                     : Promise.resolve()
 
