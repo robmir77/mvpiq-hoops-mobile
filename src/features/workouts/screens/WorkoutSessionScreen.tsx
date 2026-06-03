@@ -362,7 +362,6 @@ const TrackingOverlay = React.memo(({
                 {/* Skeleton pose + punti keypoints */}
                 {poseKeypoints && (
                     <Group>
-                        {/* Linee skeleton con colori differenziati */}
                         {SKELETON_CONNECTIONS.map(([a, b], i) => {
                             const kpA = poseKeypoints[a]
                             const kpB = poseKeypoints[b]
@@ -379,7 +378,6 @@ const TrackingOverlay = React.memo(({
                                 />
                             )
                         })}
-                        {/* Punti keypoints con colori differenziati per arto */}
                         {(Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
                             .filter(([_, kp]) => kp?.score >= KP_THRESH)
                             .map(([key, kp]) => {

@@ -12,7 +12,7 @@ import { incrementMoveNetFps } from './usePerformanceMonitor'
 const MODEL_ASSET = require('../../../../assets/models/movenet_lightning.onnx')
 
 const INPUT_SIZE       = 192
-const SCORE_THRESHOLD  = 0.3
+const SCORE_THRESHOLD  = 0.2 // Lower threshold to detect more keypoints
 const POSE_INTERVAL_MS = 1000 // Throttle to 1 fps to prioritize YOLO
 
 const KP_MAP: Record<number, keyof PoseKeypoints> = {
@@ -154,6 +154,8 @@ export const usePoseDetection = (
                     executionProviders: ['nnapi', 'cpu'],
                     graphOptimizationLevel: 'all',
                 })
+                console.log('[PoseDetection] Input names:', session.inputNames)
+                console.log('[PoseDetection] Output names:', session.outputNames)
                 if (mounted) {
                     sessionRef.current = session
                     setIsReady(true)
@@ -191,11 +193,13 @@ export const usePoseDetection = (
             const inputTensor  = new Tensor('int32', inputData, [1, INPUT_SIZE, INPUT_SIZE, 3])
             const outputMap    = await sessionRef.current.run({ input: inputTensor })
             const t1 = performance.now()
-            console.log('[PoseDetection] Inference time:', (t1 - t0).toFixed(1), 'ms | Input size:', width, 'x', height)
             const outputKeys   = Object.keys(outputMap)
             const outputTensor = outputMap[outputKeys[0]]
+            console.log('[PoseDetection] Inference time:', (t1 - t0).toFixed(1), 'ms | Input size:', width, 'x', height, '| Output dims:', outputTensor.dims)
             if (!outputTensor) { console.warn('[PoseDetection] nessun output'); return }
-            const keypoints = parseMoveNetOutput(outputTensor.data as Float32Array)
+            const rawData = outputTensor.data as Float32Array
+            console.log('[PoseDetection] RAW values:', rawData[0].toFixed(3), rawData[1].toFixed(3), rawData[2].toFixed(3), rawData[3].toFixed(3), rawData[4].toFixed(3), rawData[5].toFixed(3))
+            const keypoints = parseMoveNetOutput(rawData)
             handlePose(keypoints, computeJointAngles(keypoints))
         } catch (e) { console.error('[PoseDetection] Inference error:', e) }
     }, [handlePose])
