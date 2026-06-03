@@ -120,7 +120,7 @@ export const usePoseDetection = (
                 const modelPath = uri.startsWith('file://') ? uri.slice(7) : uri
                 console.log('[PoseDetection] Model path:', modelPath)
                 const session   = await InferenceSession.create(modelPath, {
-                    executionProviders: ['nnapi', 'cpu'], // NNAPI per hardware accelerazione su S21 Ultra
+                    executionProviders: ['nnapi', 'cpu'],
                     graphOptimizationLevel: 'all',
                 })
                 if (mounted) {

@@ -137,10 +137,12 @@ export interface FrameProcessorResult {
 export const useFrameProcessor = (
     sessionRef: React.RefObject<InferenceSession | null>,
     onDetection: (result: FrameProcessorResult) => void,
+    onPoseFrame?: (pixels: Uint8Array, width: number, height: number) => Promise<void>,
     enabled: boolean = true
 ) => {
     const isProcessing = useRef(false)
     const onDetectionRef = useRef(onDetection)
+    const onPoseFrameRef = useRef(onPoseFrame)
     const sessionRefCopy = useRef(sessionRef)
     const lastProcessTime = useRef(0)
 
@@ -153,8 +155,9 @@ export const useFrameProcessor = (
     // Update refs when values change
     useEffect(() => {
         onDetectionRef.current = onDetection
+        onPoseFrameRef.current = onPoseFrame
         sessionRefCopy.current = sessionRef
-    }, [onDetection, sessionRef])
+    }, [onDetection, onPoseFrame, sessionRef])
 
     // SharedValue for lock (works across worklet/JS boundary)
     const isProcessingShared = useSharedValue(0)
@@ -168,39 +171,49 @@ export const useFrameProcessor = (
 
             isProcessingShared.value = 1
 
-            preprocessFrame(rgbArray, INPUT_SIZE, INPUT_SIZE, inputBufferRef.current)
+            try {
+                preprocessFrame(rgbArray, INPUT_SIZE, INPUT_SIZE, inputBufferRef.current)
 
-            const tensor = new Tensor('float32', inputBufferRef.current, [1, 3, INPUT_SIZE, INPUT_SIZE])
+                const tensor = new Tensor('float32', inputBufferRef.current, [1, 3, INPUT_SIZE, INPUT_SIZE])
 
-            const currentSession = sessionRefCopy.current
-            if (!currentSession?.current) {
+                const currentSession = sessionRefCopy.current
+                if (!currentSession?.current) {
+                    isProcessingShared.value = 0
+                    return
+                }
+
+                const outputs = await currentSession.current.run({ images: tensor })
+
+                const output = outputs[Object.keys(outputs)[0]]
+                if (!output) {
+                    isProcessingShared.value = 0
+                    return
+                }
+
+                const detections = parseYoloOutput(
+                    output.data as Float32Array,
+                    output.dims,
+                    INPUT_SIZE,
+                    INPUT_SIZE
+                )
+
+                const ballDet = detections.find(d => d.class === 'basketball') ?? null
+
+                // Pass RGB data to MoveNet if callback provided
+                if (onPoseFrameRef.current) {
+                    const rgbUint8 = new Uint8Array(rgbArray)
+                    await onPoseFrameRef.current(rgbUint8, INPUT_SIZE, INPUT_SIZE)
+                }
+
+                onDetectionRef.current({
+                    ball: ballDet,
+                    frameTimestamp: Date.now()
+                })
+            } catch (e) {
+                console.error('[ERROR] processFrameDataJS:', e)
+            } finally {
                 isProcessingShared.value = 0
-                return
             }
-
-            const outputs = await currentSession.current.run({ images: tensor })
-
-            const output = outputs[Object.keys(outputs)[0]]
-            if (!output) {
-                isProcessingShared.value = 0
-                return
-            }
-
-            const detections = parseYoloOutput(
-                output.data as Float32Array,
-                output.dims,
-                INPUT_SIZE,
-                INPUT_SIZE
-            )
-
-            const ballDet = detections.find(d => d.class === 'basketball') ?? null
-
-            onDetectionRef.current({
-                ball: ballDet,
-                frameTimestamp: Date.now()
-            })
-
-            isProcessingShared.value = 0
         })
     }, [])
 

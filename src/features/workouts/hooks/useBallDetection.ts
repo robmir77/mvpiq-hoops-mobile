@@ -98,6 +98,7 @@ export const useBallDetection = (
     const sessionRef  = useRef<InferenceSession | null>(null)
     const [isReady, setIsReady] = useState(false)
     const [frameProcessorEnabled, setFrameProcessorEnabled] = useState(false)
+    const onPoseFrameRef = useRef(onPoseFrame)
 
     const trackingMode           = useRef<'SEARCH' | 'TRACK'>('SEARCH')
     const lastBallRef            = useRef<{ x: number; y: number; ts: number } | null>(null)
@@ -118,7 +119,7 @@ export const useBallDetection = (
                 const modelPath = uri.startsWith('file://') ? uri.slice(7) : uri
                 log('Model path:', modelPath)
                 const session   = await InferenceSession.create(modelPath, {
-                    executionProviders: ['nnapi', 'cpu'], // NNAPI per hardware accelerazione su S21 Ultra
+                    executionProviders: ['nnapi', 'cpu'],
                     graphOptimizationLevel: 'all',
                 })
                 if (mounted) {
@@ -133,6 +134,11 @@ export const useBallDetection = (
         load()
         return () => { mounted = false }
     }, [])
+
+    // ── Update ref when callback changes ─────────────────────
+    useEffect(() => {
+        onPoseFrameRef.current = onPoseFrame
+    }, [onPoseFrame])
 
     // ── Handle Frame Processor Output ───────────────────────
     const handleFrameProcessorResult = useCallback(async (result: FrameProcessorResult) => {
@@ -196,6 +202,7 @@ export const useBallDetection = (
     const frameProcessor = useFrameProcessor(
         sessionRef,
         handleFrameProcessorResult,
+        onPoseFrameRef.current,
         frameProcessorEnabled
     )
 
