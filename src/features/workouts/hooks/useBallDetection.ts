@@ -14,21 +14,16 @@ import { DetectionResult } from '../types/workouts.types'
 import { incrementYoloFps } from './usePerformanceMonitor'
 import { useFrameProcessor, FrameProcessorResult } from './useFrameProcessor'
 
-const MODEL_ASSET = require('../../../../assets/models/yolov8n_320_int8.onnx')
+const MODEL_ASSET = require('../../../../assets/models/ball_rimV8.onnx')
 
 // ─────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────
 
 const INPUT_SIZE         = 320
-const NMS_IOU_THRESHOLD  = 0.4
 const CONF_THRESHOLD_BALL     = 0.01
 const CONF_THRESHOLD_TRACK    = 0.01
 
-const COCO_SPORTS_BALL = 32
-
-// SEARCH mode: crop centrale per ridurre pixels da processare
-const SEARCH_CROP_SIZE   = 480
 
 // TRACK mode: ROI attorno all'ultima posizione nota
 const ROI_SIZE_INITIAL        = 480
@@ -119,21 +114,13 @@ export const useBallDetection = (
                 const modelPath = uri.startsWith('file://') ? uri.slice(7) : uri
                 log('Model path:', modelPath)
                 const session   = await InferenceSession.create(modelPath, {
-                    executionProviders: ['nnapi', 'cpu'],
+                    executionProviders: ['cpu'], // NNAPI non supporta Split nel nuovo modello
                     graphOptimizationLevel: 'all',
                 })
                 if (mounted) {
                     sessionRef.current = session
                     setIsReady(true)
                     log('Model loaded ✓ | Inputs:', session.inputNames, '| Outputs:', session.outputNames)
-
-                    // Test inference to check if NNAPI is active
-                    const t0 = Date.now()
-                    const testTensor = new Tensor('float32', new Float32Array(3 * INPUT_SIZE * INPUT_SIZE), [1, 3, INPUT_SIZE, INPUT_SIZE])
-                    await session.run({ images: testTensor })
-                    const t1 = Date.now()
-                    const nnapiActive = (t1 - t0) < 200
-                    log('First inference time:', t1 - t0, 'ms | NNAPI active:', nnapiActive)
                 }
             } catch (e) {
                 console.error('[BallDetection] model load error:', e)

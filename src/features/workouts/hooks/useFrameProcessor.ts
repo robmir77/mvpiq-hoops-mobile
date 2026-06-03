@@ -18,7 +18,7 @@ import type { Frame } from 'react-native-vision-camera'
 const INPUT_SIZE = 320
 const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD_BALL = 0.01
-const COCO_SPORTS_BALL = 32
+const COCO_SPORTS_BALL = 0
 
 // ─────────────────────────────────────────────────────────────
 // IOU + NMS (copied from useBallDetection for use in JS thread)
@@ -56,33 +56,36 @@ function parseYoloOutput(
     imgH: number
 ): DetectionResult[] {
     const N   = dims[2]
-    const col = (4 + COCO_SPORTS_BALL) * N
+    const numClasses = dims[1] - 4 // 6 total - 4 bbox = 2 classes
 
     const raw: number[][] = []
     const threshold = CONF_THRESHOLD_BALL
 
     for (let i = 0; i < N; i++) {
-        const score = output[col + i]
-        if (score < threshold) continue
-
         const cx = output[i]
         const cy = output[N + i]
         const w  = output[N * 2 + i]
         const h  = output[N * 3 + i]
 
-        raw.push([
-            (cx - w * 0.5) / INPUT_SIZE,
-            (cy - h * 0.5) / INPUT_SIZE,
-            (cx + w * 0.5) / INPUT_SIZE,
-            (cy + h * 0.5) / INPUT_SIZE,
-            score,
-            COCO_SPORTS_BALL
-        ])
+        // Parse 2 classes: ball (index 4), rim (index 5)
+        for (let c = 0; c < numClasses; c++) {
+            const score = output[N * (4 + c) + i]
+            if (score < threshold) continue
+
+            raw.push([
+                (cx - w * 0.5) / INPUT_SIZE,
+                (cy - h * 0.5) / INPUT_SIZE,
+                (cx + w * 0.5) / INPUT_SIZE,
+                (cy + h * 0.5) / INPUT_SIZE,
+                score,
+                c // class index: 0 = ball, 1 = rim
+            ])
+        }
     }
 
     return nms(raw, NMS_IOU_THRESHOLD)
-        .map(([x1, y1, x2, y2, conf]) => ({
-            class: 'basketball',
+        .map(([x1, y1, x2, y2, conf, classIndex]) => ({
+            class: classIndex === 0 ? 'basketball' : 'rim',
             confidence: conf,
             bbox: {
                 x:      x1 * imgW,

@@ -79,7 +79,7 @@ export interface CalibrationData {
 
 // ─── AI Tracking ──────────────────────────────────────────────
 export interface DetectionResult {
-    class: 'basketball' | 'hoop' | 'player'
+    class: 'basketball' | 'rim'
     confidence: number
     bbox: { x: number; y: number; width: number; height: number }
     centerX: number
