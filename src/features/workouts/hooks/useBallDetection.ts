@@ -118,7 +118,7 @@ export const useBallDetection = (
                 const modelPath = uri.startsWith('file://') ? uri.slice(7) : uri
                 log('Model path:', modelPath)
                 const session   = await InferenceSession.create(modelPath, {
-                    executionProviders: ['cpu'],
+                    executionProviders: ['nnapi', 'cpu'], // NNAPI per hardware accelerazione su S21 Ultra
                     graphOptimizationLevel: 'all',
                 })
                 if (mounted) {
