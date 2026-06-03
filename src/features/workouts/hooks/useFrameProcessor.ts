@@ -137,7 +137,7 @@ export interface FrameProcessorResult {
 export const useFrameProcessor = (
     sessionRef: React.RefObject<InferenceSession | null>,
     onDetection: (result: FrameProcessorResult) => void,
-    onPoseFrame?: (pixels: Uint8Array, width: number, height: number) => Promise<void>,
+    onPoseFrame?: (pixels: Float32Array, width: number, height: number) => Promise<void>,
     enabled: boolean = true
 ) => {
     const isProcessing = useRef(false)
@@ -199,16 +199,18 @@ export const useFrameProcessor = (
 
                 const ballDet = detections.find(d => d.class === 'basketball') ?? null
 
-                // Pass RGB data to MoveNet if callback provided
-                if (onPoseFrameRef.current) {
-                    const rgbUint8 = new Uint8Array(rgbArray)
-                    await onPoseFrameRef.current(rgbUint8, INPUT_SIZE, INPUT_SIZE)
-                }
+                // Pass Float32Array to MoveNet (no copy) - run in parallel with YOLO
+                const posePromise = onPoseFrameRef.current
+                    ? onPoseFrameRef.current(inputBufferRef.current, INPUT_SIZE, INPUT_SIZE)
+                    : Promise.resolve()
 
                 onDetectionRef.current({
                     ball: ballDet,
                     frameTimestamp: Date.now()
                 })
+
+                // Don't await MoveNet - let it run in background
+                posePromise.catch(e => console.error('[ERROR] MoveNet:', e))
             } catch (e) {
                 console.error('[ERROR] processFrameDataJS:', e)
             } finally {

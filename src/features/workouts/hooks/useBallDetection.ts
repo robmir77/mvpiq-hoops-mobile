@@ -8,7 +8,7 @@
 // Performance target: 20-50ms/frame invece di 1745ms/frame (~0.5 FPS → 20+ FPS)
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { InferenceSession } from 'onnxruntime-react-native'
+import { InferenceSession, Tensor } from 'onnxruntime-react-native'
 import { Asset } from 'expo-asset'
 import { DetectionResult } from '../types/workouts.types'
 import { incrementYoloFps } from './usePerformanceMonitor'
@@ -93,7 +93,7 @@ function nms(dets: number[][], thr: number): number[][] {
 
 export const useBallDetection = (
     onDetection: (r: BallDetectionResult) => void,
-    onPoseFrame?: (pixels: Uint8Array, width: number, height: number) => Promise<void>
+    onPoseFrame?: (pixels: Float32Array, width: number, height: number) => Promise<void>
 ) => {
     const sessionRef  = useRef<InferenceSession | null>(null)
     const [isReady, setIsReady] = useState(false)
@@ -126,6 +126,14 @@ export const useBallDetection = (
                     sessionRef.current = session
                     setIsReady(true)
                     log('Model loaded ✓ | Inputs:', session.inputNames, '| Outputs:', session.outputNames)
+
+                    // Test inference to check if NNAPI is active
+                    const t0 = Date.now()
+                    const testTensor = new Tensor('float32', new Float32Array(3 * INPUT_SIZE * INPUT_SIZE), [1, 3, INPUT_SIZE, INPUT_SIZE])
+                    await session.run({ images: testTensor })
+                    const t1 = Date.now()
+                    const nnapiActive = (t1 - t0) < 200
+                    log('First inference time:', t1 - t0, 'ms | NNAPI active:', nnapiActive)
                 }
             } catch (e) {
                 console.error('[BallDetection] model load error:', e)
