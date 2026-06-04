@@ -1,4 +1,136 @@
-// src/features/workouts/screens/WorkoutSessionScreen.tsx
+// Android Bundled 21ms src\config\appConfig.ts (1 module)
+//  LOG  Creazione sessione con payload: {"cameraMode": "ANGLE_45", "courtType": "HALF_COURT"}
+//  LOG  User ID: d952f45e-8db7-4b36-9025-4afd04b9cefd
+//  LOG  API call: POST /workouts/sessions {"payload": {"cameraMode": "ANGLE_45", "courtType": "HALF_COURT"}, "userId": "d952f45e-8db7-4b36-9025-4afd04b9cefd"}
+//  LOG  API response: {"cameraMode": "ANGLE_45", "courtType": "HALF_COURT", "createdAt": "2026-06-04T22:30:20.4340761+02:00", "endTime": null, "id": "1d9289d6-c945-439b-829c-b7203585ceea", "madeShots": 0, "playerId": "d952f45e-8db7-4b36-9025-4afd04b9cefd", "recentShots": null, "sessionStatus": "ACTIVE", "shootingPercentage": null, "startTime": "2026-06-04T22:30:20.4340761+02:00", "status": "ACTIVE", "totalShots": 0, "updatedAt": "2026-06-04T22:30:20.4340761+02:00"}
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: false
+//  LOG  Loading Tensorflow Lite Model 7
+//  LOG  Resolved Model path: http://localhost:8081/assets/?unstable_path=.%2Fassets%2Fmodels/ball_rimV8_float16.tflite?platform=android&hash=9e5678739e5a5909dd7b6e276c515898
+//  LOG  [WorkoutSession] isModelReady: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: false
+//  LOG  Model loaded!
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [WorkoutSession] isModelReady: true
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [WorkoutSession] Calibration loaded {"x": 0.723388671875, "y": 0.18100878586884672}
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [PERF]
+//  LOG  YOLO............. 0 fps
+//  LOG  MoveNet.......... 0 fps
+//  LOG  Tracking Updates. 0 /sec
+//  LOG  Overlay Renders.. 2 /sec
+//  LOG  Path Build....... 0.00 ms
+//  LOG  Overlay Render... 0.00 ms
+//  LOG  JS FPS........... 2
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Inference complete, output size: 12600
+//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
+//  LOG  [useYoloDetector] Hook called, enabled: true
+//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
+//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
+//  LOG  [YOLO Worklet] Model accessible, running inference
+//  LOG  [YOLO Worklet] Resize complete, size: 307200
+//  LOG  [YOLO Worklet] CHW conversion complete
 //
 // Integrazione completa Opzione A:
 //  - react-native-vision-camera v4 (rimpiazza expo-camera)
@@ -29,10 +161,8 @@ import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
-import { useVisionCamera } from '../hooks/useVisionCamera'
-import { useBallDetection, BallDetectionResult } from '../hooks/useBallDetection'
+import { useCameraPipeline } from '@/vision'
 import type { Camera as CameraType } from 'react-native-vision-camera'
-import { usePoseDetection, JointAngles } from '../hooks/usePoseDetection'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordOverlayRenderTime, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
 import {
     WorkoutSession, ShotResult, AddShotEventPayload,
@@ -44,6 +174,7 @@ import {
     saveFrameData, savePoseAnalysis,
 } from '../api/workouts.api'
 import apiClient from '@/shared/api/apiClient'
+import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -825,7 +956,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { alert, showError, showWarning } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
     const tracking = useTrackingEngine()
-    const { device, hasPermission, isActive, requestPermission, setIsActive, optimalFormat, cameraRef: visionCameraRef } = useVisionCamera()
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
     const loopStartedRef  = useRef(false)
@@ -842,32 +972,45 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return () => stopPerfMonitor()
     }, [])
 
-    // ── Pose callback ─────────────────────────────────────────────────────
-    const handlePose = useCallback((kp: PoseKeypoints, angles: Partial<JointAngles>) => {
-        console.log('[WorkoutSession] Pose keypoints:', Object.keys(kp).length, 'joints')
-        setPoseKeypoints(kp)
-        setJointAngles(angles)
+    // ── Pose callback (new architecture) ─────────────────────────────────────
+    const handlePoseResult = useCallback((result: PoseResult) => {
+        console.log('[WorkoutSession] Pose keypoints:', Object.keys(result.keypoints).length, 'joints')
+        setPoseKeypoints(result.keypoints)
+        setJointAngles(result.angles)
     }, [])
 
-    // ── Ball detection callback ───────────────────────────────────────────
-    const handleDetection = useCallback((result: BallDetectionResult) => {
+    // ── Ball detection callback (new architecture) ────────────────────────
+    const handleBallDetection = useCallback((detection: BallDetection) => {
+        const ball = detection.ball
+        if (ball) {
+            console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y)
+        }
+        // Rim comes from calibration, not YOLO
+        const rimFromCalibration = calibration?.hoopCenter ? {
+            x: calibration.hoopCenter.x * 640, // Assuming 640px width
+            y: calibration.hoopCenter.y * 480, // Assuming 480px height
+            width: 50,
+            height: 50,
+            confidence: 1.0,
+        } : null
+        
         const newState = tracking.processFrame(
-            result.ball  ? { x: result.ball.centerX,  y: result.ball.centerY,  confidence: result.ball.confidence }  : null,
-            result.hoop  ? { x: result.hoop.centerX,  y: result.hoop.centerY,  confidence: result.hoop.confidence }  : null,
-            result.frameTimestamp
+            ball ? { x: ball.x + ball.width/2, y: ball.y + ball.height/2, confidence: ball.confidence } : null,
+            rimFromCalibration ? { x: rimFromCalibration.x, y: rimFromCalibration.y, confidence: rimFromCalibration.confidence } : null,
+            detection.timestamp
         )
         // Aggiorna l'overlay direttamente — non aspettare il RAF loop
         incrementTrackingUpdates()
         setTrackingState({ ...newState })
-        if (result.ball || result.hoop) {
+        if (ball || rimFromCalibration) {
             frameBatch.current.push({
-                frameTimestamp:   result.frameTimestamp,
-                ballX:            result.ball?.centerX,
-                ballY:            result.ball?.centerY,
-                ballConfidence:   result.ball?.confidence,
-                hoopX:            result.hoop?.centerX,
-                hoopY:            result.hoop?.centerY,
-                hoopConfidence:   result.hoop?.confidence,
+                frameTimestamp:   detection.timestamp,
+                ballX:            ball ? ball.x + ball.width/2 : undefined,
+                ballY:            ball ? ball.y + ball.height/2 : undefined,
+                ballConfidence:   ball?.confidence,
+                hoopX:            rimFromCalibration ? rimFromCalibration.x : undefined,
+                hoopY:            rimFromCalibration ? rimFromCalibration.y : undefined,
+                hoopConfidence:   rimFromCalibration?.confidence,
                 ballVelocityX:    newState.ballVelocity?.vx,
                 ballVelocityY:    newState.ballVelocity?.vy,
                 shotDetected:     newState.shotDetected,
@@ -876,18 +1019,93 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [tracking])
 
-    // ── Hook: pose detection (runPoseFromFrame triggerato dal frame processor ball) ──
-    const { runPoseFromFrame, isReady: poseReady } = usePoseDetection(handlePose)
+    // ── Shot event callback (new architecture) ───────────────────────────
+    const handleShotEvent = useCallback((event: ShotEvent) => {
+        console.log('[WorkoutSession] Shot event:', event)
+        if (event.shotMade) {
+            handleAutoShotDetected('MADE')
+        } else if (event.shotReleased) {
+            // Shot released but not yet determined if made
+            // Could trigger intermediate UI feedback
+        }
+    }, [])
 
-    // ── Hook: ball detection con Frame Processor (YUV nativo, niente JPEG) ──
-    const ballDetection = useBallDetection(handleDetection, runPoseFromFrame)
-    const { startInferenceLoop, stopInferenceLoop, isReady: ballReady, resetTracking: resetBallTracking, frameProcessor } = ballDetection
+    // ── New architecture: useCameraPipeline integrates everything ─────────
+    const rimFromCalibration = calibration?.hoopCenter ? {
+        x: calibration.hoopCenter.x * 640,
+        y: calibration.hoopCenter.y * 480,
+        width: 50,
+        height: 50,
+    } : null
+
+    const handlePoseRequestRef = useRef<(() => Promise<void>) | null>(null)
+
+    const {
+        device,
+        hasPermission,
+        isActive,
+        requestPermission,
+        setIsActive,
+        cameraRef: pipelineCameraRef,
+        frameProcessor,
+        isModelReady,
+        resetShotTracking,
+        runPoseFromSnapshot,
+    } = useCameraPipeline(
+        handleBallDetection, 
+        handlePoseResult, 
+        handleShotEvent, 
+        () => handlePoseRequestRef.current?.(), 
+        rimFromCalibration,
+        true
+    )
+
+    // ── Pose request callback - takes snapshot and runs pose detection ───────
+    const handlePoseRequest = useCallback(async () => {
+        console.log('[WorkoutSession] Pose request - taking snapshot')
+        if (!cameraRef.current || !runPoseFromSnapshot) {
+            console.log('[WorkoutSession] Camera or pose detector not ready')
+            return
+        }
+
+        try {
+            const snapshot = await cameraRef.current.takeSnapshot({
+                quality: 80,
+            })
+            
+            if (snapshot && runPoseFromSnapshot) {
+                console.log('[WorkoutSession] Snapshot taken, running pose detection')
+                // Read snapshot file to get buffer
+                const response = await fetch(`file://${snapshot.path}`)
+                const buffer = await response.arrayBuffer()
+                const data = new Uint8Array(buffer)
+                runPoseFromSnapshot(data, snapshot.width, snapshot.height)
+            }
+        } catch (e) {
+            console.error('[WorkoutSession] Snapshot error:', e)
+        }
+    }, [runPoseFromSnapshot])
+
+    useEffect(() => {
+        handlePoseRequestRef.current = handlePoseRequest
+    }, [handlePoseRequest])
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
         loadSession()
         batchTimer.current = setInterval(flushFrameBatch, 2000)
-
+        
+        console.log('[WorkoutSession] Debug timer setup - runPoseFromSnapshot:', !!runPoseFromSnapshot, 'cameraRef.current:', !!cameraRef.current)
+        
+        // Debug: trigger pose detection every 2 seconds for testing
+        const poseDebugTimer = setInterval(() => {
+            console.log('[WorkoutSession] Debug timer tick - runPoseFromSnapshot:', !!runPoseFromSnapshot, 'cameraRef.current:', !!cameraRef.current)
+            if (runPoseFromSnapshot && cameraRef.current) {
+                console.log('[WorkoutSession] Debug: triggering pose detection')
+                handlePoseRequest()
+            }
+        }, 2000)
+        
         const rafLoop = () => {
             if (!isActiveRef.current) return
             const s = tracking.getState()
@@ -910,28 +1128,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return () => {
             isActiveRef.current = false
             setIsActive(false)
-            stopInferenceLoop()
             if (batchTimer.current) clearInterval(batchTimer.current)
             if (rafRef.current)     cancelAnimationFrame(rafRef.current)
+            clearInterval(poseDebugTimer)
         }
     }, [])
 
+    // Avvio: quando il modello è pronto
     useEffect(() => {
-        const ready = ballReady && poseReady
-        setModelsReady(ready)
-        // Start frame processor when models are ready (only once)
-        if (ready && !loopStartedRef.current) {
-            console.log('[WorkoutSession] Starting Frame Processor - models ready')
-            loopStartedRef.current = true
-            startInferenceLoop()
-        }
-        return () => {
-            if (loopStartedRef.current) {
-                stopInferenceLoop()
-                loopStartedRef.current = false
-            }
-        }
-    }, [ballReady, poseReady, startInferenceLoop, stopInferenceLoop])
+        console.log('[WorkoutSession] isModelReady:', isModelReady)
+        setModelsReady(isModelReady)
+    }, [isModelReady])
 
     useEffect(() => {
         if (trackingState?.shotDetected && trackingState.shotResult)
@@ -943,6 +1150,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         try {
             const s = await getWorkoutSession(sessionId, user.id)
             setSession(s)
+            setIsActive(true) // Activate camera when session loads
             setShotCount({ total: s.totalShots, made: s.madeShots })
             try {
                 const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
@@ -1070,12 +1278,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 await pauseWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'PAUSED' })
                 setIsActive(false)
-                // Frame processor automatically pauses when isActive=false
             } else {
                 await resumeWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'ACTIVE' })
                 setIsActive(true)
-                // Frame processor automatically resumes when isActive=true
             }
         } catch (e: any) { showError('Errore', e.message) }
     }
@@ -1148,7 +1354,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    format={optimalFormat}
                     frameProcessor={frameProcessor}
                 />
 

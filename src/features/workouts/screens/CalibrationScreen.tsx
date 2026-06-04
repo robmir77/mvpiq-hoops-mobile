@@ -17,7 +17,7 @@ import Svg, {
 import { Camera } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData } from '../types/workouts.types'
-import { useVisionCamera } from '../hooks/useVisionCamera'
+import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
@@ -503,7 +503,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const { sessionId, cameraMode: rawMode } = route.params || {}
     const cameraMode: CameraMode = rawMode || 'ANGLE_45'
     const { user } = useContext(AuthContext) || {}
-    const { device, hasPermission, isActive, requestPermission } = useVisionCamera()
+    const { hasPermission, requestPermission } = useCameraPermission()
+    const device = useCameraDevice('back')
+    const [isActive, setIsActive] = useState(true)
 
     const [step, setStep] = useState<CalibStep>('hoop')
     const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
