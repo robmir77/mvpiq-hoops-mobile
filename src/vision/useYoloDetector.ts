@@ -33,9 +33,12 @@ export const useYoloDetector = (
   const { resize } = useResizePlugin()
   
   // Create runOnJS callback - receives ONLY BallDetection (coordinates)
-  const onDetectionJS = (Worklets.createRunOnJS as any)((detection: BallDetection) => {
-    onDetectionRef.current(detection)
-  })
+  // Memoized with useRef to prevent worklet rebuild on every render
+  const onDetectionJS = useRef(
+    (Worklets.createRunOnJS as any)((detection: BallDetection) => {
+      onDetectionRef.current(detection)
+    })
+  ).current
   
   // Frame processor - runs YOLO entirely in worklet
   const frameProcessor = useVisionCameraFrameProcessor((frame: Frame) => {
@@ -79,7 +82,7 @@ export const useYoloDetector = (
       } : undefined,
       timestamp: Date.now(),
     })
-  }, [enabled, tfModel.state, tfModel.model, resize, onDetectionJS])
+  }, [enabled, tfModel.state, tfModel.model, resize])
   
   const isModelReady = tfModel.state === 'loaded' && tfModel.model != null
   

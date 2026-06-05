@@ -658,11 +658,6 @@ const TrackingOverlay = React.memo(({
             }
         </>
     )
-
-    useEffect(() => {
-        const renderTime = performance.now() - renderStart
-        recordOverlayRenderTime(renderTime)
-    })
 })
 
 const ovStyles = StyleSheet.create({
@@ -922,7 +917,54 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 trajectoryData:   { points: newState.trajectory.slice(-10) },
             })
         }
-    }, [tracking])
+    }, [tracking, calibration])
+
+    // ── Auto shot detection handler (must be defined before handleShotEvent) ─────
+    const handleAutoShotDetected = useCallback(async (result: ShotResult) => {
+        if (!user?.id || !sessionId || isRecordingRef.current) return
+        isRecordingRef.current = true
+        setIsRecording(true)
+        try {
+            const state   = tracking.getState()
+            const metrics = tracking.computeTrajectoryMetrics()
+            const coords  = toCourtMeters(
+                state.ballPosition?.x ?? 0.5,
+                state.ballPosition?.y ?? 0.5,
+                calibration
+            )
+            const shot = await addShotEvent(sessionId, user.id, {
+                timestampMs: Date.now(), shotResult: result, ...coords,
+                releaseAngle:        metrics.releaseAngle,
+                detectionConfidence: state.confidence,
+                trackingData: JSON.stringify({
+                    autoDetected: true,
+                    arcHeight:    metrics.arcHeight,
+                    smoothness:   metrics.smoothness,
+                }),
+            })
+            if (Object.keys(jointAngles).length > 0) {
+                await savePoseAnalysis(sessionId, user.id, {
+                    shotEventId:   shot.id,
+                    ...jointAngles,
+                    releaseAngle:  metrics.releaseAngle,
+                    releaseHeight: metrics.arcHeight,
+                    shotSmoothness: metrics.smoothness,
+                })
+            }
+            setLastShotResult(result)
+            setShotCount(prev => ({
+                total: prev.total + 1,
+                made:  result === 'MADE' ? prev.made + 1 : prev.made,
+            }))
+            feedbackOpacity.setValue(1)
+            Animated.timing(feedbackOpacity, {
+                toValue: 0, duration: 1400,
+                easing: Easing.out(Easing.ease), useNativeDriver: true,
+            }).start()
+            tracking.resetShot()
+        } catch (e: any) { showError('Errore tiro', e.message) }
+        finally { isRecordingRef.current = false; setIsRecording(false) }
+    }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
     // ── Shot event callback (new architecture) ───────────────────────────
     const handleShotEvent = useCallback((event: ShotEvent) => {
@@ -933,17 +975,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Shot released but not yet determined if made
             // Could trigger intermediate UI feedback
         }
-    }, [])
+    }, [handleAutoShotDetected])
 
     // ── New architecture: useCameraPipeline integrates everything ─────────
-    const rimFromCalibration = calibration?.hoopCenter ? {
-        x: calibration.hoopCenter.x * 640,
-        y: calibration.hoopCenter.y * 480,
-        width: 50,
-        height: 50,
-    } : null
-
-    const handlePoseRequestRef = useRef<(() => Promise<void>) | null>(null)
+    const rimFromCalibration = React.useMemo(() =>
+        calibration?.hoopCenter
+            ? { x: calibration.hoopCenter.x * 640, y: calibration.hoopCenter.y * 480, width: 50, height: 50 }
+            : null
+    , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
     const {
         device,
@@ -951,65 +990,21 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isActive,
         requestPermission,
         setIsActive,
-        cameraRef: pipelineCameraRef,
         frameProcessor,
         isModelReady,
         resetShotTracking,
-        runPoseFromSnapshot,
     } = useCameraPipeline(
         handleBallDetection, 
         handlePoseResult, 
         handleShotEvent, 
-        () => handlePoseRequestRef.current?.(), 
         rimFromCalibration,
         true
     )
-
-    // ── Pose request callback - takes snapshot and runs pose detection ───────
-    const handlePoseRequest = useCallback(async () => {
-        console.log('[WorkoutSession] Pose request - taking snapshot')
-        if (!cameraRef.current || !runPoseFromSnapshot) {
-            console.log('[WorkoutSession] Camera or pose detector not ready')
-            return
-        }
-
-        try {
-            const snapshot = await cameraRef.current.takeSnapshot({
-                quality: 80,
-            })
-            
-            if (snapshot && runPoseFromSnapshot) {
-                console.log('[WorkoutSession] Snapshot taken, running pose detection')
-                // Read snapshot file to get buffer
-                const response = await fetch(`file://${snapshot.path}`)
-                const buffer = await response.arrayBuffer()
-                const data = new Uint8Array(buffer)
-                runPoseFromSnapshot(data, snapshot.width, snapshot.height)
-            }
-        } catch (e) {
-            console.error('[WorkoutSession] Snapshot error:', e)
-        }
-    }, [runPoseFromSnapshot])
-
-    useEffect(() => {
-        handlePoseRequestRef.current = handlePoseRequest
-    }, [handlePoseRequest])
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
         loadSession()
         batchTimer.current = setInterval(flushFrameBatch, 2000)
-        
-        console.log('[WorkoutSession] Debug timer setup - runPoseFromSnapshot:', !!runPoseFromSnapshot, 'cameraRef.current:', !!cameraRef.current)
-        
-        // Debug: trigger pose detection every 2 seconds for testing
-        const poseDebugTimer = setInterval(() => {
-            console.log('[WorkoutSession] Debug timer tick - runPoseFromSnapshot:', !!runPoseFromSnapshot, 'cameraRef.current:', !!cameraRef.current)
-            if (runPoseFromSnapshot && cameraRef.current) {
-                console.log('[WorkoutSession] Debug: triggering pose detection')
-                handlePoseRequest()
-            }
-        }, 2000)
         
         const rafLoop = () => {
             if (!isActiveRef.current) return
@@ -1035,7 +1030,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setIsActive(false)
             if (batchTimer.current) clearInterval(batchTimer.current)
             if (rafRef.current)     cancelAnimationFrame(rafRef.current)
-            clearInterval(poseDebugTimer)
         }
     }, [])
 
@@ -1088,52 +1082,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         frameBatch.current = []
         try { await saveFrameData(sid, uid, last) } catch (_) {}
     }, [])
-
-    const handleAutoShotDetected = useCallback(async (result: ShotResult) => {
-        if (!user?.id || !sessionId || isRecordingRef.current) return
-        isRecordingRef.current = true
-        setIsRecording(true)
-        try {
-            const state   = tracking.getState()
-            const metrics = tracking.computeTrajectoryMetrics()
-            const coords  = toCourtMeters(
-                state.ballPosition?.x ?? 0.5,
-                state.ballPosition?.y ?? 0.5,
-                calibration
-            )
-            const shot = await addShotEvent(sessionId, user.id, {
-                timestampMs: Date.now(), shotResult: result, ...coords,
-                releaseAngle:        metrics.releaseAngle,
-                detectionConfidence: state.confidence,
-                trackingData: JSON.stringify({
-                    autoDetected: true,
-                    arcHeight:    metrics.arcHeight,
-                    smoothness:   metrics.smoothness,
-                }),
-            })
-            if (Object.keys(jointAngles).length > 0) {
-                await savePoseAnalysis(sessionId, user.id, {
-                    shotEventId:   shot.id,
-                    ...jointAngles,
-                    releaseAngle:  metrics.releaseAngle,
-                    releaseHeight: metrics.arcHeight,
-                    shotSmoothness: metrics.smoothness,
-                })
-            }
-            setLastShotResult(result)
-            setShotCount(prev => ({
-                total: prev.total + 1,
-                made:  result === 'MADE' ? prev.made + 1 : prev.made,
-            }))
-            feedbackOpacity.setValue(1)
-            Animated.timing(feedbackOpacity, {
-                toValue: 0, duration: 1400,
-                easing: Easing.out(Easing.ease), useNativeDriver: true,
-            }).start()
-            tracking.resetShot()
-        } catch (e: any) { showError('Errore tiro', e.message) }
-        finally { isRecordingRef.current = false; setIsRecording(false) }
-    }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
     const handleManualShot = async (result: ShotResult) => {
         if (!user?.id || !sessionId || isRecording) return

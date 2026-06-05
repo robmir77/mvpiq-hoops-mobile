@@ -18,36 +18,31 @@ export interface CameraPipelineResult {
   isActive: boolean
   requestPermission: () => Promise<boolean>
   setIsActive: (v: boolean) => void
-  cameraRef: any
   frameProcessor: any
   isModelReady: boolean
   resetShotTracking: () => void
-  runPoseFromSnapshot: ((snapshot: Uint8Array, width: number, height: number) => void) | null
 }
 
 export const useCameraPipeline = (
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult: (result: PoseResult) => void,
   onShotEvent: (event: ShotEvent) => void,
-  onPoseRequest?: () => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   enabled: boolean = true
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
   const [isActive, setIsActive] = useState(false)
-  const cameraRef = useRef<any>(null)
 
   const requestPermission = async (): Promise<boolean> => {
     return reqPerm()
   }
 
   // Initialize shot tracker with the new architecture
-  const { frameProcessor, isModelReady, resetShotTracking, runPoseFromSnapshot } = useShotTracker(
+  const { frameProcessor, isModelReady, resetShotTracking } = useShotTracker(
     onBallDetection,
     onPoseResult,
     onShotEvent,
-    onPoseRequest,
     rimFromCalibration
   )
 
@@ -57,10 +52,8 @@ export const useCameraPipeline = (
     isActive,
     requestPermission,
     setIsActive,
-    cameraRef,
     frameProcessor,
     isModelReady,
     resetShotTracking,
-    runPoseFromSnapshot,
   }
 }

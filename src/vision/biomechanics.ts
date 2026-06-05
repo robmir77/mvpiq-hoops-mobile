@@ -10,6 +10,8 @@ function angleBetween(
   b: { x: number; y: number },
   c: { x: number; y: number }
 ): number {
+  'worklet'
+
   const ba = { x: a.x - b.x, y: a.y - b.y }
   const bc = { x: c.x - b.x, y: c.y - b.y }
   const dot = ba.x * bc.x + ba.y * bc.y
@@ -20,6 +22,8 @@ function angleBetween(
 }
 
 export function computeJointAngles(keypoints: PoseKeypoints): Partial<JointAngles> {
+  'worklet'
+
   const angles: Partial<JointAngles> = {}
   
   // Elbow angle (shoulder-elbow-wrist)
