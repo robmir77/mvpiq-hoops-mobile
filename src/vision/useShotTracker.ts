@@ -21,7 +21,7 @@ import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks
 
 const YOLO_INPUT_SIZE = 320
 const POSE_INPUT_SIZE = 192
-const POSE_INTERVAL_MS = 500 // Max 2fps - MoveNet is lower priority than YOLO
+const POSE_INTERVAL_MS = 2000 // Run every 2 seconds
 const SHOT_CANDIDATE_THRESHOLD_Y = 0.3 // Ball above 30% of frame height
 const SHOT_CANDIDATE_VELOCITY_Y = -50 // Ball moving upward
 

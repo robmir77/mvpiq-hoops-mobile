@@ -1208,6 +1208,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive && !isPaused}
                     frameProcessor={frameProcessor}
+                    onError={(error) => {
+                        if (error.code === 'session/invalid-output-configuration') {
+                            console.log('[WorkoutSession] Camera session error - remounting')
+                            setIsActive(false)
+                            setTimeout(() => setIsActive(true), 500)
+                        }
+                    }}
                 />
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
