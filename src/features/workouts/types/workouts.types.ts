@@ -75,6 +75,7 @@ export interface CalibrationData {
         bottomLeft: { x: number; y: number }
         bottomRight: { x: number; y: number }
     }
+    courtLines?: Array<{ start: { x: number; y: number }; end: { x: number; y: number } }>
 }
 
 // ─── AI Tracking ──────────────────────────────────────────────

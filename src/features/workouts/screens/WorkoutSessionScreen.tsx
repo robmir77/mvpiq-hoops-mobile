@@ -1,136 +1,4 @@
-// Android Bundled 21ms src\config\appConfig.ts (1 module)
-//  LOG  Creazione sessione con payload: {"cameraMode": "ANGLE_45", "courtType": "HALF_COURT"}
-//  LOG  User ID: d952f45e-8db7-4b36-9025-4afd04b9cefd
-//  LOG  API call: POST /workouts/sessions {"payload": {"cameraMode": "ANGLE_45", "courtType": "HALF_COURT"}, "userId": "d952f45e-8db7-4b36-9025-4afd04b9cefd"}
-//  LOG  API response: {"cameraMode": "ANGLE_45", "courtType": "HALF_COURT", "createdAt": "2026-06-04T22:30:20.4340761+02:00", "endTime": null, "id": "1d9289d6-c945-439b-829c-b7203585ceea", "madeShots": 0, "playerId": "d952f45e-8db7-4b36-9025-4afd04b9cefd", "recentShots": null, "sessionStatus": "ACTIVE", "shootingPercentage": null, "startTime": "2026-06-04T22:30:20.4340761+02:00", "status": "ACTIVE", "totalShots": 0, "updatedAt": "2026-06-04T22:30:20.4340761+02:00"}
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: false
-//  LOG  Loading Tensorflow Lite Model 7
-//  LOG  Resolved Model path: http://localhost:8081/assets/?unstable_path=.%2Fassets%2Fmodels/ball_rimV8_float16.tflite?platform=android&hash=9e5678739e5a5909dd7b6e276c515898
-//  LOG  [WorkoutSession] isModelReady: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: false
-//  LOG  Model loaded!
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [WorkoutSession] isModelReady: true
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [WorkoutSession] Calibration loaded {"x": 0.723388671875, "y": 0.18100878586884672}
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [PERF]
-//  LOG  YOLO............. 0 fps
-//  LOG  MoveNet.......... 0 fps
-//  LOG  Tracking Updates. 0 /sec
-//  LOG  Overlay Renders.. 2 /sec
-//  LOG  Path Build....... 0.00 ms
-//  LOG  Overlay Render... 0.00 ms
-//  LOG  JS FPS........... 2
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Inference complete, output size: 12600
-//  LOG  [YOLO Worklet] Parsed - ball: false rim: false
-//  LOG  [useYoloDetector] Hook called, enabled: true
-//  LOG  [CameraPipeline] frameProcessor created: true isModelReady: true
-//  LOG  [YOLO Worklet] Frame received, enabled: true state: loaded model: true
-//  LOG  [YOLO Worklet] Model accessible, running inference
-//  LOG  [YOLO Worklet] Resize complete, size: 307200
-//  LOG  [YOLO Worklet] CHW conversion complete
+// src/features/workouts/screens/WorkoutSessionScreen.tsx
 //
 // Integrazione completa Opzione A:
 //  - react-native-vision-camera v4 (rimpiazza expo-camera)
@@ -343,13 +211,14 @@ const getReleaseColor = (angle: number): string => {
 }
 
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration,
 }: {
     trackingState: TrackingState | null
     poseKeypoints: PoseKeypoints | null
     jointAngles?: Partial<JointAngles>
     releaseAngle?: number
     arcHeight?: number
+    calibration: CalibrationData | null
 }) => {
     incrementOverlayRenders()
 
@@ -460,6 +329,42 @@ const TrackingOverlay = React.memo(({
                             cy={py(trackingState.hoopPosition.y)}
                             r={20} color="#4ade80" style="stroke" strokeWidth={2.5}
                         />
+                    </Group>
+                )}
+
+                {/* Rim calibrato */}
+                {calibration?.hoopCenter && (
+                    <Group>
+                        <SkiaCircle
+                            cx={px(calibration.hoopCenter.x)}
+                            cy={py(calibration.hoopCenter.y)}
+                            r={25} color="rgba(59,130,246,0.25)"
+                        />
+                        <SkiaCircle
+                            cx={px(calibration.hoopCenter.x)}
+                            cy={py(calibration.hoopCenter.y)}
+                            r={25} color="#3b82f6" style="stroke" strokeWidth={3}
+                        />
+                    </Group>
+                )}
+
+                {/* Righe del campo dalla calibrazione */}
+                {calibration?.courtLines && calibration.courtLines.length > 0 && (
+                    <Group>
+                        {calibration.courtLines.map((line: { start: { x: number; y: number }; end: { x: number; y: number } }, i: number) => {
+                            const start = line.start
+                            const end = line.end
+                            return (
+                                <SkiaLine
+                                    key={i}
+                                    p1={vec(px(start.x), py(start.y))}
+                                    p2={vec(px(end.x), py(end.y))}
+                                    color="rgba(255,255,255,0.4)"
+                                    strokeWidth={2}
+                                    strokeCap="round"
+                                />
+                            )
+                        })}
                     </Group>
                 )}
 
@@ -1366,6 +1271,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     arcHeight={trackingState?.releasePoint && trackingState?.apexPoint
                         ? trackingState.releasePoint.y - trackingState.apexPoint.y
                         : undefined}
+                    calibration={calibration}
                 />
 
                 {/* Debug overlay calibrazione */}
