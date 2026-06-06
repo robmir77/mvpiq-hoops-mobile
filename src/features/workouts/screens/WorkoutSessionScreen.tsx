@@ -885,17 +885,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         if (ball) {
             console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y)
         }
-        // Rim comes from calibration, not YOLO
+        // Rim comes from calibration, keep coordinates normalized (0-1)
         const rimFromCalibration = calibration?.hoopCenter ? {
-            x: calibration.hoopCenter.x * 640, // Assuming 640px width
-            y: calibration.hoopCenter.y * 480, // Assuming 480px height
-            width: 50,
-            height: 50,
+            x: calibration.hoopCenter.x,
+            y: calibration.hoopCenter.y,
+            width: 0.05, // Normalized width
+            height: 0.05, // Normalized height
             confidence: 1.0,
         } : null
-        
+
         const newState = tracking.processFrame(
-            ball ? { x: ball.x + ball.width/2, y: ball.y + ball.height/2, confidence: ball.confidence } : null,
+            ball ? { x: ball.x, y: ball.y, confidence: ball.confidence } : null,
             rimFromCalibration ? { x: rimFromCalibration.x, y: rimFromCalibration.y, confidence: rimFromCalibration.confidence } : null,
             detection.timestamp
         )
@@ -905,8 +905,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         if (ball || rimFromCalibration) {
             frameBatch.current.push({
                 frameTimestamp:   detection.timestamp,
-                ballX:            ball ? ball.x + ball.width/2 : undefined,
-                ballY:            ball ? ball.y + ball.height/2 : undefined,
+                ballX:            ball ? ball.x : undefined,
+                ballY:            ball ? ball.y : undefined,
                 ballConfidence:   ball?.confidence,
                 hoopX:            rimFromCalibration ? rimFromCalibration.x : undefined,
                 hoopY:            rimFromCalibration ? rimFromCalibration.y : undefined,
@@ -980,7 +980,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── New architecture: useCameraPipeline integrates everything ─────────
     const rimFromCalibration = React.useMemo(() =>
         calibration?.hoopCenter
-            ? { x: calibration.hoopCenter.x * 640, y: calibration.hoopCenter.y * 480, width: 50, height: 50 }
+            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.05, height: 0.05 }
             : null
     , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 

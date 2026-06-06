@@ -40,7 +40,7 @@ export function BallOverlay({
         <>
             <Animated.View style={style} />
             <Animated.Text style={labelStyle}>
-                🏀 {(ballConf.value * 100).toFixed(1)}%
+                🏀 {(ballConf.value * 100).toFixed(1)}% ({ballW.value.toFixed(0)}x{ballH.value.toFixed(0)})
             </Animated.Text>
         </>
     )

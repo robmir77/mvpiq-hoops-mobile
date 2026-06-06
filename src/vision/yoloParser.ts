@@ -4,10 +4,12 @@
 // Converts raw YOLO output to BallDetection interface
 // NO image data, only coordinates
 
-const INPUT_SIZE = 320
+const INPUT_SIZE = 640
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.20
-const N_ANCHORS = 2100
+const CONF_THRESHOLD = 0.10
+const N_ANCHORS = 8400
+const NUM_CLASSES = 80 // COCO dataset classes
+const SPORT_BALL_CLASS = 32 // Sport ball class in COCO
 
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
@@ -40,52 +42,71 @@ function nms(dets: number[][], thr: number): number[][] {
 // This runs in the Worklet - NO runOnJS here
 // Only detects ball, rim comes from calibration
 // Returns only the ball with highest confidence
-export function parseYoloOutput(output: Float32Array): {
+export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
 } {
   'worklet'
   const raw: number[][] = []
-  
+
+  // Convert to float values if needed (for INT8 quantized output)
+  const getOutput = (idx: number): number => {
+    if (output instanceof Uint8Array || output instanceof Int8Array) {
+      return output[idx] / 255.0 // Normalize uint8/int8 to [0, 1]
+    }
+    return output[idx]
+  }
+
   // Extract detections from YOLO output
+  // YOLO11 format: [class0, class1, ..., class79, cx, cy, w, h] for each anchor
+  let maxScore = 0
+  let maxScoreIdx = -1
+
   for (let i = 0; i < N_ANCHORS; i++) {
-    const cx = output[i]
-    const cy = output[N_ANCHORS + i]
-    const w = output[N_ANCHORS * 2 + i]
-    const h = output[N_ANCHORS * 3 + i]
-    
-    // Only check class 0 (ball)
-    const score = output[N_ANCHORS * 4 + i]
-    if (score < CONF_THRESHOLD) continue
-    
+    // Get sport ball class score (class 32)
+    const ballScore = getOutput(i * (NUM_CLASSES + 4) + SPORT_BALL_CLASS)
+
+    // Get bbox coordinates (after all 80 class scores)
+    const cx = getOutput(i * (NUM_CLASSES + 4) + 80)
+    const cy = getOutput(i * (NUM_CLASSES + 4) + 81)
+    const w = getOutput(i * (NUM_CLASSES + 4) + 82)
+    const h = getOutput(i * (NUM_CLASSES + 4) + 83)
+
+    if (ballScore > maxScore) {
+      maxScore = ballScore
+      maxScoreIdx = i
+    }
+
+    if (ballScore < CONF_THRESHOLD) continue
+
     raw.push([
-      (cx - w * 0.5) / INPUT_SIZE,
-      (cy - h * 0.5) / INPUT_SIZE,
-      (cx + w * 0.5) / INPUT_SIZE,
-      (cy + h * 0.5) / INPUT_SIZE,
-      score,
-      0, // ball class
+      cx - w * 0.5,
+      cy - h * 0.5,
+      cx + w * 0.5,
+      cy + h * 0.5,
+      ballScore,
+      SPORT_BALL_CLASS,
     ])
   }
-  
+
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
-  
+
   // Keep only the ball with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
-  
+
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      x: x1 * INPUT_SIZE,
-      y: y1 * INPUT_SIZE,
-      width: (x2 - x1) * INPUT_SIZE,
-      height: (y2 - y1) * INPUT_SIZE,
+      x: x1,
+      y: y1,
+      width: x2 - x1,
+      height: y2 - y1,
       confidence: conf,
     }
-    
-    if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
+
+    if (cls === SPORT_BALL_CLASS && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
     }
   }
-  
+
   return { ball: bestBall }
 }
