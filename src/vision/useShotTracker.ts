@@ -35,6 +35,12 @@ export const useShotTracker = (
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const lastPoseTs   = useSharedValue(0)
 
+  // ── Adaptive confidence threshold ─────────────────────────────────────────────
+  const adaptiveThreshold = useSharedValue(0.05)
+  const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
+  const TARGET_DETECTION_RATE = 0.3  // Target: 30% of frames should have detections
+  const ADAPTATION_WINDOW_MS = 2000  // Adjust threshold every 2 seconds
+
   // ── Model loading ────────────────────────────────────────────────────────────
   // Single-class football/basketball detector (320×320, float16, NHWC TFLite)
   const yoloModel = useTensorflowModel(
@@ -50,9 +56,41 @@ export const useShotTracker = (
   const onPoseResultRef = useRef(onPoseResult)
   useEffect(() => { onPoseResultRef.current = onPoseResult }, [onPoseResult])
 
+  // ── Adaptive threshold adjustment (JS thread) ───────────────────────────────
+  const updateAdaptiveThreshold = useCallback((ball: { confidence: number } | null | undefined) => {
+    const now = Date.now()
+    detectionHistory.current.push({ confidence: ball?.confidence ?? 0, timestamp: now })
+
+    // Remove old entries outside adaptation window
+    detectionHistory.current = detectionHistory.current.filter(
+      d => now - d.timestamp < ADAPTATION_WINDOW_MS
+    )
+
+    // Adjust threshold every ADAPTATION_WINDOW_MS
+    if (detectionHistory.current.length > 0 && detectionHistory.current[0].timestamp < now - ADAPTATION_WINDOW_MS) {
+      const totalFrames = detectionHistory.current.length
+      const detectedFrames = detectionHistory.current.filter(d => d.confidence > 0).length
+      const detectionRate = detectedFrames / totalFrames
+
+      // Increase threshold if too many detections (false positives)
+      // Decrease threshold if too few detections (false negatives)
+      const adjustment = 0.01
+      if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
+        adaptiveThreshold.value = Math.min(0.3, adaptiveThreshold.value + adjustment)
+      } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
+        adaptiveThreshold.value = Math.max(0.02, adaptiveThreshold.value - adjustment)
+      }
+
+      console.log('[AdaptiveThreshold] Rate:', detectionRate.toFixed(2), 'Threshold:', adaptiveThreshold.value.toFixed(3))
+    }
+  }, [])
+
   // ── Shot detection (JS thread) ───────────────────────────────────────────────
   const handleBallDetectionForShotTracking = useCallback((detection: BallDetection) => {
     const { ball } = detection
+
+    // Update adaptive threshold
+    updateAdaptiveThreshold(ball)
 
     if (!ball) {
       // Reset trajectory if ball disappears for >300 ms
@@ -138,7 +176,7 @@ export const useShotTracker = (
     const yoloOutputs = yoloModel.model!.runSync([yoloResized])
     const yoloOutput  = yoloOutputs[0] as Float32Array
 
-    const { ball } = parseYoloOutput(yoloOutput)
+    const { ball } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
 
     onBallDetectionJS({
       ball: ball ?? undefined,

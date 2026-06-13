@@ -6,7 +6,7 @@
 
 const INPUT_SIZE = 320
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.0125
+const CONF_THRESHOLD = 0.05
 const N_ANCHORS = 2100
 
 // Worklet-safe IOU calculation
@@ -40,7 +40,7 @@ function nms(dets: number[][], thr: number): number[][] {
 // This runs in the Worklet - NO runOnJS here
 // Only detects ball, rim comes from calibration
 // Returns only the ball with highest confidence
-export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array): {
+export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
 } {
   'worklet'
@@ -72,7 +72,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array): 
       maxScoreIdx = i
     }
 
-    if (score < CONF_THRESHOLD) continue
+    if (score < threshold) continue
 
     raw.push([
       (cx - w * 0.5) / INPUT_SIZE,
