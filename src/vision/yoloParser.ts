@@ -75,10 +75,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     if (score < threshold) continue
 
     raw.push([
-      (cx - w * 0.5) / INPUT_SIZE,
-      (cy - h * 0.5) / INPUT_SIZE,
-      (cx + w * 0.5) / INPUT_SIZE,
-      (cy + h * 0.5) / INPUT_SIZE,
+      (cx - w * 0.5),
+      (cy - h * 0.5),
+      (cx + w * 0.5),
+      (cy + h * 0.5),
       score,
       0, // ball class
     ])
@@ -96,10 +96,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      x: (x1 + x2) / 2 * INPUT_SIZE,
-      y: (y1 + y2) / 2 * INPUT_SIZE,
-      width: (x2 - x1) * INPUT_SIZE,
-      height: (y2 - y1) * INPUT_SIZE,
+      x: 1 - (y1 + y2) / 2,
+      y: (x1 + x2) / 2,
+      width: (y2 - y1),
+      height: (x2 - x1),
       confidence: conf,
     }
 
