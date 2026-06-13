@@ -53,6 +53,7 @@ export const useTrackingEngine = () => {
     const trajectory = useRef<Array<{ x: number; y: number; t: number }>>([])
     const state      = useRef<TrackingState>({
         ballPosition: null,
+        ballPositionRaw: null,
         ballVelocity: null,
         hoopPosition: null,
         shotDetected: false,
@@ -107,6 +108,7 @@ export const useTrackingEngine = () => {
         if (ballDetection && ballDetection.confidence > 0.05) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
+            current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
             current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }
             current.confidence   = ballDetection.confidence
             current.ballWidth    = ballDetection.width
@@ -227,6 +229,7 @@ export const useTrackingEngine = () => {
         state.current.apexPoint    = undefined
         state.current.releaseAngle = undefined
         state.current.shotQuality = undefined
+        state.current.ballPositionRaw = null
         trajectory.current         = []
         peakY.current              = Infinity
         apexPoint.current          = null
@@ -245,7 +248,7 @@ export const useTrackingEngine = () => {
         flightStartY.current = 1.0
         lastShotTs.current  = 0
         state.current       = {
-            ballPosition: null, ballVelocity: null, hoopPosition: null,
+            ballPosition: null, ballPositionRaw: null, ballVelocity: null, hoopPosition: null,
             shotDetected: false, shotResult: null, trajectory: [], confidence: 0,
             inFlight: false,
             releasePoint: undefined,

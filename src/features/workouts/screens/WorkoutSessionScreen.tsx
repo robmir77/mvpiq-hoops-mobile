@@ -300,7 +300,7 @@ const TrackingOverlay = React.memo(({
                     )
                 })()}
 
-                {/* Cerchio palla */}
+                {/* Cerchio palla smoothed (Kalman) - arancione */}
                 {trackingState?.ballPosition && (
                     <Group>
                         <SkiaCircle
@@ -316,6 +316,16 @@ const TrackingOverlay = React.memo(({
                             color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
+                )}
+
+                {/* Punto raw YOLO (senza Kalman) - rosso per debug */}
+                {trackingState?.ballPositionRaw && (
+                    <SkiaCircle
+                        cx={px(trackingState.ballPositionRaw.x)}
+                        cy={py(trackingState.ballPositionRaw.y)}
+                        r={8}
+                        color="#ff0000"
+                    />
                 )}
 
                 {/* Cerchio canestro */}
