@@ -114,8 +114,8 @@ export const useTrackingEngine = () => {
 
             trajectory.current.push({ x: smoothed.x, y: smoothed.y, t: frameTs })
             if (trajectory.current.length > 90) trajectory.current.shift()
-            // Only copy trajectory for UI when inFlight (reduces copies by ~80%)
-            if (inFlight.current) {
+            // Only copy trajectory for UI every 5 frames when inFlight (reduces copies by ~95%)
+            if (inFlight.current && trajectory.current.length % 5 === 0) {
                 current.trajectory = [...trajectory.current]
             }
 
@@ -164,9 +164,9 @@ export const useTrackingEngine = () => {
 
         current.inFlight = inFlight.current
 
-        // ── Calculate trajectory metrics once per frame ─────────────────────
+        // ── Calculate trajectory metrics every 5 frames when inFlight ─────────
         let trajectoryMetrics = null
-        if (inFlight.current && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
+        if (inFlight.current && trajectory.current.length >= MIN_TRAJECTORY_FRAMES && trajectory.current.length % 5 === 0) {
             trajectoryMetrics = computeTrajectoryMetrics()
             current.releaseAngle = trajectoryMetrics.releaseAngle
         }

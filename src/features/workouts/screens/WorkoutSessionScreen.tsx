@@ -266,8 +266,8 @@ const TrackingOverlay = React.memo(({
         const t1 = performance.now()
         recordPathBuildTime(t1 - t0)
         return p
-    }, [(trackingState as any)?.showShotTrail, (trackingState as any)?.shotTrajectory?.length,
-        trackingState?.inFlight, trackingState?.trajectory?.length])
+    }, [(trackingState as any)?.showShotTrail, (trackingState as any)?.shotTrajectory,
+        trackingState?.inFlight, trackingState?.trajectory])
 
     // Posizione palla in pixel schermo
     const ballSX = trackingState?.ballPosition != null ? px(trackingState.ballPosition.x) : null
