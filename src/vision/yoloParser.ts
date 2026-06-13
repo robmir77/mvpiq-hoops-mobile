@@ -96,8 +96,8 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      x: x1 * INPUT_SIZE,
-      y: y1 * INPUT_SIZE,
+      x: (x1 + x2) / 2 * INPUT_SIZE,
+      y: (y1 + y2) / 2 * INPUT_SIZE,
       width: (x2 - x1) * INPUT_SIZE,
       height: (y2 - y1) * INPUT_SIZE,
       confidence: conf,

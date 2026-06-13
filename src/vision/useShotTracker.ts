@@ -57,6 +57,7 @@ export const useShotTracker = (
   useEffect(() => { onPoseResultRef.current = onPoseResult }, [onPoseResult])
 
   // ── Adaptive threshold adjustment (JS thread) ───────────────────────────────
+  const lastAdjustmentTs = useRef(0)
   const updateAdaptiveThreshold = useCallback((ball: { confidence: number } | null | undefined) => {
     const now = Date.now()
     detectionHistory.current.push({ confidence: ball?.confidence ?? 0, timestamp: now })
@@ -67,7 +68,8 @@ export const useShotTracker = (
     )
 
     // Adjust threshold every ADAPTATION_WINDOW_MS
-    if (detectionHistory.current.length > 0 && detectionHistory.current[0].timestamp < now - ADAPTATION_WINDOW_MS) {
+    if (now - lastAdjustmentTs.current > ADAPTATION_WINDOW_MS && detectionHistory.current.length > 10) {
+      lastAdjustmentTs.current = now
       const totalFrames = detectionHistory.current.length
       const detectedFrames = detectionHistory.current.filter(d => d.confidence > 0).length
       const detectionRate = detectedFrames / totalFrames
