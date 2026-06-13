@@ -306,12 +306,14 @@ const TrackingOverlay = React.memo(({
                         <SkiaCircle
                             cx={px(trackingState.ballPosition.x)}
                             cy={py(trackingState.ballPosition.y)}
-                            r={16} color="rgba(255,140,0,0.22)"
+                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
+                            color="rgba(255,140,0,0.22)"
                         />
                         <SkiaCircle
                             cx={px(trackingState.ballPosition.x)}
                             cy={py(trackingState.ballPosition.y)}
-                            r={16} color="#ff8c00" style="stroke" strokeWidth={2.5}
+                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
+                            color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
                 )}
@@ -883,7 +885,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
         if (ball) {
-            console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y)
+            console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y, 'width:', ball.width, 'height:', ball.height)
         }
         // Rim comes from calibration, keep coordinates normalized (0-1)
         const rimFromCalibration = calibration?.hoopCenter ? {
@@ -895,7 +897,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         } : null
 
         const newState = tracking.processFrame(
-            ball ? { x: ball.x, y: ball.y, confidence: ball.confidence } : null,
+            ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
             rimFromCalibration ? { x: rimFromCalibration.x, y: rimFromCalibration.y, confidence: rimFromCalibration.confidence } : null,
             detection.timestamp
         )
@@ -907,6 +909,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 frameTimestamp:   detection.timestamp,
                 ballX:            ball ? ball.x : undefined,
                 ballY:            ball ? ball.y : undefined,
+                ballWidth:        ball ? ball.width : undefined,
+                ballHeight:       ball ? ball.height : undefined,
                 ballConfidence:   ball?.confidence,
                 hoopX:            rimFromCalibration ? rimFromCalibration.x : undefined,
                 hoopY:            rimFromCalibration ? rimFromCalibration.y : undefined,

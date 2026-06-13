@@ -98,7 +98,7 @@ export const useTrackingEngine = () => {
     }, [])
 
     const processFrame = useCallback((
-        ballDetection: { x: number; y: number; confidence: number } | null,
+        ballDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
         hoopDetection: { x: number; y: number; confidence: number } | null,
         frameTs: number
     ): TrackingState => {
@@ -109,6 +109,8 @@ export const useTrackingEngine = () => {
             current.ballPosition = smoothed
             current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }
             current.confidence   = ballDetection.confidence
+            current.ballWidth    = ballDetection.width
+            current.ballHeight   = ballDetection.height
 
             trajectory.current.push({ x: smoothed.x, y: smoothed.y, t: frameTs })
             if (trajectory.current.length > 90) trajectory.current.shift()

@@ -90,6 +90,8 @@ export interface DetectionResult {
 export interface TrackingState {
     ballPosition: { x: number; y: number } | null
     ballVelocity: { vx: number; vy: number } | null
+    ballWidth?: number
+    ballHeight?: number
     hoopPosition: { x: number; y: number } | null
     shotDetected: boolean
     shotResult: ShotResult | null
