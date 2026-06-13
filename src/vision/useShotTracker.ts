@@ -1,9 +1,8 @@
 // src/vision/useShotTracker.ts
 //
-// Orchestrates ball detection, pose detection, and shot analysis
-// Both YOLO and MoveNet run entirely in Frame Processor Worklet
-// Only processed data (BallDetection, PoseResult, ShotEvent) crosses to JS
-// No snapshot mechanism - pose detection runs continuously with throttling
+// Orchestrates ball detection, pose detection, and shot analysis.
+// Both YOLO and MoveNet run entirely in the Frame Processor Worklet.
+// Only processed results (BallDetection, PoseResult, ShotEvent) cross to JS.
 
 import { useRef, useCallback, useEffect } from 'react'
 import { useSharedValue } from 'react-native-worklets-core'
@@ -19,213 +18,157 @@ import { ShotDetector } from './shotDetector'
 import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints, JointAngles } from './types'
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
 
-const YOLO_INPUT_SIZE = 320
-const POSE_INPUT_SIZE = 192
-const POSE_INTERVAL_MS = 2000 // Run every 2 seconds
-const SHOT_CANDIDATE_THRESHOLD_Y = 0.3 // Ball above 30% of frame height
-const SHOT_CANDIDATE_VELOCITY_Y = -50 // Ball moving upward
+// ── Model input sizes ──────────────────────────────────────────────────────────
+const YOLO_INPUT_SIZE = 320   // yolo-football-ball-detection exported at imgsz=320
+const POSE_INPUT_SIZE = 192   // MoveNet Lightning
+
+// ── Pose throttle: run at most once every 2 s, only when ball is visible ───────
+const POSE_INTERVAL_MS = 2000
 
 export const useShotTracker = (
   onBallDetection: (detection: BallDetection) => void,
-  onPoseResult: (result: PoseResult) => void,
-  onShotEvent: (event: ShotEvent) => void,
-  rimFromCalibration?: { x: number; y: number; width: number; height: number } | null
+  onPoseResult:   (result: PoseResult) => void,
+  onShotEvent:    (event: ShotEvent) => void,
+  rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
 ) => {
   const shotDetector = useRef(new ShotDetector())
-  const lastBallRef = useRef<{ x: number; y: number; t: number } | null>(null)
-  const lastPoseTs = useSharedValue(0)
+  const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
+  const lastPoseTs   = useSharedValue(0)
 
-  // Load YOLO model
+  // ── Model loading ────────────────────────────────────────────────────────────
+  // Single-class football/basketball detector (320×320, float16, NHWC TFLite)
   const yoloModel = useTensorflowModel(
     require('../../assets/models/ball_rimV8_float16.tflite'),
-    'nnapi'
+    'nnapi',
   )
-
-  // Load MoveNet model
   const poseModel = useTensorflowModel(
     require('../../assets/models/movenet_lightning_int8.tflite'),
-    'nnapi'
+    'nnapi',
   )
 
-  // Callback refs
+  // ── Callback refs ────────────────────────────────────────────────────────────
   const onPoseResultRef = useRef(onPoseResult)
+  useEffect(() => { onPoseResultRef.current = onPoseResult }, [onPoseResult])
 
-  useEffect(() => {
-    onPoseResultRef.current = onPoseResult
-  }, [onPoseResult])
-
-  // Shot detection callback - runs on JS thread after ball detection
+  // ── Shot detection (JS thread) ───────────────────────────────────────────────
   const handleBallDetectionForShotTracking = useCallback((detection: BallDetection) => {
     const { ball } = detection
 
-    if (ball) {
-      // Update trajectory
-      shotDetector.current.updateTrajectory(ball)
-
-      // Calculate velocity
-      const prev = lastBallRef.current
-      let velocity = { vx: 0, vy: 0 }
-      if (prev) {
-        const dt = (detection.timestamp - prev.t) / 1000
-        if (dt > 0) {
-          const centerX = ball.x + ball.width / 2
-          const centerY = ball.y + ball.height / 2
-          velocity = {
-            vx: (centerX - prev.x) / dt,
-            vy: (centerY - prev.y) / dt,
-          }
-        }
-      }
-
-      lastBallRef.current = {
-        x: ball.x + ball.width / 2,
-        y: ball.y + ball.height / 2,
-        t: detection.timestamp,
-      }
-
-      // Detect shot events
-      if (shotDetector.current.detectShotStart(ball)) {
-        console.log('[ShotTracker] Shot started')
-      }
-
-      if (shotDetector.current.detectShotRelease()) {
-        console.log('[ShotTracker] Shot released')
-        const shotEvent = shotDetector.current.getShotEvent()
-        if (shotEvent) onShotEvent(shotEvent)
-      }
-
-      if (shotDetector.current.detectShotMade(rimFromCalibration || null)) {
-        console.log('[ShotTracker] Shot made!')
-        const shotEvent = shotDetector.current.getShotEvent()
-        if (shotEvent) onShotEvent(shotEvent)
+    if (!ball) {
+      // Reset trajectory if ball disappears for >300 ms
+      const now = Date.now()
+      if (lastBallRef.current && now - lastBallRef.current.t > 300) {
         shotDetector.current.reset()
+        lastBallRef.current = null
       }
+      return
+    }
+
+    shotDetector.current.updateTrajectory(ball)
+
+    const prev = lastBallRef.current
+    if (prev) {
+      const dt = (detection.timestamp - prev.t) / 1000
+      if (dt > 0) {
+        // velocity available inside ShotDetector via trajectory
+      }
+    }
+
+    lastBallRef.current = {
+      x: ball.x + ball.width  / 2,
+      y: ball.y + ball.height / 2,
+      t: detection.timestamp,
+    }
+
+    if (shotDetector.current.detectShotStart(ball))    console.log('[ShotTracker] Shot started')
+    if (shotDetector.current.detectShotRelease()) {
+      console.log('[ShotTracker] Shot released')
+      const ev = shotDetector.current.getShotEvent()
+      if (ev) onShotEvent(ev)
+    }
+    if (shotDetector.current.detectShotMade(rimFromCalibration || null)) {
+      console.log('[ShotTracker] Shot made!')
+      const ev = shotDetector.current.getShotEvent()
+      if (ev) onShotEvent(ev)
+      shotDetector.current.reset()
     }
   }, [onShotEvent, rimFromCalibration])
 
-  // Wrap the original onBallDetection to include shot tracking
   const wrappedOnBallDetection = useCallback((detection: BallDetection) => {
     onBallDetection(detection)
     handleBallDetectionForShotTracking(detection)
   }, [onBallDetection, handleBallDetectionForShotTracking])
 
-  // Refs for runOnJS callbacks to avoid stale closures
   const wrappedOnBallDetectionRef = useRef(wrappedOnBallDetection)
-  useEffect(() => {
-    wrappedOnBallDetectionRef.current = wrappedOnBallDetection
-  }, [wrappedOnBallDetection])
+  useEffect(() => { wrappedOnBallDetectionRef.current = wrappedOnBallDetection }, [wrappedOnBallDetection])
 
-  // Create runOnJS callbacks
+  // ── runOnJS bridges (created once) ──────────────────────────────────────────
   const onBallDetectionJS = useRef(
     (Worklets.createRunOnJS as any)((detection: BallDetection) => {
       incrementYoloFps()
       wrappedOnBallDetectionRef.current(detection)
-    })
+    }),
   ).current
 
   const onPoseResultJS = useRef(
     (Worklets.createRunOnJS as any)((result: PoseResult) => {
       incrementMoveNetFps()
       onPoseResultRef.current(result)
-    })
+    }),
   ).current
 
   const { resize } = useResizePlugin()
 
-  // Combined frame processor - runs both YOLO and MoveNet in worklet
+  // ── Frame Processor (worklet) ────────────────────────────────────────────────
   const frameProcessor = useVisionCameraFrameProcessor((frame: Frame) => {
     'worklet'
 
     const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
-    const poseReady = poseModel.state === 'loaded' && poseModel.model != null
-
     if (!yoloReady) return
 
-    // === YOLO Detection (runs every frame) ===
-    const yoloModelInstance = yoloModel.model
-
-    // Resize frame to 320x320 RGB float32 using native plugin
+    // ── 1. YOLO ──────────────────────────────────────────────────────────────
+    // Resize camera frame → 320×320 RGB float32 (HWC, range 0-1).
+    // The model is a TFLite export (NHWC) — NO HWC→CHW conversion needed.
     const yoloResized = resize(frame, {
-      scale: { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
+      scale:       { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
       pixelFormat: 'rgb',
-      dataType: 'float32',
+      dataType:    'float32',  // produces float32 HWC in 0-1 range
     })
 
-    // Convert HWC to CHW for YOLO
-    const plane = YOLO_INPUT_SIZE * YOLO_INPUT_SIZE
-    const chw = new Float32Array(3 * plane)
-    for (let i = 0; i < plane; i++) {
-      chw[i] = yoloResized[i * 3]
-      chw[plane + i] = yoloResized[i * 3 + 1]
-      chw[plane * 2 + i] = yoloResized[i * 3 + 2]
-    }
+    const yoloOutputs = yoloModel.model!.runSync([yoloResized])
+    const yoloOutput  = yoloOutputs[0] as Float32Array
 
-    console.log('[YOLO Input] Sample values:', chw[0].toFixed(2), chw[1].toFixed(2), chw[2].toFixed(2), 'min:', Math.min(...chw.slice(0, 100)).toFixed(2), 'max:', Math.max(...chw.slice(0, 100)).toFixed(2))
-
-    // Run YOLO inference
-    const yoloOutputs = yoloModelInstance.runSync([chw])
-    const yoloOutput = yoloOutputs[0] as Float32Array | Uint8Array | Int8Array
-
-    // Parse YOLO output
     const { ball } = parseYoloOutput(yoloOutput)
 
-    // Log sport ball detection
-    if (ball) {
-      console.log('[YOLO] Sport ball detected:', {
-        x: ball.x.toFixed(2),
-        y: ball.y.toFixed(2),
-        width: ball.width.toFixed(2),
-        height: ball.height.toFixed(2),
-        confidence: ball.confidence.toFixed(3),
-      })
-    }
-
-    // Send ball detection to JS
-    const timestamp = Date.now()
     onBallDetectionJS({
-      ball: ball ? {
-        x: ball.x,
-        y: ball.y,
-        width: ball.width,
-        height: ball.height,
-        confidence: ball.confidence,
-      } : undefined,
-      timestamp,
+      ball: ball ?? undefined,
+      timestamp: Date.now(),
     })
 
-    // === MoveNet Pose Detection (throttled) ===
-    if (!poseReady) return
-    
-    // Only run pose detection if ball is detected
+    // ── 2. MoveNet — only when ball detected, throttled ──────────────────────
     if (!ball) return
+
+    const poseReady = poseModel.state === 'loaded' && poseModel.model != null
+    if (!poseReady) return
 
     const now = Date.now()
     if (now - lastPoseTs.value < POSE_INTERVAL_MS) return
     lastPoseTs.value = now
 
-    const poseModelInstance = poseModel.model
-
-    // Resize frame to 192x192 RGB uint8 using native plugin
     const poseResized = resize(frame, {
-      scale: { width: POSE_INPUT_SIZE, height: POSE_INPUT_SIZE },
+      scale:       { width: POSE_INPUT_SIZE, height: POSE_INPUT_SIZE },
       pixelFormat: 'rgb',
-      dataType: 'uint8',
+      dataType:    'uint8',   // MoveNet INT8 expects uint8 HWC
     })
 
-    // Run MoveNet inference
-    const poseOutputs = poseModelInstance.runSync([poseResized])
-    const poseOutputData = poseOutputs[0] as Float32Array
+    const poseOutputs = poseModel.model!.runSync([poseResized])
+    const poseOutput  = poseOutputs[0] as Float32Array
 
-    // Parse output to keypoints
-    const keypoints = parseMoveNetOutput(poseOutputData)
-    const angles = computeJointAngles(keypoints as PoseKeypoints)
+    const keypoints = parseMoveNetOutput(poseOutput)
+    const angles    = computeJointAngles(keypoints as PoseKeypoints)
 
-    // Send pose result to JS
-    onPoseResultJS({
-      keypoints: keypoints as PoseKeypoints,
-      angles,
-      timestamp: now,
-    })
+    onPoseResultJS({ keypoints: keypoints as PoseKeypoints, angles, timestamp: now })
+
   }, [yoloModel.state, yoloModel.model, poseModel.state, poseModel.model, resize, onBallDetectionJS, onPoseResultJS])
 
   const resetShotTracking = useCallback(() => {
@@ -233,11 +176,9 @@ export const useShotTracker = (
     lastBallRef.current = null
   }, [])
 
-  const isModelReady = yoloModel.state === 'loaded' && yoloModel.model != null && poseModel.state === 'loaded' && poseModel.model != null
+  const isModelReady =
+    yoloModel.state === 'loaded' && yoloModel.model != null &&
+    poseModel.state === 'loaded' && poseModel.model != null
 
-  return {
-    frameProcessor,
-    isModelReady,
-    resetShotTracking,
-  }
+  return { frameProcessor, isModelReady, resetShotTracking }
 }
