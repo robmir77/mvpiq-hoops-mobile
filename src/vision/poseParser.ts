@@ -5,7 +5,7 @@
 // NO image data, only keypoints
 
 const INPUT_SIZE = 192
-const SCORE_THRESHOLD = 0.15
+const SCORE_THRESHOLD = 0.1
 
 const KP_MAP: Record<number, string> = {
   5: 'leftShoulder',

@@ -6,7 +6,7 @@
 
 const INPUT_SIZE = 320
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.20
+const CONF_THRESHOLD = 0.18
 const N_ANCHORS = 2100
 
 // Worklet-safe IOU calculation

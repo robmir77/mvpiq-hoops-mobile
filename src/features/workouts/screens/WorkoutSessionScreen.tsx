@@ -16,6 +16,7 @@
 import React, {
     useState, useContext, useEffect, useCallback, useRef,
 } from 'react'
+import { useSharedValue } from 'react-native-reanimated'
 import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, Animated, Easing, Platform,
@@ -214,13 +215,17 @@ const TrackingOverlay = React.memo(({
     trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration,
 }: {
     trackingState: TrackingState | null
-    poseKeypoints: PoseKeypoints | null
-    jointAngles?: Partial<JointAngles>
+    poseKeypoints: any // SharedValue<PoseKeypoints | null>
+    jointAngles: any // SharedValue<Partial<JointAngles>>
     releaseAngle?: number
     arcHeight?: number
     calibration: CalibrationData | null
 }) => {
     incrementOverlayRenders()
+
+    // Read from shared values
+    const currentPoseKeypoints = poseKeypoints.value
+    const currentJointAngles = jointAngles.value
 
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
@@ -396,11 +401,11 @@ const TrackingOverlay = React.memo(({
                 )}
 
                 {/* Skeleton pose + punti keypoints */}
-                {poseKeypoints && (
+                {currentPoseKeypoints && (
                     <Group>
                         {SKELETON_CONNECTIONS.map(([a, b], i) => {
-                            const kpA = poseKeypoints[a]
-                            const kpB = poseKeypoints[b]
+                            const kpA = currentPoseKeypoints[a]
+                            const kpB = currentPoseKeypoints[b]
                             if (!kpA || !kpB || kpA.score < KP_THRESH || kpB.score < KP_THRESH) return null
                             const connectionKey = `${a}-${b}`
                             const lineColor = CONNECTION_COLORS[connectionKey] || 'rgba(96,165,250,0.80)'
@@ -414,7 +419,7 @@ const TrackingOverlay = React.memo(({
                                 />
                             )
                         })}
-                        {(Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
+                        {(Object.entries(currentPoseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
                             .filter(([_, kp]) => kp?.score >= KP_THRESH)
                             .map(([key, kp]) => {
                                 const colors = KP_COLORS[key]
@@ -610,8 +615,8 @@ const TrackingOverlay = React.memo(({
 
             {/* ── Elbow Angle Live ── */}
             {(() => {
-                const elbow = poseKeypoints?.rightElbow ?? poseKeypoints?.leftElbow
-                if (elbow && jointAngles?.elbowAngle != null) {
+                const elbow = currentPoseKeypoints?.rightElbow ?? currentPoseKeypoints?.leftElbow
+                if (elbow && currentJointAngles?.elbowAngle != null) {
                     return (
                         <View
                             pointerEvents="none"
@@ -622,11 +627,11 @@ const TrackingOverlay = React.memo(({
                             }}
                         >
                             <Text style={{
-                                color: getAngleColor(jointAngles.elbowAngle),
+                                color: getAngleColor(currentJointAngles.elbowAngle),
                                 fontWeight: '900',
                                 fontSize: 11,
                             }}>
-                                {Math.round(jointAngles.elbowAngle)}°
+                                {Math.round(currentJointAngles.elbowAngle)}°
                             </Text>
                         </View>
                     )
@@ -635,7 +640,7 @@ const TrackingOverlay = React.memo(({
             })()}
 
             {/* ── Label POSE KEYPOINTS ── */}
-            {poseKeypoints && (Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
+            {currentPoseKeypoints && (Object.entries(currentPoseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
                 .filter(([_, kp]) => kp?.score >= KP_THRESH)
                 .map(([key, kp]) => {
                     const colors = KP_COLORS[key]
@@ -849,6 +854,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
     const [jointAngles, setJointAngles]     = useState<Partial<JointAngles>>({})
+    
+    // Shared values for pose to persist between detections
+    const poseKeypointsShared = useSharedValue<PoseKeypoints | null>(null)
+    const jointAnglesShared = useSharedValue<Partial<JointAngles>>({})
+    const jointCountShared = useSharedValue(0)
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
@@ -877,7 +887,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         console.log('[WorkoutSession] Pose keypoints:', Object.keys(result.keypoints).length, 'joints')
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
-    }, [])
+        poseKeypointsShared.value = result.keypoints
+        jointAnglesShared.value = result.angles
+        jointCountShared.value = Object.keys(result.keypoints).length
+    }, [poseKeypointsShared, jointAnglesShared, jointCountShared])
 
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
@@ -887,10 +900,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
         // Rim comes from calibration, not YOLO
         const rimFromCalibration = calibration?.hoopCenter ? {
-            x: calibration.hoopCenter.x * 640, // Assuming 640px width
-            y: calibration.hoopCenter.y * 480, // Assuming 480px height
-            width: 50,
-            height: 50,
+            x: calibration.hoopCenter.x, // Already normalized 0-1
+            y: calibration.hoopCenter.y, // Already normalized 0-1
+            width: 0.08, // ~50px / 640
+            height: 0.08,
             confidence: 1.0,
         } : null
         
@@ -980,7 +993,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── New architecture: useCameraPipeline integrates everything ─────────
     const rimFromCalibration = React.useMemo(() =>
         calibration?.hoopCenter
-            ? { x: calibration.hoopCenter.x * 640, y: calibration.hoopCenter.y * 480, width: 50, height: 50 }
+            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.08, height: 0.08 }
             : null
     , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
@@ -1220,8 +1233,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 {/* Overlay completo: scia + palla + canestro + pose */}
                 <TrackingOverlay
                     trackingState={trackingState}
-                    poseKeypoints={poseKeypoints}
-                    jointAngles={jointAngles}
+                    poseKeypoints={poseKeypointsShared}
+                    jointAngles={jointAnglesShared}
                     releaseAngle={trackingState?.releaseAngle}
                     arcHeight={trackingState?.releasePoint && trackingState?.apexPoint
                         ? trackingState.releasePoint.y - trackingState.apexPoint.y
@@ -1248,6 +1261,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             ? `🏀 ${Math.round((trackingState.confidence??0)*100)}%`
                             : modelsReady ? 'Cerca palla...' : 'Caricamento AI...'}
                     </Text>
+                    {jointCountShared.value > 0 && (
+                        <Text style={styles.trackingText}>
+                            {' '}👤 {jointCountShared.value}
+                        </Text>
+                    )}
                 </View>
 
                 {lastShotResult && (
