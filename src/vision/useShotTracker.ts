@@ -19,7 +19,7 @@ import { ShotDetector } from './shotDetector'
 import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints, JointAngles } from './types'
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
 
-const YOLO_INPUT_SIZE = 640
+const YOLO_INPUT_SIZE = 320
 const POSE_INPUT_SIZE = 192
 const POSE_INTERVAL_MS = 2000 // Run every 2 seconds
 const SHOT_CANDIDATE_THRESHOLD_Y = 0.3 // Ball above 30% of frame height
@@ -37,7 +37,7 @@ export const useShotTracker = (
 
   // Load YOLO model
   const yoloModel = useTensorflowModel(
-    require('../../assets/models/yolo11n_int8.tflite'),
+    require('../../assets/models/ball_rimV8_float16.tflite'),
     'nnapi'
   )
 
@@ -144,21 +144,23 @@ export const useShotTracker = (
     // === YOLO Detection (runs every frame) ===
     const yoloModelInstance = yoloModel.model
 
-    // Resize frame to 640x640 RGB uint8 using native plugin
+    // Resize frame to 320x320 RGB float32 using native plugin
     const yoloResized = resize(frame, {
       scale: { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
       pixelFormat: 'rgb',
-      dataType: 'uint8',
+      dataType: 'float32',
     })
 
-    // Convert HWC to CHW for YOLO and normalize to 0-1 (float32)
+    // Convert HWC to CHW for YOLO
     const plane = YOLO_INPUT_SIZE * YOLO_INPUT_SIZE
     const chw = new Float32Array(3 * plane)
     for (let i = 0; i < plane; i++) {
-      chw[i] = yoloResized[i * 3] / 255.0
-      chw[plane + i] = yoloResized[i * 3 + 1] / 255.0
-      chw[plane * 2 + i] = yoloResized[i * 3 + 2] / 255.0
+      chw[i] = yoloResized[i * 3]
+      chw[plane + i] = yoloResized[i * 3 + 1]
+      chw[plane * 2 + i] = yoloResized[i * 3 + 2]
     }
+
+    console.log('[YOLO Input] Sample values:', chw[0].toFixed(2), chw[1].toFixed(2), chw[2].toFixed(2), 'min:', Math.min(...chw.slice(0, 100)).toFixed(2), 'max:', Math.max(...chw.slice(0, 100)).toFixed(2))
 
     // Run YOLO inference
     const yoloOutputs = yoloModelInstance.runSync([chw])

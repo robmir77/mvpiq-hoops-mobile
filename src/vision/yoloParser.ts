@@ -4,12 +4,10 @@
 // Converts raw YOLO output to BallDetection interface
 // NO image data, only coordinates
 
-const INPUT_SIZE = 640
+const INPUT_SIZE = 320
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.10
-const N_ANCHORS = 8400
-const NUM_CLASSES = 80 // COCO dataset classes
-const SPORT_BALL_CLASS = 32 // Sport ball class in COCO
+const CONF_THRESHOLD = 0.01
+const N_ANCHORS = 2100
 
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
@@ -57,53 +55,55 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array): 
   }
 
   // Extract detections from YOLO output
-  // YOLO11 format: [class0, class1, ..., class79, cx, cy, w, h] for each anchor
+  // Layout: separate arrays for each parameter
+  // output[i] = cx, output[N_ANCHORS + i] = cy, output[N_ANCHORS * 2 + i] = w, output[N_ANCHORS * 3 + i] = h, output[N_ANCHORS * 4 + i] = score
   let maxScore = 0
   let maxScoreIdx = -1
 
   for (let i = 0; i < N_ANCHORS; i++) {
-    // Get sport ball class score (class 32)
-    const ballScore = getOutput(i * (NUM_CLASSES + 4) + SPORT_BALL_CLASS)
+    const cx = getOutput(i)
+    const cy = getOutput(N_ANCHORS + i)
+    const w = getOutput(N_ANCHORS * 2 + i)
+    const h = getOutput(N_ANCHORS * 3 + i)
+    const score = getOutput(N_ANCHORS * 4 + i)
 
-    // Get bbox coordinates (after all 80 class scores)
-    const cx = getOutput(i * (NUM_CLASSES + 4) + 80)
-    const cy = getOutput(i * (NUM_CLASSES + 4) + 81)
-    const w = getOutput(i * (NUM_CLASSES + 4) + 82)
-    const h = getOutput(i * (NUM_CLASSES + 4) + 83)
-
-    if (ballScore > maxScore) {
-      maxScore = ballScore
+    if (score > maxScore) {
+      maxScore = score
       maxScoreIdx = i
     }
 
-    if (ballScore < CONF_THRESHOLD) continue
+    if (score < CONF_THRESHOLD) continue
 
     raw.push([
-      cx - w * 0.5,
-      cy - h * 0.5,
-      cx + w * 0.5,
-      cy + h * 0.5,
-      ballScore,
-      SPORT_BALL_CLASS,
+      (cx - w * 0.5) / INPUT_SIZE,
+      (cy - h * 0.5) / INPUT_SIZE,
+      (cx + w * 0.5) / INPUT_SIZE,
+      (cy + h * 0.5) / INPUT_SIZE,
+      score,
+      0, // ball class
     ])
   }
 
+  console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
+  console.log('[YOLO Parser] Detections above threshold:', raw.length)
+
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
+  console.log('[YOLO Parser] Detections after NMS:', kept.length)
 
   // Keep only the ball with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      x: x1,
-      y: y1,
-      width: x2 - x1,
-      height: y2 - y1,
+      x: x1 * INPUT_SIZE,
+      y: y1 * INPUT_SIZE,
+      width: (x2 - x1) * INPUT_SIZE,
+      height: (y2 - y1) * INPUT_SIZE,
       confidence: conf,
     }
 
-    if (cls === SPORT_BALL_CLASS && (!bestBall || detection.confidence > bestBall.confidence)) {
+    if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
     }
   }

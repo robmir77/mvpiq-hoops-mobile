@@ -104,8 +104,6 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
-        console.log('[Tracking] processFrame called - ballDetection:', ballDetection, 'hoopDetection:', hoopDetection)
-
         if (ballDetection && ballDetection.confidence > 0.05) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed

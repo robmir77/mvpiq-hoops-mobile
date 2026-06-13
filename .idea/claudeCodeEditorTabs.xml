@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ClaudeCodeEditorTabs">
+    <option name="activeSessionId" value="ef9f640a-7137-47b6-83f0-c82b1f12153f" />
+    <option name="openSessionIds">
+      <list>
+        <option value="b0627e1c-12c6-411b-8be5-c2300b3842fc" />
+        <option value="57013003-2b8b-40c7-a79b-2d38de05790e" />
+        <option value="4e1ca403-a7b4-4f26-ba4a-55913daee164" />
+        <option value="ef9f640a-7137-47b6-83f0-c82b1f12153f" />
+      </list>
+    </option>
+    <option name="sessionPaths">
+      <map>
+        <entry key="4e1ca403-a7b4-4f26-ba4a-55913daee164" value="/switch-account" />
+        <entry key="57013003-2b8b-40c7-a79b-2d38de05790e" value="/switch-account" />
+        <entry key="b0627e1c-12c6-411b-8be5-c2300b3842fc" value="/switch-account" />
+        <entry key="ef9f640a-7137-47b6-83f0-c82b1f12153f" value="/switch-account" />
+      </map>
+    </option>
+    <option name="sessionTitles">
+      <map>
+        <entry key="4e1ca403-a7b4-4f26-ba4a-55913daee164" value="Claude Code" />
+        <entry key="57013003-2b8b-40c7-a79b-2d38de05790e" value="Claude Code" />
+        <entry key="b0627e1c-12c6-411b-8be5-c2300b3842fc" value="Claude Code" />
+        <entry key="ef9f640a-7137-47b6-83f0-c82b1f12153f" value="Claude Code" />
+      </map>
+    </option>
+  </component>
+</project>
