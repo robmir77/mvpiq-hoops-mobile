@@ -472,19 +472,39 @@ const TrackingOverlay = React.memo(({
                                 />
                             </Group>
                         )}
-                        {/* Dynamic hoop circle based on detected dimensions (like ball) */}
-                        <SkiaCircle
-                            cx={hoopXPx}
-                            cy={hoopYPx}
-                            r={useDerivedValue(() => hoopWidth.value > 0 ? (hoopWidth.value * SCREEN_W) / 2 : 20, [hoopWidth])}
-                            color="rgba(74,222,128,0.18)"
-                        />
-                        <SkiaCircle
-                            cx={hoopXPx}
-                            cy={hoopYPx}
-                            r={useDerivedValue(() => hoopWidth.value > 0 ? (hoopWidth.value * SCREEN_W) / 2 : 20, [hoopWidth])}
-                            color="#4ade80" style="stroke" strokeWidth={2.5}
-                        />
+                        {/* Dynamic hoop oval based on detected dimensions (width and height) */}
+                        {(() => {
+                            const hoopRect = useDerivedValue(() => {
+                                const w = hoopWidth.value > 0 ? hoopWidth.value * SCREEN_W : 40
+                                const h = hoopHeight.value > 0 ? hoopHeight.value * CAMERA_H : 40
+                                return {
+                                    x: hoopXPx.value - w / 2,
+                                    y: hoopYPx.value - h / 2,
+                                    w: w,
+                                    h: h
+                                }
+                            }, [hoopXPx, hoopYPx, hoopWidth, hoopHeight])
+                            
+                            const hoopOvalPath = useDerivedValue(() => {
+                                const path = Skia.Path.Make()
+                                const rect = hoopRect.value
+                                path.addOval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
+                                return path
+                            }, [hoopRect])
+                            
+                            return (
+                                <Group>
+                                    <SkiaPath
+                                        path={hoopOvalPath}
+                                        color="rgba(74,222,128,0.18)"
+                                    />
+                                    <SkiaPath
+                                        path={hoopOvalPath}
+                                        color="#4ade80" style="stroke" strokeWidth={2.5}
+                                    />
+                                </Group>
+                            )
+                        })()}
                     </Group>
                 )}
 
@@ -1091,8 +1111,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         if (rim) {
             console.log('[BallDetection] Rim detected - confidence:', rim.confidence, 'x:', rim.x, 'y:', rim.y, 'width:', rim.width, 'height:', rim.height)
         }
-        // Rim comes from calibration, keep coordinates normalized (0-1)
-        const rimFromCalibration = calibration?.hoopCenter ? {
+        // Use detected rim if available, otherwise use calibrated rim
+        // Detected rim has actual bounding box dimensions (width/height)
+        const rimForTracking = rimFromDetection ? {
+            x: rimFromDetection.x,
+            y: rimFromDetection.y,
+            width: rimFromDetection.width,
+            height: rimFromDetection.height,
+            confidence: rimFromDetection.confidence,
+        } : calibration?.hoopCenter ? {
             x: calibration.hoopCenter.x,
             y: calibration.hoopCenter.y,
             width: 0.05, // Normalized width
@@ -1102,7 +1129,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
         const newState = tracking.processFrame(
             ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
-            rimFromCalibration ? { x: rimFromCalibration.x, y: rimFromCalibration.y, confidence: rimFromCalibration.confidence } : null,
+            rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
             detection.timestamp
         )
         // Aggiorna l'overlay direttamente — non aspettare il RAF loop
@@ -1113,7 +1140,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             lastUiUpdate.current = now
             setTrackingState({ ...newState })
         }
-        if (ball || rimFromCalibration) {
+        if (ball || rimForTracking) {
             frameBatch.current.push({
                 frameTimestamp:   detection.timestamp,
                 ballX:            ball ? ball.x : undefined,
@@ -1121,16 +1148,16 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 ballWidth:        ball ? ball.width : undefined,
                 ballHeight:       ball ? ball.height : undefined,
                 ballConfidence:   ball?.confidence,
-                hoopX:            rimFromCalibration ? rimFromCalibration.x : undefined,
-                hoopY:            rimFromCalibration ? rimFromCalibration.y : undefined,
-                hoopConfidence:   rimFromCalibration?.confidence,
+                hoopX:            rimForTracking ? rimForTracking.x : undefined,
+                hoopY:            rimForTracking ? rimForTracking.y : undefined,
+                hoopConfidence:   rimForTracking?.confidence,
                 ballVelocityX:    newState.ballVelocity?.vx,
                 ballVelocityY:    newState.ballVelocity?.vy,
                 shotDetected:     newState.shotDetected,
                 trajectoryData:   { points: newState.trajectory.slice(-10) },
             })
         }
-    }, [tracking, calibration])
+    }, [tracking, calibration, rimFromDetection])
 
     // ── Auto shot detection handler (must be defined before handleShotEvent) ─────
     const handleAutoShotDetected = useCallback(async (result: ShotResult) => {
