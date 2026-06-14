@@ -39,7 +39,7 @@ export const useShotTracker = (
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const frameCounter = useSharedValue(0) // Frame counter for AI inference throttling
   const lastBallDetected = useSharedValue(false) // Track if ball was detected in last YOLO frame
-  const RIM_CONFIDENCE_THRESHOLD = 0.5 // Soglia confidence per sostituire rim calibrato (ridotta da 0.7)
+  const RIM_CONFIDENCE_THRESHOLD = 0.25 // Soglia confidence per sostituire rim calibrato
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
   const adaptiveThreshold = useSharedValue(0.05)
@@ -136,7 +136,9 @@ export const useShotTracker = (
       const ev = shotDetector.current.getShotEvent()
       if (ev) onShotEvent(ev)
     }
-    if (shotDetector.current.detectShotMade(rimFromCalibration || null)) {
+    // Use detected rim if available, otherwise fall back to calibrated rim
+    const effectiveRim = detection.rim || rimFromCalibration || null
+    if (shotDetector.current.detectShotMade(effectiveRim)) {
       // Log when shot is detected as made
       console.log('[ShotTracker] Shot made!')
       const ev = shotDetector.current.getShotEvent()

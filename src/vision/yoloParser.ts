@@ -102,15 +102,19 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  // Log the highest confidence score and its anchor position for debugging
-  console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
-  // Log the number of detections that passed the confidence threshold
-  console.log('[YOLO Parser] Detections above threshold:', raw.length)
+  // Log the highest confidence score and its anchor position for debugging (only in dev)
+  if (__DEV__) {
+    console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
+    // Log the number of detections that passed the confidence threshold
+    console.log('[YOLO Parser] Detections above threshold:', raw.length)
+  }
 
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
-  // Log the number of detections remaining after Non-Maximum Suppression
-  console.log('[YOLO Parser] Detections after NMS:', kept.length)
+  // Log the number of detections remaining after Non-Maximum Suppression (only in dev)
+  if (__DEV__) {
+    console.log('[YOLO Parser] Detections after NMS:', kept.length)
+  }
 
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null

@@ -472,53 +472,18 @@ const TrackingOverlay = React.memo(({
                                 />
                             </Group>
                         )}
-                        {useDerivedValue(() => hoopWidth.value > 0 && hoopHeight.value > 0, [hoopWidth, hoopHeight]) ? (
-                            // Disegna rettangolo con dimensioni rilevate dal modello
-                            <SkiaPath
-                                path={useDerivedValue(() => {
-                                    const path = hoopPathRef.current
-                                    path.reset()
-                                    path.addRect(
-                                        Skia.XYWHRect(
-                                            (hoopX.value - hoopWidth.value / 2) * SCREEN_W,
-                                            (hoopY.value - hoopHeight.value / 2) * CAMERA_H,
-                                            hoopWidth.value * SCREEN_W,
-                                            hoopHeight.value * CAMERA_H
-                                        )
-                                    )
-                                    return path
-                                }, [hoopX, hoopY, hoopWidth, hoopHeight])}
-                                color="rgba(74,222,128,0.18)"
-                                style="fill"
-                            />
-                        ) : (
-                            // Fallback: cerchio fisso se dimensioni non disponibili
-                            <SkiaCircle
-                                cx={hoopXPx}
-                                cy={hoopYPx}
-                                r={20} color="rgba(74,222,128,0.18)"
-                            />
-                        )}
+                        {/* Dynamic hoop circle based on detected dimensions (like ball) */}
                         <SkiaCircle
                             cx={hoopXPx}
                             cy={hoopYPx}
-                            r={20} color="#4ade80" style="stroke" strokeWidth={2.5}
-                        />
-                    </Group>
-                )}
-
-                {/* Rim calibrato */}
-                {calibration?.hoopCenter && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(calibration.hoopCenter.x)}
-                            cy={py(calibration.hoopCenter.y)}
-                            r={25} color="rgba(59,130,246,0.25)"
+                            r={useDerivedValue(() => hoopWidth.value > 0 ? (hoopWidth.value * SCREEN_W) / 2 : 20, [hoopWidth])}
+                            color="rgba(74,222,128,0.18)"
                         />
                         <SkiaCircle
-                            cx={px(calibration.hoopCenter.x)}
-                            cy={py(calibration.hoopCenter.y)}
-                            r={25} color="#3b82f6" style="stroke" strokeWidth={3}
+                            cx={hoopXPx}
+                            cy={hoopYPx}
+                            r={useDerivedValue(() => hoopWidth.value > 0 ? (hoopWidth.value * SCREEN_W) / 2 : 20, [hoopWidth])}
+                            color="#4ade80" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
                 )}
@@ -1112,7 +1077,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const handleRimDetection = useCallback((rim: { x: number; y: number; width: number; height: number; confidence: number }) => {
         console.log('[WorkoutSession] Rim detected with high confidence - replacing calibrated rim')
         setRimFromDetection(rim)
-    }, [])
+        // Also update tracking engine directly to update overlay shared values
+        tracking.setHoopFromCalibration(rim.x, rim.y, rim.width, rim.height)
+    }, [tracking])
 
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
@@ -1231,6 +1198,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
     // Usa il rim rilevato dal modello se disponibile, altrimenti usa quello calibrato
+    // Mantieni l'ultima rilevazione positiva invece di tornare alla calibrazione
     const effectiveRim = rimFromDetection || rimFromCalibration
 
     const {
@@ -1314,7 +1282,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 }
                 console.log('[WorkoutSession] Calibration loaded', cal.hoopCenter)
                 setCalibration(cal)
-                tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y)
+                tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
             } catch (e) {
                 console.log('[WorkoutSession] Calibration not loaded', e)
                 /* calibrazione opzionale */

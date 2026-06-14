@@ -173,7 +173,7 @@ export const useTrackingEngine = () => {
             }
         }
 
-        if (hoopDetection && hoopDetection.confidence > 0.5) {
+        if (hoopDetection && hoopDetection.confidence > 0.25) {
             current.hoopPosition = {
                 x: hoopDetection.x,
                 y: hoopDetection.y,
@@ -324,25 +324,28 @@ export const useTrackingEngine = () => {
             shotQuality: undefined,
         }
 
-        // Reset Shared Values
+        // Reset Shared Values (keep hoop values to maintain last positive detection)
         ballX.value = 0
         ballY.value = 0
         ballWidth.value = 0
         ballHeight.value = 0
-        hoopX.value = 0
-        hoopY.value = 0
-        hoopWidth.value = 0
-        hoopHeight.value = 0
+        // Don't reset hoop values to keep last positive detection
+        // hoopX.value = 0
+        // hoopY.value = 0
+        // hoopWidth.value = 0
+        // hoopHeight.value = 0
         confidence.value = 0
         inFlight.value = false
         shotDetected.value = false
     }, [resetTrajectoryBuffer, ballX, ballY, ballWidth, ballHeight, hoopX, hoopY, hoopWidth, hoopHeight, confidence, inFlight, shotDetected])
 
-    const setHoopFromCalibration = useCallback((x: number, y: number) => {
-        state.current.hoopPosition = { x, y }
+    const setHoopFromCalibration = useCallback((x: number, y: number, width?: number, height?: number) => {
+        state.current.hoopPosition = { x, y, width, height }
         // Aggiorna Shared Values
         hoopX.value = x
         hoopY.value = y
+        if (width !== undefined) hoopWidth.value = width
+        if (height !== undefined) hoopHeight.value = height
     }, [])
 
     const computeTrajectoryMetrics = useCallback((): {

@@ -18,6 +18,7 @@ import { Camera } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData } from '../types/workouts.types'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
+import { useCameraFormat } from 'react-native-vision-camera'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
@@ -292,7 +293,6 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
     // Paint simmetrico
     const paintL = W * 0.22, paintR = W * 0.78
     const paintTop = H * 0.43, paintBot = H * 0.87
-    const ftLine = H * 0.43
 
     // Arco pittura (semicerchio tiro libero)
     const ftR = W * 0.14  // raggio semicerchio
@@ -300,7 +300,6 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
     const ftArc = `M ${ftCx - ftR} ${ftCy} A ${ftR} ${ftR * 0.6} 0 0 1 ${ftCx + ftR} ${ftCy}`
 
     // Arco 3pt frontale (grande)
-    const arc3R_x = W * 0.42, arc3R_y = H * 0.38
     const arc3Path = `M ${W * 0.04} ${H * 0.87}
         Q ${W * 0.04} ${H * 0.30} ${W * 0.50} ${H * 0.22}
         Q ${W * 0.96} ${H * 0.30} ${W * 0.96} ${H * 0.87}`
@@ -505,7 +504,16 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const { user } = useContext(AuthContext) || {}
     const { hasPermission, requestPermission } = useCameraPermission()
     const device = useCameraDevice('back')
-    const [isActive, setIsActive] = useState(true)
+    const format = useCameraFormat(device, [
+        { videoResolution: { width: 1280, height: 720 } },
+        { fps: 30 },
+    ])
+    const isActive = true
+    const [zoom, setZoom] = useState(1)
+    
+    // Get zoom range from device
+    const minZoom = device?.minZoom ?? 1
+    const maxZoom = device?.maxZoom ?? 1
 
     const [step, setStep] = useState<CalibStep>('hoop')
     const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
@@ -596,7 +604,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const resetAll = () => {
-        setCorners([]); setStep('hoop'); setHoopCenter(null); setSavedCalibration(null)
+        setCorners([]); setStep('hoop'); setHoopCenter(null); setSavedCalibration(null); setZoom(1)
+    }
+
+    const handleZoomIn = () => {
+        setZoom(prev => Math.min(maxZoom, prev + 0.1))
+    }
+
+    const handleZoomOut = () => {
+        setZoom(prev => Math.max(minZoom, prev - 0.1))
     }
 
     const CORNER_LABELS = ['Ang. SX alto', 'Ang. DX alto', 'Ang. DX basso', 'Ang. SX basso']
@@ -636,6 +652,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive}
+                    format={format}
+                    zoom={zoom}
                 />
                 <OverlayComponent
                     hoopCenter={hoopCenter}
@@ -654,6 +672,27 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 ? `👆 ${CORNER_LABELS[corners.length] ?? 'Completo'}`
                                 : '✅ Tutti i punti definiti'}
                     </Text>
+                </View>
+                
+                {/* Zoom controls */}
+                <View style={styles.zoomControls} pointerEvents="none">
+                    <TouchableOpacity 
+                        style={styles.zoomBtn} 
+                        onPress={handleZoomOut}
+                        disabled={zoom <= minZoom}
+                    >
+                        <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
+                    </TouchableOpacity>
+                    <View style={styles.zoomIndicator}>
+                        <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
+                    </View>
+                    <TouchableOpacity 
+                        style={styles.zoomBtn} 
+                        onPress={handleZoomIn}
+                        disabled={zoom >= maxZoom}
+                    >
+                        <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
 
@@ -760,6 +799,46 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.72)', color: '#fff',
         fontSize: 12, fontWeight: '600',
         paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
+    },
+    zoomControls: {
+        position: 'absolute',
+        right: 16,
+        top: '50%',
+        marginTop: -30,
+        alignItems: 'center',
+        gap: 8,
+    },
+    zoomBtn: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.3)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    zoomBtnText: {
+        color: '#fff',
+        fontSize: 24,
+        fontWeight: '700',
+        lineHeight: 28,
+    },
+    zoomBtnTextDisabled: {
+        color: 'rgba(255,255,255,0.3)',
+    },
+    zoomIndicator: {
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
+    },
+    zoomText: {
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: '700',
     },
     bottomPanel: { flex: 1, padding: 14 },
     modeCard: {
