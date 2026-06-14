@@ -33,7 +33,19 @@ export const useWorkoutWebSocket = (sessionId: string | null, userId: string | n
         socket.onmessage = (event) => {
             try {
                 const data: RealtimeStats = JSON.parse(event.data)
-                setStats(data)
+                // Only update stats if key values changed (reduces React renders)
+                setStats(prev => {
+                    if (
+                        prev?.shotCount === data.shotCount &&
+                        prev?.fieldGoalPercentage === data.fieldGoalPercentage &&
+                        prev?.shotStreak === data.shotStreak &&
+                        prev?.releaseAngleAvg === data.releaseAngleAvg &&
+                        prev?.releaseVelocityAvg === data.releaseVelocityAvg
+                    ) {
+                        return prev
+                    }
+                    return data
+                })
             } catch {
                 // ignora messaggi non JSON
             }

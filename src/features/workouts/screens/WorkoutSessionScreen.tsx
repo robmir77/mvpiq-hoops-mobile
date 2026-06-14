@@ -239,6 +239,10 @@ const TrackingOverlay = React.memo(({
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
+    // Memoize Skia path objects to avoid continuous allocations
+    const shotTrailPathRef = React.useRef(Skia.Path.Make())
+    const hoopPathRef = React.useRef(Skia.Path.Make())
+
     // Derived values per Skia (leggono direttamente dai Shared Values - no React bridge)
     const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
     const ballY = useDerivedValue(() => sharedValues?.ballY.value ?? 0, [sharedValues])
@@ -268,7 +272,9 @@ const TrackingOverlay = React.memo(({
             : traj
         if (points.length < 2) return null
 
-        const p = Skia.Path.Make()
+        // Reuse memoized path instead of creating new one
+        const p = shotTrailPathRef.current
+        p.reset()
         p.moveTo(px(points[0].x), py(points[0].y))
 
         if (points.length === 2) {
@@ -361,7 +367,8 @@ const TrackingOverlay = React.memo(({
                             // Disegna rettangolo con dimensioni rilevate dal modello
                             <SkiaPath
                                 path={useDerivedValue(() => {
-                                    const path = Skia.Path.Make()
+                                    const path = hoopPathRef.current
+                                    path.reset()
                                     path.addRect(
                                         Skia.XYWHRect(
                                             (hoopX.value - hoopWidth.value / 2) * SCREEN_W,
