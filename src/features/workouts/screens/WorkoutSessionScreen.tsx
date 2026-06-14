@@ -197,6 +197,38 @@ const CONNECTION_COLORS: Record<string, string> = {
 // per creare l'effetto "cometa — la scia segue la palla con un ritardo visivo"
 const TRAIL_DELAY_POINTS = 5
 
+// ── Game-style effects ───────────────────────────────────────────────────────
+// Calculate player size from pose keypoints for dynamic circle
+const calculatePlayerSize = (poseKeypoints: PoseKeypoints | null): number => {
+    if (!poseKeypoints) return 0
+    const leftShoulder = poseKeypoints.leftShoulder
+    const rightShoulder = poseKeypoints.rightShoulder
+    const leftHip = poseKeypoints.leftHip
+    const rightHip = poseKeypoints.rightHip
+    
+    if (leftShoulder && rightShoulder && leftHip && rightHip) {
+        const shoulderWidth = Math.sqrt(
+            Math.pow(leftShoulder.x - rightShoulder.x, 2) +
+            Math.pow(leftShoulder.y - rightShoulder.y, 2)
+        )
+        const hipWidth = Math.sqrt(
+            Math.pow(leftHip.x - rightHip.x, 2) +
+            Math.pow(leftHip.y - rightHip.y, 2)
+        )
+        // Average of shoulder and hip width, scaled for visual effect
+        return ((shoulderWidth + hipWidth) / 2) * SCREEN_W * 0.8
+    }
+    return 0
+}
+
+// Calculate shot power from velocity
+const calculateShotPower = (velocity: { vx: number; vy: number } | null): number => {
+    if (!velocity) return 0
+    const speed = Math.sqrt(velocity.vx * velocity.vx + velocity.vy * velocity.vy)
+    // Normalize to 0-100 range for display
+    return Math.min(100, Math.round(speed * 20))
+}
+
 // Helper function for biomechanical angle coloring
 const getAngleColor = (angle: number): string => {
     if (angle >= 80 && angle <= 110) return '#22c55e' // Green: optimal
@@ -238,6 +270,18 @@ const TrackingOverlay = React.memo(({
 
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
+
+    // Calculate dynamic player size
+    const playerSize = calculatePlayerSize(poseKeypoints)
+    const shotPower = calculateShotPower(trackingState?.ballVelocity ?? null)
+
+    // Calculate player center position (average of hips)
+    const playerCenterX = poseKeypoints?.leftHip && poseKeypoints?.rightHip
+        ? (poseKeypoints.leftHip.x + poseKeypoints.rightHip.x) / 2
+        : null
+    const playerCenterY = poseKeypoints?.leftHip && poseKeypoints?.rightHip
+        ? (poseKeypoints.leftHip.y + poseKeypoints.rightHip.y) / 2
+        : null
 
     // Memoize Skia path objects to avoid continuous allocations
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
@@ -310,7 +354,36 @@ const TrackingOverlay = React.memo(({
             {/* ── Canvas Skia: forme GPU (scia, cerchi, skeleton) ── */}
             <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
 
-                {/* Scia parabola — durante il volo arancione, dopo il tiro verde/rosso */}
+                {/* ── Dynamic Player Circle (game-style, scales with pose) ── */}
+                {playerCenterX !== null && playerCenterY !== null && playerSize > 0 && (
+                    <Group>
+                        {/* Outer glow ring */}
+                        <SkiaCircle
+                            cx={px(playerCenterX)}
+                            cy={py(playerCenterY) + playerSize * 0.6}
+                            r={playerSize * 0.4}
+                            color="rgba(59,130,246,0.15)"
+                        />
+                        {/* Main circle */}
+                        <SkiaCircle
+                            cx={px(playerCenterX)}
+                            cy={py(playerCenterY) + playerSize * 0.6}
+                            r={playerSize * 0.3}
+                            color="rgba(59,130,246,0.3)"
+                        />
+                        {/* Inner ring */}
+                        <SkiaCircle
+                            cx={px(playerCenterX)}
+                            cy={py(playerCenterY) + playerSize * 0.6}
+                            r={playerSize * 0.3}
+                            color="#3b82f6"
+                            style="stroke"
+                            strokeWidth={2}
+                        />
+                    </Group>
+                )}
+
+                {/* ── Enhanced Ball Trail (game-style with glow) ── */}
                 {shotTrailPath && (() => {
                     const ts = trackingState as any
                     const color = ts?.inFlight
@@ -320,15 +393,34 @@ const TrackingOverlay = React.memo(({
                             : ts?.shotResult
                                 ? 'rgba(239,68,68,0.90)'
                                 : 'rgba(255,140,0,0.70)'
+                    const glowColor = ts?.inFlight
+                        ? 'rgba(255,140,0,0.30)'
+                        : ts?.shotResult === 'MADE'
+                            ? 'rgba(34,197,94,0.30)'
+                            : ts?.shotResult
+                                ? 'rgba(239,68,68,0.30)'
+                                : 'rgba(255,140,0,0.20)'
                     return (
-                        <SkiaPath
-                            path={shotTrailPath}
-                            color={color}
-                            style="stroke"
-                            strokeWidth={3.5}
-                            strokeJoin="round"
-                            strokeCap="round"
-                        />
+                        <Group>
+                            {/* Glow effect */}
+                            <SkiaPath
+                                path={shotTrailPath}
+                                color={glowColor}
+                                style="stroke"
+                                strokeWidth={8}
+                                strokeJoin="round"
+                                strokeCap="round"
+                            />
+                            {/* Main trail */}
+                            <SkiaPath
+                                path={shotTrailPath}
+                                color={color}
+                                style="stroke"
+                                strokeWidth={3.5}
+                                strokeJoin="round"
+                                strokeCap="round"
+                            />
+                        </Group>
                     )
                 })()}
 
@@ -360,9 +452,26 @@ const TrackingOverlay = React.memo(({
                     />
                 )}
 
-                {/* Cerchio canestro - usa dimensione rilevata dal box se disponibile - Shared Values */}
+                {/* ── Hoop with Illumination Effect (game-style) ── */}
                 {sharedValues && (
                     <Group>
+                        {/* Illumination effect when basket is made */}
+                        {(trackingState as any)?.shotResult === 'MADE' && (
+                            <Group>
+                                <SkiaCircle
+                                    cx={hoopXPx}
+                                    cy={hoopYPx}
+                                    r={45}
+                                    color="rgba(34,197,94,0.4)"
+                                />
+                                <SkiaCircle
+                                    cx={hoopXPx}
+                                    cy={hoopYPx}
+                                    r={35}
+                                    color="rgba(34,197,94,0.25)"
+                                />
+                            </Group>
+                        )}
                         {useDerivedValue(() => hoopWidth.value > 0 && hoopHeight.value > 0, [hoopWidth, hoopHeight]) ? (
                             // Disegna rettangolo con dimensioni rilevate dal modello
                             <SkiaPath
@@ -522,6 +631,28 @@ const TrackingOverlay = React.memo(({
                             🏀 {Math.round((trackingState.confidence ?? 0) * 100)}%
                         </Text>
                     </View>
+                </View>
+            )}
+
+            {/* ── Game-style Shot Power Badge ── */}
+            {(trackingState as any)?.inFlight && shotPower > 0 && (
+                <View pointerEvents="none" style={ovStyles.powerBadge}>
+                    <Text style={ovStyles.powerText}>
+                        ⚡ {shotPower}%
+                    </Text>
+                </View>
+            )}
+
+            {/* ── Game-style Parabola Angle Badge ── */}
+            {releaseAngle != null && (trackingState as any)?.inFlight && (
+                <View pointerEvents="none" style={ovStyles.angleBadge}>
+                    <Text style={{
+                        color: getReleaseColor(releaseAngle),
+                        fontWeight: '900',
+                        fontSize: 12,
+                    }}>
+                        📐 {Math.round(releaseAngle)}°
+                    </Text>
                 </View>
             )}
 
@@ -764,6 +895,36 @@ const ovStyles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '900',
         letterSpacing: 1,
+    },
+    // Shot Power Badge
+    powerBadge: {
+        position: 'absolute',
+        bottom: 60,
+        left: 14,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,165,0,0.8)',
+    },
+    powerText: {
+        color: '#ffa500',
+        fontSize: 12,
+        fontWeight: '900',
+        letterSpacing: 0.5,
+    },
+    // Parabola Angle Badge
+    angleBadge: {
+        position: 'absolute',
+        bottom: 60,
+        left: 80,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: 'rgba(147,51,234,0.8)',
     },
     // Biomechanics Panel
     bioPanel: {
