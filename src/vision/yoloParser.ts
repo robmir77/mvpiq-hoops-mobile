@@ -38,10 +38,11 @@ function nms(dets: number[][], thr: number): number[][] {
 
 // Parse YOLO output to BallDetection
 // This runs in the Worklet - NO runOnJS here
-// Only detects ball, rim comes from calibration
-// Returns only the ball with highest confidence
+// Detects both ball (cls 0) and rim (cls 1)
+// Returns the ball with highest confidence and the rim with highest confidence
 export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
+  rim: { x: number; y: number; width: number; height: number; confidence: number } | null
 } {
   'worklet'
   const raw: number[][] = []
@@ -57,6 +58,8 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   // Extract detections from YOLO output
   // Layout: separate arrays for each parameter
   // output[i] = cx, output[N_ANCHORS + i] = cy, output[N_ANCHORS * 2 + i] = w, output[N_ANCHORS * 3 + i] = h, output[N_ANCHORS * 4 + i] = score
+  // For ball_rimV8 model: class 0 = ball, class 1 = rim
+  // Class scores are at output[N_ANCHORS * 5 + i] for ball and output[N_ANCHORS * 6 + i] for rim
   let maxScore = 0
   let maxScoreIdx = -1
 
@@ -65,34 +68,54 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     const cy = getOutput(N_ANCHORS + i)
     const w = getOutput(N_ANCHORS * 2 + i)
     const h = getOutput(N_ANCHORS * 3 + i)
-    const score = getOutput(N_ANCHORS * 4 + i)
+    const ballScore = getOutput(N_ANCHORS * 4 + i)
+    const rimScore = getOutput(N_ANCHORS * 5 + i)
 
-    if (score > maxScore) {
-      maxScore = score
+    // Track maximum score across both classes
+    const maxClassScore = Math.max(ballScore, rimScore)
+    if (maxClassScore > maxScore) {
+      maxScore = maxClassScore
       maxScoreIdx = i
     }
 
-    if (score < threshold) continue
+    // Add ball detection if score above threshold
+    if (ballScore >= threshold) {
+      raw.push([
+        (cx - w * 0.5),
+        (cy - h * 0.5),
+        (cx + w * 0.5),
+        (cy + h * 0.5),
+        ballScore,
+        0, // ball class
+      ])
+    }
 
-    raw.push([
-      (cx - w * 0.5),
-      (cy - h * 0.5),
-      (cx + w * 0.5),
-      (cy + h * 0.5),
-      score,
-      0, // ball class
-    ])
+    // Add rim detection if score above threshold
+    if (rimScore >= threshold) {
+      raw.push([
+        (cx - w * 0.5),
+        (cy - h * 0.5),
+        (cx + w * 0.5),
+        (cy + h * 0.5),
+        rimScore,
+        1, // rim class
+      ])
+    }
   }
 
+  // Log the highest confidence score and its anchor position for debugging
   console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
+  // Log the number of detections that passed the confidence threshold
   console.log('[YOLO Parser] Detections above threshold:', raw.length)
 
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
+  // Log the number of detections remaining after Non-Maximum Suppression
   console.log('[YOLO Parser] Detections after NMS:', kept.length)
 
-  // Keep only the ball with highest confidence
+  // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+  let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
@@ -106,7 +129,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
     }
+    if (cls === 1 && (!bestRim || detection.confidence > bestRim.confidence)) {
+      bestRim = detection
+    }
   }
 
-  return { ball: bestBall }
+  return { ball: bestBall, rim: bestRim }
 }

@@ -27,6 +27,7 @@ export const useCameraPipeline = (
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult: (result: PoseResult) => void,
   onShotEvent: (event: ShotEvent) => void,
+  onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   enabled: boolean = true
 ): CameraPipelineResult => {
@@ -43,6 +44,7 @@ export const useCameraPipeline = (
     onBallDetection,
     onPoseResult,
     onShotEvent,
+    onRimDetection,
     rimFromCalibration
   )
 

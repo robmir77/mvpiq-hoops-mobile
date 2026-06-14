@@ -864,6 +864,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
+    const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
 
     const { alert, showError, showWarning } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
@@ -891,11 +892,21 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         setJointAngles(result.angles)
     }, [])
 
+    // ── Rim detection callback - sostituisce rim calibrato se confidence alta ──
+    const handleRimDetection = useCallback((rim: { x: number; y: number; width: number; height: number; confidence: number }) => {
+        console.log('[WorkoutSession] Rim detected with high confidence - replacing calibrated rim')
+        setRimFromDetection(rim)
+    }, [])
+
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
         if (ball) {
             console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y, 'width:', ball.width, 'height:', ball.height)
+        }
+        const rim = detection.rim
+        if (rim) {
+            console.log('[BallDetection] Rim detected - confidence:', rim.confidence, 'x:', rim.x, 'y:', rim.y, 'width:', rim.width, 'height:', rim.height)
         }
         // Rim comes from calibration, keep coordinates normalized (0-1)
         const rimFromCalibration = calibration?.hoopCenter ? {
@@ -998,6 +1009,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             : null
     , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
+    // Usa il rim rilevato dal modello se disponibile, altrimenti usa quello calibrato
+    const effectiveRim = rimFromDetection || rimFromCalibration
+
     const {
         device,
         hasPermission,
@@ -1008,10 +1022,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isModelReady,
         resetShotTracking,
     } = useCameraPipeline(
-        handleBallDetection, 
-        handlePoseResult, 
-        handleShotEvent, 
-        rimFromCalibration,
+        handleBallDetection,
+        handlePoseResult,
+        handleShotEvent,
+        handleRimDetection,
+        effectiveRim,
         true
     )
 

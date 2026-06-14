@@ -29,11 +29,13 @@ export const useShotTracker = (
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult:   (result: PoseResult) => void,
   onShotEvent:    (event: ShotEvent) => void,
+  onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
 ) => {
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const lastPoseTs   = useSharedValue(0)
+  const RIM_CONFIDENCE_THRESHOLD = 0.7 // Soglia confidence per sostituire rim calibrato
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
   const adaptiveThreshold = useSharedValue(0.05)
@@ -54,7 +56,9 @@ export const useShotTracker = (
 
   // ── Callback refs ────────────────────────────────────────────────────────────
   const onPoseResultRef = useRef(onPoseResult)
+  const onRimDetectionRef = useRef(onRimDetection)
   useEffect(() => { onPoseResultRef.current = onPoseResult }, [onPoseResult])
+  useEffect(() => { onRimDetectionRef.current = onRimDetection }, [onRimDetection])
 
   // ── Adaptive threshold adjustment (JS thread) ───────────────────────────────
   const lastAdjustmentTs = useRef(0)
@@ -83,6 +87,7 @@ export const useShotTracker = (
         adaptiveThreshold.value = Math.max(0.02, adaptiveThreshold.value - adjustment)
       }
 
+      // Log the current detection rate and adaptive threshold for monitoring
       console.log('[AdaptiveThreshold] Rate:', detectionRate.toFixed(2), 'Threshold:', adaptiveThreshold.value.toFixed(3))
     }
   }, [])
@@ -122,11 +127,13 @@ export const useShotTracker = (
 
     if (shotDetector.current.detectShotStart(ball))    console.log('[ShotTracker] Shot started')
     if (shotDetector.current.detectShotRelease()) {
+      // Log when shot release is detected
       console.log('[ShotTracker] Shot released')
       const ev = shotDetector.current.getShotEvent()
       if (ev) onShotEvent(ev)
     }
     if (shotDetector.current.detectShotMade(rimFromCalibration || null)) {
+      // Log when shot is detected as made
       console.log('[ShotTracker] Shot made!')
       const ev = shotDetector.current.getShotEvent()
       if (ev) onShotEvent(ev)
@@ -137,6 +144,14 @@ export const useShotTracker = (
   const wrappedOnBallDetection = useCallback((detection: BallDetection) => {
     onBallDetection(detection)
     handleBallDetectionForShotTracking(detection)
+
+    // Handle rim detection - replace calibrated rim if confidence is high
+    if (detection.rim && detection.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
+      console.log('[ShotTracker] Rim detected with high confidence:', detection.rim.confidence.toFixed(3))
+      if (onRimDetectionRef.current) {
+        onRimDetectionRef.current(detection.rim)
+      }
+    }
   }, [onBallDetection, handleBallDetectionForShotTracking])
 
   const wrappedOnBallDetectionRef = useRef(wrappedOnBallDetection)
@@ -178,10 +193,11 @@ export const useShotTracker = (
     const yoloOutputs = yoloModel.model!.runSync([yoloResized])
     const yoloOutput  = yoloOutputs[0] as Float32Array
 
-    const { ball } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
+    const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
 
     onBallDetectionJS({
       ball: ball ?? undefined,
+      rim: rim ?? undefined,
       timestamp: Date.now(),
     })
 

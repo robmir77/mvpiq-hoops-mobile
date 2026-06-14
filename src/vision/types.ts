@@ -18,6 +18,13 @@ export interface BallDetection {
     height: number
     confidence: number
   }
+  rim?: {
+    x: number
+    y: number
+    width: number
+    height: number
+    confidence: number
+  }
   timestamp: number
 }
 
