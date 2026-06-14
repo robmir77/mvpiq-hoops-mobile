@@ -15,15 +15,18 @@ import { parseYoloOutput } from './yoloParser'
 import { parseMoveNetOutput } from './poseParser'
 import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
-import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints, JointAngles } from './types'
+import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints } from './types'
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
 
 // ── Model input sizes ──────────────────────────────────────────────────────────
 const YOLO_INPUT_SIZE = 320   // yolo-football-ball-detection exported at imgsz=320
 const POSE_INPUT_SIZE = 192   // MoveNet Lightning
 
-// ── Pose throttle: run at most once every 2 s, only when ball is visible ───────
-const POSE_INTERVAL_MS = 2000
+// ── AI inference throttling ───────────────────────────────────────────────────
+// Run YOLO every 2 frames (15 FPS at 30 FPS camera)
+const YOLO_FRAME_SKIP = 2
+// Run MoveNet every 3 frames (10 FPS at 30 FPS camera)
+const POSE_FRAME_SKIP = 3
 
 export const useShotTracker = (
   onBallDetection: (detection: BallDetection) => void,
@@ -34,7 +37,8 @@ export const useShotTracker = (
 ) => {
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
-  const lastPoseTs   = useSharedValue(0)
+  const frameCounter = useSharedValue(0) // Frame counter for AI inference throttling
+  const lastBallDetected = useSharedValue(false) // Track if ball was detected in last YOLO frame
   const RIM_CONFIDENCE_THRESHOLD = 0.5 // Soglia confidence per sostituire rim calibrato (ridotta da 0.7)
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
@@ -176,40 +180,46 @@ export const useShotTracker = (
 
   // ── Frame Processor (worklet) ────────────────────────────────────────────────
   const frameProcessor = useVisionCameraFrameProcessor((frame: Frame) => {
-    'worklet'
+    'worklet'; // eslint-disable-line
+
+    // Increment frame counter
+    frameCounter.value = frameCounter.value + 1
+    const frameId = frameCounter.value
 
     const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
     if (!yoloReady) return
 
-    // ── 1. YOLO ──────────────────────────────────────────────────────────────
-    // Resize camera frame → 320×320 RGB float32 (HWC, range 0-1).
-    // The model is a TFLite export (NHWC) — NO HWC→CHW conversion needed.
-    const yoloResized = resize(frame, {
-      scale:       { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
-      pixelFormat: 'rgb',
-      dataType:    'float32',  // produces float32 HWC in 0-1 range
-    })
+    // ── 1. YOLO — throttled to every YOLO_FRAME_SKIP frames (15 FPS) ───────────
+    if (frameId % YOLO_FRAME_SKIP === 0) {
+      // Resize camera frame → 320×320 RGB float32 (HWC, range 0-1).
+      // The model is a TFLite export (NHWC) — NO HWC→CHW conversion needed.
+      const yoloResized = resize(frame, {
+        scale:       { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
+        pixelFormat: 'rgb',
+        dataType:    'float32',  // produces float32 HWC in 0-1 range
+      })
 
-    const yoloOutputs = yoloModel.model!.runSync([yoloResized])
-    const yoloOutput  = yoloOutputs[0] as Float32Array
+      const yoloOutputs = yoloModel.model!.runSync([yoloResized])
+      const yoloOutput  = yoloOutputs[0] as Float32Array
 
-    const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
+      const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
 
-    onBallDetectionJS({
-      ball: ball ?? undefined,
-      rim: rim ?? undefined,
-      timestamp: Date.now(),
-    })
+      // Track if ball was detected for MoveNet throttling
+      lastBallDetected.value = ball !== null
 
-    // ── 2. MoveNet — only when ball detected, throttled ──────────────────────
-    if (!ball) return
+      onBallDetectionJS({
+        ball: ball ?? undefined,
+        rim: rim ?? undefined,
+        timestamp: Date.now(),
+      })
+    }
+
+    // ── 2. MoveNet — throttled to every POSE_FRAME_SKIP frames (10 FPS) ────────
+    // Only run MoveNet when ball was detected in last YOLO frame
+    if (frameId % POSE_FRAME_SKIP !== 0 || !lastBallDetected.value) return
 
     const poseReady = poseModel.state === 'loaded' && poseModel.model != null
     if (!poseReady) return
-
-    const now = Date.now()
-    if (now - lastPoseTs.value < POSE_INTERVAL_MS) return
-    lastPoseTs.value = now
 
     const poseResized = resize(frame, {
       scale:       { width: POSE_INPUT_SIZE, height: POSE_INPUT_SIZE },
@@ -223,7 +233,7 @@ export const useShotTracker = (
     const keypoints = parseMoveNetOutput(poseOutput)
     const angles    = computeJointAngles(keypoints as PoseKeypoints)
 
-    onPoseResultJS({ keypoints: keypoints as PoseKeypoints, angles, timestamp: now })
+    onPoseResultJS({ keypoints: keypoints as PoseKeypoints, angles, timestamp: Date.now() })
 
   }, [yoloModel.state, yoloModel.model, poseModel.state, poseModel.model, resize, onBallDetectionJS, onPoseResultJS])
 

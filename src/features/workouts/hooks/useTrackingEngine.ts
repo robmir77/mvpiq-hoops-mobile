@@ -14,7 +14,7 @@
 
 import { useRef, useCallback } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
-import { TrackingState, ShotResult } from '../types/workouts.types'
+import { TrackingState } from '../types/workouts.types'
 
 interface KalmanState {
     x: number; y: number
@@ -51,7 +51,12 @@ const MIN_ARC_HEIGHT = 0.12
 
 export const useTrackingEngine = () => {
     const kalman     = useRef<KalmanState>({ ...INITIAL_KALMAN })
-    const trajectory = useRef<Array<{ x: number; y: number; t: number }>>([])
+    // Ring buffer for trajectory - O(1) insert, no reallocation
+    const MAX_POINTS = 90
+    const trajectoryBuffer = useRef<Array<{ x: number; y: number; t: number } | null>>(new Array(MAX_POINTS).fill(null))
+    const trajectoryHead = useRef<number>(0)
+    const trajectoryCount = useRef<number>(0)
+
     const state      = useRef<TrackingState>({
         ballPosition: null,
         ballPositionRaw: null,
@@ -92,6 +97,21 @@ export const useTrackingEngine = () => {
     const risingFrames  = useRef<number>(0)
     /** Y al primo frame di salita — per misurare l'arco */
     const flightStartY  = useRef<number>(1.0)
+
+    // Helper to get trajectory as ordered array from ring buffer
+    const getTrajectory = useCallback((): Array<{ x: number; y: number; t: number }> => {
+        const result: Array<{ x: number; y: number; t: number }> = []
+        const count = trajectoryCount.current
+        const head = trajectoryHead.current
+        const buffer = trajectoryBuffer.current
+
+        for (let i = 0; i < count; i++) {
+            const idx = (head - count + i + MAX_POINTS) % MAX_POINTS
+            const point = buffer[idx]
+            if (point) result.push(point)
+        }
+        return result
+    }, [MAX_POINTS])
 
     const kalmanUpdate = useCallback((measX: number, measY: number, frameTs: number): { x: number; y: number } => {
         const k  = kalman.current
@@ -136,11 +156,14 @@ export const useTrackingEngine = () => {
             ballHeight.value = ballDetection.height || 0
             confidence.value = ballDetection.confidence
 
-            trajectory.current.push({ x: smoothed.x, y: smoothed.y, t: frameTs })
-            if (trajectory.current.length > 90) trajectory.current.shift()
+            // Ring buffer: O(1) insert, no shift()
+            trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }
+            trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
+            if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+
             // Only copy trajectory for UI every 5 frames when inFlight (reduces copies by ~95%)
-            if (inFlightRef.current && trajectory.current.length % 5 === 0) {
-                current.trajectory = [...trajectory.current]
+            if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
+                current.trajectory = getTrajectory()
             }
 
             // Aggiorna picco (y minima = punto più alto dell'immagine)
@@ -189,7 +212,7 @@ export const useTrackingEngine = () => {
             //   • abbastanza frame nella traiettoria
             if (!inFlightRef.current && risingFrames.current >= MIN_RISING_FRAMES) {
                 const arcSoFar = flightStartY.current - ball.y  // positivo = salita
-                if (arcSoFar >= MIN_ARC_HEIGHT && trajectory.current.length >= MIN_TRAJECTORY_FRAMES) {
+                if (arcSoFar >= MIN_ARC_HEIGHT && trajectoryCount.current >= MIN_TRAJECTORY_FRAMES) {
                     inFlightRef.current = true
                     inFlight.value = true
                     // Save release point when shot starts
@@ -202,7 +225,7 @@ export const useTrackingEngine = () => {
 
         // ── Calculate trajectory metrics every 5 frames when inFlight ─────────
         let trajectoryMetrics = null
-        if (inFlightRef.current && trajectory.current.length >= MIN_TRAJECTORY_FRAMES && trajectory.current.length % 5 === 0) {
+        if (inFlightRef.current && trajectoryCount.current >= MIN_TRAJECTORY_FRAMES && trajectoryCount.current % 5 === 0) {
             trajectoryMetrics = computeTrajectoryMetrics()
             current.releaseAngle = trajectoryMetrics.releaseAngle
         }
@@ -258,6 +281,13 @@ export const useTrackingEngine = () => {
         return { ...current }
     }, [kalmanUpdate])
 
+    // Helper to reset ring buffer
+    const resetTrajectoryBuffer = useCallback(() => {
+        trajectoryHead.current = 0
+        trajectoryCount.current = 0
+        trajectoryBuffer.current.fill(null)
+    }, [])
+
     const resetShot = useCallback(() => {
         state.current.shotDetected = false
         state.current.shotResult   = null
@@ -267,17 +297,17 @@ export const useTrackingEngine = () => {
         state.current.releaseAngle = undefined
         state.current.shotQuality = undefined
         state.current.ballPositionRaw = null
-        trajectory.current         = []
+        resetTrajectoryBuffer()
         peakY.current              = Infinity
         apexPoint.current          = null
         inFlightRef.current       = false
         risingFrames.current       = 0
         flightStartY.current       = 1.0
-    }, [])
+    }, [resetTrajectoryBuffer])
 
     const resetAll = useCallback(() => {
         kalman.current      = { ...INITIAL_KALMAN }
-        trajectory.current  = []
+        resetTrajectoryBuffer()
         peakY.current       = Infinity
         apexPoint.current  = null
         inFlightRef.current    = false
@@ -306,7 +336,7 @@ export const useTrackingEngine = () => {
         confidence.value = 0
         inFlight.value = false
         shotDetected.value = false
-    }, [])
+    }, [resetTrajectoryBuffer, ballX, ballY, ballWidth, ballHeight, hoopX, hoopY, hoopWidth, hoopHeight, confidence, inFlight, shotDetected])
 
     const setHoopFromCalibration = useCallback((x: number, y: number) => {
         state.current.hoopPosition = { x, y }
@@ -318,7 +348,7 @@ export const useTrackingEngine = () => {
     const computeTrajectoryMetrics = useCallback((): {
         arcHeight: number; releaseAngle: number; smoothness: number
     } => {
-        const traj = trajectory.current
+        const traj = getTrajectory()
         if (traj.length < MIN_TRAJECTORY_FRAMES) return { arcHeight: 0, releaseAngle: 0, smoothness: 0 }
 
         // Replace Math.min(...traj.map()) with loop for better performance

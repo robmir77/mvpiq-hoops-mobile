@@ -4,14 +4,13 @@
 // Converts raw YOLO output to BallDetection interface
 // NO image data, only coordinates
 
-const INPUT_SIZE = 320
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.05
+const CONF_THRESHOLD = 0.35
 const N_ANCHORS = 2100
 
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
-  'worklet'
+  'worklet'; // eslint-disable-line
   const ix1 = Math.max(a[0], b[0])
   const iy1 = Math.max(a[1], b[1])
   const ix2 = Math.min(a[2], b[2])
@@ -22,7 +21,7 @@ function iou(a: number[], b: number[]): number {
 
 // Worklet-safe NMS
 function nms(dets: number[][], thr: number): number[][] {
-  'worklet'
+  'worklet'; // eslint-disable-line
   const s = [...dets].sort((a, b) => b[4] - a[4])
   const kept: number[][] = []
   const skip = new Set<number>()
@@ -44,7 +43,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
 } {
-  'worklet'
+  'worklet'; // eslint-disable-line
   const raw: number[][] = []
 
   // Convert to float values if needed (for INT8 quantized output)
