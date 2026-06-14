@@ -93,7 +93,7 @@ export interface TrackingState {
     ballVelocity: { vx: number; vy: number } | null
     ballWidth?: number
     ballHeight?: number
-    hoopPosition: { x: number; y: number } | null
+    hoopPosition: { x: number; y: number; width?: number; height?: number } | null
     shotDetected: boolean
     shotResult: ShotResult | null
     trajectory: Array<{ x: number; y: number; t: number }>

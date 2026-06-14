@@ -31,6 +31,7 @@ export function parseMoveNetOutput(outputData: Float32Array): {
 
   // MoveNet output shape: [1, 1, 17, 3] -> flat Float32Array of 51 elements
   // Each keypoint: [y, x, score]
+  // Apply same coordinate transformation as ball detection: x/y swap + horizontal flip
   for (let i = 0; i < 17; i++) {
     const offset = i * 3
     const yNorm = outputData[offset]
@@ -41,7 +42,8 @@ export function parseMoveNetOutput(outputData: Float32Array): {
 
     const name = KP_MAP[i]
     if (name) {
-      keypoints[name] = { x: xNorm, y: yNorm, score }
+      // Transform coordinates: x = 1 - y, y = x (same as ball detection)
+      keypoints[name] = { x: 1 - yNorm, y: xNorm, score }
     }
   }
 

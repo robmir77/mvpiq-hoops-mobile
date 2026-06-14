@@ -24,6 +24,7 @@ import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
+import { useDerivedValue, useSharedValue } from 'react-native-reanimated'
 import { Camera } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
@@ -211,7 +212,7 @@ const getReleaseColor = (angle: number): string => {
 }
 
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues,
 }: {
     trackingState: TrackingState | null
     poseKeypoints: PoseKeypoints | null
@@ -219,11 +220,43 @@ const TrackingOverlay = React.memo(({
     releaseAngle?: number
     arcHeight?: number
     calibration: CalibrationData | null
+    sharedValues?: {
+        ballX: any
+        ballY: any
+        ballWidth: any
+        ballHeight: any
+        hoopX: any
+        hoopY: any
+        hoopWidth: any
+        hoopHeight: any
+        confidence: any
+        inFlight: any
+        shotDetected: any
+    }
 }) => {
     incrementOverlayRenders()
 
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
+
+    // Derived values per Skia (leggono direttamente dai Shared Values - no React bridge)
+    const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
+    const ballY = useDerivedValue(() => sharedValues?.ballY.value ?? 0, [sharedValues])
+    const ballWidth = useDerivedValue(() => sharedValues?.ballWidth.value ?? 0, [sharedValues])
+    const ballHeight = useDerivedValue(() => sharedValues?.ballHeight.value ?? 0, [sharedValues])
+    const hoopX = useDerivedValue(() => sharedValues?.hoopX.value ?? 0, [sharedValues])
+    const hoopY = useDerivedValue(() => sharedValues?.hoopY.value ?? 0, [sharedValues])
+    const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0, [sharedValues])
+    const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
+    const confidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0, [sharedValues])
+    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false, [sharedValues])
+    const shotDetected = useDerivedValue(() => sharedValues?.shotDetected.value ?? false, [sharedValues])
+
+    // Derived values per coordinate pixel
+    const ballXPx = useDerivedValue(() => ballX.value * SCREEN_W, [ballX])
+    const ballYPx = useDerivedValue(() => ballY.value * CAMERA_H, [ballY])
+    const hoopXPx = useDerivedValue(() => hoopX.value * SCREEN_W, [hoopX])
+    const hoopYPx = useDerivedValue(() => hoopY.value * CAMERA_H, [hoopY])
 
     // Skeleton render time measurement
     const renderStart = performance.now()
@@ -300,19 +333,19 @@ const TrackingOverlay = React.memo(({
                     )
                 })()}
 
-                {/* Cerchio palla smoothed (Kalman) - arancione */}
-                {trackingState?.ballPosition && (
+                {/* Cerchio palla smoothed (Kalman) - arancione - usa Shared Values */}
+                {sharedValues && (
                     <Group>
                         <SkiaCircle
-                            cx={px(trackingState.ballPosition.x)}
-                            cy={py(trackingState.ballPosition.y)}
-                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
+                            cx={ballXPx}
+                            cy={ballYPx}
+                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
                             color="rgba(255,140,0,0.22)"
                         />
                         <SkiaCircle
-                            cx={px(trackingState.ballPosition.x)}
-                            cy={py(trackingState.ballPosition.y)}
-                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
+                            cx={ballXPx}
+                            cy={ballYPx}
+                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
                             color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
@@ -328,17 +361,38 @@ const TrackingOverlay = React.memo(({
                     />
                 )}
 
-                {/* Cerchio canestro */}
-                {trackingState?.hoopPosition && (
+                {/* Cerchio canestro - usa dimensione rilevata dal box se disponibile - Shared Values */}
+                {sharedValues && (
                     <Group>
+                        {useDerivedValue(() => hoopWidth.value > 0 && hoopHeight.value > 0, [hoopWidth, hoopHeight]) ? (
+                            // Disegna rettangolo con dimensioni rilevate dal modello
+                            <SkiaPath
+                                path={useDerivedValue(() => {
+                                    const path = Skia.Path.Make()
+                                    path.addRect(
+                                        Skia.XYWHRect(
+                                            (hoopX.value - hoopWidth.value / 2) * SCREEN_W,
+                                            (hoopY.value - hoopHeight.value / 2) * CAMERA_H,
+                                            hoopWidth.value * SCREEN_W,
+                                            hoopHeight.value * CAMERA_H
+                                        )
+                                    )
+                                    return path
+                                }, [hoopX, hoopY, hoopWidth, hoopHeight])}
+                                color="rgba(74,222,128,0.18)"
+                                style="fill"
+                            />
+                        ) : (
+                            // Fallback: cerchio fisso se dimensioni non disponibili
+                            <SkiaCircle
+                                cx={hoopXPx}
+                                cy={hoopYPx}
+                                r={20} color="rgba(74,222,128,0.18)"
+                            />
+                        )}
                         <SkiaCircle
-                            cx={px(trackingState.hoopPosition.x)}
-                            cy={py(trackingState.hoopPosition.y)}
-                            r={20} color="rgba(74,222,128,0.18)"
-                        />
-                        <SkiaCircle
-                            cx={px(trackingState.hoopPosition.x)}
-                            cy={py(trackingState.hoopPosition.y)}
+                            cx={hoopXPx}
+                            cy={hoopYPx}
                             r={20} color="#4ade80" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
@@ -869,6 +923,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { alert, showError, showWarning } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
     const tracking = useTrackingEngine()
+    const { sharedValues } = tracking
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
     const loopStartedRef  = useRef(false)
@@ -1256,6 +1311,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         ? trackingState.releasePoint.y - trackingState.apexPoint.y
                         : undefined}
                     calibration={calibration}
+                    sharedValues={sharedValues}
                 />
 
                 {/* Debug overlay calibrazione */}

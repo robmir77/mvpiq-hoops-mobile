@@ -35,7 +35,7 @@ export const useShotTracker = (
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const lastPoseTs   = useSharedValue(0)
-  const RIM_CONFIDENCE_THRESHOLD = 0.7 // Soglia confidence per sostituire rim calibrato
+  const RIM_CONFIDENCE_THRESHOLD = 0.5 // Soglia confidence per sostituire rim calibrato (ridotta da 0.7)
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
   const adaptiveThreshold = useSharedValue(0.05)
