@@ -24,7 +24,7 @@ import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
-import { useDerivedValue, useSharedValue } from 'react-native-reanimated'
+import { useDerivedValue } from 'react-native-reanimated'
 import { Camera } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
@@ -32,9 +32,9 @@ import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useCameraPipeline } from '@/vision'
 import type { Camera as CameraType } from 'react-native-vision-camera'
-import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordOverlayRenderTime, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
+import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
 import {
-    WorkoutSession, ShotResult, AddShotEventPayload,
+    WorkoutSession, ShotResult,
     TrackingState, PoseKeypoints, CalibrationData, CameraMode,
 } from '../types/workouts.types'
 import {
@@ -243,23 +243,16 @@ const TrackingOverlay = React.memo(({
     const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
     const ballY = useDerivedValue(() => sharedValues?.ballY.value ?? 0, [sharedValues])
     const ballWidth = useDerivedValue(() => sharedValues?.ballWidth.value ?? 0, [sharedValues])
-    const ballHeight = useDerivedValue(() => sharedValues?.ballHeight.value ?? 0, [sharedValues])
     const hoopX = useDerivedValue(() => sharedValues?.hoopX.value ?? 0, [sharedValues])
     const hoopY = useDerivedValue(() => sharedValues?.hoopY.value ?? 0, [sharedValues])
     const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0, [sharedValues])
     const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
-    const confidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0, [sharedValues])
-    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false, [sharedValues])
-    const shotDetected = useDerivedValue(() => sharedValues?.shotDetected.value ?? false, [sharedValues])
 
     // Derived values per coordinate pixel
     const ballXPx = useDerivedValue(() => ballX.value * SCREEN_W, [ballX])
     const ballYPx = useDerivedValue(() => ballY.value * CAMERA_H, [ballY])
     const hoopXPx = useDerivedValue(() => hoopX.value * SCREEN_W, [hoopX])
     const hoopYPx = useDerivedValue(() => hoopY.value * CAMERA_H, [hoopY])
-
-    // Skeleton render time measurement
-    const renderStart = performance.now()
 
     // Scia del tiro:
     //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
@@ -926,13 +919,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sharedValues } = tracking
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
-    const loopStartedRef  = useRef(false)
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
     const cameraRef       = useRef<CameraType>(null)
+    const lastUiUpdate    = useRef<number>(0)
 
     // Performance monitoring - tracking state updates
     useEffect(() => {
@@ -979,7 +972,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         )
         // Aggiorna l'overlay direttamente — non aspettare il RAF loop
         incrementTrackingUpdates()
-        setTrackingState({ ...newState })
+        // Throttle UI updates to 15 FPS (66ms) to reduce React renders
+        const now = Date.now()
+        if (now - lastUiUpdate.current > 66) {
+            lastUiUpdate.current = now
+            setTrackingState({ ...newState })
+        }
         if (ball || rimFromCalibration) {
             frameBatch.current.push({
                 frameTimestamp:   detection.timestamp,
@@ -1050,7 +1048,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const handleShotEvent = useCallback((event: ShotEvent) => {
         console.log('[WorkoutSession] Shot event:', event)
         if (event.shotMade) {
-            handleAutoShotDetected('MADE')
+            void handleAutoShotDetected('MADE')
         } else if (event.shotReleased) {
             // Shot released but not yet determined if made
             // Could trigger intermediate UI feedback
@@ -1075,7 +1073,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         setIsActive,
         frameProcessor,
         isModelReady,
-        resetShotTracking,
     } = useCameraPipeline(
         handleBallDetection,
         handlePoseResult,
@@ -1087,24 +1084,29 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
-        loadSession()
+        void loadSession()
         batchTimer.current = setInterval(flushFrameBatch, 2000)
         
         const rafLoop = () => {
             if (!isActiveRef.current) return
             const s = tracking.getState()
-            setTrackingState(prev => {
-                if (!prev) return s
-                // Aggiorna solo se qualcosa è cambiato (evita re-render inutili)
-                if (
-                    prev.shotDetected !== s.shotDetected ||
-                    prev.inFlight     !== s.inFlight     ||
-                    prev.ballPosition?.x !== s.ballPosition?.x ||
-                    prev.confidence      !== s.confidence ||
-                    prev.trajectory.length !== s.trajectory.length
-                ) return s
-                return prev
-            })
+            // Throttle UI updates to 15 FPS (66ms) to reduce React renders
+            const now = Date.now()
+            if (now - lastUiUpdate.current > 66) {
+                lastUiUpdate.current = now
+                setTrackingState(prev => {
+                    if (!prev) return s
+                    // Aggiorna solo se qualcosa è cambiato (evita re-render inutili)
+                    if (
+                        prev.shotDetected !== s.shotDetected ||
+                        prev.inFlight     !== s.inFlight     ||
+                        prev.ballPosition?.x !== s.ballPosition?.x ||
+                        prev.confidence      !== s.confidence ||
+                        prev.trajectory.length !== s.trajectory.length
+                    ) return s
+                    return prev
+                })
+            }
             rafRef.current = requestAnimationFrame(rafLoop)
         }
         rafRef.current = requestAnimationFrame(rafLoop)
@@ -1125,7 +1127,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     useEffect(() => {
         if (trackingState?.shotDetected && trackingState.shotResult)
-            handleAutoShotDetected(trackingState.shotResult)
+            void handleAutoShotDetected(trackingState.shotResult)
     }, [trackingState?.shotDetected])
 
     const loadSession = async () => {
