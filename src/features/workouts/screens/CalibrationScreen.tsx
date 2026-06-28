@@ -592,14 +592,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const handleProceed = () => {
-        navigation.navigate('WorkoutSession', { sessionId, cameraMode })
+        navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom })
     }
 
     const handleSkip = () => {
         showWarning(
             'Salta calibrazione',
             'Senza calibrazione il tracking sarà meno preciso.',
-            () => navigation.navigate('WorkoutSession', { sessionId, cameraMode })
+            () => navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom })
         )
     }
 

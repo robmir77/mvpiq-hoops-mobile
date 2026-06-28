@@ -39,12 +39,12 @@ export const useShotTracker = (
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const frameCounter = useSharedValue(0) // Frame counter for AI inference throttling
   const lastBallDetected = useSharedValue(false) // Track if ball was detected in last YOLO frame
-  const RIM_CONFIDENCE_THRESHOLD = 0.25 // Soglia confidence per sostituire rim calibrato
+  const RIM_CONFIDENCE_THRESHOLD = 0.15 // Soglia confidence per sostituire rim calibrato
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.05)
+  const adaptiveThreshold = useSharedValue(0.03)
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
-  const TARGET_DETECTION_RATE = 0.3  // Target: 30% of frames should have detections
+  const TARGET_DETECTION_RATE = 0.2  // Target: 20% of frames should have detections (lowered for distant objects)
   const ADAPTATION_WINDOW_MS = 2000  // Adjust threshold every 2 seconds
 
   // ── Model loading ────────────────────────────────────────────────────────────
@@ -84,11 +84,11 @@ export const useShotTracker = (
 
       // Increase threshold if too many detections (false positives)
       // Decrease threshold if too few detections (false negatives)
-      const adjustment = 0.01
+      const adjustment = 0.005  // Smaller adjustment for finer control
       if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
-        adaptiveThreshold.value = Math.min(0.3, adaptiveThreshold.value + adjustment)
+        adaptiveThreshold.value = Math.min(0.20, adaptiveThreshold.value + adjustment)
       } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
-        adaptiveThreshold.value = Math.max(0.02, adaptiveThreshold.value - adjustment)
+        adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
       }
 
       // Log the current detection rate and adaptive threshold for monitoring
@@ -197,6 +197,7 @@ export const useShotTracker = (
       // The model is a TFLite export (NHWC) — NO HWC→CHW conversion needed.
       const yoloResized = resize(frame, {
         scale:       { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
+        crop:        { x: 0, y: 0, width: frame.width, height: frame.height },
         pixelFormat: 'rgb',
         dataType:    'float32',  // produces float32 HWC in 0-1 range
       })
@@ -225,6 +226,7 @@ export const useShotTracker = (
 
     const poseResized = resize(frame, {
       scale:       { width: POSE_INPUT_SIZE, height: POSE_INPUT_SIZE },
+      crop:        { x: 0, y: 0, width: frame.width, height: frame.height },
       pixelFormat: 'rgb',
       dataType:    'uint8',   // MoveNet INT8 expects uint8 HWC
     })

@@ -5,7 +5,7 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.35
+const CONF_THRESHOLD = 0.25
 const N_ANCHORS = 2100
 
 // Worklet-safe IOU calculation
@@ -54,6 +54,9 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     return output[idx]
   }
 
+  // Filter: reject detections larger than half screen (normalized coordinates)
+  const MAX_BOX_SIZE = 0.7 // Increased from 0.5 to 0.7 to allow more distant objects
+
   // Extract detections from YOLO output
   // Layout: separate arrays for each parameter
   // output[i] = cx, output[N_ANCHORS + i] = cy, output[N_ANCHORS * 2 + i] = w, output[N_ANCHORS * 3 + i] = h, output[N_ANCHORS * 4 + i] = score
@@ -75,6 +78,11 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     if (maxClassScore > maxScore) {
       maxScore = maxClassScore
       maxScoreIdx = i
+    }
+
+    // Filter: reject detections with bounding box larger than half screen
+    if (w > MAX_BOX_SIZE || h > MAX_BOX_SIZE) {
+      continue
     }
 
     // Add ball detection if score above threshold
@@ -132,7 +140,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
     }
-    if (cls === 1 && (!bestRim || detection.confidence > bestRim.confidence)) {
+    if (cls === 1 && detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
       bestRim = detection
     }
   }

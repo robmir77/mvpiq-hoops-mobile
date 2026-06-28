@@ -20,7 +20,7 @@
       "bundleIdentifier": "com.mvpiqhoopsmobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "MVPiQ Hoops richiede la camera per il tracking dei tiri"
+        "NSCameraUsageDescription": "MVPiQ Hoops richiede accesso alla fotocamera"
       }
     },
     "android": {
@@ -33,16 +33,12 @@
       "package": "com.mvpiqhoopsmobile",
       "minSdkVersion": 26,
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "9b9975c2-4a59-492c-9041-6f17b635d536"
-      }
     },
     "plugins": [
       "expo-asset",
@@ -66,6 +62,12 @@
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "83d17db3-2ae3-4335-bde0-61bcddad3503"
+      }
+    },
+    "owner": "legobricktoys78"
   }
 }

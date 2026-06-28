@@ -25,7 +25,7 @@ import {
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
 import { useDerivedValue } from 'react-native-reanimated'
-import { Camera } from 'react-native-vision-camera'
+import { Camera, useCameraFormat } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
@@ -1049,7 +1049,7 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode } = route.params || {}
+    const { sessionId, cameraMode, zoom } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1244,6 +1244,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         effectiveRim,
         true
     )
+
+    const format = useCameraFormat(device, [
+        { videoResolution: { width: 1280, height: 720 } },
+        { fps: 30 },
+    ])
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -1457,6 +1462,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive && !isPaused}
                     frameProcessor={frameProcessor}
+                    format={format}
+                    zoom={zoom || 1}
                     onError={(error) => {
                         if (error.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')

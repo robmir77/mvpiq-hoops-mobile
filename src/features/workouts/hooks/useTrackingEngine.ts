@@ -25,29 +25,37 @@ interface KalmanState {
 
 const INITIAL_KALMAN: KalmanState = {
     x: 0, y: 0, vx: 0, vy: 0,
-    px: 1, py: 1,
-    mx: 5, my: 5,
+    px: 2, py: 2,
+    mx: 3, my: 3,
 }
 
 // ── Soglie shot detection ──────────────────────────────────────────────────
 // Velocità verticale minima (unità normalizzate/s) per considerare un tiro
-const SHOT_LAUNCH_THRESHOLD  = 2.5
-// Raggio normalizzato entro cui la palla deve passare per MADE
-const HOOP_RADIUS_MADE       = 0.08
+const SHOT_LAUNCH_THRESHOLD  = 1.5
+// Raggio normalizzato entro cui la palla deve passare per MADE (calcolato dinamicamente)
+const HOOP_RADIUS_MADE       = 0.10
 // Soglia discesa (vy > 0 = scende a schermo)
-const DESCENDING_VY_THRESHOLD = 0.5
+const DESCENDING_VY_THRESHOLD = 0.3
 // Frame minimi prima di poter rilevare un tiro
-const MIN_TRAJECTORY_FRAMES  = 6
+const MIN_TRAJECTORY_FRAMES  = 4
 // ms di cooldown tra un tiro e l'altro
-const SHOT_COOLDOWN_MS       = 800
+const SHOT_COOLDOWN_MS       = 600
+
+// ── Helper: calcola raggio dinamico del canestro dalle dimensioni rilevate ──
+const getDynamicHoopRadius = (hoop: { width?: number; height?: number } | null): number => {
+    if (!hoop || !hoop.width || !hoop.height) return HOOP_RADIUS_MADE
+    // Usa la dimensione massima tra width e height, divisa per 2
+    // Aggiungi un piccolo margine (1.2x) per essere più permissivi
+    return Math.max(hoop.width, hoop.height) / 2 * 1.2
+}
 
 // ── Filtro palleggio ───────────────────────────────────────────────────────
 // Frame consecutivi in salita richiesti prima di impostare inFlight = true
-const MIN_RISING_FRAMES = 4
+const MIN_RISING_FRAMES = 3
 // Altezza minima dell'arco (coordinate normalizzate) per escludere palleggio
 // Un dribble tipico fa rimbalzare la palla di ~5-8% dello schermo,
 // un tiro reale sale di almeno il 12-15%
-const MIN_ARC_HEIGHT = 0.12
+const MIN_ARC_HEIGHT = 0.08
 
 export const useTrackingEngine = () => {
     const kalman     = useRef<KalmanState>({ ...INITIAL_KALMAN })
@@ -140,7 +148,7 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
-        if (ballDetection && ballDetection.confidence > 0.05) {
+        if (ballDetection && ballDetection.confidence > 0.03) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
             current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
@@ -173,7 +181,7 @@ export const useTrackingEngine = () => {
             }
         }
 
-        if (hoopDetection && hoopDetection.confidence > 0.25) {
+        if (hoopDetection && hoopDetection.confidence > 0.15) {
             current.hoopPosition = {
                 x: hoopDetection.x,
                 y: hoopDetection.y,
@@ -241,15 +249,16 @@ export const useTrackingEngine = () => {
 
         if (vel && hoop && ball && cooldownOk && !current.shotDetected) {
             const descending = vel.vy > DESCENDING_VY_THRESHOLD
+            const dynamicHoopRadius = getDynamicHoopRadius(hoop)
 
             if (inFlightRef.current && descending) {
                 const dx   = ball.x - hoop.x
                 const dy   = ball.y - hoop.y
                 const dist = Math.sqrt(dx * dx + dy * dy)
 
-                const descendingTowardHoop = dy > 0 && dist < HOOP_RADIUS_MADE * 2
+                const descendingTowardHoop = dy > 0 && dist < dynamicHoopRadius * 2
 
-                if (descendingTowardHoop && dist < HOOP_RADIUS_MADE) {
+                if (descendingTowardHoop && dist < dynamicHoopRadius) {
                     current.shotDetected = true
                     current.shotResult   = 'MADE'
                     shotDetected.value = true
@@ -257,7 +266,7 @@ export const useTrackingEngine = () => {
                     // Calculate shot quality score (reuse metrics and function)
                     const metrics = trajectoryMetrics || computeTrajectoryMetrics()
                     current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
-                } else if (descendingTowardHoop && dist >= HOOP_RADIUS_MADE) {
+                } else if (descendingTowardHoop && dist >= dynamicHoopRadius) {
                     current.shotDetected = true
                     current.shotResult   = 'MISS'
                     shotDetected.value = true
