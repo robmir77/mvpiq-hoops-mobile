@@ -27,6 +27,14 @@ import AiTrainingNavigator from '@/features/ai-training/navigation/AiTrainingNav
 import JournalNavigator from '@/features/journal/navigation/JournalNavigator'
 import WorkoutNavigator from '@/features/workouts/navigation/WorkoutNavigator'
 import ChecklistTemplatesNavigator from '@/features/checklist-templates/navigation/ChecklistTemplatesNavigator'
+import ScoutingScreen from '@/features/scouting/screens/ScoutingScreen'
+import StatsScreen from '@/features/workouts/screens/StatsScreen'
+import BadgesScreen from '@/features/badges/screens/BadgesScreen'
+import TrainerClientsScreen from '@/features/trainer/screens/TrainerClientsScreen'
+import TrainingScreen from '@/features/training/screens/TrainingScreen'
+import ExercisesScreen from '@/features/exercises/screens/ExercisesScreen'
+import SubscriptionsScreen from '@/features/subscriptions/screens/SubscriptionsScreen'
+import SettingsScreen from '@/features/profile/screens/SettingsScreen'
 
 // Placeholder components for screens not yet implemented
 const makePlaceholder = (label: string): React.FC => {
@@ -40,23 +48,16 @@ const makePlaceholder = (label: string): React.FC => {
     return Screen
 }
 
-const StatsPlaceholder = makePlaceholder('Statistiche')
-const ScoutSearchScreen = makePlaceholder('Ricerca Atleti')
-const TrainerProgramsScreen = makePlaceholder('Programmi')
-const TrainerClientsScreen = makePlaceholder('Clienti')
-const TrainerExercisesScreen = makePlaceholder('Esercizi')
 const CreatorContentScreen = makePlaceholder('Contenuti')
 const CreatorTemplatesScreen = makePlaceholder('Template')
 const CreatorAnalyticsScreen = makePlaceholder('Analytics')
-const AdminSubscriptionsScreen = makePlaceholder('Abbonamenti')
-const AdminGamificationScreen = makePlaceholder('Gamification')
 const MediaScreen = makePlaceholder('Media')
-const SettingsScreen = makePlaceholder('Impostazioni')
 const VideoAnalysisScreen = makePlaceholder('Analisi Video')
 const LiveShotTrackingScreen = makePlaceholder('Conteggio Live')
 const ComingSoonScreen = makePlaceholder('Coming Soon')
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
+
 
 export default function AppNavigator() {
     const auth = useContext(AuthContext)
@@ -246,7 +247,7 @@ export default function AppNavigator() {
 
                     <Stack.Screen
                         name="player_stats"
-                        component={StatsPlaceholder}
+                        component={StatsScreen}
                         options={{
                             headerShown: false,
                         }}
@@ -262,7 +263,7 @@ export default function AppNavigator() {
 
                     <Stack.Screen
                         name="scout_search"
-                        component={ScoutSearchScreen}
+                        component={ScoutingScreen}
                         options={{
                             headerShown: false,
                         }}
@@ -278,7 +279,7 @@ export default function AppNavigator() {
 
                     <Stack.Screen
                         name="trainer_programs"
-                        component={TrainerProgramsScreen}
+                        component={TrainingScreen}
                         options={{
                             headerShown: false,
                         }}
@@ -294,7 +295,7 @@ export default function AppNavigator() {
 
                     <Stack.Screen
                         name="trainer_exercises"
-                        component={TrainerExercisesScreen}
+                        component={ExercisesScreen}
                         options={{
                             headerShown: false,
                         }}
@@ -326,7 +327,7 @@ export default function AppNavigator() {
 
                     <Stack.Screen
                         name="admin_subscriptions"
-                        component={AdminSubscriptionsScreen}
+                        component={SubscriptionsScreen}
                         options={{
                             headerShown: false,
                         }}
@@ -334,7 +335,7 @@ export default function AppNavigator() {
 
                     <Stack.Screen
                         name="admin_gamification"
-                        component={AdminGamificationScreen}
+                        component={BadgesScreen}
                         options={{
                             headerShown: false,
                         }}
@@ -355,6 +356,7 @@ export default function AppNavigator() {
                             headerShown: false,
                         }}
                     />
+
 
                     <Stack.Screen
                         name="video_analysis"

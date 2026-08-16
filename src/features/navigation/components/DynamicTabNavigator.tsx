@@ -26,10 +26,16 @@ import RankingScreen from '@/features/ranking/screens/RankingScreen'
 import VideoAnalysisHomeScreen from '@/features/videoAnalysis/screens/VideoAnalysisHomeScreen'
 import EventsNavigator from '@/features/events/navigation/EventsNavigator'
 
-// ─── Placeholder stabile ─────────────────────────────────────
-// IMPORTANTE: mai definire componenti inline dentro render o dentro Record.
-// React Navigation tratta ogni nuova referenza come un nuovo componente
-// e smonta/rimonta il tab ad ogni render.
+import ScoutingScreen from '@/features/scouting/screens/ScoutingScreen'
+import StatsScreen from '@/features/workouts/screens/StatsScreen'
+import BadgesScreen from '@/features/badges/screens/BadgesScreen'
+import TrainerClientsScreen from '@/features/trainer/screens/TrainerClientsScreen'
+import TrainingScreen from '@/features/training/screens/TrainingScreen'
+import ExercisesScreen from '@/features/exercises/screens/ExercisesScreen'
+import SubscriptionsScreen from '@/features/subscriptions/screens/SubscriptionsScreen'
+import SettingsScreen from '@/features/profile/screens/SettingsScreen'
+
+// ─── Placeholder stabile per sezioni non ancora implementate ─
 const makePlaceholder = (label: string): React.FC => {
     const Screen: React.FC = () => (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
@@ -41,20 +47,10 @@ const makePlaceholder = (label: string): React.FC => {
     return Screen
 }
 
-// Istanziati UNA VOLTA a livello di modulo
-const StatsPlaceholder         = makePlaceholder('Statistiche')
-const ScoutSearchScreen        = makePlaceholder('Ricerca Atleti')
-const TrainerProgramsScreen    = makePlaceholder('Programmi')
-const TrainerClientsScreen     = makePlaceholder('Clienti')
-const TrainerExercisesScreen   = makePlaceholder('Esercizi')
 const CreatorContentScreen     = makePlaceholder('Contenuti')
 const CreatorTemplatesScreen   = makePlaceholder('Template')
 const CreatorAnalyticsScreen   = makePlaceholder('Analytics')
-const AdminSubscriptionsScreen = makePlaceholder('Abbonamenti')
-const AdminGamificationScreen  = makePlaceholder('Gamification')
 const MediaScreen              = makePlaceholder('Media')
-const SettingsScreen           = makePlaceholder('Impostazioni')
-const VideoAnalysisScreen      = makePlaceholder('Analisi Video')
 const LiveShotTrackingScreen   = makePlaceholder('Conteggio Live')
 const ComingSoonScreen         = makePlaceholder('Coming Soon')
 
@@ -63,7 +59,7 @@ const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
     home:                 HomeScreen,
     profile:              ProfileScreen,
     player_profile:       ProfileScreen,
-    player_stats:         RankingScreen,
+    player_stats:         StatsScreen,
     player_goals:         GoalsScreen,
     player_journal:       JournalNavigator,
     player_training:      AiTrainingNavigator,
@@ -71,20 +67,20 @@ const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
     player_media:         MediaScreen,
     player_cv:            CvScreen,
     ai_training_tools:    AiTrainingNavigator,
-    scout_search:         ScoutSearchScreen,
+    scout_search:         ScoutingScreen,
     scout_rankings:       RankingScreen,
     ranking:              RankingScreen,
     scout_reports:        ComingSoonScreen,
-    trainer_programs:     TrainerProgramsScreen,
+    trainer_programs:     TrainingScreen,
     trainer_clients:      TrainerClientsScreen,
-    trainer_exercises:    TrainerExercisesScreen,
+    trainer_exercises:    ExercisesScreen,
     trainer_ai:           AiTrainingNavigator,
     creator_content:      CreatorContentScreen,
     creator_templates:    CreatorTemplatesScreen,
     creator_analytics:    CreatorAnalyticsScreen,
     admin_users:          OnlineUsersScreen,
-    admin_subscriptions:  AdminSubscriptionsScreen,
-    admin_gamification:   AdminGamificationScreen,
+    admin_subscriptions:  SubscriptionsScreen,
+    admin_gamification:   BadgesScreen,
     admin_notifications:  NotificationsScreen,
     admin_checklist:      ChecklistTemplatesNavigator,
     messages:             MessagingHomeScreen,
@@ -94,6 +90,7 @@ const SCREEN_MAP: Record<string, React.ComponentType<any>> = {
     live_shot_tracking:   LiveShotTrackingScreen,
     player_events:        EventsNavigator,
 }
+
 
 // ─── Icona Lucide dinamica ────────────────────────────────────
 // I nomi nel DB sono kebab-case (es. "notebook-pen").
