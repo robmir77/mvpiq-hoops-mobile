@@ -1088,7 +1088,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // ── Pose callback (new architecture) ─────────────────────────────────────
     const handlePoseResult = useCallback((result: PoseResult) => {
-        console.log('[WorkoutSession] Pose keypoints:', Object.keys(result.keypoints).length, 'joints')
+        // console.log('[WorkoutSession] Pose keypoints:', Object.keys(result.keypoints).length, 'joints')
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
     }, [])
@@ -1104,13 +1104,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
-        if (ball) {
-            console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y, 'width:', ball.width, 'height:', ball.height)
-        }
+        // if (ball) {
+        //     console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y, 'width:', ball.width, 'height:', ball.height)
+        // }
         const rim = detection.rim
-        if (rim) {
-            console.log('[BallDetection] Rim detected - confidence:', rim.confidence, 'x:', rim.x, 'y:', rim.y, 'width:', rim.width, 'height:', rim.height)
-        }
+        // if (rim) {
+        //     console.log('[BallDetection] Rim detected - confidence:', rim.confidence, 'x:', rim.x, 'y:', rim.y, 'width:', rim.width, 'height:', rim.height)
+        // }
         // Use detected rim if available, otherwise use calibrated rim
         // Detected rim has actual bounding box dimensions (width/height)
         const rimForTracking = rimFromDetection ? {

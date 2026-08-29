@@ -41,14 +41,18 @@ export function startPerfMonitor() {
     if (perfTimer) return
     perfTimer = setInterval(() => {
         if (__DEV__) {
-            console.log('[PERF]')
-            console.log('YOLO.............', perfMetrics.yoloFps, 'fps')
-            console.log('MoveNet..........', perfMetrics.moveNetFps, 'fps')
-            console.log('Tracking Updates.', perfMetrics.trackingUpdates, '/sec')
-            console.log('Overlay Renders..', perfMetrics.overlayRenders, '/sec')
-            console.log('Path Build.......', perfMetrics.pathBuildTime.toFixed(2), 'ms')
-            console.log('Overlay Render...', perfMetrics.overlayRenderTime.toFixed(2), 'ms')
-            console.log('JS FPS...........', perfMetrics.overlayRenders)
+            // Single consolidated log to reduce JS bridge serialization overhead
+            console.log(`[PERF] YOLO: ${perfMetrics.yoloFps}fps | MoveNet: ${perfMetrics.moveNetFps}fps | Tracking: ${perfMetrics.trackingUpdates}/s | Overlay: ${perfMetrics.overlayRenders}/s (JS FPS)`)
+            
+            // Multi-line detailed logs (commented out for high-frequency performance)
+            // console.log('[PERF]')
+            // console.log('YOLO.............', perfMetrics.yoloFps, 'fps')
+            // console.log('MoveNet..........', perfMetrics.moveNetFps, 'fps')
+            // console.log('Tracking Updates.', perfMetrics.trackingUpdates, '/sec')
+            // console.log('Overlay Renders..', perfMetrics.overlayRenders, '/sec')
+            // console.log('Path Build.......', perfMetrics.pathBuildTime.toFixed(2), 'ms')
+            // console.log('Overlay Render...', perfMetrics.overlayRenderTime.toFixed(2), 'ms')
+            // console.log('JS FPS...........', perfMetrics.overlayRenders)
         }
         // Reset counters
         perfMetrics.yoloFps = 0

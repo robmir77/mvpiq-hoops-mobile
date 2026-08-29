@@ -6,7 +6,7 @@
 
 const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.25
-const N_ANCHORS = 2100
+const N_ANCHORS = 3549
 
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
@@ -47,12 +47,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   const raw: number[][] = []
 
   // Convert to float values if needed (for INT8 quantized output)
-  const getOutput = (idx: number): number => {
-    if (output instanceof Uint8Array || output instanceof Int8Array) {
-      return output[idx] / 255.0 // Normalize uint8/int8 to [0, 1]
-    }
-    return output[idx]
-  }
+  const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
 
   // Filter: reject detections larger than half screen (normalized coordinates)
   const MAX_BOX_SIZE = 0.7 // Increased from 0.5 to 0.7 to allow more distant objects
@@ -65,13 +60,18 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   let maxScore = 0
   let maxScoreIdx = -1
 
+  const a2 = N_ANCHORS * 2
+  const a3 = N_ANCHORS * 3
+  const a4 = N_ANCHORS * 4
+  const a5 = N_ANCHORS * 5
+
   for (let i = 0; i < N_ANCHORS; i++) {
-    const cx = getOutput(i)
-    const cy = getOutput(N_ANCHORS + i)
-    const w = getOutput(N_ANCHORS * 2 + i)
-    const h = getOutput(N_ANCHORS * 3 + i)
-    const ballScore = getOutput(N_ANCHORS * 4 + i)
-    const rimScore = getOutput(N_ANCHORS * 5 + i)
+    const cx = isQuantized ? output[i] / 255.0 : output[i]
+    const cy = isQuantized ? output[N_ANCHORS + i] / 255.0 : output[N_ANCHORS + i]
+    const w  = isQuantized ? output[a2 + i] / 255.0 : output[a2 + i]
+    const h  = isQuantized ? output[a3 + i] / 255.0 : output[a3 + i]
+    const ballScore = isQuantized ? output[a4 + i] / 255.0 : output[a4 + i]
+    const rimScore  = isQuantized ? output[a5 + i] / 255.0 : output[a5 + i]
 
     // Track maximum score across both classes
     const maxClassScore = Math.max(ballScore, rimScore)
@@ -110,19 +110,17 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  // Log the highest confidence score and its anchor position for debugging (only in dev)
-  if (__DEV__) {
-    console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
-    // Log the number of detections that passed the confidence threshold
-    console.log('[YOLO Parser] Detections above threshold:', raw.length)
-  }
+  // Log the highest confidence score and its anchor position for debugging (commented out for high-frequency performance)
+  // if (__DEV__) {
+  //   console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
+  //   console.log('[YOLO Parser] Detections above threshold:', raw.length)
+  // }
 
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
-  // Log the number of detections remaining after Non-Maximum Suppression (only in dev)
-  if (__DEV__) {
-    console.log('[YOLO Parser] Detections after NMS:', kept.length)
-  }
+  // if (__DEV__) {
+  //   console.log('[YOLO Parser] Detections after NMS:', kept.length)
+  // }
 
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null

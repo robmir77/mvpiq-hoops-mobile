@@ -19,8 +19,8 @@ import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints } from './type
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
 
 // ── Model input sizes ──────────────────────────────────────────────────────────
-const YOLO_INPUT_SIZE = 320   // yolo-football-ball-detection exported at imgsz=320
-const POSE_INPUT_SIZE = 192   // MoveNet Lightning
+const YOLO_INPUT_SIZE = 416   // YOLOv8/v11 ball & rim model resized to 416
+const POSE_INPUT_SIZE = 192   // MoveNet Lightning (must remain 192)
 
 // ── AI inference throttling ───────────────────────────────────────────────────
 // Run YOLO every 2 frames (15 FPS at 30 FPS camera)
@@ -84,9 +84,10 @@ export const useShotTracker = (
 
       // Increase threshold if too many detections (false positives)
       // Decrease threshold if too few detections (false negatives)
+      // Cap at 0.06 max so small/fast balls with lower confidence (3%-8%) are never discarded
       const adjustment = 0.005  // Smaller adjustment for finer control
       if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
-        adaptiveThreshold.value = Math.min(0.20, adaptiveThreshold.value + adjustment)
+        adaptiveThreshold.value = Math.min(0.06, adaptiveThreshold.value + adjustment)
       } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
         adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
       }
@@ -191,13 +192,19 @@ export const useShotTracker = (
     const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
     if (!yoloReady) return
 
-    // ── 1. YOLO — throttled to every YOLO_FRAME_SKIP frames (15 FPS) ───────────
-    if (frameId % YOLO_FRAME_SKIP === 0) {
-      // Resize camera frame → 320×320 RGB float32 (HWC, range 0-1).
-      // The model is a TFLite export (NHWC) — NO HWC→CHW conversion needed.
+    // Calculate 1:1 square center crop to preserve aspect ratio without squashing small basketballs
+    const cropDim = Math.min(frame.width, frame.height)
+    const cropX = Math.floor((frame.width - cropDim) / 2)
+    const cropY = Math.floor((frame.height - cropDim) / 2)
+
+    // ── 1. YOLO — accelerate to every frame (skip = 1) when ball is actively detected ──
+    const activeYoloSkip = lastBallDetected.value ? 1 : YOLO_FRAME_SKIP
+    const ranYolo = frameId % activeYoloSkip === 0
+    if (ranYolo) {
+      // Resize camera frame → 416×416 RGB float32 with 1:1 square crop to keep ball round
       const yoloResized = resize(frame, {
         scale:       { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
-        crop:        { x: 0, y: 0, width: frame.width, height: frame.height },
+        crop:        { x: cropX, y: cropY, width: cropDim, height: cropDim },
         pixelFormat: 'rgb',
         dataType:    'float32',  // produces float32 HWC in 0-1 range
       })
@@ -207,7 +214,7 @@ export const useShotTracker = (
 
       const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
 
-      // Track if ball was detected for MoveNet throttling
+      // Track if ball was detected for MoveNet throttling and YOLO acceleration
       lastBallDetected.value = ball !== null
 
       onBallDetectionJS({
@@ -218,15 +225,15 @@ export const useShotTracker = (
     }
 
     // ── 2. MoveNet — throttled to every POSE_FRAME_SKIP frames (10 FPS) ────────
-    // Only run MoveNet when ball was detected in last YOLO frame
-    if (frameId % POSE_FRAME_SKIP !== 0 || !lastBallDetected.value) return
+    // Stagger execution: do NOT run MoveNet on frames where YOLO already ran
+    if (ranYolo || (frameId % POSE_FRAME_SKIP !== 1)) return
 
     const poseReady = poseModel.state === 'loaded' && poseModel.model != null
     if (!poseReady) return
 
     const poseResized = resize(frame, {
       scale:       { width: POSE_INPUT_SIZE, height: POSE_INPUT_SIZE },
-      crop:        { x: 0, y: 0, width: frame.width, height: frame.height },
+      crop:        { x: cropX, y: cropY, width: cropDim, height: cropDim },
       pixelFormat: 'rgb',
       dataType:    'uint8',   // MoveNet INT8 expects uint8 HWC
     })
