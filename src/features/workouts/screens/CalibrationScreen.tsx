@@ -539,6 +539,16 @@ export default function CalibrationScreen({ navigation, route }: any) {
         // Common FPS values that most cameras support
         return [60, 30, 24, 15].filter(fps => fps <= 60)
     }, [])
+    
+    // Set default to lowest resolution and lowest FPS for better performance
+    React.useEffect(() => {
+        if (uniqueResolutions.length > 0) {
+            setSelectedResolution(uniqueResolutions[uniqueResolutions.length - 1]) // Lowest resolution
+        }
+        if (uniqueFps.length > 0) {
+            setSelectedFps(uniqueFps[uniqueFps.length - 1]) // Lowest FPS
+        }
+    }, [uniqueResolutions, uniqueFps])
 
     const [step, setStep] = useState<CalibStep>('hoop')
     const [hoopCenter, setHoopCenter] = useState<Point | null>(null)

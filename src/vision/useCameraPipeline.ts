@@ -29,6 +29,7 @@ export const useCameraPipeline = (
   onShotEvent: (event: ShotEvent) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
+  kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
   enabled: boolean = true
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
@@ -45,7 +46,8 @@ export const useCameraPipeline = (
     onPoseResult,
     onShotEvent,
     onRimDetection,
-    rimFromCalibration
+    rimFromCalibration,
+    kalmanFilteredBall
   )
 
   return {

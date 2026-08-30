@@ -34,6 +34,7 @@ export const useShotTracker = (
   onShotEvent:    (event: ShotEvent) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
+  kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
 ) => {
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
@@ -114,7 +115,16 @@ export const useShotTracker = (
       return
     }
 
-    shotDetector.current.updateTrajectory(ball)
+    // Use Kalman filtered position if available, otherwise use raw detection
+    const ballForTracking = kalmanFilteredBall ? {
+      x: kalmanFilteredBall.x,
+      y: kalmanFilteredBall.y,
+      width: ball.width,
+      height: ball.height,
+      confidence: ball.confidence,
+    } : ball
+
+    shotDetector.current.updateTrajectory(ballForTracking)
 
     const prev = lastBallRef.current
     if (prev) {
@@ -125,12 +135,12 @@ export const useShotTracker = (
     }
 
     lastBallRef.current = {
-      x: ball.x + ball.width  / 2,
-      y: ball.y + ball.height / 2,
+      x: ballForTracking.x + ballForTracking.width  / 2,
+      y: ballForTracking.y + ballForTracking.height / 2,
       t: detection.timestamp,
     }
 
-    if (shotDetector.current.detectShotStart(ball))    console.log('[ShotTracker] Shot started')
+    if (shotDetector.current.detectShotStart(ballForTracking))    console.log('[ShotTracker] Shot started')
     if (shotDetector.current.detectShotRelease()) {
       // Log when shot release is detected
       console.log('[ShotTracker] Shot released')
@@ -153,7 +163,7 @@ export const useShotTracker = (
       if (ev) onShotEvent(ev)
       shotDetector.current.reset()
     }
-  }, [onShotEvent, rimFromCalibration])
+  }, [onShotEvent, rimFromCalibration, kalmanFilteredBall])
 
   const wrappedOnBallDetection = useCallback((detection: BallDetection) => {
     onBallDetection(detection)

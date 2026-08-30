@@ -1375,6 +1375,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Mantieni l'ultima rilevazione positiva invece di tornare alla calibrazione
     const effectiveRim = rimFromDetection || rimFromCalibration
 
+    // Extract Kalman filtered ball data from tracking state
+    const kalmanFilteredBall = React.useMemo(() => {
+        if (trackingState && trackingState.ballPosition && trackingState.ballVelocity) {
+            return {
+                x: trackingState.ballPosition.x,
+                y: trackingState.ballPosition.y,
+                vx: trackingState.ballVelocity.vx,
+                vy: trackingState.ballVelocity.vy,
+            }
+        }
+        return null
+    }, [trackingState?.ballPosition, trackingState?.ballVelocity])
+
     const {
         device,
         hasPermission,
@@ -1389,6 +1402,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         handleShotEvent,
         handleRimDetection,
         effectiveRim,
+        kalmanFilteredBall,
         true
     )
 
@@ -1504,11 +1518,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 state.ballPosition?.y ?? 0.5,
                 calibration
             )
-            await addShotEvent(sessionId, user.id, {
-                timestampMs: Date.now(), shotResult: result, ...coords,
+            const payload = {
+                timestampMs: Date.now(), 
+                shotResult: result, 
+                ...coords,
                 detectionConfidence: 1.0,
                 trackingData: JSON.stringify({ manualEntry: true }),
-            })
+            }
+            console.log('[Manual Shot] Payload:', payload)
+            await addShotEvent(sessionId, user.id, payload)
             setLastShotResult(result)
             setShotCount(prev => ({
                 total: prev.total + 1,
@@ -1519,7 +1537,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 toValue: 0, duration: 1400,
                 easing: Easing.out(Easing.ease), useNativeDriver: true,
             }).start()
-        } catch (e: any) { showError('Errore', e.message) }
+        } catch (e: any) { 
+            console.error('[Manual Shot] Error:', e)
+            console.error('[Manual Shot] Error response:', e.response?.data)
+            showError('Errore', e.response?.data?.message || e.message || 'Errore sconosciuto') 
+        }
         finally { setIsRecording(false) }
     }
 
