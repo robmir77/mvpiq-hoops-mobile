@@ -4,6 +4,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import apiClient from '@/shared/api/apiClient'
+import { API_BASE_URL } from '@/config/appConfig'
 import {
     WorkoutSession, CreateWorkoutSessionPayload,
     ShotEvent, AddShotEventPayload,
@@ -45,7 +46,6 @@ export const deleteWorkoutSession = async (
 ): Promise<void> => {
     // Usa fetch nativo per DELETE per evitare problemi con axios headers
     const token = await AsyncStorage.getItem('token')
-    const { API_BASE_URL } = await import('@/config/appConfig')
 
     const headers: Record<string, string> = {}
     if (token && typeof token === 'string' && token.trim() !== '') {

@@ -73,6 +73,7 @@ export interface ShotEvent {
   shotStarted: boolean
   shotReleased: boolean
   shotMade: boolean
+  shotMiss?: boolean
   releasePoint?: { x: number; y: number }
   releaseAngle?: number
   timestamp: number

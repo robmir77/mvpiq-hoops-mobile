@@ -418,6 +418,7 @@ export const useTrackingEngine = () => {
         resetAll,
         setHoopFromCalibration,
         computeTrajectoryMetrics,
+        calculateShotQuality,
         getState,
         // Shared Values per Skia overlay (no React bridge)
         sharedValues: {

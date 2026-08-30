@@ -146,6 +146,13 @@ export const useShotTracker = (
       if (ev) onShotEvent(ev)
       shotDetector.current.reset()
     }
+    // Check for shot miss (timeout after release)
+    if (shotDetector.current.detectShotMiss()) {
+      console.log('[ShotTracker] Shot missed!')
+      const ev = shotDetector.current.getShotEvent()
+      if (ev) onShotEvent(ev)
+      shotDetector.current.reset()
+    }
   }, [onShotEvent, rimFromCalibration])
 
   const wrappedOnBallDetection = useCallback((detection: BallDetection) => {

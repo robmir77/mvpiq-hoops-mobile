@@ -4,6 +4,7 @@
     "strict": true,
     "skipLibCheck": true,
     "baseUrl": "./src",
+    "types": ["jest"],
     "paths": {
       "@/*": ["*"]
     }

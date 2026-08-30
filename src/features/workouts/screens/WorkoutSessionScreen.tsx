@@ -20,6 +20,8 @@ import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, Animated, Easing, Platform,
 } from 'react-native'
+import { captureRef } from 'react-native-view-shot'
+import * as MediaLibrary from 'expo-media-library'
 import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
@@ -1049,7 +1051,7 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, zoom } = route.params || {}
+    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1057,6 +1059,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [isEnding, setIsEnding]           = useState(false)
     const [isRecording, setIsRecording]     = useState(false)
     const isRecordingRef = useRef(false)
+    const [isVideoRecording, setIsVideoRecording] = useState(false)
+    const [videoDuration, setVideoDuration]         = useState(0)
+    const isVideoRecordingRef                       = useRef(false)
+    const videoTimerRef                             = useRef<ReturnType<typeof setInterval> | null>(null)
     const [shotCount, setShotCount]         = useState({ total: 0, made: 0 })
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
@@ -1065,8 +1071,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
+    const cameraViewRef = useRef<View>(null)
+    const shotCounter = useRef(0)
+    const pendingScreenshotUri = useRef<string | null>(null)
 
-    const { alert, showError, showWarning } = useCustomAlert()
+    const { alert, showError, showWarning, showSuccess } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
     const tracking = useTrackingEngine()
     const { sharedValues } = tracking
@@ -1074,6 +1083,34 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const isActiveRef     = useRef(true)
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
+
+    // Gestione timer durata registrazione video
+    useEffect(() => {
+        isVideoRecordingRef.current = isVideoRecording
+        if (isVideoRecording) {
+            setVideoDuration(0)
+            videoTimerRef.current = setInterval(() => {
+                setVideoDuration(prev => prev + 1)
+            }, 1000)
+        } else {
+            if (videoTimerRef.current) {
+                clearInterval(videoTimerRef.current)
+                videoTimerRef.current = null
+            }
+        }
+        return () => {
+            if (videoTimerRef.current) {
+                clearInterval(videoTimerRef.current)
+                videoTimerRef.current = null
+            }
+        }
+    }, [isVideoRecording])
+
+    const formatVideoDuration = useCallback((seconds: number) => {
+        const mins = Math.floor(seconds / 60)
+        const secs = seconds % 60
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    }, [])
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1104,15 +1141,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
-        // if (ball) {
-        //     console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y, 'width:', ball.width, 'height:', ball.height)
-        // }
         const rim = detection.rim
-        // if (rim) {
-        //     console.log('[BallDetection] Rim detected - confidence:', rim.confidence, 'x:', rim.x, 'y:', rim.y, 'width:', rim.width, 'height:', rim.height)
-        // }
-        // Use detected rim if available, otherwise use calibrated rim
-        // Detected rim has actual bounding box dimensions (width/height)
         const rimForTracking = rimFromDetection ? {
             x: rimFromDetection.x,
             y: rimFromDetection.y,
@@ -1122,8 +1151,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         } : calibration?.hoopCenter ? {
             x: calibration.hoopCenter.x,
             y: calibration.hoopCenter.y,
-            width: 0.05, // Normalized width
-            height: 0.05, // Normalized height
+            width: 0.05,
+            height: 0.05,
             confidence: 1.0,
         } : null
 
@@ -1132,9 +1161,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
             detection.timestamp
         )
-        // Aggiorna l'overlay direttamente — non aspettare il RAF loop
         incrementTrackingUpdates()
-        // Throttle UI updates to 15 FPS (66ms) to reduce React renders
         const now = Date.now()
         if (now - lastUiUpdate.current > 66) {
             lastUiUpdate.current = now
@@ -1206,16 +1233,136 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         finally { isRecordingRef.current = false; setIsRecording(false) }
     }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
-    // ── Shot event callback (new architecture) ───────────────────────────
-    const handleShotEvent = useCallback((event: ShotEvent) => {
-        console.log('[WorkoutSession] Shot event:', event)
-        if (event.shotMade) {
-            void handleAutoShotDetected('MADE')
-        } else if (event.shotReleased) {
-            // Shot released but not yet determined if made
-            // Could trigger intermediate UI feedback
+    // ── Screenshot capture function ────────────────────────────────────────
+    const captureShotScreenshot = useCallback(async (shotNumber: number) => {
+        if (!cameraViewRef.current) return
+        try {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+            const uri = await captureRef(cameraViewRef, {
+                format: 'jpg',
+                quality: 0.9,
+                result: 'tmpfile',
+            })
+            const asset = await MediaLibrary.createAssetAsync(uri)
+            console.log('[WorkoutSession] Screenshot captured:', asset.uri)
+            return { asset, timestamp, shotNumber }
+        } catch (error) {
+            console.error('[WorkoutSession] Failed to capture screenshot:', error)
+            return null
         }
-    }, [handleAutoShotDetected])
+    }, [])
+
+    // ── Save screenshot with final result name ────────────────────────────────
+    const saveScreenshotWithResult = useCallback(async (screenshotData: any, result: ShotResult) => {
+        try {
+            const resultLabel = result === 'MADE' ? `CANESTRO_${screenshotData.shotNumber}` : 'FAIL'
+            const filename = `MVPiQ_Shot_${resultLabel}_${screenshotData.timestamp}.jpg`
+            let album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
+            if (!album) {
+                album = await MediaLibrary.createAlbumAsync('MVPiQ Hoops', screenshotData.asset, false)
+            } else {
+                await MediaLibrary.addAssetsToAlbumAsync([screenshotData.asset], album, false)
+            }
+            console.log('[WorkoutSession] Screenshot saved to album:', filename)
+        } catch (error) {
+            console.error('[WorkoutSession] Failed to save screenshot to album:', error)
+        }
+    }, [])
+
+    // ── Shot event callback (new architecture) ───────────────────────────
+    const handleShotEvent = useCallback(async (event: ShotEvent) => {
+        console.log('[WorkoutSession] Shot event:', event)
+        if (event.shotReleased) {
+            shotCounter.current += 1
+            const screenshotData = await captureShotScreenshot(shotCounter.current)
+            if (screenshotData) {
+                pendingScreenshotUri.current = JSON.stringify(screenshotData)
+            }
+        } else if (event.shotMade) {
+            void handleAutoShotDetected('MADE')
+            if (pendingScreenshotUri.current) {
+                const data = JSON.parse(pendingScreenshotUri.current)
+                void saveScreenshotWithResult(data, 'MADE')
+                pendingScreenshotUri.current = null
+            }
+        } else if (event.shotMiss) {
+            if (pendingScreenshotUri.current) {
+                const data = JSON.parse(pendingScreenshotUri.current)
+                void saveScreenshotWithResult(data, 'MISS')
+                pendingScreenshotUri.current = null
+            }
+        }
+    }, [handleAutoShotDetected, captureShotScreenshot, saveScreenshotWithResult])
+
+    // ── Session Video Recording Functions ──────────────────────────────────
+    const startSessionVideoRecording = useCallback(async () => {
+        if (!cameraRef.current) {
+            showError('Camera non pronta', 'La fotocamera non è ancora inizializzata.')
+            return
+        }
+        try {
+            setIsVideoRecording(true)
+            isVideoRecordingRef.current = true
+
+            // Snap initial overlay screenshot
+            void captureShotScreenshot(0)
+
+            cameraRef.current.startRecording({
+                onRecordingFinished: async (video) => {
+                    console.log('[WorkoutSession] Video session recording finished:', video.path)
+                    try {
+                        const asset = await MediaLibrary.createAssetAsync(video.path)
+                        let album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
+                        if (!album) {
+                            await MediaLibrary.createAlbumAsync('MVPiQ Hoops', asset, false)
+                        } else {
+                            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false)
+                        }
+                        showSuccess(
+                            '📹 Video Salvato!',
+                            'Il video della sessione è stato salvato nella galleria (MVPiQ Hoops).'
+                        )
+                    } catch (err: any) {
+                        console.error('[WorkoutSession] Error saving video to album:', err)
+                        showError('Errore salvataggio', 'Impossibile salvare il video nella galleria.')
+                    }
+                },
+                onRecordingError: (error) => {
+                    console.error('[WorkoutSession] Video recording error:', error)
+                    setIsVideoRecording(false)
+                    isVideoRecordingRef.current = false
+                    showError('Errore registrazione', error.message || 'Errore durante la registrazione del video.')
+                },
+            })
+        } catch (err: any) {
+            console.error('[WorkoutSession] Failed to start video recording:', err)
+            setIsVideoRecording(false)
+            isVideoRecordingRef.current = false
+            showError('Errore', err.message || 'Impossibile avviare la registrazione video.')
+        }
+    }, [captureShotScreenshot, showError, showSuccess])
+
+    const stopSessionVideoRecording = useCallback(async () => {
+        if (!cameraRef.current || !isVideoRecordingRef.current) return
+        try {
+            // Snap final overlay screenshot
+            void captureShotScreenshot(shotCounter.current)
+            await cameraRef.current.stopRecording()
+        } catch (err: any) {
+            console.error('[WorkoutSession] Error stopping video recording:', err)
+        } finally {
+            setIsVideoRecording(false)
+            isVideoRecordingRef.current = false
+        }
+    }, [captureShotScreenshot])
+
+    const toggleSessionVideoRecording = useCallback(() => {
+        if (isVideoRecording) {
+            void stopSessionVideoRecording()
+        } else {
+            void startSessionVideoRecording()
+        }
+    }, [isVideoRecording, startSessionVideoRecording, stopSessionVideoRecording])
 
     // ── New architecture: useCameraPipeline integrates everything ─────────
     const rimFromCalibration = React.useMemo(() =>
@@ -1246,9 +1393,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     )
 
     const format = useCameraFormat(device, [
-        { videoResolution: { width: 1280, height: 720 } },
-        { fps: 30 },
+        { videoResolution: selectedResolution || { width: 1280, height: 720 } },
+        { fps: selectedFps || 30 },
     ])
+
+    // ── Request media library permissions for saving screenshots ─────────────
+    useEffect(() => {
+        void (async () => {
+            const { status } = await MediaLibrary.requestPermissionsAsync()
+            if (status !== 'granted') {
+                console.warn('[WorkoutSession] Media library permission not granted')
+            }
+        })()
+    }, [])
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -1370,6 +1527,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         showWarning('Termina Sessione', 'Sei sicuro di voler terminare?', async () => {
             setIsEnding(true)
             try {
+                // Stop video recording if active before ending session
+                if (isVideoRecordingRef.current) {
+                    await stopSessionVideoRecording()
+                }
                 await flushFrameBatch()
                 await endWorkoutSession(sessionId, user!.id)
                 navigation.replace('ShotChart', { sessionId, fromSession: true })
@@ -1426,9 +1587,25 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         <Text style={styles.headerTitle}>{isPaused ? 'In Pausa' : 'Sessione Attiva'}</Text>
                         {!modelsReady && <Text style={styles.loadingBadge}>⏳ AI...</Text>}
                     </View>
-                    <TouchableOpacity onPress={handlePauseResume} style={styles.headerBtn}>
-                        <Text style={styles.headerBtnText}>{isPaused ? '▶' : '⏸'}</Text>
-                    </TouchableOpacity>
+                    <View style={styles.headerRightGroup}>
+                        <TouchableOpacity
+                            onPress={toggleSessionVideoRecording}
+                            style={[
+                                styles.recordHeaderBtn,
+                                isVideoRecording && styles.recordHeaderBtnActive,
+                                (isPaused || isEnding) && styles.btnDisabled,
+                            ]}
+                            disabled={isPaused || isEnding}
+                        >
+                            <View style={[styles.recHeaderDot, isVideoRecording && styles.recHeaderDotActive]} />
+                            <Text style={[styles.recordHeaderBtnText, isVideoRecording && styles.recordHeaderBtnTextActive]}>
+                                {isVideoRecording ? formatVideoDuration(videoDuration) : 'REC'}
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={handlePauseResume} style={styles.headerBtn}>
+                            <Text style={styles.headerBtnText}>{isPaused ? '▶' : '⏸'}</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
                 <View style={styles.statsRow}>
                     <StatBox label="Tiri"    value={shotCount.total} />
@@ -1455,7 +1632,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 </View>
             </View>
 
-            <View style={{ height: CAMERA_H }}>
+            <View style={{ height: CAMERA_H }} ref={cameraViewRef} collapsable={false}>
                 <Camera
                     ref={cameraRef}
                     style={StyleSheet.absoluteFill}
@@ -1463,7 +1640,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     isActive={isActive && !isPaused}
                     frameProcessor={frameProcessor}
                     format={format}
-                    zoom={zoom || 1}
+                    zoom={zoom}
+                    video={true}
+                    audio={false}
                     onError={(error) => {
                         if (error.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')
@@ -1472,6 +1651,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         }
                     }}
                 />
+
+                {/* Visual indicator for active video session recording */}
+                {isVideoRecording && (
+                    <View style={styles.recBanner} pointerEvents="none">
+                        <View style={styles.recDotPulsing} />
+                        <Text style={styles.recBannerText}>🔴 REC {formatVideoDuration(videoDuration)}</Text>
+                    </View>
+                )}
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
                 <TrackingOverlay
@@ -1528,6 +1715,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         </Text>
                     </View>
                     <TouchableOpacity
+                        style={[
+                            styles.recControlBtn,
+                            isVideoRecording ? styles.recControlBtnActive : styles.recControlBtnIdle,
+                            (isPaused || isEnding) && styles.btnDisabled,
+                        ]}
+                        onPress={toggleSessionVideoRecording}
+                        disabled={isPaused || isEnding}
+                    >
+                        <Text style={styles.recControlBtnText}>
+                            {isVideoRecording ? `⏹ Stop REC (${formatVideoDuration(videoDuration)})` : '🔴 Record'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={[styles.endBtn, isEnding && styles.endBtnDisabled]}
                         onPress={handleEndSession}
                         disabled={isEnding}
@@ -1568,6 +1768,14 @@ const styles = StyleSheet.create({
     headerBtnText:     { fontSize: 20, color: '#fff', fontWeight: 'bold' },
     headerCenter:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
     headerTitle:       { fontSize: 14, fontWeight: '700', color: '#fff' },
+    headerRightGroup:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    recordHeaderBtn:   { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(239,68,68,0.15)',
+                         borderWidth: 1, borderColor: '#ef4444', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4 },
+    recordHeaderBtnActive: { backgroundColor: '#ef4444' },
+    recHeaderDot:      { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' },
+    recHeaderDotActive:{ backgroundColor: '#fff' },
+    recordHeaderBtnText: { color: '#ef4444', fontSize: 11, fontWeight: '800' },
+    recordHeaderBtnTextActive: { color: '#fff' },
     loadingBadge:      { fontSize: 10, color: '#fbbf24', marginLeft: 6 },
     statusDot:         { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
     statusDotPaused:   { backgroundColor: '#fbbf24' },
@@ -1585,6 +1793,11 @@ const styles = StyleSheet.create({
     calDebugBtn:       { marginLeft: 6, borderWidth: 1, borderColor: 'rgba(255,140,0,0.4)',
                          borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: 'transparent' },
     calDebugBtnOn:     { backgroundColor: '#ff8c00' },
+    recBanner:         { position: 'absolute', top: 12, right: 12, flexDirection: 'row', alignItems: 'center',
+                         backgroundColor: 'rgba(0,0,0,0.85)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+                         borderWidth: 1.5, borderColor: '#ef4444' },
+    recDotPulsing:     { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', marginRight: 6 },
+    recBannerText:     { color: '#ef4444', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
     guideH:            { position: 'absolute', left: 0, right: 0, top: '50%', height: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
     guideV:            { position: 'absolute', top: 0, bottom: 0, left: '50%', width: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
     trackingBadge:     { position: 'absolute', top: 12, left: 12, flexDirection: 'row', alignItems: 'center',
@@ -1605,6 +1818,10 @@ const styles = StyleSheet.create({
     autoDotActive:     { backgroundColor: '#4ade80' },
     autoDotIdle:       { backgroundColor: '#555' },
     autoLabel:         { fontSize: 12, color: '#aaa', fontWeight: '500' },
+    recControlBtn:     { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', marginRight: 6 },
+    recControlBtnIdle: { backgroundColor: '#2a1515', borderWidth: 1, borderColor: '#ef4444' },
+    recControlBtnActive:{ backgroundColor: '#ef4444', borderWidth: 1, borderColor: '#fca5a5' },
+    recControlBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
     manualRow:         { flexDirection: 'row', alignItems: 'center', gap: 8,
                          borderTopWidth: 1, borderTopColor: '#1e2433', paddingTop: 10 },
     manualLabel:       { fontSize: 11, color: '#555', fontWeight: '600' },

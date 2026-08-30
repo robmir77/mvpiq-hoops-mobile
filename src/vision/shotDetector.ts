@@ -15,8 +15,10 @@ export class ShotDetector {
   private shotStarted = false
   private shotReleased = false
   private shotMade = false
+  private shotMiss = false
   private releasePoint?: { x: number; y: number }
   private releaseAngle?: number
+  private releaseTime?: number
 
   // Check if current ball position is a shot candidate
   isShotCandidate(ball: BallDetection['ball'], velocity: { vx: number; vy: number }): boolean {
@@ -90,6 +92,7 @@ export class ShotDetector {
     if (velocity.vy < SHOT_RELEASE_VELOCITY_THRESHOLD) {
       this.shotReleased = true
       this.releasePoint = this.trajectory[this.trajectory.length - 1]
+      this.releaseTime = Date.now()
       
       // Calculate release angle from trajectory
       if (this.trajectory.length >= 2) {
@@ -108,7 +111,7 @@ export class ShotDetector {
 
   // Detect shot made (ball going downward through rim area)
   detectShotMade(rim: { x: number; y: number; width: number; height: number } | null): boolean {
-    if (!this.shotReleased || this.shotMade) return false
+    if (!this.shotReleased || this.shotMade || this.shotMiss) return false
     
     const velocity = this.calculateVelocity()
     if (!velocity || !rim) return false
@@ -134,6 +137,21 @@ export class ShotDetector {
     return false
   }
 
+  // Detect shot miss (timeout after release without made detection)
+  detectShotMiss(): boolean {
+    if (!this.shotReleased || this.shotMade || this.shotMiss) return false
+    if (!this.releaseTime) return false
+    
+    // Consider shot missed after 2 seconds from release without made detection
+    const timeSinceRelease = Date.now() - this.releaseTime
+    if (timeSinceRelease > 2000) {
+      this.shotMiss = true
+      return true
+    }
+    
+    return false
+  }
+
   // Get current shot event
   getShotEvent(): ShotEvent | null {
     if (!this.shotStarted) return null
@@ -142,6 +160,7 @@ export class ShotDetector {
       shotStarted: this.shotStarted,
       shotReleased: this.shotReleased,
       shotMade: this.shotMade,
+      shotMiss: this.shotMiss,
       releasePoint: this.releasePoint,
       releaseAngle: this.releaseAngle,
       timestamp: Date.now(),
@@ -154,7 +173,9 @@ export class ShotDetector {
     this.shotStarted = false
     this.shotReleased = false
     this.shotMade = false
+    this.shotMiss = false
     this.releasePoint = undefined
     this.releaseAngle = undefined
+    this.releaseTime = undefined
   }
 }
