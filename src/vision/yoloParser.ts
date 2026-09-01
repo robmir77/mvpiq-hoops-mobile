@@ -5,7 +5,7 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.25
+const CONF_THRESHOLD = 0.15  // Lowered from 0.25 to detect distant/small objects better
 const N_ANCHORS = 3549
 
 // Worklet-safe IOU calculation

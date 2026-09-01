@@ -540,10 +540,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
         return [60, 30, 24, 15].filter(fps => fps <= 60)
     }, [])
     
-    // Set default to lowest resolution and lowest FPS for better performance
+    // Set default to 1280x720 for better performance
     React.useEffect(() => {
         if (uniqueResolutions.length > 0) {
-            setSelectedResolution(uniqueResolutions[uniqueResolutions.length - 1]) // Lowest resolution
+            // Prefer 1280x720 if available, otherwise use highest
+            const preferred = uniqueResolutions.find(r => r.width === 1280 && r.height === 720)
+            setSelectedResolution(preferred || uniqueResolutions[0])
         }
         if (uniqueFps.length > 0) {
             setSelectedFps(uniqueFps[uniqueFps.length - 1]) // Lowest FPS

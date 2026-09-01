@@ -23,8 +23,8 @@ const YOLO_INPUT_SIZE = 416   // YOLOv8/v11 ball & rim model resized to 416
 const POSE_INPUT_SIZE = 192   // MoveNet Lightning (must remain 192)
 
 // ── AI inference throttling ───────────────────────────────────────────────────
-// Run YOLO every 2 frames (15 FPS at 30 FPS camera)
-const YOLO_FRAME_SKIP = 2
+// Run YOLO every frame (30 FPS at 30 FPS camera) - more precise tracking
+const YOLO_FRAME_SKIP = 1
 // Run MoveNet every 3 frames (10 FPS at 30 FPS camera)
 const POSE_FRAME_SKIP = 3
 
@@ -35,17 +35,19 @@ export const useShotTracker = (
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
+  enabled: boolean = true
 ) => {
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const frameCounter = useSharedValue(0) // Frame counter for AI inference throttling
   const lastBallDetected = useSharedValue(false) // Track if ball was detected in last YOLO frame
+  const enabledShared = useSharedValue(enabled) // Shared value for enabled state
   const RIM_CONFIDENCE_THRESHOLD = 0.15 // Soglia confidence per sostituire rim calibrato
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.03)
+  const adaptiveThreshold = useSharedValue(0.02)  // Lowered from 0.03 for distant objects
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
-  const TARGET_DETECTION_RATE = 0.2  // Target: 20% of frames should have detections (lowered for distant objects)
+  const TARGET_DETECTION_RATE = 0.15  // Lowered from 0.2 for distant objects
   const ADAPTATION_WINDOW_MS = 2000  // Adjust threshold every 2 seconds
 
   // ── Model loading ────────────────────────────────────────────────────────────
@@ -64,6 +66,9 @@ export const useShotTracker = (
   const onRimDetectionRef = useRef(onRimDetection)
   useEffect(() => { onPoseResultRef.current = onPoseResult }, [onPoseResult])
   useEffect(() => { onRimDetectionRef.current = onRimDetection }, [onRimDetection])
+
+  // Sync enabled state with shared value
+  useEffect(() => { enabledShared.value = enabled }, [enabled])
 
   // ── Adaptive threshold adjustment (JS thread) ───────────────────────────────
   const lastAdjustmentTs = useRef(0)
@@ -140,6 +145,16 @@ export const useShotTracker = (
       t: detection.timestamp,
     }
 
+    // Always update rim detection (independent of shot detection toggle)
+    if (detection.rim && detection.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
+      if (onRimDetectionRef.current) {
+        onRimDetectionRef.current(detection.rim)
+      }
+    }
+
+    // Only detect shots if enabled
+    if (!enabledShared.value) return
+
     if (shotDetector.current.detectShotStart(ballForTracking))    console.log('[ShotTracker] Shot started')
     if (shotDetector.current.detectShotRelease()) {
       // Log when shot release is detected
@@ -168,14 +183,6 @@ export const useShotTracker = (
   const wrappedOnBallDetection = useCallback((detection: BallDetection) => {
     onBallDetection(detection)
     handleBallDetectionForShotTracking(detection)
-
-    // Handle rim detection - replace calibrated rim if confidence is high
-    if (detection.rim && detection.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
-      console.log('[ShotTracker] Rim detected with high confidence:', detection.rim.confidence.toFixed(3))
-      if (onRimDetectionRef.current) {
-        onRimDetectionRef.current(detection.rim)
-      }
-    }
   }, [onBallDetection, handleBallDetectionForShotTracking])
 
   const wrappedOnBallDetectionRef = useRef(wrappedOnBallDetection)

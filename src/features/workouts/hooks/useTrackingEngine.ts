@@ -25,8 +25,8 @@ interface KalmanState {
 
 const INITIAL_KALMAN: KalmanState = {
     x: 0, y: 0, vx: 0, vy: 0,
-    px: 2, py: 2,
-    mx: 3, my: 3,
+    px: 15, py: 15,
+    mx: 0.5, my: 0.5,
 }
 
 // ── Soglie shot detection ──────────────────────────────────────────────────

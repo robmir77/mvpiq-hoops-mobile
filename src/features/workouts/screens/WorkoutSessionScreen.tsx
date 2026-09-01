@@ -1070,6 +1070,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
+    const [shotDetectionEnabled, setShotDetectionEnabled] = useState(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
@@ -1367,7 +1368,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── New architecture: useCameraPipeline integrates everything ─────────
     const rimFromCalibration = React.useMemo(() =>
         calibration?.hoopCenter
-            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.05, height: 0.05 }
+            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.08, height: 0.03 }
             : null
     , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
@@ -1403,7 +1404,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         handleRimDetection,
         effectiveRim,
         kalmanFilteredBall,
-        true
+        shotDetectionEnabled
     )
 
     const format = useCameraFormat(device, [
@@ -1738,6 +1739,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     </View>
                     <TouchableOpacity
                         style={[
+                            styles.detectionToggleBtn,
+                            shotDetectionEnabled ? styles.detectionToggleBtnActive : styles.detectionToggleBtnInactive,
+                            (isPaused || isEnding) && styles.btnDisabled,
+                        ]}
+                        onPress={() => setShotDetectionEnabled(!shotDetectionEnabled)}
+                        disabled={isPaused || isEnding}
+                    >
+                        <Text style={styles.detectionToggleBtnText}>
+                            {shotDetectionEnabled ? '🎯 Rilevamento ON' : '🎯 Rilevamento OFF'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[
                             styles.recControlBtn,
                             isVideoRecording ? styles.recControlBtnActive : styles.recControlBtnIdle,
                             (isPaused || isEnding) && styles.btnDisabled,
@@ -1840,6 +1854,10 @@ const styles = StyleSheet.create({
     autoDotActive:     { backgroundColor: '#4ade80' },
     autoDotIdle:       { backgroundColor: '#555' },
     autoLabel:         { fontSize: 12, color: '#aaa', fontWeight: '500' },
+    detectionToggleBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', marginRight: 6 },
+    detectionToggleBtnInactive: { backgroundColor: '#1e2433', borderWidth: 1, borderColor: '#555' },
+    detectionToggleBtnActive: { backgroundColor: '#3b82f6', borderWidth: 1, borderColor: '#60a5fa' },
+    detectionToggleBtnText: { color: '#fff', fontWeight: '800', fontSize: 11 },
     recControlBtn:     { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', marginRight: 6 },
     recControlBtnIdle: { backgroundColor: '#2a1515', borderWidth: 1, borderColor: '#ef4444' },
     recControlBtnActive:{ backgroundColor: '#ef4444', borderWidth: 1, borderColor: '#fca5a5' },

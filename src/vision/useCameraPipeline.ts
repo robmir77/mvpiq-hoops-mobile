@@ -47,7 +47,8 @@ export const useCameraPipeline = (
     onShotEvent,
     onRimDetection,
     rimFromCalibration,
-    kalmanFilteredBall
+    kalmanFilteredBall,
+    enabled
   )
 
   return {
