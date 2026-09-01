@@ -5,8 +5,20 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.15  // Lowered from 0.25 to detect distant/small objects better
+const CONF_THRESHOLD = 0.10  // Lowered from 0.15 to detect distant/small objects even better
 const N_ANCHORS = 3549
+
+// Crop parameters for mapping coordinates from crop to full frame
+let CROP_X = 0
+let CROP_Y = 0
+let CROP_DIM = 1
+
+export function setCropParameters(cropX: number, cropY: number, cropDim: number) {
+  'worklet'; // eslint-disable-line
+  CROP_X = cropX
+  CROP_Y = cropY
+  CROP_DIM = cropDim
+}
 
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
@@ -39,7 +51,7 @@ function nms(dets: number[][], thr: number): number[][] {
 // This runs in the Worklet - NO runOnJS here
 // Detects both ball (cls 0) and rim (cls 1)
 // Returns the ball with highest confidence and the rim with highest confidence
-export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD): {
+export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD, frameWidth: number = 1, frameHeight: number = 1): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
 } {
@@ -50,7 +62,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
 
   // Filter: reject detections larger than half screen (normalized coordinates)
-  const MAX_BOX_SIZE = 0.7 // Increased from 0.5 to 0.7 to allow more distant objects
+  const MAX_BOX_SIZE = 0.85 // Increased from 0.7 to 0.85 to allow even more distant objects
 
   // Extract detections from YOLO output
   // Layout: separate arrays for each parameter
@@ -85,13 +97,36 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       continue
     }
 
+    // Map coordinates from crop to full frame
+    // Model outputs are normalized to [0,1] relative to the crop
+    // When frameWidth/frameHeight are provided, map to full frame coordinates
+    let x1, y1, x2, y2, wNorm, hNorm
+
+    if (frameWidth > 1 && frameHeight > 1) {
+      // Map from crop to full frame
+      x1 = ((cx - w * 0.5) * CROP_DIM + CROP_X) / frameWidth
+      y1 = ((cy - h * 0.5) * CROP_DIM + CROP_Y) / frameHeight
+      x2 = ((cx + w * 0.5) * CROP_DIM + CROP_X) / frameWidth
+      y2 = ((cy + h * 0.5) * CROP_DIM + CROP_Y) / frameHeight
+      wNorm = (x2 - x1)
+      hNorm = (y2 - y1)
+    } else {
+      // Use normalized coordinates directly (relative to crop)
+      x1 = cx - w * 0.5
+      y1 = cy - h * 0.5
+      x2 = cx + w * 0.5
+      y2 = cy + h * 0.5
+      wNorm = w
+      hNorm = h
+    }
+
     // Add ball detection if score above threshold
     if (ballScore >= threshold) {
       raw.push([
-        (cx - w * 0.5),
-        (cy - h * 0.5),
-        (cx + w * 0.5),
-        (cy + h * 0.5),
+        x1,
+        y1,
+        x2,
+        y2,
         ballScore,
         0, // ball class
       ])
@@ -100,10 +135,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     // Add rim detection if score above threshold (controlled by external flag)
     if (rimScore >= threshold) {
       raw.push([
-        (cx - w * 0.5),
-        (cy - h * 0.5),
-        (cx + w * 0.5),
-        (cy + h * 0.5),
+        x1,
+        y1,
+        x2,
+        y2,
         rimScore,
         1, // rim class
       ])
@@ -111,16 +146,17 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   }
 
   // Log the highest confidence score and its anchor position for debugging (commented out for high-frequency performance)
-  // if (__DEV__) {
-  //   console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
-  //   console.log('[YOLO Parser] Detections above threshold:', raw.length)
-  // }
+  if (__DEV__) {
+    console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
+    console.log('[YOLO Parser] Detections above threshold:', raw.length)
+    console.log('[YOLO Parser] Crop params:', CROP_X, CROP_Y, CROP_DIM, 'Frame:', frameWidth, frameHeight)
+  }
 
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
-  // if (__DEV__) {
-  //   console.log('[YOLO Parser] Detections after NMS:', kept.length)
-  // }
+  if (__DEV__) {
+    console.log('[YOLO Parser] Detections after NMS:', kept.length)
+  }
 
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
@@ -135,6 +171,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       confidence: conf,
     }
 
+    if (__DEV__) {
+      console.log('[YOLO Parser] Detection:', cls === 0 ? 'ball' : 'rim', 'at', detection.x.toFixed(3), detection.y.toFixed(3), 'conf:', conf.toFixed(3))
+    }
+
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
     }
@@ -143,10 +183,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  // if (__DEV__) {
-  //   console.log('[YOLO Parser] Best ball:', bestBall ? `conf=${bestBall.confidence.toFixed(3)}` : 'null')
-  //   console.log('[YOLO Parser] Best rim:', bestRim ? `conf=${bestRim.confidence.toFixed(3)}` : 'null')
-  // }
+  if (__DEV__) {
+    console.log('[YOLO Parser] Best ball:', bestBall ? `conf=${bestBall.confidence.toFixed(3)} at (${bestBall.x.toFixed(3)}, ${bestBall.y.toFixed(3)})` : 'null')
+    console.log('[YOLO Parser] Best rim:', bestRim ? `conf=${bestRim.confidence.toFixed(3)} at (${bestRim.x.toFixed(3)}, ${bestRim.y.toFixed(3)})` : 'null')
+  }
 
   return { ball: bestBall, rim: bestRim }
 }

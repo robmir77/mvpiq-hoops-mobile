@@ -161,6 +161,147 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
     )
 }
 
+// ─── Overlay 45° Full Court ─────────────────────────────────────────────────────
+// Campo intero visto a 45° laterale: prospettiva diagonale estesa
+const Overlay45Full = ({ hoopCenter, corners, step }: {
+    hoopCenter: Point | null, corners: Point[], step: CalibStep
+}) => {
+    const W = SW, H = CAM_H
+    const ghostHoop = { x: W * 0.70, y: H * 0.28 }
+
+    // Punti campo intero in prospettiva 45°
+    const courtPts = {
+        // Linea di fondo (vicina - nostro canestro)
+        bl: { x: W * 0.04, y: H * 0.87 },
+        br: { x: W * 0.96, y: H * 0.76 },
+        // Linea di fondo (lontana / tiro libero)
+        tl: { x: W * 0.20, y: H * 0.38 },
+        tr: { x: W * 0.82, y: H * 0.28 },
+        // Linea centro campo (estesa per full court)
+        cl: { x: W * 0.08, y: H * 0.15 },
+        cr: { x: W * 0.92, y: H * 0.12 },
+        // Paint
+        pl1: { x: W * 0.30, y: H * 0.87 },
+        pl2: { x: W * 0.42, y: H * 0.50 },
+        pr1: { x: W * 0.55, y: H * 0.83 },
+        pr2: { x: W * 0.62, y: H * 0.48 },
+        // Tiro libero
+        ftl: { x: W * 0.42, y: H * 0.50 },
+        ftr: { x: W * 0.62, y: H * 0.48 },
+        // Tabellone
+        bbl: { x: W * 0.60, y: H * 0.20 },
+        bbr: { x: W * 0.76, y: H * 0.18 },
+        bbtl: { x: W * 0.61, y: H * 0.13 },
+        bbtr: { x: W * 0.77, y: H * 0.11 },
+    }
+
+    const line = (p1: Point, p2: Point, color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+        <Line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+    )
+
+    // Arco 3pt in prospettiva (approssimato con segmenti)
+    const arc3pts = [
+        { x: W * 0.04, y: H * 0.75 },
+        { x: W * 0.08, y: H * 0.60 },
+        { x: W * 0.16, y: H * 0.48 },
+        { x: W * 0.28, y: H * 0.40 },
+        { x: W * 0.44, y: H * 0.36 },
+        { x: W * 0.60, y: H * 0.35 },
+        { x: W * 0.72, y: H * 0.33 },
+        { x: W * 0.84, y: H * 0.30 },
+        { x: W * 0.96, y: H * 0.68 },
+    ]
+
+    return (
+        <Svg style={StyleSheet.absoluteFill} width={W} height={H} pointerEvents="none">
+            <Defs>
+                <LinearGradient id="paintFill45Full" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor="#ff8c00" stopOpacity="0.03" />
+                    <Stop offset="1" stopColor="#ff8c00" stopOpacity="0.10" />
+                </LinearGradient>
+            </Defs>
+
+            {/* Paint area */}
+            <Polygon
+                points={`${courtPts.pl1.x},${courtPts.pl1.y} ${courtPts.pr1.x},${courtPts.pr1.y} ${courtPts.pr2.x},${courtPts.pr2.y} ${courtPts.ftr.x},${courtPts.ftr.y} ${courtPts.ftl.x},${courtPts.ftl.y} ${courtPts.pl2.x},${courtPts.pl2.y}`}
+                fill="url(#paintFill45Full)" stroke="rgba(255,140,0,0.20)" strokeWidth={1} />
+
+            {/* Linee perimetro campo (full court) */}
+            {line(courtPts.bl, courtPts.br)}
+            {line(courtPts.bl, courtPts.cl)}
+            {line(courtPts.br, courtPts.cr)}
+            {line(courtPts.cl, courtPts.cr)}
+            {line(courtPts.tl, courtPts.tr)}
+
+            {/* Paint */}
+            {line(courtPts.pl1, courtPts.pl2)}
+            {line(courtPts.pr1, courtPts.pr2)}
+            {line(courtPts.ftl, courtPts.ftr)}
+
+            {/* Arco 3pt */}
+            {arc3pts.map((p, i) => i > 0 && (
+                <Line key={i}
+                    x1={arc3pts[i-1].x} y1={arc3pts[i-1].y}
+                    x2={p.x} y2={p.y}
+                    stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
+                    strokeDasharray="5,3" />
+            ))}
+
+            {/* Linea centro campo */}
+            {line(courtPts.cl, courtPts.cr, 'rgba(255,255,255,0.15)', 1.5, '8,4')}
+
+            {/* Tabellone */}
+            {line(courtPts.bbl, courtPts.bbr, 'rgba(255,255,255,0.35)', 1.5)}
+            {line(courtPts.bbl, courtPts.bbtl, 'rgba(255,255,255,0.35)', 1.5)}
+            {line(courtPts.bbr, courtPts.bbtr, 'rgba(255,255,255,0.35)', 1.5)}
+            {line(courtPts.bbtl, courtPts.bbtr, 'rgba(255,255,255,0.35)', 1.5)}
+            {/* Rettangolo mira sul tabellone */}
+            <Rect
+                x={W * 0.64} y={H * 0.14}
+                width={W * 0.09} height={H * 0.05}
+                fill="none" stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
+
+            {/* Canestro — ferro ellisse */}
+            <Ellipse
+                cx={W * 0.700} cy={H * 0.290}
+                rx={W * 0.028} ry={H * 0.012}
+                fill="rgba(255,100,0,0.10)"
+                stroke="rgba(255,140,0,0.45)" strokeWidth={2} />
+            {/* Palo */}
+            {line({ x: W * 0.700, y: H * 0.30 }, { x: W * 0.700, y: H * 0.80 },
+                'rgba(255,255,255,0.18)', 2)}
+
+            {/* Labels */}
+            <SvgText x={W * 0.71} y={H * 0.23} textAnchor="middle"
+                fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+            <SvgText x={W * 0.46} y={H * 0.67} textAnchor="middle"
+                fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
+            <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle"
+                fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
+            <SvgText x={W * 0.50} y={H * 0.14} textAnchor="middle"
+                fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
+
+            {/* Ghost hoop quando non ancora toccato */}
+            {!hoopCenter && (
+                <G>
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
+                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                        strokeWidth={1.5} strokeDasharray="5,3" />
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
+                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                        strokeWidth={2} strokeDasharray="4,3" />
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
+                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
+                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                </G>
+            )}
+            {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <CornersOverlay corners={corners} step={step} />
+        </Svg>
+    )
+}
+
 // ─── Overlay Laterale ─────────────────────────────────────────────────────────
 // Vista perfettamente di lato: palo verticale, tabellone, arco traiettoria
 const OverlayLateral = ({ hoopCenter, corners, step }: {
@@ -256,6 +397,125 @@ const OverlayLateral = ({ hoopCenter, corners, step }: {
                 fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
                 fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
+
+            {!hoopCenter && (
+                <G>
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
+                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                        strokeWidth={1.5} strokeDasharray="5,3" />
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
+                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                        strokeWidth={2} strokeDasharray="4,3" />
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
+                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
+                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                </G>
+            )}
+            {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <CornersOverlay corners={corners} step={step} />
+        </Svg>
+    )
+}
+
+// ─── Overlay Laterale Full Court ─────────────────────────────────────────────────
+// Vista laterale campo intero: estensione delle linee fino al centro campo
+const OverlayLateralFull = ({ hoopCenter, corners, step }: {
+    hoopCenter: Point | null, corners: Point[], step: CalibStep
+}) => {
+    const W = SW, H = CAM_H
+    const ghostHoop = { x: W * 0.76, y: H * 0.34 }
+
+    const F = H * 0.88  // pavimento
+    const poleX = W * 0.76
+    const poleTop = H * 0.10
+
+    const line = (x1: number, y1: number, x2: number, y2: number,
+        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+        <Line x1={x1} y1={y1} x2={x2} y2={y2}
+            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+    )
+
+    // Traiettoria parabola del tiro (arco)
+    const arcPath = `M ${W * 0.18} ${F * 0.96}
+        Q ${W * 0.45} ${H * 0.05} ${poleX} ${H * 0.36}`
+
+    return (
+        <Svg style={StyleSheet.absoluteFill} width={W} height={H} pointerEvents="none">
+            <Defs>
+                <LinearGradient id="floorGradFull" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor="#ffffff" stopOpacity="0" />
+                    <Stop offset="1" stopColor="#ffffff" stopOpacity="0.06" />
+                </LinearGradient>
+            </Defs>
+
+            {/* Pavimento esteso */}
+            {line(W * 0.01, F, W * 0.99, F)}
+
+            {/* Linee campo laterali (full court) */}
+            {/* 3pt */}
+            {line(W * 0.06, F, W * 0.06, H * 0.40, 'rgba(255,255,255,0.22)', 1.5, '5,3')}
+            {/* Tiro libero */}
+            {line(W * 0.28, F, W * 0.28, H * 0.45, 'rgba(255,255,255,0.22)', 1.5, '5,3')}
+            {/* Linea fondo */}
+            {line(W * 0.78, F, W * 0.78, H * 0.50, 'rgba(255,255,255,0.18)', 1.5)}
+            {/* Linea centro campo */}
+            {line(W * 0.01, H * 0.15, W * 0.99, H * 0.15, 'rgba(255,255,255,0.15)', 1.5, '8,4')}
+
+            {/* Palo canestro */}
+            {line(poleX, F, poleX, poleTop + H * 0.14,
+                'rgba(255,255,255,0.30)', 3)}
+
+            {/* Tabellone */}
+            <Rect
+                x={poleX - W * 0.09} y={poleTop}
+                width={W * 0.18} height={H * 0.14}
+                fill="rgba(255,255,255,0.06)"
+                stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
+            {/* Rettangolo mira */}
+            <Rect
+                x={poleX - W * 0.045} y={poleTop + H * 0.048}
+                width={W * 0.09} height={H * 0.055}
+                fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
+
+            {/* Ferro canestro */}
+            {line(poleX - W * 0.025, H * 0.35, poleX + W * 0.010, H * 0.35,
+                'rgba(255,120,0,0.55)', 2.5)}
+            <Ellipse cx={poleX - W * 0.010} cy={H * 0.355}
+                rx={W * 0.022} ry={H * 0.010}
+                fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
+
+            {/* Rete (semplificata) */}
+            {[0, 0.008, -0.008, 0.016, -0.016].map((dx, i) => (
+                <Line key={i}
+                    x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
+                    x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
+                    stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
+            ))}
+
+            {/* Traiettoria tiro (arco tratteggiato arancione) */}
+            <Path d={arcPath}
+                fill="none" stroke="rgba(255,140,0,0.35)"
+                strokeWidth={1.5} strokeDasharray="6,4" />
+            {/* Freccia sulla traiettoria */}
+            <SvgText x={W * 0.44} y={H * 0.12} textAnchor="middle"
+                fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
+
+            {/* Zona di tiro (rettangolo semitrasparente) */}
+            <Rect x={W * 0.01} y={H * 0.75} width={W * 0.38} height={H * 0.13}
+                fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
+                strokeWidth={1} strokeDasharray="4,3" />
+
+            {/* Labels */}
+            <SvgText x={poleX} y={H * 0.06} textAnchor="middle"
+                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+            <SvgText x={W * 0.28} y={H * 0.72} textAnchor="middle"
+                fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
+            <SvgText x={W * 0.06} y={H * 0.72} textAnchor="middle"
+                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
+            <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
+                fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
+            <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle"
+                fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
 
             {!hoopCenter && (
                 <G>
@@ -392,6 +652,127 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
     )
 }
 
+// ─── Overlay Frontale Full Court ─────────────────────────────────────────────────
+// Vista frontale campo intero: estensione delle linee fino al centro campo
+const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
+    hoopCenter: Point | null, corners: Point[], step: CalibStep
+}) => {
+    const W = SW, H = CAM_H
+    const ghostHoop = { x: W * 0.50, y: H * 0.30 }
+
+    const line = (x1: number, y1: number, x2: number, y2: number,
+        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+        <Line x1={x1} y1={y1} x2={x2} y2={y2}
+            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+    )
+
+    // Paint simmetrico
+    const paintL = W * 0.22, paintR = W * 0.78
+    const paintTop = H * 0.43, paintBot = H * 0.87
+
+    // Arco pittura (semicerchio tiro libero)
+    const ftR = W * 0.14  // raggio semicerchio
+    const ftCx = W * 0.50, ftCy = H * 0.43
+    const ftArc = `M ${ftCx - ftR} ${ftCy} A ${ftR} ${ftR * 0.6} 0 0 1 ${ftCx + ftR} ${ftCy}`
+
+    // Arco 3pt frontale (grande)
+    const arc3Path = `M ${W * 0.04} ${H * 0.87}
+        Q ${W * 0.04} ${H * 0.30} ${W * 0.50} ${H * 0.22}
+        Q ${W * 0.96} ${H * 0.30} ${W * 0.96} ${H * 0.87}`
+
+    return (
+        <Svg style={StyleSheet.absoluteFill} width={W} height={H} pointerEvents="none">
+            <Defs>
+                <LinearGradient id="paintFillFFull" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor="#ff8c00" stopOpacity="0.04" />
+                    <Stop offset="1" stopColor="#ff8c00" stopOpacity="0.12" />
+                </LinearGradient>
+            </Defs>
+
+            {/* Paint */}
+            <Rect x={paintL} y={paintTop} width={paintR - paintL} height={paintBot - paintTop}
+                fill="url(#paintFillFFull)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
+
+            {/* Linea di fondo */}
+            {line(W * 0.01, H * 0.87, W * 0.99, H * 0.87)}
+
+            {/* Laterali campo (full court) */}
+            {line(W * 0.01, H * 0.10, W * 0.01, H * 0.87, 'rgba(255,255,255,0.20)')}
+            {line(W * 0.99, H * 0.10, W * 0.99, H * 0.87, 'rgba(255,255,255,0.20)')}
+
+            {/* Linea centro campo */}
+            {line(W * 0.01, H * 0.15, W * 0.99, H * 0.15, 'rgba(255,255,255,0.15)', 1.5, '8,4')}
+
+            {/* Arco 3pt */}
+            <Path d={arc3Path} fill="none"
+                stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
+            {/* Linee corner 3pt */}
+            {line(W * 0.04, H * 0.65, W * 0.04, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
+            {line(W * 0.96, H * 0.65, W * 0.96, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
+
+            {/* Semicerchio tiro libero */}
+            <Path d={ftArc} fill="none"
+                stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
+
+            {/* Palo canestro */}
+            {line(W * 0.50, H * 0.87, W * 0.50, H * 0.46, 'rgba(255,255,255,0.18)', 2.5)}
+
+            {/* Tabellone */}
+            <Rect x={W * 0.33} y={H * 0.10}
+                width={W * 0.34} height={H * 0.14}
+                fill="rgba(255,255,255,0.06)"
+                stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
+            {/* Rettangolo mira */}
+            <Rect x={W * 0.39} y={H * 0.147}
+                width={W * 0.22} height={H * 0.065}
+                fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
+
+            {/* Ferro canestro — ellisse frontale */}
+            <Ellipse cx={W * 0.50} cy={H * 0.305}
+                rx={W * 0.065} ry={H * 0.018}
+                fill="rgba(255,100,0,0.08)"
+                stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
+            {/* Rete */}
+            {[-0.04, -0.02, 0, 0.02, 0.04].map((dx, i) => (
+                <Line key={i}
+                    x1={W * 0.50 + W * dx} y1={H * 0.318}
+                    x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
+                    stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+            ))}
+            <Line x1={W * 0.46} y1={H * 0.385} x2={W * 0.54} y2={H * 0.385}
+                stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+
+            {/* Labels */}
+            <SvgText x={W * 0.50} y={H * 0.07} textAnchor="middle"
+                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+            <SvgText x={W * 0.50} y={H * 0.66} textAnchor="middle"
+                fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
+            <SvgText x={W * 0.10} y={H * 0.60} textAnchor="middle"
+                fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
+            <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
+                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
+            <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle"
+                fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
+
+            {!hoopCenter && (
+                <G>
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={36}
+                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                        strokeWidth={1.5} strokeDasharray="5,3" />
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={20}
+                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                        strokeWidth={2} strokeDasharray="4,3" />
+                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
+                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 44} textAnchor="middle"
+                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                </G>
+            )}
+            {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <CornersOverlay corners={corners} step={step} />
+        </Svg>
+    )
+}
+
 // ─── Componenti condivisi ─────────────────────────────────────────────────────
 const HoopConfirmed = ({ p }: { p: Point }) => (
     <G>
@@ -499,8 +880,9 @@ const MODE_META: Record<CameraMode, { title: string; icon: string; description: 
 }
 
 export default function CalibrationScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode: rawMode } = route.params || {}
+    const { sessionId, cameraMode: rawMode, courtType: rawCourtType } = route.params || {}
     const cameraMode: CameraMode = rawMode || 'ANGLE_45'
+    const courtType: 'HALF_COURT' | 'FULL_COURT' = rawCourtType || 'HALF_COURT'
     const { user } = useContext(AuthContext) || {}
     const { hasPermission, requestPermission } = useCameraPermission()
     const device = useCameraDevice('back')
@@ -660,16 +1042,19 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }[step]
 
     const OverlayComponent =
+        cameraMode === 'LATERAL' && courtType === 'FULL_COURT' ? OverlayLateralFull :
         cameraMode === 'LATERAL' ? OverlayLateral :
+        cameraMode === 'FRONTAL' && courtType === 'FULL_COURT' ? OverlayFrontalFull :
         cameraMode === 'FRONTAL' ? OverlayFrontal :
+        courtType === 'FULL_COURT' ? Overlay45Full :
         Overlay45
 
     return (
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={handleSkip}>
-                    <Text style={styles.skipText}>Salta</Text>
+                <TouchableOpacity onPress={() => navigation.goBack()}>
+                    <Text style={styles.skipText}>← Indietro</Text>
                 </TouchableOpacity>
                 <View style={styles.headerCenter}>
                     <View style={styles.modeTag}>

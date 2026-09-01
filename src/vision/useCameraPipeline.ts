@@ -30,7 +30,9 @@ export const useCameraPipeline = (
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
-  enabled: boolean = true
+  enabled: boolean = true,
+  poseEnabled: boolean = true,
+  ballEnabled: boolean = true
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
@@ -48,7 +50,9 @@ export const useCameraPipeline = (
     onRimDetection,
     rimFromCalibration,
     kalmanFilteredBall,
-    enabled
+    enabled,
+    poseEnabled,
+    ballEnabled
   )
 
   return {

@@ -1078,6 +1078,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [showCalibDebug, setShowCalibDebug] = useState(false)
     const [shotDetectionEnabled, setShotDetectionEnabled] = useState(true)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(false)
+    const [poseEnabled, setPoseEnabled] = useState(true)
+    const [ballEnabled, setBallEnabled] = useState(true)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
@@ -1411,7 +1413,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         handleRimDetection,
         effectiveRim,
         kalmanFilteredBall,
-        shotDetectionEnabled
+        shotDetectionEnabled,
+        poseEnabled,
+        ballEnabled
     )
 
     const format = useCameraFormat(device, [
@@ -1768,6 +1772,32 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     >
                         <Text style={styles.detectionToggleBtnText}>
                             {rimDetectionEnabled ? '🏀 Canestro ON' : '🏀 Canestro OFF'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[
+                            styles.detectionToggleBtn,
+                            poseEnabled ? styles.detectionToggleBtnActive : styles.detectionToggleBtnInactive,
+                            (isPaused || isEnding) && styles.btnDisabled,
+                        ]}
+                        onPress={() => setPoseEnabled(!poseEnabled)}
+                        disabled={isPaused || isEnding}
+                    >
+                        <Text style={styles.detectionToggleBtnText}>
+                            {poseEnabled ? '🧍 Pose ON' : '🧍 Pose OFF'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[
+                            styles.detectionToggleBtn,
+                            ballEnabled ? styles.detectionToggleBtnActive : styles.detectionToggleBtnInactive,
+                            (isPaused || isEnding) && styles.btnDisabled,
+                        ]}
+                        onPress={() => setBallEnabled(!ballEnabled)}
+                        disabled={isPaused || isEnding}
+                    >
+                        <Text style={styles.detectionToggleBtnText}>
+                            {ballEnabled ? '🏀 Palla ON' : '🏀 Palla OFF'}
                         </Text>
                     </TouchableOpacity>
                     <TouchableOpacity

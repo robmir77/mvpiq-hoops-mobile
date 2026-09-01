@@ -34,8 +34,8 @@ export default function WorkoutSetupScreen({ navigation }: any) {
             const session = await createWorkoutSession(user.id, payload)
             showSuccess('Sessione creata', 'Allenamento avviato con successo')
             
-            // Naviga alla schermata di calibrazione o direttamente alla sessione
-            navigation.navigate('Calibration', { sessionId: session.id })
+            // Naviga alla schermata di calibrazione con i parametri
+            navigation.navigate('Calibration', { sessionId: session.id, cameraMode, courtType })
         } catch (error: any) {
             console.error('Errore creazione sessione:', error)
             console.error('Response data:', error?.response?.data)

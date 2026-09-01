@@ -157,7 +157,7 @@ export const useTrackingEngine = () => {
         //   })
         // }
 
-        if (ballDetection && ballDetection.confidence > 0.03) {
+        if (ballDetection && ballDetection.confidence > 0.01) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
             current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
@@ -167,8 +167,9 @@ export const useTrackingEngine = () => {
             current.ballHeight   = ballDetection.height
 
             // Aggiorna Shared Values per Skia (no React bridge)
-            ballX.value = smoothed.x
-            ballY.value = smoothed.y
+            // Use raw coordinates for the orange circle to match the red debug point
+            ballX.value = ballDetection.x
+            ballY.value = ballDetection.y
             ballWidth.value = ballDetection.width || 0
             ballHeight.value = ballDetection.height || 0
             confidence.value = ballDetection.confidence

@@ -11,7 +11,7 @@ import { useResizePlugin } from 'vision-camera-resize-plugin'
 import { Worklets } from 'react-native-worklets-core'
 import { useTensorflowModel } from 'react-native-fast-tflite'
 import type { Frame } from 'react-native-vision-camera'
-import { parseYoloOutput } from './yoloParser'
+import { parseYoloOutput, setCropParameters } from './yoloParser'
 import { parseMoveNetOutput } from './poseParser'
 import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
@@ -35,13 +35,17 @@ export const useShotTracker = (
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
-  enabled: boolean = true
+  enabled: boolean = true,
+  poseEnabled: boolean = true,
+  ballEnabled: boolean = true
 ) => {
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const frameCounter = useSharedValue(0) // Frame counter for AI inference throttling
   const lastBallDetected = useSharedValue(false) // Track if ball was detected in last YOLO frame
   const enabledShared = useSharedValue(enabled) // Shared value for enabled state
+  const poseEnabledShared = useSharedValue(poseEnabled) // Shared value for pose enabled state
+  const ballEnabledShared = useSharedValue(ballEnabled) // Shared value for ball enabled state
   const RIM_CONFIDENCE_THRESHOLD = 0.15 // Soglia confidence per sostituire rim calibrato
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
@@ -69,6 +73,10 @@ export const useShotTracker = (
 
   // Sync enabled state with shared value
   useEffect(() => { enabledShared.value = enabled }, [enabled])
+  // Sync pose enabled state with shared value
+  useEffect(() => { poseEnabledShared.value = poseEnabled }, [poseEnabled])
+  // Sync ball enabled state with shared value
+  useEffect(() => { ballEnabledShared.value = ballEnabled }, [ballEnabled])
 
   // ── Adaptive threshold adjustment (JS thread) ───────────────────────────────
   const lastAdjustmentTs = useRef(0)
@@ -216,10 +224,16 @@ export const useShotTracker = (
     const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
     if (!yoloReady) return
 
+    // Skip YOLO if ball detection is disabled
+    if (!ballEnabledShared.value) return
+
     // Calculate 1:1 square center crop to preserve aspect ratio without squashing small basketballs
     const cropDim = Math.min(frame.width, frame.height)
     const cropX = Math.floor((frame.width - cropDim) / 2)
     const cropY = Math.floor((frame.height - cropDim) / 2)
+
+    // Set crop parameters for YOLO coordinate mapping
+    setCropParameters(cropX, cropY, cropDim)
 
     // ── 1. YOLO — accelerate to every frame (skip = 1) when ball is actively detected ──
     const activeYoloSkip = lastBallDetected.value ? 1 : YOLO_FRAME_SKIP
@@ -236,7 +250,8 @@ export const useShotTracker = (
       const yoloOutputs = yoloModel.model!.runSync([yoloResized])
       const yoloOutput  = yoloOutputs[0] as Float32Array
 
-      const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
+      // Use normalized coordinates directly (no frame dimensions) to avoid crop mapping issues
+      const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value, 1, 1)
 
       // Track if ball was detected for MoveNet throttling and YOLO acceleration
       lastBallDetected.value = ball !== null
@@ -249,8 +264,9 @@ export const useShotTracker = (
     }
 
     // ── 2. MoveNet — throttled to every POSE_FRAME_SKIP frames (10 FPS) ────────
-    // Stagger execution: do NOT run MoveNet on frames where YOLO already ran
-    if (ranYolo || (frameId % POSE_FRAME_SKIP !== 1)) return
+    // Skip if pose detection is disabled
+    if (!poseEnabledShared.value) return
+    if (frameId % POSE_FRAME_SKIP !== 0) return
 
     const poseReady = poseModel.state === 'loaded' && poseModel.model != null
     if (!poseReady) return
