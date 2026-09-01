@@ -51,6 +51,14 @@
           "cameraPermissionText": "MVPiQ Hoops richiede accesso alla fotocamera"
         }
       ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker"
