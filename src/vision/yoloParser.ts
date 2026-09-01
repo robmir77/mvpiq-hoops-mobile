@@ -97,7 +97,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       ])
     }
 
-    // Add rim detection if score above threshold
+    // Add rim detection if score above threshold (controlled by external flag)
     if (rimScore >= threshold) {
       raw.push([
         (cx - w * 0.5),
@@ -142,6 +142,11 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       bestRim = detection
     }
   }
+
+  // if (__DEV__) {
+  //   console.log('[YOLO Parser] Best ball:', bestBall ? `conf=${bestBall.confidence.toFixed(3)}` : 'null')
+  //   console.log('[YOLO Parser] Best rim:', bestRim ? `conf=${bestRim.confidence.toFixed(3)}` : 'null')
+  // }
 
   return { ball: bestBall, rim: bestRim }
 }

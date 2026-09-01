@@ -25,8 +25,8 @@ interface KalmanState {
 
 const INITIAL_KALMAN: KalmanState = {
     x: 0, y: 0, vx: 0, vy: 0,
-    px: 15, py: 15,
-    mx: 0.5, my: 0.5,
+    px: 5, py: 5,
+    mx: 2.0, my: 2.0,
 }
 
 // ── Soglie shot detection ──────────────────────────────────────────────────
@@ -148,6 +148,15 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
+        // if (__DEV__ && ballDetection) {
+        //   console.log('[TrackingEngine] Ball detection received:', {
+        //     x: ballDetection.x.toFixed(3),
+        //     y: ballDetection.y.toFixed(3),
+        //     width: ballDetection.width?.toFixed(3),
+        //     confidence: ballDetection.confidence.toFixed(3)
+        //   })
+        // }
+
         if (ballDetection && ballDetection.confidence > 0.03) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
@@ -163,6 +172,15 @@ export const useTrackingEngine = () => {
             ballWidth.value = ballDetection.width || 0
             ballHeight.value = ballDetection.height || 0
             confidence.value = ballDetection.confidence
+
+            // if (__DEV__) {
+            //   console.log('[TrackingEngine] Shared Values updated:', {
+            //     ballX: smoothed.x.toFixed(3),
+            //     ballY: smoothed.y.toFixed(3),
+            //     ballWidth: (ballDetection.width || 0).toFixed(3),
+            //     ballHeight: (ballDetection.height || 0).toFixed(3)
+            //   })
+            // }
 
             // Ring buffer: O(1) insert, no shift()
             trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }

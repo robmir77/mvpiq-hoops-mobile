@@ -432,13 +432,19 @@ const TrackingOverlay = React.memo(({
                         <SkiaCircle
                             cx={ballXPx}
                             cy={ballYPx}
-                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
+                            r={useDerivedValue(() => {
+                                const w = ballWidth.value * SCREEN_W
+                                return w > 0 ? Math.max(w / 2, 16) : 16
+                            }, [ballWidth])}
                             color="rgba(255,140,0,0.22)"
                         />
                         <SkiaCircle
                             cx={ballXPx}
                             cy={ballYPx}
-                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
+                            r={useDerivedValue(() => {
+                                const w = ballWidth.value * SCREEN_W
+                                return w > 0 ? Math.max(w / 2, 16) : 16
+                            }, [ballWidth])}
                             color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
@@ -477,8 +483,8 @@ const TrackingOverlay = React.memo(({
                         {/* Dynamic hoop oval based on detected dimensions (width and height) */}
                         {(() => {
                             const hoopRect = useDerivedValue(() => {
-                                const w = hoopWidth.value > 0 ? hoopWidth.value * SCREEN_W : 40
-                                const h = hoopHeight.value > 0 ? hoopHeight.value * CAMERA_H : 40
+                                const w = hoopWidth.value > 0 ? hoopWidth.value * SCREEN_W * 2 : 80
+                                const h = hoopHeight.value > 0 ? hoopHeight.value * CAMERA_H * 0.3 : 15
                                 return {
                                     x: hoopXPx.value - w / 2,
                                     y: hoopYPx.value - h / 2,
@@ -1070,7 +1076,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
-    const [shotDetectionEnabled, setShotDetectionEnabled] = useState(false)
+    const [shotDetectionEnabled, setShotDetectionEnabled] = useState(true)
+    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
@@ -1143,7 +1150,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
         const rim = detection.rim
-        const rimForTracking = rimFromDetection ? {
+        const rimForTracking = rimDetectionEnabled && rimFromDetection ? {
             x: rimFromDetection.x,
             y: rimFromDetection.y,
             width: rimFromDetection.width,
@@ -1734,7 +1741,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         <Text style={styles.autoLabel}>
                             {!modelsReady             ? 'Caricamento modelli AI...' :
                              trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
-                             trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
+                             trackingState?.ballPosition ? 'Rilev. auto attivo' : 'In attesa della palla…'}
                         </Text>
                     </View>
                     <TouchableOpacity
@@ -1747,7 +1754,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         disabled={isPaused || isEnding}
                     >
                         <Text style={styles.detectionToggleBtnText}>
-                            {shotDetectionEnabled ? '🎯 Rilevamento ON' : '🎯 Rilevamento OFF'}
+                            {shotDetectionEnabled ? '🎯 Auto Tiro ON' : '🎯 Auto Tiro OFF'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[
+                            styles.detectionToggleBtn,
+                            rimDetectionEnabled ? styles.detectionToggleBtnActive : styles.detectionToggleBtnInactive,
+                            (isPaused || isEnding) && styles.btnDisabled,
+                        ]}
+                        onPress={() => setRimDetectionEnabled(!rimDetectionEnabled)}
+                        disabled={isPaused || isEnding}
+                    >
+                        <Text style={styles.detectionToggleBtnText}>
+                            {rimDetectionEnabled ? '🏀 Canestro ON' : '🏀 Canestro OFF'}
                         </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -1848,8 +1868,8 @@ const styles = StyleSheet.create({
     shotMissText:      { color: '#f87171' },
     controls:          { backgroundColor: '#121826', borderTopWidth: 1, borderTopColor: '#2a2a2a', padding: 14 },
     pausedLabel:       { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
-    autoRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    autoStatus:        { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
+    autoRow:           { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 },
+    autoStatus:        { flexDirection: 'row', alignItems: 'center', gap: 7 },
     autoDot:           { width: 9, height: 9, borderRadius: 4.5 },
     autoDotActive:     { backgroundColor: '#4ade80' },
     autoDotIdle:       { backgroundColor: '#555' },
