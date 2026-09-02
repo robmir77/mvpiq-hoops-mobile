@@ -54,9 +54,9 @@
         }
       ],
       [
-        "react-native-vision-camera",
+        "react-native-fast-tflite",
         {
-          "cameraPermissionText": "MVPiQ Hoops richiede accesso alla fotocamera"
+          "enableAndroidGpuLibraries": true
         }
       ],
       "@react-native-firebase/app",

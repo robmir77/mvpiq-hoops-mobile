@@ -1,9 +1,9 @@
-import React, { useState, useContext } from 'react'
+import React, { useState, useContext, useRef } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CourtType, CreateWorkoutSessionPayload } from '../types/workouts.types'
-import { createWorkoutSession } from '../api/workouts.api'
+import { createWorkoutSession, getActiveWorkoutSession } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 export default function WorkoutSetupScreen({ navigation }: any) {
@@ -13,6 +13,7 @@ export default function WorkoutSetupScreen({ navigation }: any) {
     const [cameraMode, setCameraMode] = useState<CameraMode>('ANGLE_45')
     const [courtType, setCourtType] = useState<CourtType>('HALF_COURT')
     const [isCreating, setIsCreating] = useState(false)
+    const isCreatingRef = useRef(false)
     const { alert, showError, showSuccess } = useCustomAlert()
 
     const handleStartWorkout = async () => {
@@ -21,8 +22,23 @@ export default function WorkoutSetupScreen({ navigation }: any) {
             return
         }
 
+        if (isCreatingRef.current) {
+            return
+        }
+
+        isCreatingRef.current = true
         setIsCreating(true)
         try {
+            const activeSession = await getActiveWorkoutSession(user.id)
+            if (activeSession) {
+                showSuccess('Sessione attiva', 'Riprendo la sessione già aperta.')
+                navigation.navigate('WorkoutSession', {
+                    sessionId: activeSession.id,
+                    cameraMode: activeSession.cameraMode ?? cameraMode,
+                })
+                return
+            }
+
             const payload: CreateWorkoutSessionPayload = {
                 cameraMode,
                 courtType,
@@ -37,11 +53,31 @@ export default function WorkoutSetupScreen({ navigation }: any) {
             // Naviga alla schermata di calibrazione con i parametri
             navigation.navigate('Calibration', { sessionId: session.id, cameraMode, courtType })
         } catch (error: any) {
+            const status = error?.response?.status
+            const message = error?.response?.data?.message || error.message || 'Impossibile creare la sessione'
+
+            if (status === 400 && typeof message === 'string' && message.toLowerCase().includes('active workout session')) {
+                try {
+                    const activeSession = await getActiveWorkoutSession(user.id)
+                    if (activeSession) {
+                        showSuccess('Sessione attiva', 'Riprendo la sessione già aperta.')
+                        navigation.navigate('WorkoutSession', {
+                            sessionId: activeSession.id,
+                            cameraMode: activeSession.cameraMode ?? cameraMode,
+                        })
+                        return
+                    }
+                } catch (resumeError: any) {
+                    console.error('Errore recupero sessione attiva:', resumeError)
+                }
+            }
+
             console.error('Errore creazione sessione:', error)
             console.error('Response data:', error?.response?.data)
             console.error('Response status:', error?.response?.status)
-            showError('Errore', error?.response?.data?.message || error.message || 'Impossibile creare la sessione')
+            showError('Errore', message)
         } finally {
+            isCreatingRef.current = false
             setIsCreating(false)
         }
     }

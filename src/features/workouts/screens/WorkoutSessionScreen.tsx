@@ -27,13 +27,13 @@ import {
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
 import { useDerivedValue } from 'react-native-reanimated'
-import { Camera, useCameraFormat } from 'react-native-vision-camera'
+import { Camera, useVideoOutput } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useCameraPipeline } from '@/vision'
-import type { Camera as CameraType } from 'react-native-vision-camera'
+import type { CameraRef, Recorder } from 'react-native-vision-camera'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
 import {
     WorkoutSession, ShotResult,
@@ -287,7 +287,6 @@ const TrackingOverlay = React.memo(({
 
     // Memoize Skia path objects to avoid continuous allocations
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
-    const hoopPathRef = React.useRef(Skia.Path.Make())
 
     // Derived values per Skia (leggono direttamente dai Shared Values - no React bridge)
     const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
@@ -1059,6 +1058,9 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sessionId, cameraMode, zoom, selectedResolution, selectedFps } = route.params || {}
     const { user } = useContext(AuthContext) || {}
+    const initialZoom = zoom ?? 1
+    const initialResolution = selectedResolution ?? { width: 1280, height: 720 }
+    const initialFps = selectedFps ?? 30
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
@@ -1124,7 +1126,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
-    const cameraRef       = useRef<CameraType>(null)
+    const cameraRef       = useRef<CameraRef>(null)
+    const videoRecorderRef = useRef<Recorder | null>(null)
     const lastUiUpdate    = useRef<number>(0)
 
     // Performance monitoring - tracking state updates
@@ -1151,7 +1154,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
-        const rim = detection.rim
         const rimForTracking = rimDetectionEnabled && rimFromDetection ? {
             x: rimFromDetection.x,
             y: rimFromDetection.y,
@@ -1263,21 +1265,24 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [])
 
     // ── Save screenshot with final result name ────────────────────────────────
+    const saveAssetToMvpIqHoopsAlbum = useCallback(async (asset: MediaLibrary.AssetRef) => {
+        const album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
+        if (!album) {
+            await MediaLibrary.createAlbumAsync('MVPiQ Hoops', asset, false)
+            return
+        }
+        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false)
+    }, [])
     const saveScreenshotWithResult = useCallback(async (screenshotData: any, result: ShotResult) => {
         try {
             const resultLabel = result === 'MADE' ? `CANESTRO_${screenshotData.shotNumber}` : 'FAIL'
             const filename = `MVPiQ_Shot_${resultLabel}_${screenshotData.timestamp}.jpg`
-            let album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
-            if (!album) {
-                album = await MediaLibrary.createAlbumAsync('MVPiQ Hoops', screenshotData.asset, false)
-            } else {
-                await MediaLibrary.addAssetsToAlbumAsync([screenshotData.asset], album, false)
-            }
+            await saveAssetToMvpIqHoopsAlbum(screenshotData.asset)
             console.log('[WorkoutSession] Screenshot saved to album:', filename)
         } catch (error) {
             console.error('[WorkoutSession] Failed to save screenshot to album:', error)
         }
-    }, [])
+    }, [saveAssetToMvpIqHoopsAlbum])
 
     // ── Shot event callback (new architecture) ───────────────────────────
     const handleShotEvent = useCallback(async (event: ShotEvent) => {
@@ -1304,10 +1309,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [handleAutoShotDetected, captureShotScreenshot, saveScreenshotWithResult])
 
+    const videoOutput = useVideoOutput({
+        targetResolution: initialResolution,
+        enableAudio: false,
+    })
     // ── Session Video Recording Functions ──────────────────────────────────
     const startSessionVideoRecording = useCallback(async () => {
-        if (!cameraRef.current) {
-            showError('Camera non pronta', 'La fotocamera non è ancora inizializzata.')
+        if (videoRecorderRef.current) {
+            return
+        }
+        if (!videoOutput) {
+            showError('Camera non pronta', 'Il flusso video non e ancora inizializzato.')
             return
         }
         try {
@@ -1317,55 +1329,54 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Snap initial overlay screenshot
             void captureShotScreenshot(0)
 
-            cameraRef.current.startRecording({
-                onRecordingFinished: async (video) => {
-                    console.log('[WorkoutSession] Video session recording finished:', video.path)
-                    try {
-                        const asset = await MediaLibrary.createAssetAsync(video.path)
-                        let album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
-                        if (!album) {
-                            await MediaLibrary.createAlbumAsync('MVPiQ Hoops', asset, false)
-                        } else {
-                            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false)
-                        }
-                        showSuccess(
-                            '📹 Video Salvato!',
-                            'Il video della sessione è stato salvato nella galleria (MVPiQ Hoops).'
-                        )
-                    } catch (err: any) {
-                        console.error('[WorkoutSession] Error saving video to album:', err)
-                        showError('Errore salvataggio', 'Impossibile salvare il video nella galleria.')
-                    }
-                },
-                onRecordingError: (error) => {
-                    console.error('[WorkoutSession] Video recording error:', error)
+            const recorder = await videoOutput.createRecorder({})
+            videoRecorderRef.current = recorder
+
+            await recorder.startRecording(async (filePath, reason) => {
+                console.log('[WorkoutSession] Video session recording finished:', filePath, reason)
+                try {
+                    const asset = await MediaLibrary.createAssetAsync(filePath)
+                    await saveAssetToMvpIqHoopsAlbum(asset)
+                    showSuccess('Video Salvato!', 'Il video della sessione e stato salvato nella galleria (MVPiQ Hoops).')
+                } catch (err: any) {
+                    console.error('[WorkoutSession] Error saving video to album:', err)
+                    showError('Errore salvataggio', 'Impossibile salvare il video nella galleria.')
+                } finally {
+                    videoRecorderRef.current = null
                     setIsVideoRecording(false)
                     isVideoRecordingRef.current = false
-                    showError('Errore registrazione', error.message || 'Errore durante la registrazione del video.')
-                },
+                }
+            }, (error: Error) => {
+                console.error('[WorkoutSession] Video recording error:', error)
+                videoRecorderRef.current = null
+                setIsVideoRecording(false)
+                isVideoRecordingRef.current = false
+                showError('Errore registrazione', error.message || 'Errore durante la registrazione del video.')
             })
         } catch (err: any) {
             console.error('[WorkoutSession] Failed to start video recording:', err)
+            videoRecorderRef.current = null
             setIsVideoRecording(false)
             isVideoRecordingRef.current = false
             showError('Errore', err.message || 'Impossibile avviare la registrazione video.')
         }
-    }, [captureShotScreenshot, showError, showSuccess])
+    }, [captureShotScreenshot, showError, showSuccess, videoOutput])
 
     const stopSessionVideoRecording = useCallback(async () => {
-        if (!cameraRef.current || !isVideoRecordingRef.current) return
+        const recorder = videoRecorderRef.current
+        if (!recorder || !isVideoRecordingRef.current) return
         try {
             // Snap final overlay screenshot
             void captureShotScreenshot(shotCounter.current)
-            await cameraRef.current.stopRecording()
+            await recorder.stopRecording()
         } catch (err: any) {
             console.error('[WorkoutSession] Error stopping video recording:', err)
         } finally {
+            videoRecorderRef.current = null
             setIsVideoRecording(false)
             isVideoRecordingRef.current = false
         }
     }, [captureShotScreenshot])
-
     const toggleSessionVideoRecording = useCallback(() => {
         if (isVideoRecording) {
             void stopSessionVideoRecording()
@@ -1404,7 +1415,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isActive,
         requestPermission,
         setIsActive,
-        frameProcessor,
+        frameProcessor: frameOutput,
         isModelReady,
     } = useCameraPipeline(
         handleBallDetection,
@@ -1418,10 +1429,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         ballEnabled
     )
 
-    const format = useCameraFormat(device, [
-        { videoResolution: selectedResolution || { width: 1280, height: 720 } },
-        { fps: selectedFps || 30 },
-    ])
 
     // ── Request media library permissions for saving screenshots ─────────────
     useEffect(() => {
@@ -1666,19 +1673,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 </View>
             </View>
 
-            <View style={{ height: CAMERA_H }} ref={cameraViewRef} collapsable={false}>
+    <View style={{ height: CAMERA_H }} ref={cameraViewRef} collapsable={false}>
                 <Camera
                     ref={cameraRef}
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    frameProcessor={frameProcessor}
-                    format={format}
-                    zoom={zoom}
-                    video={true}
-                    audio={false}
+                    outputs={[frameOutput, videoOutput]}
+                    constraints={[{ fps: initialFps }]}
+                    getInitialZoom={() => initialZoom}
                     onError={(error) => {
-                        if (error.code === 'session/invalid-output-configuration') {
+                        const cameraError = error as Error & { code?: string }
+                        if (cameraError.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')
                             setIsActive(false)
                             setTimeout(() => setIsActive(true), 500)
@@ -1931,3 +1937,5 @@ const styles = StyleSheet.create({
     permBtn:           { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
     permBtnText:       { color: '#fff', fontWeight: '700', fontSize: 16 },
 })
+
+

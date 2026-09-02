@@ -18,7 +18,6 @@ import { Camera } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData } from '../types/workouts.types'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
-import { useCameraFormat } from 'react-native-vision-camera'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
@@ -891,11 +890,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [selectedResolution, setSelectedResolution] = useState({ width: 1280, height: 720 })
     const [selectedFps, setSelectedFps] = useState(30)
     const [showConfigPanel, setShowConfigPanel] = useState(false)
-    
-    const format = useCameraFormat(device, [
-        { videoResolution: selectedResolution },
-        { fps: selectedFps },
-    ])
     const isActive = true
     
     // Get zoom range from device
@@ -904,23 +898,26 @@ export default function CalibrationScreen({ navigation, route }: any) {
     // Use device minimum zoom as default
     const [zoom, setZoom] = useState(minZoom)
     
-    // Get available formats from device
-    const availableFormats = device?.formats ?? []
+    // Get available resolutions from device
+    const availableResolutions = React.useMemo(() => device?.getSupportedResolutions('video') ?? [], [device])
     const uniqueResolutions = React.useMemo(() => {
         const resolutions = new Map<string, { width: number; height: number }>()
-        availableFormats.forEach(fmt => {
-            const key = `${fmt.videoWidth}x${fmt.videoHeight}`
+        availableResolutions.forEach(fmt => {
+            const key = `${fmt.width}x${fmt.height}`
             if (!resolutions.has(key)) {
-                resolutions.set(key, { width: fmt.videoWidth, height: fmt.videoHeight })
+                resolutions.set(key, { width: fmt.width, height: fmt.height })
             }
         })
         return Array.from(resolutions.values()).sort((a, b) => (b.width * b.height) - (a.width * a.height))
-    }, [availableFormats])
+    }, [availableResolutions])
     
     const uniqueFps = React.useMemo(() => {
-        // Common FPS values that most cameras support
-        return [60, 30, 24, 15].filter(fps => fps <= 60)
-    }, [])
+        const fpsValues = (device?.supportedFPSRanges ?? []).flatMap(range => [
+            Math.round(range.min),
+            Math.round(range.max),
+        ])
+        return Array.from(new Set(fpsValues.filter(fps => fps > 0))).sort((a, b) => b - a)
+    }, [device])
     
     // Set default to 1280x720 for better performance
     React.useEffect(() => {
@@ -1074,7 +1071,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive}
-                    format={format}
+                    constraints={selectedFps ? [{ fps: selectedFps }] : undefined}
                     zoom={zoom}
                 />
                 <OverlayComponent
