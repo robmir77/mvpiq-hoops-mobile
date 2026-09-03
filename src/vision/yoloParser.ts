@@ -145,18 +145,11 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  // Log the highest confidence score and its anchor position for debugging (commented out for high-frequency performance)
-  if (__DEV__) {
-    console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
-    console.log('[YOLO Parser] Detections above threshold:', raw.length)
-    console.log('[YOLO Parser] Crop params:', CROP_X, CROP_Y, CROP_DIM, 'Frame:', frameWidth, frameHeight)
-  }
+  // NOTE: Do NOT add console.log here — this runs in a VisionCamera worklet thread
+  // where console is not available. Use scheduleOnRN(() => console.log(...)) instead.
 
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
-  if (__DEV__) {
-    console.log('[YOLO Parser] Detections after NMS:', kept.length)
-  }
 
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
@@ -164,16 +157,15 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      x: 1 - (y1 + y2) / 2,
-      y: (x1 + x2) / 2,
-      width: (y2 - y1),
-      height: (x2 - x1),
+      // Option 1: coordinate dirette senza swap X↔Y
+      // Assumiamo che il frame arrivi già in portrait (o che il resizer gestisca la rotazione)
+      x: (x1 + x2) / 2,
+      y: (y1 + y2) / 2,
+      width: (x2 - x1),
+      height: (y2 - y1),
       confidence: conf,
     }
 
-    if (__DEV__) {
-      console.log('[YOLO Parser] Detection:', cls === 0 ? 'ball' : 'rim', 'at', detection.x.toFixed(3), detection.y.toFixed(3), 'conf:', conf.toFixed(3))
-    }
 
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
@@ -183,10 +175,6 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  if (__DEV__) {
-    console.log('[YOLO Parser] Best ball:', bestBall ? `conf=${bestBall.confidence.toFixed(3)} at (${bestBall.x.toFixed(3)}, ${bestBall.y.toFixed(3)})` : 'null')
-    console.log('[YOLO Parser] Best rim:', bestRim ? `conf=${bestRim.confidence.toFixed(3)} at (${bestRim.x.toFixed(3)}, ${bestRim.y.toFixed(3)})` : 'null')
-  }
 
   return { ball: bestBall, rim: bestRim }
 }

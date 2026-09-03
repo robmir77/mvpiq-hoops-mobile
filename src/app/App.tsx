@@ -1,5 +1,5 @@
 import { NavigationContainer } from '@react-navigation/native'
-import { SafeAreaView } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Platform } from 'react-native'
 import AppNavigator from '@/app/navigation/AppNavigator'
 import AppProviders from '@/app/providers/AppProviders'
