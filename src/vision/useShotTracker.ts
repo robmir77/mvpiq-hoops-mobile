@@ -57,11 +57,10 @@ export const useShotTracker = (
 
   // ── Model loading ─────────────────────────────────────────────────────────
   // Platform-specific delegate selection for optimal performance
-  // Android: android-gpu / nnapi with fallback
+  // Android: Try NNAPI first, fallback to CPU if it fails
   // iOS: CoreML (optimized for Apple hardware)
-  // Android: NNAPI (Neural Networks API) for hardware acceleration
-  const yoloDelegates = Platform.OS === 'android' ? 'nnapi' : Platform.OS === 'ios' ? ['core-ml'] : []
-  const poseDelegates = Platform.OS === 'android' ? 'nnapi' : Platform.OS === 'ios' ? ['core-ml'] : []
+  const yoloDelegates = Platform.OS === 'android' ? ['nnapi'] : Platform.OS === 'ios' ? ['core-ml'] : []
+  const poseDelegates = Platform.OS === 'android' ? ['nnapi'] : Platform.OS === 'ios' ? ['core-ml'] : []
   const yoloModel = useTensorflowModel(
     require('../../assets/models/ball_rimV8_float16.tflite'),
     yoloDelegates as any,
@@ -263,13 +262,11 @@ export const useShotTracker = (
           if (frameId <= 3) {
             scheduleOnRN(() => { console.log('[ShotTracker] YOLO model not ready, skipping frame') })
           }
-          frame.dispose()
           return
         }
 
         // Skip YOLO if ball detection is disabled
         if (!ballEnabledShared.value) {
-          frame.dispose()
           return
         }
 
@@ -278,14 +275,12 @@ export const useShotTracker = (
           if (frameId <= 5) {
             scheduleOnRN(() => { console.log('[ShotTracker] Resizer not ready, skipping frame') })
           }
-          frame.dispose()
           return
         }
 
         // Validate frame dimensions
         if (!frame.width || !frame.height || frame.width <= 0 || frame.height <= 0) {
           scheduleOnRN(() => { console.log('[ShotTracker] Invalid frame dimensions:', frame.width, frame.height) })
-          frame.dispose()
           return
         }
 
@@ -312,7 +307,11 @@ export const useShotTracker = (
               yoloOutputs = yoloModel.model!.runSync([yoloBuffer as ArrayBuffer])
             } finally {
               // Dispose GPU buffer AFTER runSync finishes to prevent dangling pointer memory crash
-              yoloResized.dispose()
+              try {
+                yoloResized?.dispose()
+              } catch (disposeError) {
+                // Ignore dispose errors - object may already be disposed
+              }
             }
 
             if (yoloOutputs && yoloOutputs.length > 0) {
@@ -348,17 +347,14 @@ export const useShotTracker = (
 
         // ── 2. MoveNet ──────────────────────────────────────────────────────
         if (!poseEnabledShared.value) {
-          frame.dispose()
           return
         }
         if (frameId % POSE_FRAME_SKIP !== 0) {
-          frame.dispose()
           return
         }
 
         const poseReady = poseModel.state === 'loaded' && poseModel.model != null
         if (!poseReady) {
-          frame.dispose()
           return
         }
 
