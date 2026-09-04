@@ -5,8 +5,10 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.10  // Lowered from 0.15 to detect distant/small objects even better
 const N_ANCHORS = 3549
+
+// Worklet-safe constant - must be defined inside the function scope for worklets
+let CONF_THRESHOLD = 0.10
 
 // Crop parameters for mapping coordinates from crop to full frame
 let CROP_X = 0
@@ -105,21 +107,15 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     let x1, y1, x2, y2, wNorm, hNorm
 
     if (frameWidth > 1 && frameHeight > 1) {
-      // The resizer does its own crop/resize internally
-      // YOLO coordinates are normalized [0,1] relative to the 416x416 input
+      // Use crop parameters set via setCropParameters()
+      // YOLO coordinates are normalized [0,1] relative to the crop
       // We need to map these to the original frame dimensions
-      // The resizer uses 'cover' mode which maintains aspect ratio
 
-      // Calculate the actual crop that the resizer uses
-      const cropDim = Math.min(frameWidth, frameHeight)
-      const cropX = (frameWidth - cropDim) / 2
-      const cropY = (frameHeight - cropDim) / 2
-
-      // Map from YOLO normalized coordinates to original frame
-      const x1_crop = (cx - w * 0.5) * cropDim + cropX
-      const y1_crop = (cy - h * 0.5) * cropDim + cropY
-      const x2_crop = (cx + w * 0.5) * cropDim + cropX
-      const y2_crop = (cy + h * 0.5) * cropDim + cropY
+      // Map from YOLO normalized coordinates to original frame using crop parameters
+      const x1_crop = (cx - w * 0.5) * CROP_DIM + CROP_X
+      const y1_crop = (cy - h * 0.5) * CROP_DIM + CROP_Y
+      const x2_crop = (cx + w * 0.5) * CROP_DIM + CROP_X
+      const y2_crop = (cy + h * 0.5) * CROP_DIM + CROP_Y
 
       // Normalize to full frame
       x1 = x1_crop / frameWidth

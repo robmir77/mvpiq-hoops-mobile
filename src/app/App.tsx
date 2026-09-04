@@ -1,6 +1,5 @@
 import { NavigationContainer } from '@react-navigation/native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { Platform } from 'react-native'
+import { View } from 'react-native'
 import AppNavigator from '@/app/navigation/AppNavigator'
 import AppProviders from '@/app/providers/AppProviders'
 
@@ -8,16 +7,14 @@ export default function App() {
     return (
         <AppProviders>
             <NavigationContainer>
-                <SafeAreaView 
+                <View 
                     style={{ 
                         flex: 1, 
-                        backgroundColor: '#0b0f1a',
-                        // Padding extra per Android per evitare sovrapposizione con tasti di sistema
-                        paddingBottom: Platform.OS === 'android' ? 20 : 0
+                        backgroundColor: '#0b0f1a'
                     }}
                 >
                     <AppNavigator />
-                </SafeAreaView>
+                </View>
             </NavigationContainer>
         </AppProviders>
     )

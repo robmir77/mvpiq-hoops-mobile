@@ -46,20 +46,17 @@
     "metro-resolver": "^0.83.0",
     "react": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-fast-tflite": "3.0.1",
+    "react-native-fast-tflite": "^2.0.0",
     "react-native-gesture-handler": "~2.32.0",
-    "react-native-nitro-image": "*",
-    "react-native-nitro-modules": "0.37.0",
     "react-native-reanimated": "4.5.1",
-    "react-native-safe-area-context": "~5.7.0",
+    "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
     "react-native-vector-icons": "^10.3.0",
     "react-native-view-shot": "5.1.0",
-    "react-native-vision-camera": "5.2.3",
-    "react-native-vision-camera-resizer": "5.0.11",
-    "react-native-vision-camera-worklets": "^5.2.3",
-    "react-native-worklets": "^0.10.2"
+    "react-native-vision-camera": "4.7.2",
+    "react-native-worklets-core": "^1.6.2",
+    "vision-camera-resize-plugin": "^3.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-native": "^5.4.3",
@@ -77,21 +74,10 @@
       "exclude": [
         "@shopify/react-native-skia",
         "react-native-fast-tflite",
-        "react-native-nitro-image",
-        "react-native-nitro-modules",
         "react-native-vision-camera",
-        "react-native-vision-camera-resizer",
-        "react-native-vision-camera-worklets",
-        "react-native-worklets"
+        "react-native-worklets-core",
+        "vision-camera-resize-plugin"
       ]
-    },
-    "doctor": {
-      "reactNativeDirectoryCheck": {
-        "exclude": [
-          "react-native-fast-tflite",
-          "react-native-vector-icons"
-        ]
-      }
     }
   },
   "overrides": {
