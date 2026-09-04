@@ -11,7 +11,7 @@ const perfMetrics = {
     overlayRenderTime: 0,
 }
 
-let perfTimer: NodeJS.Timeout | null = null
+let perfTimer: ReturnType<typeof setInterval> | null = null
 
 export function incrementYoloFps() {
     perfMetrics.yoloFps++

@@ -1265,7 +1265,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [])
 
     // ── Save screenshot with final result name ────────────────────────────────
-    const saveAssetToMvpIqHoopsAlbum = useCallback(async (asset: MediaLibrary.AssetRef) => {
+    const saveAssetToMvpIqHoopsAlbum = useCallback(async (asset: any) => {
         const album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
         if (!album) {
             await MediaLibrary.createAlbumAsync('MVPiQ Hoops', asset, false)
@@ -1596,12 +1596,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }
 
     if (!hasPermission) return (
-        <View style={[styles.container, styles.center]}>
-            <Text style={styles.permTitle}>📷 Permesso Camera</Text>
-            <Text style={styles.permDesc}>Necessario per il tracking AI dei tiri</Text>
-            <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
-                <Text style={styles.permBtnText}>Concedi Permesso</Text>
-            </TouchableOpacity>
+        <View style={[styles.container, styles.center]} pointerEvents="box-none">
+            <View style={styles.permContent} pointerEvents="auto">
+                <Text style={styles.permTitle}>📷 Permesso Camera</Text>
+                <Text style={styles.permDesc}>Necessario per il tracking AI dei tiri</Text>
+                <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
+                    <Text style={styles.permBtnText}>Concedi Permesso</Text>
+                </TouchableOpacity>
+            </View>
         </View>
     )
 
@@ -1936,6 +1938,7 @@ const styles = StyleSheet.create({
     permDesc:          { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
     permBtn:           { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
     permBtnText:       { color: '#fff', fontWeight: '700', fontSize: 16 },
+    permContent:       { alignItems: 'center' },
 })
 
 

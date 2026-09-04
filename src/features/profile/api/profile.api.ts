@@ -415,7 +415,7 @@ export const uploadProfileImage = async (
         console.log('📸 imageUri:', imageUri)
 
         // Convert URI to file info
-        const fileInfo = await FileSystem.getInfoAsync(imageUri, { size: false })
+        const fileInfo = await FileSystem.getInfoAsync(imageUri)
         console.log('📸 fileInfo:', fileInfo)
 
         if (!fileInfo.exists) {

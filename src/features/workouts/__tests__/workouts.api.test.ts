@@ -139,7 +139,7 @@ describe('workouts.api', () => {
 
     describe('deleteWorkoutSession', () => {
       it('should delete a workout session', async () => {
-        global.fetch = jest.fn(() =>
+        (global as any).fetch = jest.fn(() =>
           Promise.resolve({
             ok: true,
           } as Response)
@@ -147,7 +147,7 @@ describe('workouts.api', () => {
 
         await deleteWorkoutSession('session-123', 'user-123')
 
-        expect(global.fetch).toHaveBeenCalledWith(
+        expect((global as any).fetch).toHaveBeenCalledWith(
           expect.stringContaining('/workouts/sessions/session-123?userId=user-123'),
           expect.objectContaining({
             method: 'DELETE',

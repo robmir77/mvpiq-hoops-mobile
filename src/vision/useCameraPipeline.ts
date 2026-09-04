@@ -19,7 +19,6 @@ export interface CameraPipelineResult {
   requestPermission: () => Promise<boolean>
   setIsActive: (v: boolean) => void
   frameProcessor: any | null
-  frameOutput: any | null // Required for react-native-vision-camera v5+
   isModelReady: boolean
   resetShotTracking: () => void
 }
@@ -46,7 +45,7 @@ export const useCameraPipeline = (
   }
 
   // Initialize shot tracker with the new architecture
-  const { frameProcessor, frameOutput, isModelReady, resetShotTracking } = useShotTracker(
+  const { frameProcessor, isModelReady, resetShotTracking } = useShotTracker(
     onBallDetection,
     onPoseResult,
     onShotEvent,
@@ -86,7 +85,6 @@ export const useCameraPipeline = (
     requestPermission,
     setIsActive: safeSetIsActive,
     frameProcessor,
-    frameOutput,
     isModelReady,
     resetShotTracking,
   }

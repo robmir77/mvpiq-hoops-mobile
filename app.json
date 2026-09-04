@@ -49,7 +49,7 @@
       [
         "react-native-fast-tflite",
         {
-          "enableAndroidGpuLibraries": true
+          "enableAndroidGpuLibraries": ["libOpenCL.so", "libOpenCL-pixel.so", "libGLES_mali.so"]
         }
       ],
       "@react-native-firebase/app",

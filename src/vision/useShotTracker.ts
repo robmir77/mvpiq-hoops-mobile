@@ -24,10 +24,10 @@ const YOLO_INPUT_SIZE = 416   // YOLOv8/v11 ball & rim model resized to 416
 const POSE_INPUT_SIZE = 192   // MoveNet Lightning (must remain 192)
 
 // ── AI inference throttling ───────────────────────────────────────────────
-// Run YOLO every frame (30 FPS at 30 FPS camera) - more precise tracking
-const YOLO_FRAME_SKIP = 1
-// Run MoveNet every 3 frames (10 FPS at 30 FPS camera)
-const POSE_FRAME_SKIP = 3
+// Run YOLO every 3 frames (10 FPS at 30 FPS camera) - balance speed/accuracy
+const YOLO_FRAME_SKIP = 3
+// Run MoveNet every 9 frames (3.3 FPS at 30 FPS camera)
+const POSE_FRAME_SKIP = 9
 
 export const useShotTracker = (
   onBallDetection: (detection: BallDetection) => void,
@@ -57,7 +57,7 @@ export const useShotTracker = (
 
   // ── Model loading ─────────────────────────────────────────────────────────
   // Platform-specific delegate selection for optimal performance
-  // Android: Try NNAPI first, fallback to CPU if it fails
+  // Android: NNAPI (GPU delegate has bug in v3.0.1 that causes hang)
   // iOS: CoreML (optimized for Apple hardware)
   const yoloDelegates = Platform.OS === 'android' ? ['nnapi'] : Platform.OS === 'ios' ? ['core-ml'] : []
   const poseDelegates = Platform.OS === 'android' ? ['nnapi'] : Platform.OS === 'ios' ? ['core-ml'] : []
@@ -229,6 +229,34 @@ export const useShotTracker = (
     onPoseResultRef.current(result)
   }, [])
 
+  const logFirstFrame = useCallback((width: number, height: number) => {
+    console.log('[ShotTracker] First frame received:', width, 'x', height)
+  }, [])
+
+  const logModelNotReady = useCallback(() => {
+    console.log('[ShotTracker] YOLO model not ready, skipping frame')
+  }, [])
+
+  const logResizerNotReady = useCallback(() => {
+    console.log('[ShotTracker] Resizer not ready, skipping frame')
+  }, [])
+
+  const logInvalidFrame = useCallback((width: number, height: number) => {
+    console.log('[ShotTracker] Invalid frame dimensions:', width, height)
+  }, [])
+
+  const logBallDetected = useCallback((confidence: number, x: number, y: number) => {
+    console.log('[ShotTracker] Ball detected! conf:', confidence.toFixed(2), 'x:', x.toFixed(2), 'y:', y.toFixed(2))
+  }, [])
+
+  const logYoloError = useCallback((error: string) => {
+    console.log('[ShotTracker] YOLO inference error:', error)
+  }, [])
+
+  const logFrameError = useCallback((error: string) => {
+    console.log('[ShotTracker] Frame processing error:', error)
+  }, [])
+
   // ── Resizer setup ─────────────────────────────────────────────────────────
   const { resizer } = useResizer({
     width: YOLO_INPUT_SIZE,
@@ -254,13 +282,13 @@ export const useShotTracker = (
 
         // Log first frame arrival
         if (frameId === 1) {
-          scheduleOnRN(() => { console.log('[ShotTracker] First frame received:', frame.width, 'x', frame.height) })
+          scheduleOnRN(logFirstFrame, frame.width, frame.height)
         }
 
         const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
         if (!yoloReady) {
           if (frameId <= 3) {
-            scheduleOnRN(() => { console.log('[ShotTracker] YOLO model not ready, skipping frame') })
+            scheduleOnRN(logModelNotReady)
           }
           return
         }
@@ -273,14 +301,14 @@ export const useShotTracker = (
         // Check if resizer is ready
         if (resizer == null) {
           if (frameId <= 5) {
-            scheduleOnRN(() => { console.log('[ShotTracker] Resizer not ready, skipping frame') })
+            scheduleOnRN(logResizerNotReady)
           }
           return
         }
 
         // Validate frame dimensions
         if (!frame.width || !frame.height || frame.width <= 0 || frame.height <= 0) {
-          scheduleOnRN(() => { console.log('[ShotTracker] Invalid frame dimensions:', frame.width, frame.height) })
+          scheduleOnRN(logInvalidFrame, frame.width, frame.height)
           return
         }
 
@@ -329,9 +357,7 @@ export const useShotTracker = (
               lastBallDetected.value = ball !== null
 
               if (ball && frameId % 10 === 0) {
-                scheduleOnRN(() => {
-                  console.log('[ShotTracker] Ball detected! conf:', ball.confidence.toFixed(2), 'x:', ball.x.toFixed(2), 'y:', ball.y.toFixed(2))
-                })
+                scheduleOnRN(logBallDetected, ball.confidence, ball.x, ball.y)
               }
 
               scheduleOnRN(emitBallDetection, {
@@ -341,7 +367,7 @@ export const useShotTracker = (
               })
             }
           } catch (error) {
-            scheduleOnRN(() => { console.log('[ShotTracker] YOLO inference error:', String(error)) })
+            scheduleOnRN(logYoloError, String(error))
           }
         }
 
@@ -359,7 +385,7 @@ export const useShotTracker = (
         }
 
       } catch (error) {
-        scheduleOnRN(() => { console.log('[ShotTracker] Frame processing error:', String(error)) })
+        scheduleOnRN(logFrameError, String(error))
       } finally {
         // Always dispose frame to prevent memory leaks
         frame.dispose()
