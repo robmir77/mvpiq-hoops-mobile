@@ -493,10 +493,8 @@ const TrackingOverlay = React.memo(({
                             }, [hoopXPx, hoopYPx, hoopWidth, hoopHeight])
                             
                             const hoopOvalPath = useDerivedValue(() => {
-                                const path = Skia.Path.Make()
                                 const rect = hoopRect.value
-                                path.addOval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
-                                return path
+                                return Skia.Path.Oval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
                             }, [hoopRect])
                             
                             return (
@@ -1154,6 +1152,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
+        if (ball && Math.random() < 0.1) { // Log 10% delle rilevazioni
+            console.log('[WorkoutSession] Ball detection received:', {
+                x: ball.x.toFixed(3),
+                y: ball.y.toFixed(3),
+                confidence: ball.confidence.toFixed(3)
+            })
+        }
         const rimForTracking = rimDetectionEnabled && rimFromDetection ? {
             x: rimFromDetection.x,
             y: rimFromDetection.y,

@@ -54,9 +54,11 @@ function nms(dets: number[][], thr: number): number[][] {
 export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD, frameWidth: number = 1, frameHeight: number = 1): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
+  debug?: { cx: number; cy: number; w: number; h: number; conf: number }
 } {
   'worklet'; // eslint-disable-line
   const raw: number[][] = []
+  let debugInfo: { cx: number; cy: number; w: number; h: number; conf: number } | undefined = undefined
 
   // Convert to float values if needed (for INT8 quantized output)
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
@@ -103,13 +105,34 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     let x1, y1, x2, y2, wNorm, hNorm
 
     if (frameWidth > 1 && frameHeight > 1) {
-      // Map from crop to full frame
-      x1 = ((cx - w * 0.5) * CROP_DIM + CROP_X) / frameWidth
-      y1 = ((cy - h * 0.5) * CROP_DIM + CROP_Y) / frameHeight
-      x2 = ((cx + w * 0.5) * CROP_DIM + CROP_X) / frameWidth
-      y2 = ((cy + h * 0.5) * CROP_DIM + CROP_Y) / frameHeight
+      // The resizer does its own crop/resize internally
+      // YOLO coordinates are normalized [0,1] relative to the 416x416 input
+      // We need to map these to the original frame dimensions
+      // The resizer uses 'cover' mode which maintains aspect ratio
+
+      // Calculate the actual crop that the resizer uses
+      const cropDim = Math.min(frameWidth, frameHeight)
+      const cropX = (frameWidth - cropDim) / 2
+      const cropY = (frameHeight - cropDim) / 2
+
+      // Map from YOLO normalized coordinates to original frame
+      const x1_crop = (cx - w * 0.5) * cropDim + cropX
+      const y1_crop = (cy - h * 0.5) * cropDim + cropY
+      const x2_crop = (cx + w * 0.5) * cropDim + cropX
+      const y2_crop = (cy + h * 0.5) * cropDim + cropY
+
+      // Normalize to full frame
+      x1 = x1_crop / frameWidth
+      y1 = y1_crop / frameHeight
+      x2 = x2_crop / frameWidth
+      y2 = y2_crop / frameHeight
       wNorm = (x2 - x1)
       hNorm = (y2 - y1)
+
+      // Store debug info for the best detection
+      if (!debugInfo && (ballScore > 0.1 || rimScore > 0.1)) {
+        debugInfo = { cx, cy, w, h, conf: Math.max(ballScore, rimScore) }
+      }
     } else {
       // Use normalized coordinates directly (relative to crop)
       x1 = cx - w * 0.5
@@ -176,5 +199,5 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   }
 
 
-  return { ball: bestBall, rim: bestRim }
+  return { ball: bestBall, rim: bestRim, debug: debugInfo }
 }

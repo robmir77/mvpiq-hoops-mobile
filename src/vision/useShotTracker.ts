@@ -59,7 +59,7 @@ export const useShotTracker = (
   // Platform-specific delegate selection for optimal performance
   // Android: NNAPI (GPU delegate has bug in v3.0.1 that causes hang)
   // iOS: CoreML (optimized for Apple hardware)
-  const yoloDelegates = Platform.OS === 'android' ? ['nnapi'] : Platform.OS === 'ios' ? ['core-ml'] : []
+  const yoloDelegates = Platform.OS === 'android' ? [] : Platform.OS === 'ios' ? ['core-ml'] : []
   const poseDelegates = Platform.OS === 'android' ? ['nnapi'] : Platform.OS === 'ios' ? ['core-ml'] : []
   const yoloModel = useTensorflowModel(
     require('../../assets/models/ball_rimV8_float16.tflite'),
@@ -231,6 +231,7 @@ export const useShotTracker = (
 
   const logFirstFrame = useCallback((width: number, height: number) => {
     console.log('[ShotTracker] First frame received:', width, 'x', height)
+    console.log('[ShotTracker] Frame aspect ratio:', (width / height).toFixed(2))
   }, [])
 
   const logModelNotReady = useCallback(() => {
@@ -249,12 +250,30 @@ export const useShotTracker = (
     console.log('[ShotTracker] Ball detected! conf:', confidence.toFixed(2), 'x:', x.toFixed(2), 'y:', y.toFixed(2))
   }, [])
 
+  const logBallCoordinates = useCallback((ball: any) => {
+    if (ball) {
+      console.log('[ShotTracker] Ball coords - x:', ball.x.toFixed(3), 'y:', ball.y.toFixed(3), 'w:', ball.width.toFixed(3), 'h:', ball.height.toFixed(3))
+    }
+  }, [])
+
+  const logCropParameters = useCallback((cropX: number, cropY: number, cropDim: number, frameW: number, frameH: number) => {
+    console.log('[ShotTracker] Crop params - cropX:', cropX, 'cropY:', cropY, 'cropDim:', cropDim, 'frameW:', frameW, 'frameH:', frameH)
+  }, [])
+
+  const logYoloRawOutput = useCallback((cx: number, cy: number, w: number, h: number, conf: number) => {
+    console.log('[ShotTracker] YOLO raw - cx:', cx.toFixed(3), 'cy:', cy.toFixed(3), 'w:', w.toFixed(3), 'h:', h.toFixed(3), 'conf:', conf.toFixed(3))
+  }, [])
+
   const logYoloError = useCallback((error: string) => {
     console.log('[ShotTracker] YOLO inference error:', error)
   }, [])
 
   const logFrameError = useCallback((error: string) => {
     console.log('[ShotTracker] Frame processing error:', error)
+  }, [])
+
+  const logYoloInferenceTime = useCallback((ms: number) => {
+    console.log(`[YOLO] inference: ${ms} ms`)
   }, [])
 
   // ── Resizer setup ─────────────────────────────────────────────────────────
@@ -312,14 +331,6 @@ export const useShotTracker = (
           return
         }
 
-        // Calculate 1:1 square center crop to preserve aspect ratio without squashing small basketballs
-        const cropDim = Math.min(frame.width, frame.height)
-        const cropX = Math.floor((frame.width - cropDim) / 2)
-        const cropY = Math.floor((frame.height - cropDim) / 2)
-
-        // Set crop parameters for YOLO coordinate mapping
-        setCropParameters(cropX, cropY, cropDim)
-
         // ── 1. YOLO — accelerate to every frame (skip = 1) when ball is actively detected ──
         const activeYoloSkip = lastBallDetected.value ? 1 : YOLO_FRAME_SKIP
         const ranYolo = frameId % activeYoloSkip === 0
@@ -332,7 +343,10 @@ export const useShotTracker = (
             try {
               const yoloBuffer = yoloResized.getPixelBuffer()
               // Execute inference synchronously while yoloResized GPU buffer is still active
+              const inferenceStart = Date.now()
               yoloOutputs = yoloModel.model!.runSync([yoloBuffer as ArrayBuffer])
+              const inferenceMs = Date.now() - inferenceStart
+              scheduleOnRN(logYoloInferenceTime, inferenceMs)
             } finally {
               // Dispose GPU buffer AFTER runSync finishes to prevent dangling pointer memory crash
               try {
@@ -346,18 +360,27 @@ export const useShotTracker = (
               const yoloOutput = new Float32Array(yoloOutputs[0] as ArrayBuffer)
 
               // Parse detections and map crop coordinates to full frame dimensions
-              const { ball, rim } = parseYoloOutput(
+              const { ball, rim, debug } = parseYoloOutput(
                 yoloOutput,
                 adaptiveThreshold.value,
                 frame.width,
                 frame.height
               )
 
+              // Log debug info if available
+              if (debug && frameId % 30 === 0) {
+                scheduleOnRN(logYoloRawOutput, debug.cx, debug.cy, debug.w, debug.h, debug.conf)
+              }
+
               // Track if ball was detected for MoveNet throttling and YOLO acceleration
               lastBallDetected.value = ball !== null
 
               if (ball && frameId % 10 === 0) {
                 scheduleOnRN(logBallDetected, ball.confidence, ball.x, ball.y)
+              }
+
+              if (ball && frameId % 30 === 0) {
+                scheduleOnRN(logBallCoordinates, ball)
               }
 
               scheduleOnRN(emitBallDetection, {
