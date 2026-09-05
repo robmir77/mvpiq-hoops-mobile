@@ -14,10 +14,9 @@ import Svg, {
     Circle, Line, Polygon, Rect, Path, Defs,
     LinearGradient, Stop, G, Text as SvgText, Ellipse,
 } from 'react-native-svg'
-import { Camera, type CameraRef } from 'react-native-vision-camera'
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { CameraMode, CalibrationData } from '../types/workouts.types'
-import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
+import { CameraMode, CalibrationData, CourtType } from '../types/workouts.types'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
@@ -105,7 +104,7 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
             {/* Arco 3pt */}
             {arc3pts.map((p, i) => i > 0 && (
                 <Line key={i}
-                    x1={arc3pts[i-1].x} y1={arc3pts[i-1].y}
+                    x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
                     x2={p.x} y2={p.y}
                     stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
                     strokeDasharray="5,3" />
@@ -241,7 +240,7 @@ const Overlay45Full = ({ hoopCenter, corners, step }: {
             {/* Arco 3pt */}
             {arc3pts.map((p, i) => i > 0 && (
                 <Line key={i}
-                    x1={arc3pts[i-1].x} y1={arc3pts[i-1].y}
+                    x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
                     x2={p.x} y2={p.y}
                     stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
                     strokeDasharray="5,3" />
@@ -778,9 +777,9 @@ const HoopConfirmed = ({ p }: { p: Point }) => (
         <Circle cx={p.x} cy={p.y} r={28}
             fill="rgba(255,140,0,0.15)" stroke="#ff8c00" strokeWidth={2.5} />
         <Circle cx={p.x} cy={p.y} r={6} fill="#ff8c00" />
-        {[[-36,0,-24,0],[24,0,36,0],[0,-36,0,-24],[0,24,0,36]].map(([x1,y1,x2,y2], i) => (
+        {[[-36, 0, -24, 0], [24, 0, 36, 0], [0, -36, 0, -24], [0, 24, 0, 36]].map(([x1, y1, x2, y2], i) => (
             <Line key={i}
-                x1={p.x+x1} y1={p.y+y1} x2={p.x+x2} y2={p.y+y2}
+                x1={p.x + x1} y1={p.y + y1} x2={p.x + x2} y2={p.y + y2}
                 stroke="#ff8c00" strokeWidth={2} />
         ))}
         <SvgText x={p.x} y={p.y - 38} textAnchor="middle"
@@ -806,7 +805,7 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
                     <Circle cx={c.x} cy={c.y} r={4} fill="#4ade80" />
                     <SvgText x={c.x} y={c.y - 22} textAnchor="middle"
                         fill="#4ade80" fontSize={13}>
-                        {['↖','↗','↘','↙'][i]}
+                        {['↖', '↗', '↘', '↙'][i]}
                     </SvgText>
                 </G>
             ))}
@@ -814,7 +813,7 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
             {corners.length > 1 && corners.map((c, i) => {
                 if (i === 0) return null
                 return <Line key={i}
-                    x1={corners[i-1].x} y1={corners[i-1].y} x2={c.x} y2={c.y}
+                    x1={corners[i - 1].x} y1={corners[i - 1].y} x2={c.x} y2={c.y}
                     stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
             })}
             {corners.length === 4 && (
@@ -885,35 +884,19 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const { user } = useContext(AuthContext) || {}
     const { hasPermission, requestPermission } = useCameraPermission()
     const device = useCameraDevice('back')
-    
+
     // Camera configuration state
-    const [selectedResolution, setSelectedResolution] = useState({ width: 1280, height: 720 })
+    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number }>({ width: 1280, height: 720 })
     const [selectedFps, setSelectedFps] = useState(30)
     const [showConfigPanel, setShowConfigPanel] = useState(false)
     const isActive = true
-    const cameraRef = useRef<CameraRef>(null)
-    const cameraReadyRef = useRef(false)
+    const cameraRef = useRef<Camera>(null)
     const MIN_CAMERA_RESOLUTION = 416
-    
-    // Get zoom range from device
-    const minZoom = device?.minZoom ?? 0.5
-    const maxZoom = device?.maxZoom ?? 1
-    // Use device minimum zoom as default
+
+    // Zoom handling with VisionCamera
+    const minZoom = device?.minZoom ?? 1
+    const maxZoom = Math.min(device?.maxZoom ?? 5, 5)
     const [zoom, setZoom] = useState(minZoom)
-
-    const applyCameraZoom = useCallback(async (value: number) => {
-        const controller = cameraRef.current?.controller
-        if (!controller) return
-
-        const targetZoom = Math.min(controller.maxZoom, Math.max(controller.minZoom, value))
-        if (Math.abs(controller.zoom - targetZoom) < 0.001) return
-
-        try {
-            await controller.setZoom(targetZoom)
-        } catch (error) {
-            console.warn('[Calibration] Unable to apply zoom:', error)
-        }
-    }, [])
 
     useEffect(() => {
         setZoom(prev => {
@@ -922,42 +905,49 @@ export default function CalibrationScreen({ navigation, route }: any) {
         })
     }, [minZoom, maxZoom])
 
-    useEffect(() => {
-        if (!cameraReadyRef.current) return
-        void applyCameraZoom(zoom)
-    }, [zoom, applyCameraZoom])
-    
-    // Get available resolutions from device
-    const availableResolutions = React.useMemo(() => device?.getSupportedResolutions('video') ?? [], [device])
+    // Get available resolutions from device formats
     const uniqueResolutions = React.useMemo(() => {
+        if (!device?.formats) return []
         const resolutions = new Map<string, { width: number; height: number }>()
-        availableResolutions.forEach(fmt => {
-            if (Math.min(fmt.width, fmt.height) < MIN_CAMERA_RESOLUTION) return
-            const key = `${fmt.width}x${fmt.height}`
+        device.formats.forEach((fmt) => {
+            if (Math.min(fmt.videoWidth, fmt.videoHeight) < MIN_CAMERA_RESOLUTION) return
+            const key = `${fmt.videoWidth}x${fmt.videoHeight}`
             if (!resolutions.has(key)) {
-                resolutions.set(key, { width: fmt.width, height: fmt.height })
+                resolutions.set(key, { width: fmt.videoWidth, height: fmt.videoHeight })
             }
         })
-        const filtered = Array.from(resolutions.values()).sort((a, b) => (b.width * b.height) - (a.width * a.height))
-        if (filtered.length > 0) return filtered
-
-        return availableResolutions
-            .filter(fmt => Math.min(fmt.width, fmt.height) >= MIN_CAMERA_RESOLUTION)
-            .sort((a, b) => (b.width * b.height) - (a.width * a.height))
-    }, [availableResolutions])
-    
-    const uniqueFps = React.useMemo(() => {
-        const fpsValues = (device?.supportedFPSRanges ?? []).flatMap(range => [
-            Math.round(range.min),
-            Math.round(range.max),
-        ])
-        return Array.from(new Set(fpsValues.filter(fps => fps > 0))).sort((a, b) => b - a)
+        return Array.from(resolutions.values()).sort((a, b) => (b.width * b.height) - (a.width * a.height))
     }, [device])
-    
+
+    const uniqueFps = React.useMemo<number[]>(() => {
+        if (!device?.formats) return []
+        const fpsSet = new Set<number>()
+        device.formats.forEach((fmt) => {
+            if (fmt.minFps) fpsSet.add(Math.round(fmt.minFps))
+            if (fmt.maxFps) fpsSet.add(Math.round(fmt.maxFps))
+        })
+        return Array.from(fpsSet).filter((fps) => fps > 0).sort((a, b) => b - a)
+    }, [device])
+
+    // Select best format matching selected resolution
+    const selectedFormat = React.useMemo(() => {
+        if (!device?.formats || !selectedResolution) return undefined
+        return device.formats.find(
+            f => f.videoWidth === selectedResolution.width && f.videoHeight === selectedResolution.height
+        )
+    }, [device, selectedResolution])
+
+    const validFps = React.useMemo(() => {
+        if (!selectedFormat) return undefined
+        if (selectedFps >= selectedFormat.minFps && selectedFps <= selectedFormat.maxFps) {
+            return selectedFps
+        }
+        return selectedFormat.maxFps
+    }, [selectedFormat, selectedFps])
+
     // Set default to 1280x720 for better performance
     React.useEffect(() => {
         if (uniqueResolutions.length > 0) {
-            // Prefer 1280x720 if available, otherwise use highest
             const preferred = uniqueResolutions.find(r => r.width === 1280 && r.height === 720)
             setSelectedResolution(preferred || uniqueResolutions[0])
         }
@@ -1028,7 +1018,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 }
             }
             const cal: CalibrationData = {
-                homographyMatrix: corners.length === 4 ? [1,0,0,0,1,0,0,0,1] : [],
+                homographyMatrix: corners.length === 4 ? [1, 0, 0, 0, 1, 0, 0, 0, 1] : [],
                 hoopCenter: normHoop,
                 courtCorners,
             }
@@ -1068,18 +1058,18 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const CORNER_LABELS = ['Ang. SX alto', 'Ang. DX alto', 'Ang. DX basso', 'Ang. SX basso']
     const stepInfo = {
-        hoop:    { label: '1/2 — Canestro', hint: 'Tocca il centro del ferro', color: '#ff8c00' },
+        hoop: { label: '1/2 — Canestro', hint: 'Tocca il centro del ferro', color: '#ff8c00' },
         corners: { label: '2/2 — Angoli', hint: `${CORNER_LABELS[corners.length] ?? '✓'}`, color: '#4ade80' },
-        done:    { label: '✓ Completo', hint: 'Tutti i punti definiti', color: '#4ade80' },
+        done: { label: '✓ Completo', hint: 'Tutti i punti definiti', color: '#4ade80' },
     }[step]
 
     const OverlayComponent =
         cameraMode === 'LATERAL' && courtType === 'FULL_COURT' ? OverlayLateralFull :
-        cameraMode === 'LATERAL' ? OverlayLateral :
-        cameraMode === 'FRONTAL' && courtType === 'FULL_COURT' ? OverlayFrontalFull :
-        cameraMode === 'FRONTAL' ? OverlayFrontal :
-        courtType === 'FULL_COURT' ? Overlay45Full :
-        Overlay45
+            cameraMode === 'LATERAL' ? OverlayLateral :
+                cameraMode === 'FRONTAL' && courtType === 'FULL_COURT' ? OverlayFrontalFull :
+                    cameraMode === 'FRONTAL' ? OverlayFrontal :
+                        courtType === 'FULL_COURT' ? Overlay45Full :
+                            Overlay45
 
     return (
         <View style={styles.container}>
@@ -1107,16 +1097,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive}
-                    constraints={selectedFps ? [{ fps: selectedFps }] : undefined}
-                    onStarted={() => {
-                        cameraReadyRef.current = true
-                        void applyCameraZoom(zoom)
-                    }}
-                    onStopped={() => {
-                        cameraReadyRef.current = false
-                    }}
+                    zoom={zoom}
+                    format={selectedFormat}
+                    fps={validFps}
                     onError={(error) => {
-                        cameraReadyRef.current = false
                         console.warn('[Calibration] Camera error:', error)
                     }}
                 />
@@ -1138,11 +1122,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 : '✅ Tutti i punti definiti'}
                     </Text>
                 </View>
-                
+
                 {/* Zoom controls */}
                 <View style={styles.zoomControls}>
-                    <TouchableOpacity 
-                        style={styles.zoomBtn} 
+                    <TouchableOpacity
+                        style={styles.zoomBtn}
                         onPress={handleZoomOut}
                         disabled={zoom <= minZoom}
                     >
@@ -1151,23 +1135,23 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     <View style={styles.zoomIndicator}>
                         <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
                     </View>
-                    <TouchableOpacity 
-                        style={styles.zoomBtn} 
+                    <TouchableOpacity
+                        style={styles.zoomBtn}
                         onPress={handleZoomIn}
                         disabled={zoom >= maxZoom}
                     >
                         <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
                     </TouchableOpacity>
                 </View>
-                
+
                 {/* Camera config button */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     style={styles.configBtn}
                     onPress={() => setShowConfigPanel(!showConfigPanel)}
                 >
                     <Text style={styles.configBtnText}>⚙️</Text>
                 </TouchableOpacity>
-                
+
                 {/* Camera config panel */}
                 {showConfigPanel && (
                     <View style={[styles.configPanel, { bottom: 12 }]}>
