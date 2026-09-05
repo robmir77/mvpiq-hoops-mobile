@@ -6,12 +6,11 @@
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { Platform } from 'react-native'
-import { useFrameProcessor } from 'react-native-vision-camera'
+import { useFrameProcessor, type Frame } from 'react-native-vision-camera'
 import { useResizePlugin } from 'vision-camera-resize-plugin'
 import { Worklets, useSharedValue } from 'react-native-worklets-core'
 import { useTensorflowModel } from 'react-native-fast-tflite'
-import type { Frame } from 'react-native-vision-camera'
-import { parseYoloOutput, setCropParameters } from './yoloParser'
+import { parseYoloOutput } from './yoloParser'
 import { parseMoveNetOutput } from './poseParser'
 import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
@@ -316,12 +315,6 @@ export const useShotTracker = (
       const ranYolo = frameId % activeYoloSkip === 0
       if (ranYolo) {
         try {
-          // Crop quadrato centrale, metadati usati da parseYoloOutput per rimappare le coordinate
-          const cropDim = Math.min(frame.width, frame.height)
-          const cropX = (frame.width - cropDim) / 2
-          const cropY = (frame.height - cropDim) / 2
-          setCropParameters(cropX, cropY, cropDim)
-
           // Resize a YOLO_INPUT_SIZE x YOLO_INPUT_SIZE RGB float32 (HWC)
           const resized = resize(frame, {
             scale: { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },

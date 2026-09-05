@@ -10,16 +10,8 @@ const N_ANCHORS = 3549
 // Worklet-safe constant - must be defined inside the function scope for worklets
 let CONF_THRESHOLD = 0.10
 
-// Crop parameters for mapping coordinates from crop to full frame
-let CROP_X = 0
-let CROP_Y = 0
-let CROP_DIM = 1
-
-export function setCropParameters(cropX: number, cropY: number, cropDim: number) {
+export function setCropParameters(_cropX?: number, _cropY?: number, _cropDim?: number) {
   'worklet'; // eslint-disable-line
-  CROP_X = cropX
-  CROP_Y = cropY
-  CROP_DIM = cropDim
 }
 
 // Worklet-safe IOU calculation
@@ -101,42 +93,15 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       continue
     }
 
-    // Map coordinates from crop to full frame
-    // Model outputs are normalized to [0,1] relative to the crop
-    // When frameWidth/frameHeight are provided, map to full frame coordinates
-    let x1, y1, x2, y2, wNorm, hNorm
+    // Normalize bounding box coordinates [0, 1] relative to the frame
+    const x1 = cx - w * 0.5
+    const y1 = cy - h * 0.5
+    const x2 = cx + w * 0.5
+    const y2 = cy + h * 0.5
 
-    if (frameWidth > 1 && frameHeight > 1) {
-      // Use crop parameters set via setCropParameters()
-      // YOLO coordinates are normalized [0,1] relative to the crop
-      // We need to map these to the original frame dimensions
-
-      // Map from YOLO normalized coordinates to original frame using crop parameters
-      const x1_crop = (cx - w * 0.5) * CROP_DIM + CROP_X
-      const y1_crop = (cy - h * 0.5) * CROP_DIM + CROP_Y
-      const x2_crop = (cx + w * 0.5) * CROP_DIM + CROP_X
-      const y2_crop = (cy + h * 0.5) * CROP_DIM + CROP_Y
-
-      // Normalize to full frame
-      x1 = x1_crop / frameWidth
-      y1 = y1_crop / frameHeight
-      x2 = x2_crop / frameWidth
-      y2 = y2_crop / frameHeight
-      wNorm = (x2 - x1)
-      hNorm = (y2 - y1)
-
-      // Store debug info for the best detection
-      if (!debugInfo && (ballScore > 0.1 || rimScore > 0.1)) {
-        debugInfo = { cx, cy, w, h, conf: Math.max(ballScore, rimScore) }
-      }
-    } else {
-      // Use normalized coordinates directly (relative to crop)
-      x1 = cx - w * 0.5
-      y1 = cy - h * 0.5
-      x2 = cx + w * 0.5
-      y2 = cy + h * 0.5
-      wNorm = w
-      hNorm = h
+    // Store debug info for the best detection
+    if (!debugInfo && (ballScore > 0.1 || rimScore > 0.1)) {
+      debugInfo = { cx, cy, w, h, conf: Math.max(ballScore, rimScore) }
     }
 
     // Add ball detection if score above threshold
@@ -175,16 +140,20 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
+    const rawX = (x1 + x2) / 2
+    const rawY = (y1 + y2) / 2
+    const rawW = x2 - x1
+    const rawH = y2 - y1
+
     const detection = {
-      // Option 1: coordinate dirette senza swap X↔Y
-      // Assumiamo che il frame arrivi già in portrait (o che il resizer gestisca la rotazione)
-      x: (x1 + x2) / 2,
-      y: (y1 + y2) / 2,
-      width: (x2 - x1),
-      height: (y2 - y1),
+      // Landscape sensor to portrait display coordinate transform:
+      // Same transform used by MoveNet poseParser (x: 1 - y, y: x)
+      x: Math.max(0, Math.min(1, 1 - rawY)),
+      y: Math.max(0, Math.min(1, rawX)),
+      width: Math.max(0, Math.min(1, rawH)),
+      height: Math.max(0, Math.min(1, rawW)),
       confidence: conf,
     }
-
 
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
