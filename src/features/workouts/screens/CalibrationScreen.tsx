@@ -15,6 +15,8 @@ import Svg, {
     LinearGradient, Stop, G, Text as SvgText, Ellipse,
 } from 'react-native-svg'
 import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from 'react-native-vision-camera'
+import { Picker } from '@react-native-picker/picker'
+import { useIsFocused } from '@react-navigation/native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData, CourtType } from '../types/workouts.types'
 import { saveCourtCalibration } from '../api/workouts.api'
@@ -22,6 +24,9 @@ import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
+const MIN_CAPTURE = { width: 1280, height: 720 }
+const DEFAULT_CAPTURE = { width: 1280, height: 720 }
+const DEFAULT_FPS = 15
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
@@ -886,61 +891,73 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const device = useCameraDevice('back')
 
     // Camera configuration state
-    const isActive = true
+    // Legato al focus reale della route: con lo stack navigator la schermata
+    // resta montata dopo navigation.navigate('WorkoutSession', ...), quindi
+    // senza questo la Camera qui restava isActive=true e teneva bindata la
+    // fotocamera, impedendo a WorkoutSessionScreen di attivare la sua
+    // (schermo nero, 0fps, nessun errore perché il conflitto è silenzioso).
+    const isFocused = useIsFocused()
+    const isActive = isFocused
     const cameraRef = useRef<CameraRef>(null)
-    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(null)
-    const [selectedFps, setSelectedFps] = useState<number | null>(null)
+    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
+    const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
+    const hoopCameraPointRef = useRef<Point | null>(null)
+    const cornerCameraPointsRef = useRef<Point[]>([])
     const [showConfigPanel, setShowConfigPanel] = useState(false)
 
     // Get available resolutions and FPS from device
     const availableResolutions = React.useMemo(() => {
-        if (!device) return []
+        if (!device) return [DEFAULT_CAPTURE]
         try {
-            const resolutions = device.getSupportedResolutions('video')
-            console.log('[Calibration] Available resolutions:', resolutions)
-            if (resolutions && resolutions.length > 0) return resolutions
+            const resolutions = device.getSupportedResolutions('video') || []
+            const filtered = resolutions
+                .filter((r: { width: number; height: number }) => {
+                    const aspect = r.width / r.height
+                    return r.width >= MIN_CAPTURE.width &&
+                        r.height >= MIN_CAPTURE.height &&
+                        Math.abs(aspect - 16 / 9) < 0.08
+                })
+                .sort((a: any, b: any) => a.width * a.height - b.width * b.height)
+            console.log('[Calibration] Available workout resolutions:', filtered)
+            return filtered.length ? filtered : [DEFAULT_CAPTURE]
         } catch (e) {
             console.warn('[Calibration] Error getting resolutions:', e)
+            return [DEFAULT_CAPTURE]
         }
-        // Fallback to common resolutions
-        return [
-            { width: 3840, height: 2160 }, // 4K
-            { width: 1920, height: 1080 }, // 1080p
-            { width: 1280, height: 720 },  // 720p
-            { width: 640, height: 480 },   // 480p
-        ]
     }, [device])
 
-    const availableFpsRanges = React.useMemo(() => {
-        if (!device) return []
+    const availableFps = React.useMemo(() => {
+        if (!device) return [DEFAULT_FPS]
         try {
-            const fpsRanges = device.supportedFPSRanges
-            console.log('[Calibration] Available FPS ranges:', fpsRanges)
-            if (fpsRanges && fpsRanges.length > 0) return fpsRanges
+            const values = new Set<number>()
+            for (const range of device.supportedFPSRanges || []) {
+                values.add(range.min)
+                values.add(range.max)
+            }
+            const result = [...values].filter(v => v >= 15 && v <= 30).sort((a, b) => a - b)
+            console.log('[Calibration] Available FPS targets:', result)
+            return result.length ? result : [DEFAULT_FPS]
         } catch (e) {
             console.warn('[Calibration] Error getting FPS ranges:', e)
+            return [DEFAULT_FPS]
         }
-        // Fallback to common FPS values
-        return [
-            { min: 60, max: 60 },
-            { min: 30, max: 30 },
-            { min: 24, max: 24 },
-            { min: 15, max: 15 },
-        ]
     }, [device])
 
-    // Build constraints based on selection
-    const constraints = React.useMemo(() => {
-        const constraints: any[] = []
-        if (selectedFps !== null) {
-            constraints.push({ fps: selectedFps })
+    const constraints = React.useMemo(
+        () => selectedFps !== null ? [{ fps: selectedFps }] : [],
+        [selectedFps]
+    )
+
+    // Keep defaults valid when a device exposes a different set of resolutions/FPS.
+    useEffect(() => {
+        if (availableResolutions.length > 0 &&
+            !availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
+            setSelectedResolution(availableResolutions[0])
         }
-        // Resolution constraint requires a video output, skip for now
-        // if (selectedResolution !== null) {
-        //     constraints.push({ targetResolution: selectedResolution })
-        // }
-        return constraints
-    }, [selectedFps])
+        if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
+            setSelectedFps(availableFps[0])
+        }
+    }, [availableResolutions, availableFps])
 
     // Zoom handling with VisionCamera
     const minZoom = device?.minZoom ?? 1
@@ -976,19 +993,28 @@ export default function CalibrationScreen({ navigation, route }: any) {
         )
     }
 
-    const normalizePoint = (rawX: number, rawY: number): Point => ({
-        x: Math.max(0, Math.min(1, rawX / SW)),
-        y: Math.max(0, Math.min(1, rawY / CAM_H)),
-    })
+    const viewToCameraPoint = (rawX: number, rawY: number): Point => {
+        try {
+            const p = cameraRef.current?.convertViewPointToCameraPoint({ x: rawX, y: rawY })
+            if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+                return { x: Math.max(0, Math.min(1, p.x)), y: Math.max(0, Math.min(1, p.y)) }
+            }
+        } catch (e) {
+            console.warn('[Calibration] View->camera conversion failed:', e)
+        }
+        return { x: rawX / SW, y: rawY / CAM_H }
+    }
 
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
+        const cameraPoint = viewToCameraPoint(locationX, locationY)
         if (step === 'hoop') {
             setHoopCenter({ x: locationX, y: locationY })
+            hoopCameraPointRef.current = cameraPoint
         } else if (step === 'corners' && corners.length < 4) {
-            const updated = [...corners, { x: locationX, y: locationY }]
-            setCorners(updated)
-            if (updated.length === 4) setStep('done')
+            setCorners(prev => [...prev, { x: locationX, y: locationY }])
+            cornerCameraPointsRef.current = [...cornerCameraPointsRef.current, cameraPoint]
+            if (corners.length + 1 === 4) setStep('done')
         }
     }
 
@@ -999,10 +1025,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
         setIsSaving(true)
         try {
-            const normHoop = normalizePoint(hoopCenter.x, hoopCenter.y)
+            const normHoop = hoopCameraPointRef.current ?? { x: hoopCenter.x / SW, y: hoopCenter.y / CAM_H }
             let courtCorners
             if (corners.length === 4) {
-                const nc = corners.map(c => normalizePoint(c.x, c.y))
+                const nc = cornerCameraPointsRef.current.length === 4 ? cornerCameraPointsRef.current : corners.map(c => ({ x: c.x / SW, y: c.y / CAM_H }))
                 courtCorners = {
                     topLeft: nc[0], topRight: nc[1],
                     bottomRight: nc[2], bottomLeft: nc[3],
@@ -1024,19 +1050,19 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const handleProceed = () => {
-        navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
     }
 
     const handleSkip = () => {
         showWarning(
             'Salta calibrazione',
             'Senza calibrazione il tracking sarà meno preciso.',
-            () => navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+            () => navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
         )
     }
 
     const resetAll = () => {
-        setCorners([]); setStep('hoop'); setHoopCenter(null); setSavedCalibration(null); setZoom(1)
+        setCorners([]); cornerCameraPointsRef.current = []; hoopCameraPointRef.current = null; setStep('hoop'); setHoopCenter(null); setSavedCalibration(null); setZoom(minZoom)
     }
 
     const handleZoomIn = () => {
@@ -1088,6 +1114,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive}
+                    resizeMode="cover"
                     zoom={zoom}
                     constraints={constraints}
                     onError={(error: any) => {
@@ -1104,107 +1131,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     corners={corners}
                     step={step}
                 />
-                {/* Camera config button */}
-                <TouchableOpacity
-                    style={styles.configButton}
-                    onPress={() => setShowConfigPanel(!showConfigPanel)}
-                >
-                    <Text style={styles.configButtonText}>⚙️</Text>
-                </TouchableOpacity>
-
-                {/* Camera config panel */}
-                {showConfigPanel && (
-                    <View style={styles.configPanel}>
-                        <Text style={styles.configPanelTitle}>Configurazione Camera</Text>
-
-                        {/* Resolution selector */}
-                        <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>Risoluzione</Text>
-                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={styles.configOptions}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.configOption,
-                                            selectedResolution === null && styles.configOptionSelected
-                                        ]}
-                                        onPress={() => setSelectedResolution(null)}
-                                    >
-                                        <Text style={[
-                                            styles.configOptionText,
-                                            selectedResolution === null && styles.configOptionTextSelected
-                                        ]}>
-                                            Auto
-                                        </Text>
-                                    </TouchableOpacity>
-                                    {availableResolutions.map((res) => (
-                                        <TouchableOpacity
-                                            key={`${res.width}x${res.height}`}
-                                            style={[
-                                                styles.configOption,
-                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionSelected
-                                            ]}
-                                            onPress={() => setSelectedResolution(res)}
-                                        >
-                                            <Text style={[
-                                                styles.configOptionText,
-                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionTextSelected
-                                            ]}>
-                                                {res.width}x{res.height}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </ScrollView>
-                        </View>
-
-                        {/* FPS selector */}
-                        <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>FPS</Text>
-                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={styles.configOptions}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.configOption,
-                                            selectedFps === null && styles.configOptionSelected
-                                        ]}
-                                        onPress={() => setSelectedFps(null)}
-                                    >
-                                        <Text style={[
-                                            styles.configOptionText,
-                                            selectedFps === null && styles.configOptionTextSelected
-                                        ]}>
-                                            Auto
-                                        </Text>
-                                    </TouchableOpacity>
-                                    {availableFpsRanges.map((range) => (
-                                        <TouchableOpacity
-                                            key={`${range.min}-${range.max}`}
-                                            style={[
-                                                styles.configOption,
-                                                selectedFps === range.max && styles.configOptionSelected
-                                            ]}
-                                            onPress={() => setSelectedFps(range.max)}
-                                        >
-                                            <Text style={[
-                                                styles.configOptionText,
-                                                selectedFps === range.max && styles.configOptionTextSelected
-                                            ]}>
-                                                {range.max}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </ScrollView>
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.closeConfigButton}
-                            onPress={() => setShowConfigPanel(false)}
-                        >
-                            <Text style={styles.closeConfigButtonText}>Chiudi</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
 
                 {/* Crosshair sottile */}
                 <View style={styles.guideH} pointerEvents="none" />
@@ -1259,82 +1185,41 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
                         {/* Resolution selector */}
                         <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>Risoluzione</Text>
-                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={styles.configOptions}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.configOption,
-                                            selectedResolution === null && styles.configOptionSelected
-                                        ]}
-                                        onPress={() => setSelectedResolution(null)}
-                                    >
-                                        <Text style={[
-                                            styles.configOptionText,
-                                            selectedResolution === null && styles.configOptionTextSelected
-                                        ]}>
-                                            Auto
-                                        </Text>
-                                    </TouchableOpacity>
-                                    {availableResolutions.map((res) => (
-                                        <TouchableOpacity
-                                            key={`${res.width}x${res.height}`}
-                                            style={[
-                                                styles.configOption,
-                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionSelected
-                                            ]}
-                                            onPress={() => setSelectedResolution(res)}
-                                        >
-                                            <Text style={[
-                                                styles.configOptionText,
-                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionTextSelected
-                                            ]}>
-                                                {res.width}x{res.height}
-                                            </Text>
-                                        </TouchableOpacity>
+                            <Text style={styles.configLabel}>Risoluzione acquisizione</Text>
+                            <View style={styles.pickerWrap}>
+                                <Picker
+                                    selectedValue={`${selectedResolution?.width ?? 1280}x${selectedResolution?.height ?? 720}`}
+                                    onValueChange={(value) => {
+                                        const found = availableResolutions.find(r => `${r.width}x${r.height}` === value)
+                                        if (found) setSelectedResolution(found)
+                                    }}
+                                    dropdownIconColor="#ff8c00"
+                                    style={styles.picker}
+                                >
+                                    {availableResolutions.map(res => (
+                                        <Picker.Item key={`${res.width}x${res.height}`} label={`${res.width} × ${res.height}`} value={`${res.width}x${res.height}`} />
                                     ))}
-                                </View>
-                            </ScrollView>
+                                </Picker>
+                            </View>
+                            <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
                         </View>
 
                         {/* FPS selector */}
                         <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>FPS</Text>
-                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={styles.configOptions}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.configOption,
-                                            selectedFps === null && styles.configOptionSelected
-                                        ]}
-                                        onPress={() => setSelectedFps(null)}
-                                    >
-                                        <Text style={[
-                                            styles.configOptionText,
-                                            selectedFps === null && styles.configOptionTextSelected
-                                        ]}>
-                                            Auto
-                                        </Text>
-                                    </TouchableOpacity>
-                                    {availableFpsRanges.map((range) => (
-                                        <TouchableOpacity
-                                            key={`${range.min}-${range.max}`}
-                                            style={[
-                                                styles.configOption,
-                                                selectedFps === range.max && styles.configOptionSelected
-                                            ]}
-                                            onPress={() => setSelectedFps(range.max)}
-                                        >
-                                            <Text style={[
-                                                styles.configOptionText,
-                                                selectedFps === range.max && styles.configOptionTextSelected
-                                            ]}>
-                                                {range.max}
-                                            </Text>
-                                        </TouchableOpacity>
+                            <Text style={styles.configLabel}>FPS desiderati</Text>
+                            <View style={styles.pickerWrap}>
+                                <Picker
+                                    selectedValue={selectedFps ?? DEFAULT_FPS}
+                                    onValueChange={value => setSelectedFps(Number(value))}
+                                    dropdownIconColor="#ff8c00"
+                                    style={styles.picker}
+                                >
+                                    {availableFps.map(fps => (
+                                        <Picker.Item key={fps} label={`${fps} FPS`} value={fps} />
                                     ))}
-                                </View>
-                            </ScrollView>
+                                </Picker>
+                            </View>
+                            <Text style={styles.configHint}>VisionCamera negozia la combinazione compatibile con la risoluzione scelta.</Text>
                         </View>
 
                         <TouchableOpacity
@@ -1543,6 +1428,23 @@ const styles = StyleSheet.create({
     configSection: {
         marginBottom: 12,
     },
+    pickerWrap: {
+        borderRadius: 8,
+        overflow: 'hidden',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.16)',
+    },
+    picker: {
+        color: '#fff',
+        height: 48,
+    },
+    configHint: {
+        marginTop: 5,
+        fontSize: 10,
+        color: '#777',
+        lineHeight: 14,
+    },
     configLabel: {
         fontSize: 12,
         fontWeight: '600',
@@ -1573,23 +1475,6 @@ const styles = StyleSheet.create({
     },
     configOptionTextSelected: {
         color: '#ff8c00',
-    },
-    configButton: {
-        position: 'absolute',
-        top: 16,
-        right: 16,
-        backgroundColor: 'rgba(18,24,38,0.8)',
-        borderRadius: 20,
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        zIndex: 100,
-    },
-    configButtonText: {
-        fontSize: 18,
     },
     configScroll: {
         marginBottom: 8,

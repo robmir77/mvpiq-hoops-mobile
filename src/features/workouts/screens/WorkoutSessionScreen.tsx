@@ -1104,15 +1104,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Camera configuration constraints
     const constraints = React.useMemo(() => {
+        // IMPORTANT: VisionCamera 5 constraints are a tagged union.
+        // { targetResolution: ... } is NOT a valid constraint and causes:
+        // CameraSession.configure(...): Cannot convert "[object Object]" to any type...
+        // Resolution belongs to the CameraOutput (useFrameOutput), while FPS
+        // is a real Camera constraint.
         const constraints: any[] = []
         if (selectedFps !== null) {
             constraints.push({ fps: selectedFps })
         }
-        if (selectedResolution !== null) {
-            constraints.push({ targetResolution: selectedResolution })
-        }
         return constraints
-    }, [selectedResolution, selectedFps])
+    }, [selectedFps])
 
     // Performance monitoring - tracking state updates
     useEffect(() => {
@@ -1335,6 +1337,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         ballEnabled
     )
 
+    // DEBUG TEMPORANEO: instrumentazione per capire perché la preview resta nera.
+    // Da rimuovere una volta individuata la causa.
+    useEffect(() => {
+        console.log('[WorkoutSession][DEBUG] device:', device?.id ?? null,
+            '| hasPermission:', hasPermission,
+            '| isActive:', isActive,
+            '| frameOutput:', frameOutput ? 'presente' : 'assente')
+    }, [device, hasPermission, isActive, frameOutput])
+
 
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -1507,6 +1518,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     )
 
     const isPaused    = session?.status === 'PAUSED'
+
+    // DEBUG TEMPORANEO
+    useEffect(() => {
+        console.log('[WorkoutSession][DEBUG] isPaused:', isPaused)
+    }, [isPaused])
     const fgPct       = shotCount.total > 0 ? ((shotCount.made/shotCount.total)*100).toFixed(0) : '0'
     const streak      = wsStats?.shotStreak ?? 0
     const elbowAngle  = jointAngles.elbowAngle != null ? `${jointAngles.elbowAngle.toFixed(0)}°` : '—'
@@ -1563,7 +1579,16 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     constraints={constraints}
                     {...(frameOutput ? { outputs: [frameOutput] } : {})}
                     onError={(error) => {
-                        const cameraError = error as Error & { code?: string }
+                        // DEBUG TEMPORANEO: logga SEMPRE l'errore completo, per capire se la
+                        // preview nera è dovuta a un errore reale che finora veniva filtrato.
+                        const cameraError = error as Error & { code?: string; cause?: Error & { code?: string } }
+                        console.error('[WorkoutSession][CAMERA ERROR]', {
+                            code: cameraError?.code,
+                            message: cameraError?.message,
+                            causeCode: cameraError?.cause?.code,
+                            causeMessage: cameraError?.cause?.message,
+                            error: String(error),
+                        })
                         if (cameraError.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')
                             setIsActive(false)
