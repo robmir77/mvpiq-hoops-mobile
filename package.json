@@ -57,7 +57,7 @@
     "react-native-vision-camera": "5.2.3",
     "react-native-vision-camera-resizer": "5.0.11",
     "react-native-vision-camera-worklets": "^5.2.3",
-    "react-native-worklets-core": "^1.6.3",
+    "react-native-worklets": "0.10.4",
     "react-native-nitro-modules": "0.37.0",
     "react-native-nitro-image": "*"
   },
@@ -78,7 +78,7 @@
         "@shopify/react-native-skia",
         "react-native-fast-tflite",
         "react-native-vision-camera",
-        "react-native-worklets-core",
+        "react-native-worklets",
         "vision-camera-resize-plugin"
       ]
     }

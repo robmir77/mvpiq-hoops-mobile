@@ -8,7 +8,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useFrameOutput } from 'react-native-vision-camera'
 import { useResizer } from 'react-native-vision-camera-resizer'
-import { Worklets } from 'react-native-worklets-core'
+import { scheduleOnRN } from 'react-native-worklets'
 import { useTensorflowModel } from 'react-native-fast-tflite'
 import type { Frame } from 'react-native-vision-camera'
 import { parseYoloOutput, setCropParameters } from './yoloParser'
@@ -39,10 +39,12 @@ export const useYoloDetector = (
     scaleMode: 'contain',
   })
   
-  // Create runOnJS callback - receives ONLY BallDetection (coordinates)
-  const onDetectionJS = (Worklets.createRunOnJS as any)((detection: BallDetection) => {
+  // Receives ONLY BallDetection (coordinates); scheduled onto the RN Runtime
+  // from inside the worklet below via scheduleOnRN, no pre-wrapping needed.
+  const emitDetection = useCallback((detection: BallDetection) => {
     onDetectionRef.current(detection)
-  })
+  }, [])
+
   
   // Frame output - runs YOLO entirely in worklet
   const frameOutput = useFrameOutput({
@@ -84,7 +86,7 @@ export const useYoloDetector = (
         const { ball } = parseYoloOutput(output, 0.01, frameWidth, frameHeight)
         
         // Send ONLY coordinates to JS thread - ZERO image data
-        onDetectionJS({
+        scheduleOnRN(emitDetection, {
           ball: ball ? {
             x: ball.x,
             y: ball.y,
