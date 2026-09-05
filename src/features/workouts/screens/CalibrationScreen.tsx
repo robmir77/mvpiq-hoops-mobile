@@ -14,7 +14,7 @@ import Svg, {
     Circle, Line, Polygon, Rect, Path, Defs,
     LinearGradient, Stop, G, Text as SvgText, Ellipse,
 } from 'react-native-svg'
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
+import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData, CourtType } from '../types/workouts.types'
 import { saveCourtCalibration } from '../api/workouts.api'
@@ -60,7 +60,7 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
 
     const line = (p1: Point, p2: Point, color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+              stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Arco 3pt in prospettiva (approssimato con segmenti)
@@ -104,10 +104,10 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
             {/* Arco 3pt */}
             {arc3pts.map((p, i) => i > 0 && (
                 <Line key={i}
-                    x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
-                    x2={p.x} y2={p.y}
-                    stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
-                    strokeDasharray="5,3" />
+                      x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
+                      x2={p.x} y2={p.y}
+                      stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
+                      strokeDasharray="5,3" />
             ))}
 
             {/* Tabellone */}
@@ -133,24 +133,24 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
 
             {/* Labels */}
             <SvgText x={W * 0.71} y={H * 0.23} textAnchor="middle"
-                fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                     fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.46} y={H * 0.67} textAnchor="middle"
-                fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
+                     fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
             <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle"
-                fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
+                     fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
 
             {/* Ghost hoop quando non ancora toccato */}
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
+                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                            strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
+                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                            strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -195,7 +195,7 @@ const Overlay45Full = ({ hoopCenter, corners, step }: {
 
     const line = (p1: Point, p2: Point, color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+              stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Arco 3pt in prospettiva (approssimato con segmenti)
@@ -240,10 +240,10 @@ const Overlay45Full = ({ hoopCenter, corners, step }: {
             {/* Arco 3pt */}
             {arc3pts.map((p, i) => i > 0 && (
                 <Line key={i}
-                    x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
-                    x2={p.x} y2={p.y}
-                    stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
-                    strokeDasharray="5,3" />
+                      x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
+                      x2={p.x} y2={p.y}
+                      stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
+                      strokeDasharray="5,3" />
             ))}
 
             {/* Linea centro campo */}
@@ -272,26 +272,26 @@ const Overlay45Full = ({ hoopCenter, corners, step }: {
 
             {/* Labels */}
             <SvgText x={W * 0.71} y={H * 0.23} textAnchor="middle"
-                fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                     fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.46} y={H * 0.67} textAnchor="middle"
-                fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
+                     fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
             <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle"
-                fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
+                     fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.50} y={H * 0.14} textAnchor="middle"
-                fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
+                     fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
 
             {/* Ghost hoop quando non ancora toccato */}
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
+                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                            strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
+                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                            strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -313,9 +313,9 @@ const OverlayLateral = ({ hoopCenter, corners, step }: {
     const poleTop = H * 0.10
 
     const line = (x1: number, y1: number, x2: number, y2: number,
-        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+              stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Traiettoria parabola del tiro (arco)
@@ -362,51 +362,51 @@ const OverlayLateral = ({ hoopCenter, corners, step }: {
             {line(poleX - W * 0.025, H * 0.35, poleX + W * 0.010, H * 0.35,
                 'rgba(255,120,0,0.55)', 2.5)}
             <Ellipse cx={poleX - W * 0.010} cy={H * 0.355}
-                rx={W * 0.022} ry={H * 0.010}
-                fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
+                     rx={W * 0.022} ry={H * 0.010}
+                     fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
 
             {/* Rete (semplificata) */}
             {[0, 0.008, -0.008, 0.016, -0.016].map((dx, i) => (
                 <Line key={i}
-                    x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
-                    x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
-                    stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
+                      x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
+                      x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
+                      stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
             ))}
 
             {/* Traiettoria tiro (arco tratteggiato arancione) */}
             <Path d={arcPath}
-                fill="none" stroke="rgba(255,140,0,0.35)"
-                strokeWidth={1.5} strokeDasharray="6,4" />
+                  fill="none" stroke="rgba(255,140,0,0.35)"
+                  strokeWidth={1.5} strokeDasharray="6,4" />
             {/* Freccia sulla traiettoria */}
             <SvgText x={W * 0.44} y={H * 0.12} textAnchor="middle"
-                fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
+                     fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
 
             {/* Zona di tiro (rettangolo semitrasparente) */}
             <Rect x={W * 0.01} y={H * 0.75} width={W * 0.38} height={H * 0.13}
-                fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
-                strokeWidth={1} strokeDasharray="4,3" />
+                  fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
+                  strokeWidth={1} strokeDasharray="4,3" />
 
             {/* Labels */}
             <SvgText x={poleX} y={H * 0.06} textAnchor="middle"
-                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.28} y={H * 0.72} textAnchor="middle"
-                fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
+                     fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
             <SvgText x={W * 0.06} y={H * 0.72} textAnchor="middle"
-                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
+                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
-                fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
+                     fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
 
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
+                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                            strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
+                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                            strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -428,9 +428,9 @@ const OverlayLateralFull = ({ hoopCenter, corners, step }: {
     const poleTop = H * 0.10
 
     const line = (x1: number, y1: number, x2: number, y2: number,
-        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+              stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Traiettoria parabola del tiro (arco)
@@ -479,53 +479,53 @@ const OverlayLateralFull = ({ hoopCenter, corners, step }: {
             {line(poleX - W * 0.025, H * 0.35, poleX + W * 0.010, H * 0.35,
                 'rgba(255,120,0,0.55)', 2.5)}
             <Ellipse cx={poleX - W * 0.010} cy={H * 0.355}
-                rx={W * 0.022} ry={H * 0.010}
-                fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
+                     rx={W * 0.022} ry={H * 0.010}
+                     fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
 
             {/* Rete (semplificata) */}
             {[0, 0.008, -0.008, 0.016, -0.016].map((dx, i) => (
                 <Line key={i}
-                    x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
-                    x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
-                    stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
+                      x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
+                      x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
+                      stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
             ))}
 
             {/* Traiettoria tiro (arco tratteggiato arancione) */}
             <Path d={arcPath}
-                fill="none" stroke="rgba(255,140,0,0.35)"
-                strokeWidth={1.5} strokeDasharray="6,4" />
+                  fill="none" stroke="rgba(255,140,0,0.35)"
+                  strokeWidth={1.5} strokeDasharray="6,4" />
             {/* Freccia sulla traiettoria */}
             <SvgText x={W * 0.44} y={H * 0.12} textAnchor="middle"
-                fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
+                     fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
 
             {/* Zona di tiro (rettangolo semitrasparente) */}
             <Rect x={W * 0.01} y={H * 0.75} width={W * 0.38} height={H * 0.13}
-                fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
-                strokeWidth={1} strokeDasharray="4,3" />
+                  fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
+                  strokeWidth={1} strokeDasharray="4,3" />
 
             {/* Labels */}
             <SvgText x={poleX} y={H * 0.06} textAnchor="middle"
-                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.28} y={H * 0.72} textAnchor="middle"
-                fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
+                     fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
             <SvgText x={W * 0.06} y={H * 0.72} textAnchor="middle"
-                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
+                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
-                fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
+                     fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle"
-                fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
+                     fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
 
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
+                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                            strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
+                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                            strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -543,9 +543,9 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
     const ghostHoop = { x: W * 0.50, y: H * 0.30 }
 
     const line = (x1: number, y1: number, x2: number, y2: number,
-        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+              stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Paint simmetrico
@@ -573,7 +573,7 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
 
             {/* Paint */}
             <Rect x={paintL} y={paintTop} width={paintR - paintL} height={paintBot - paintTop}
-                fill="url(#paintFillF)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
+                  fill="url(#paintFillF)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
 
             {/* Linea di fondo */}
             {line(W * 0.01, H * 0.87, W * 0.99, H * 0.87)}
@@ -584,64 +584,64 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
 
             {/* Arco 3pt */}
             <Path d={arc3Path} fill="none"
-                stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
+                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
             {/* Linee corner 3pt */}
             {line(W * 0.04, H * 0.65, W * 0.04, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
             {line(W * 0.96, H * 0.65, W * 0.96, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
 
             {/* Semicerchio tiro libero */}
             <Path d={ftArc} fill="none"
-                stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
+                  stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
 
             {/* Palo canestro */}
             {line(W * 0.50, H * 0.87, W * 0.50, H * 0.46, 'rgba(255,255,255,0.18)', 2.5)}
 
             {/* Tabellone */}
             <Rect x={W * 0.33} y={H * 0.10}
-                width={W * 0.34} height={H * 0.14}
-                fill="rgba(255,255,255,0.06)"
-                stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
+                  width={W * 0.34} height={H * 0.14}
+                  fill="rgba(255,255,255,0.06)"
+                  stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
             {/* Rettangolo mira */}
             <Rect x={W * 0.39} y={H * 0.147}
-                width={W * 0.22} height={H * 0.065}
-                fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
+                  width={W * 0.22} height={H * 0.065}
+                  fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
 
             {/* Ferro canestro — ellisse frontale */}
             <Ellipse cx={W * 0.50} cy={H * 0.305}
-                rx={W * 0.065} ry={H * 0.018}
-                fill="rgba(255,100,0,0.08)"
-                stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
+                     rx={W * 0.065} ry={H * 0.018}
+                     fill="rgba(255,100,0,0.08)"
+                     stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
             {/* Rete */}
             {[-0.04, -0.02, 0, 0.02, 0.04].map((dx, i) => (
                 <Line key={i}
-                    x1={W * 0.50 + W * dx} y1={H * 0.318}
-                    x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
-                    stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+                      x1={W * 0.50 + W * dx} y1={H * 0.318}
+                      x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
+                      stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
             ))}
             <Line x1={W * 0.46} y1={H * 0.385} x2={W * 0.54} y2={H * 0.385}
-                stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+                  stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
 
             {/* Labels */}
             <SvgText x={W * 0.50} y={H * 0.07} textAnchor="middle"
-                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.50} y={H * 0.66} textAnchor="middle"
-                fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
+                     fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
             <SvgText x={W * 0.10} y={H * 0.60} textAnchor="middle"
-                fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
+                     fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
-                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
+                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
 
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={36}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
+                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                            strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={20}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
+                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                            strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 44} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -659,9 +659,9 @@ const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
     const ghostHoop = { x: W * 0.50, y: H * 0.30 }
 
     const line = (x1: number, y1: number, x2: number, y2: number,
-        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke={color} strokeWidth={w} strokeDasharray={dash} />
+              stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Paint simmetrico
@@ -689,7 +689,7 @@ const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
 
             {/* Paint */}
             <Rect x={paintL} y={paintTop} width={paintR - paintL} height={paintBot - paintTop}
-                fill="url(#paintFillFFull)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
+                  fill="url(#paintFillFFull)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
 
             {/* Linea di fondo */}
             {line(W * 0.01, H * 0.87, W * 0.99, H * 0.87)}
@@ -703,66 +703,66 @@ const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
 
             {/* Arco 3pt */}
             <Path d={arc3Path} fill="none"
-                stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
+                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
             {/* Linee corner 3pt */}
             {line(W * 0.04, H * 0.65, W * 0.04, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
             {line(W * 0.96, H * 0.65, W * 0.96, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
 
             {/* Semicerchio tiro libero */}
             <Path d={ftArc} fill="none"
-                stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
+                  stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
 
             {/* Palo canestro */}
             {line(W * 0.50, H * 0.87, W * 0.50, H * 0.46, 'rgba(255,255,255,0.18)', 2.5)}
 
             {/* Tabellone */}
             <Rect x={W * 0.33} y={H * 0.10}
-                width={W * 0.34} height={H * 0.14}
-                fill="rgba(255,255,255,0.06)"
-                stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
+                  width={W * 0.34} height={H * 0.14}
+                  fill="rgba(255,255,255,0.06)"
+                  stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
             {/* Rettangolo mira */}
             <Rect x={W * 0.39} y={H * 0.147}
-                width={W * 0.22} height={H * 0.065}
-                fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
+                  width={W * 0.22} height={H * 0.065}
+                  fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
 
             {/* Ferro canestro — ellisse frontale */}
             <Ellipse cx={W * 0.50} cy={H * 0.305}
-                rx={W * 0.065} ry={H * 0.018}
-                fill="rgba(255,100,0,0.08)"
-                stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
+                     rx={W * 0.065} ry={H * 0.018}
+                     fill="rgba(255,100,0,0.08)"
+                     stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
             {/* Rete */}
             {[-0.04, -0.02, 0, 0.02, 0.04].map((dx, i) => (
                 <Line key={i}
-                    x1={W * 0.50 + W * dx} y1={H * 0.318}
-                    x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
-                    stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+                      x1={W * 0.50 + W * dx} y1={H * 0.318}
+                      x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
+                      stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
             ))}
             <Line x1={W * 0.46} y1={H * 0.385} x2={W * 0.54} y2={H * 0.385}
-                stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+                  stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
 
             {/* Labels */}
             <SvgText x={W * 0.50} y={H * 0.07} textAnchor="middle"
-                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.50} y={H * 0.66} textAnchor="middle"
-                fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
+                     fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
             <SvgText x={W * 0.10} y={H * 0.60} textAnchor="middle"
-                fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
+                     fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
-                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
+                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle"
-                fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
+                     fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
 
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={36}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
+                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                            strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={20}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
+                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                            strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 44} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -775,15 +775,15 @@ const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
 const HoopConfirmed = ({ p }: { p: Point }) => (
     <G>
         <Circle cx={p.x} cy={p.y} r={28}
-            fill="rgba(255,140,0,0.15)" stroke="#ff8c00" strokeWidth={2.5} />
+                fill="rgba(255,140,0,0.15)" stroke="#ff8c00" strokeWidth={2.5} />
         <Circle cx={p.x} cy={p.y} r={6} fill="#ff8c00" />
         {[[-36, 0, -24, 0], [24, 0, 36, 0], [0, -36, 0, -24], [0, 24, 0, 36]].map(([x1, y1, x2, y2], i) => (
             <Line key={i}
-                x1={p.x + x1} y1={p.y + y1} x2={p.x + x2} y2={p.y + y2}
-                stroke="#ff8c00" strokeWidth={2} />
+                  x1={p.x + x1} y1={p.y + y1} x2={p.x + x2} y2={p.y + y2}
+                  stroke="#ff8c00" strokeWidth={2} />
         ))}
         <SvgText x={p.x} y={p.y - 38} textAnchor="middle"
-            fill="#ff8c00" fontSize={11} fontWeight="700">✓ Canestro</SvgText>
+                 fill="#ff8c00" fontSize={11} fontWeight="700">✓ Canestro</SvgText>
     </G>
 )
 
@@ -801,10 +801,10 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
             {corners.map((c, i) => (
                 <G key={i}>
                     <Circle cx={c.x} cy={c.y} r={16}
-                        fill="rgba(74,222,128,0.20)" stroke="#4ade80" strokeWidth={2} />
+                            fill="rgba(74,222,128,0.20)" stroke="#4ade80" strokeWidth={2} />
                     <Circle cx={c.x} cy={c.y} r={4} fill="#4ade80" />
                     <SvgText x={c.x} y={c.y - 22} textAnchor="middle"
-                        fill="#4ade80" fontSize={13}>
+                             fill="#4ade80" fontSize={13}>
                         {['↖', '↗', '↘', '↙'][i]}
                     </SvgText>
                 </G>
@@ -813,13 +813,13 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
             {corners.length > 1 && corners.map((c, i) => {
                 if (i === 0) return null
                 return <Line key={i}
-                    x1={corners[i - 1].x} y1={corners[i - 1].y} x2={c.x} y2={c.y}
-                    stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
+                             x1={corners[i - 1].x} y1={corners[i - 1].y} x2={c.x} y2={c.y}
+                             stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
             })}
             {corners.length === 4 && (
                 <Line x1={corners[3].x} y1={corners[3].y}
-                    x2={corners[0].x} y2={corners[0].y}
-                    stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
+                      x2={corners[0].x} y2={corners[0].y}
+                      stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
             )}
             {/* Ghost angolo successivo */}
             {step === 'corners' && corners.length < 4 && (() => {
@@ -827,10 +827,10 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
                 return (
                     <G>
                         <Circle cx={gc.x} cy={gc.y} r={18}
-                            fill="rgba(74,222,128,0.07)" stroke="rgba(74,222,128,0.38)"
-                            strokeWidth={1.5} strokeDasharray="4,3" />
+                                fill="rgba(74,222,128,0.07)" stroke="rgba(74,222,128,0.38)"
+                                strokeWidth={1.5} strokeDasharray="4,3" />
                         <SvgText x={gc.x} y={gc.y - 26} textAnchor="middle"
-                            fill="rgba(74,222,128,0.65)" fontSize={10} fontWeight="600">
+                                 fill="rgba(74,222,128,0.65)" fontSize={10} fontWeight="600">
                             👆 angolo {corners.length + 1}
                         </SvgText>
                     </G>
@@ -886,75 +886,66 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const device = useCameraDevice('back')
 
     // Camera configuration state
-    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number }>({ width: 1280, height: 720 })
-    const [selectedFps, setSelectedFps] = useState(30)
-    const [showConfigPanel, setShowConfigPanel] = useState(false)
     const isActive = true
-    const cameraRef = useRef<Camera>(null)
-    const MIN_CAMERA_RESOLUTION = 416
+    const cameraRef = useRef<CameraRef>(null)
+    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(null)
+    const [selectedFps, setSelectedFps] = useState<number | null>(null)
+    const [showConfigPanel, setShowConfigPanel] = useState(false)
+
+    // Get available resolutions and FPS from device
+    const availableResolutions = React.useMemo(() => {
+        if (!device) return []
+        try {
+            const resolutions = device.getSupportedResolutions('video')
+            console.log('[Calibration] Available resolutions:', resolutions)
+            if (resolutions && resolutions.length > 0) return resolutions
+        } catch (e) {
+            console.warn('[Calibration] Error getting resolutions:', e)
+        }
+        // Fallback to common resolutions
+        return [
+            { width: 3840, height: 2160 }, // 4K
+            { width: 1920, height: 1080 }, // 1080p
+            { width: 1280, height: 720 },  // 720p
+            { width: 640, height: 480 },   // 480p
+        ]
+    }, [device])
+
+    const availableFpsRanges = React.useMemo(() => {
+        if (!device) return []
+        try {
+            const fpsRanges = device.supportedFPSRanges
+            console.log('[Calibration] Available FPS ranges:', fpsRanges)
+            if (fpsRanges && fpsRanges.length > 0) return fpsRanges
+        } catch (e) {
+            console.warn('[Calibration] Error getting FPS ranges:', e)
+        }
+        // Fallback to common FPS values
+        return [
+            { min: 60, max: 60 },
+            { min: 30, max: 30 },
+            { min: 24, max: 24 },
+            { min: 15, max: 15 },
+        ]
+    }, [device])
+
+    // Build constraints based on selection
+    const constraints = React.useMemo(() => {
+        const constraints: any[] = []
+        if (selectedFps !== null) {
+            constraints.push({ fps: selectedFps })
+        }
+        // Resolution constraint requires a video output, skip for now
+        // if (selectedResolution !== null) {
+        //     constraints.push({ targetResolution: selectedResolution })
+        // }
+        return constraints
+    }, [selectedFps])
 
     // Zoom handling with VisionCamera
     const minZoom = device?.minZoom ?? 1
     const maxZoom = Math.min(device?.maxZoom ?? 5, 5)
     const [zoom, setZoom] = useState(minZoom)
-
-    useEffect(() => {
-        setZoom(prev => {
-            const clamped = Math.min(maxZoom, Math.max(minZoom, prev))
-            return Math.abs(clamped - prev) < 0.001 ? prev : clamped
-        })
-    }, [minZoom, maxZoom])
-
-    // Get available resolutions from device formats
-    const uniqueResolutions = React.useMemo(() => {
-        if (!device?.formats) return []
-        const resolutions = new Map<string, { width: number; height: number }>()
-        device.formats.forEach((fmt) => {
-            if (Math.min(fmt.videoWidth, fmt.videoHeight) < MIN_CAMERA_RESOLUTION) return
-            const key = `${fmt.videoWidth}x${fmt.videoHeight}`
-            if (!resolutions.has(key)) {
-                resolutions.set(key, { width: fmt.videoWidth, height: fmt.videoHeight })
-            }
-        })
-        return Array.from(resolutions.values()).sort((a, b) => (b.width * b.height) - (a.width * a.height))
-    }, [device])
-
-    const uniqueFps = React.useMemo<number[]>(() => {
-        if (!device?.formats) return []
-        const fpsSet = new Set<number>()
-        device.formats.forEach((fmt) => {
-            if (fmt.minFps) fpsSet.add(Math.round(fmt.minFps))
-            if (fmt.maxFps) fpsSet.add(Math.round(fmt.maxFps))
-        })
-        return Array.from(fpsSet).filter((fps) => fps > 0).sort((a, b) => b - a)
-    }, [device])
-
-    // Select best format matching selected resolution
-    const selectedFormat = React.useMemo(() => {
-        if (!device?.formats || !selectedResolution) return undefined
-        return device.formats.find(
-            f => f.videoWidth === selectedResolution.width && f.videoHeight === selectedResolution.height
-        )
-    }, [device, selectedResolution])
-
-    const validFps = React.useMemo(() => {
-        if (!selectedFormat) return undefined
-        if (selectedFps >= selectedFormat.minFps && selectedFps <= selectedFormat.maxFps) {
-            return selectedFps
-        }
-        return selectedFormat.maxFps
-    }, [selectedFormat, selectedFps])
-
-    // Set default to 1280x720 for better performance
-    React.useEffect(() => {
-        if (uniqueResolutions.length > 0) {
-            const preferred = uniqueResolutions.find(r => r.width === 1280 && r.height === 720)
-            setSelectedResolution(preferred || uniqueResolutions[0])
-        }
-        if (uniqueFps.length > 0) {
-            setSelectedFps(uniqueFps[uniqueFps.length - 1]) // Lowest FPS
-        }
-    }, [uniqueResolutions, uniqueFps])
 
     const [step, setStep] = useState<CalibStep>('hoop')
     const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
@@ -1025,8 +1016,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
             await saveCourtCalibration(sessionId, user.id, cal)
             setSavedCalibration(cal)
             showSuccess('✓ Calibrazione salvata', 'Puoi procedere con la sessione')
-        } catch (e: any) {
-            showError('Errore', e.message || 'Impossibile salvare')
+        } catch (e: unknown) {
+            showError('Errore', e instanceof Error ? e.message : 'Impossibile salvare')
         } finally {
             setIsSaving(false)
         }
@@ -1098,9 +1089,13 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive}
                     zoom={zoom}
-                    format={selectedFormat}
-                    fps={validFps}
-                    onError={(error) => {
+                    constraints={constraints}
+                    onError={(error: any) => {
+                        // Race condition nota: setZoomRatio chiamato prima che la sessione
+                        // CameraX sia attiva o concorrente. Transitorio e innocuo, non loggarlo.
+                        const msg = error?.message || error?.cause?.message || ''
+                        if (msg.includes('Camera is not active')) return
+                        if (msg.includes('Cancelled due to another zoom value being set')) return
                         console.warn('[Calibration] Camera error:', error)
                     }}
                 />
@@ -1109,6 +1104,108 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     corners={corners}
                     step={step}
                 />
+                {/* Camera config button */}
+                <TouchableOpacity
+                    style={styles.configButton}
+                    onPress={() => setShowConfigPanel(!showConfigPanel)}
+                >
+                    <Text style={styles.configButtonText}>⚙️</Text>
+                </TouchableOpacity>
+
+                {/* Camera config panel */}
+                {showConfigPanel && (
+                    <View style={styles.configPanel}>
+                        <Text style={styles.configPanelTitle}>Configurazione Camera</Text>
+
+                        {/* Resolution selector */}
+                        <View style={styles.configSection}>
+                            <Text style={styles.configLabel}>Risoluzione</Text>
+                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
+                                <View style={styles.configOptions}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.configOption,
+                                            selectedResolution === null && styles.configOptionSelected
+                                        ]}
+                                        onPress={() => setSelectedResolution(null)}
+                                    >
+                                        <Text style={[
+                                            styles.configOptionText,
+                                            selectedResolution === null && styles.configOptionTextSelected
+                                        ]}>
+                                            Auto
+                                        </Text>
+                                    </TouchableOpacity>
+                                    {availableResolutions.map((res) => (
+                                        <TouchableOpacity
+                                            key={`${res.width}x${res.height}`}
+                                            style={[
+                                                styles.configOption,
+                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionSelected
+                                            ]}
+                                            onPress={() => setSelectedResolution(res)}
+                                        >
+                                            <Text style={[
+                                                styles.configOptionText,
+                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionTextSelected
+                                            ]}>
+                                                {res.width}x{res.height}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </ScrollView>
+                        </View>
+
+                        {/* FPS selector */}
+                        <View style={styles.configSection}>
+                            <Text style={styles.configLabel}>FPS</Text>
+                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
+                                <View style={styles.configOptions}>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.configOption,
+                                            selectedFps === null && styles.configOptionSelected
+                                        ]}
+                                        onPress={() => setSelectedFps(null)}
+                                    >
+                                        <Text style={[
+                                            styles.configOptionText,
+                                            selectedFps === null && styles.configOptionTextSelected
+                                        ]}>
+                                            Auto
+                                        </Text>
+                                    </TouchableOpacity>
+                                    {availableFpsRanges.map((range) => (
+                                        <TouchableOpacity
+                                            key={`${range.min}-${range.max}`}
+                                            style={[
+                                                styles.configOption,
+                                                selectedFps === range.max && styles.configOptionSelected
+                                            ]}
+                                            onPress={() => setSelectedFps(range.max)}
+                                        >
+                                            <Text style={[
+                                                styles.configOptionText,
+                                                selectedFps === range.max && styles.configOptionTextSelected
+                                            ]}>
+                                                {range.max}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </ScrollView>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.closeConfigButton}
+                            onPress={() => setShowConfigPanel(false)}
+                        >
+                            <Text style={styles.closeConfigButtonText}>Chiudi</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 {/* Crosshair sottile */}
                 <View style={styles.guideH} pointerEvents="none" />
                 <View style={styles.guideV} pointerEvents="none" />
@@ -1123,27 +1220,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     </Text>
                 </View>
 
-                {/* Zoom controls */}
-                <View style={styles.zoomControls}>
-                    <TouchableOpacity
-                        style={styles.zoomBtn}
-                        onPress={handleZoomOut}
-                        disabled={zoom <= minZoom}
-                    >
-                        <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
-                    </TouchableOpacity>
-                    <View style={styles.zoomIndicator}>
-                        <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
-                    </View>
-                    <TouchableOpacity
-                        style={styles.zoomBtn}
-                        onPress={handleZoomIn}
-                        disabled={zoom >= maxZoom}
-                    >
-                        <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
-                    </TouchableOpacity>
-                </View>
-
                 {/* Camera config button */}
                 <TouchableOpacity
                     style={styles.configBtn}
@@ -1155,71 +1231,121 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 {/* Camera config panel */}
                 {showConfigPanel && (
                     <View style={[styles.configPanel, { bottom: 12 }]}>
-                        <ScrollView
-                            style={styles.configPanelScroll}
-                            contentContainerStyle={styles.configPanelContent}
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
-                        >
-                            <Text style={styles.configPanelTitle}>Configurazione Camera</Text>
+                        <Text style={styles.configPanelTitle}>Configurazione Camera</Text>
 
-                            {/* Resolution selector */}
-                            <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>Risoluzione</Text>
+                        {/* Zoom controls */}
+                        <View style={styles.configSection}>
+                            <Text style={styles.configLabel}>Zoom</Text>
+                            <View style={styles.zoomRow}>
+                                <TouchableOpacity
+                                    style={styles.zoomBtn}
+                                    onPress={handleZoomOut}
+                                    disabled={zoom <= minZoom}
+                                >
+                                    <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
+                                </TouchableOpacity>
+                                <View style={styles.zoomIndicator}>
+                                    <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
+                                </View>
+                                <TouchableOpacity
+                                    style={styles.zoomBtn}
+                                    onPress={handleZoomIn}
+                                    disabled={zoom >= maxZoom}
+                                >
+                                    <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {/* Resolution selector */}
+                        <View style={styles.configSection}>
+                            <Text style={styles.configLabel}>Risoluzione</Text>
+                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
                                 <View style={styles.configOptions}>
-                                    {uniqueResolutions.map((res) => (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.configOption,
+                                            selectedResolution === null && styles.configOptionSelected
+                                        ]}
+                                        onPress={() => setSelectedResolution(null)}
+                                    >
+                                        <Text style={[
+                                            styles.configOptionText,
+                                            selectedResolution === null && styles.configOptionTextSelected
+                                        ]}>
+                                            Auto
+                                        </Text>
+                                    </TouchableOpacity>
+                                    {availableResolutions.map((res) => (
                                         <TouchableOpacity
                                             key={`${res.width}x${res.height}`}
                                             style={[
                                                 styles.configOption,
-                                                selectedResolution.width === res.width && selectedResolution.height === res.height && styles.configOptionSelected
+                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionSelected
                                             ]}
                                             onPress={() => setSelectedResolution(res)}
                                         >
                                             <Text style={[
                                                 styles.configOptionText,
-                                                selectedResolution.width === res.width && selectedResolution.height === res.height && styles.configOptionTextSelected
+                                                selectedResolution?.width === res.width && selectedResolution?.height === res.height && styles.configOptionTextSelected
                                             ]}>
                                                 {res.width}x{res.height}
                                             </Text>
                                         </TouchableOpacity>
                                     ))}
                                 </View>
-                            </View>
+                            </ScrollView>
+                        </View>
 
-                            {/* FPS selector */}
-                            <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>FPS</Text>
+                        {/* FPS selector */}
+                        <View style={styles.configSection}>
+                            <Text style={styles.configLabel}>FPS</Text>
+                            <ScrollView style={styles.configScroll} horizontal showsHorizontalScrollIndicator={false}>
                                 <View style={styles.configOptions}>
-                                    {uniqueFps.map((fps) => (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.configOption,
+                                            selectedFps === null && styles.configOptionSelected
+                                        ]}
+                                        onPress={() => setSelectedFps(null)}
+                                    >
+                                        <Text style={[
+                                            styles.configOptionText,
+                                            selectedFps === null && styles.configOptionTextSelected
+                                        ]}>
+                                            Auto
+                                        </Text>
+                                    </TouchableOpacity>
+                                    {availableFpsRanges.map((range) => (
                                         <TouchableOpacity
-                                            key={fps}
+                                            key={`${range.min}-${range.max}`}
                                             style={[
                                                 styles.configOption,
-                                                selectedFps === fps && styles.configOptionSelected
+                                                selectedFps === range.max && styles.configOptionSelected
                                             ]}
-                                            onPress={() => setSelectedFps(fps)}
+                                            onPress={() => setSelectedFps(range.max)}
                                         >
                                             <Text style={[
                                                 styles.configOptionText,
-                                                selectedFps === fps && styles.configOptionTextSelected
+                                                selectedFps === range.max && styles.configOptionTextSelected
                                             ]}>
-                                                {fps}
+                                                {range.max}
                                             </Text>
                                         </TouchableOpacity>
                                     ))}
                                 </View>
-                            </View>
+                            </ScrollView>
+                        </View>
 
-                            <TouchableOpacity
-                                style={styles.configCloseBtn}
-                                onPress={() => setShowConfigPanel(false)}
-                            >
-                                <Text style={styles.configCloseBtnText}>Chiudi</Text>
-                            </TouchableOpacity>
-                        </ScrollView>
+                        <TouchableOpacity
+                            style={styles.closeConfigButton}
+                            onPress={() => setShowConfigPanel(false)}
+                        >
+                            <Text style={styles.closeConfigButtonText}>Chiudi</Text>
+                        </TouchableOpacity>
                     </View>
                 )}
+
             </View>
 
             {/* Pannello info */}
@@ -1366,6 +1492,12 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '700',
     },
+    zoomRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+    },
     configBtn: {
         position: 'absolute',
         left: 16,
@@ -1394,7 +1526,7 @@ const styles = StyleSheet.create({
         padding: 16,
         borderWidth: 1,
         borderColor: '#2a2a2a',
-        overflow: 'hidden',
+        zIndex: 1000,
     },
     configPanelScroll: {
         flex: 1,
@@ -1441,6 +1573,39 @@ const styles = StyleSheet.create({
     },
     configOptionTextSelected: {
         color: '#ff8c00',
+    },
+    configButton: {
+        position: 'absolute',
+        top: 16,
+        right: 16,
+        backgroundColor: 'rgba(18,24,38,0.8)',
+        borderRadius: 20,
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#2a2a2a',
+        zIndex: 100,
+    },
+    configButtonText: {
+        fontSize: 18,
+    },
+    configScroll: {
+        marginBottom: 8,
+    },
+    closeConfigButton: {
+        marginTop: 12,
+        backgroundColor: '#2a2a2a',
+        borderRadius: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        alignItems: 'center',
+    },
+    closeConfigButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '600',
     },
     configCloseBtn: {
         marginTop: 8,

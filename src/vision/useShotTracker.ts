@@ -6,8 +6,9 @@
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { Platform } from 'react-native'
-import { useFrameProcessor, type Frame } from 'react-native-vision-camera'
-import { useResizePlugin } from 'vision-camera-resize-plugin'
+import { useFrameOutput } from 'react-native-vision-camera'
+import type { Frame } from 'react-native-vision-camera'
+import { useResizer } from 'react-native-vision-camera-resizer'
 import { Worklets, useSharedValue } from 'react-native-worklets-core'
 import { useTensorflowModel } from 'react-native-fast-tflite'
 import { parseYoloOutput } from './yoloParser'
@@ -51,7 +52,7 @@ export const useShotTracker = (
   const RIM_CONFIDENCE_THRESHOLD = 0.15
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.02)
+  const adaptiveThreshold = useSharedValue(0.25)
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
   const TARGET_DETECTION_RATE = 0.15
   const ADAPTATION_WINDOW_MS = 2000
@@ -69,7 +70,7 @@ export const useShotTracker = (
     []
   )
   const poseDelegates = useMemo(
-    () => (Platform.OS === 'android' ? ['android-gpu'] : Platform.OS === 'ios' ? ['core-ml'] : []),
+    () => (Platform.OS === 'android' ? ['nnapi'] : Platform.OS === 'ios' ? ['core-ml'] : []),
     []
   )
   const yoloModel = useTensorflowModel(
@@ -130,9 +131,9 @@ export const useShotTracker = (
 
       const adjustment = 0.005
       if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
-        adaptiveThreshold.value = Math.min(0.06, adaptiveThreshold.value + adjustment)
+        adaptiveThreshold.value = Math.min(0.15, adaptiveThreshold.value + adjustment)
       } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
-        adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
+        adaptiveThreshold.value = Math.max(0.015, adaptiveThreshold.value - adjustment)
       }
 
       console.log('[AdaptiveThreshold] Rate:', detectionRate.toFixed(2), 'Threshold:', adaptiveThreshold.value.toFixed(3))
@@ -215,197 +216,120 @@ export const useShotTracker = (
     onPoseResultRef.current(result)
   }, [])
 
-  const logFirstFrame = useCallback((width: number, height: number) => {
-    console.log('[ShotTracker] First frame received:', width, 'x', height)
-    console.log('[ShotTracker] Frame aspect ratio:', (width / height).toFixed(2))
-  }, [])
-
-  const logModelNotReady = useCallback(() => {
-    console.log('[ShotTracker] YOLO model not ready, skipping frame')
-  }, [])
-
-  const logInvalidFrame = useCallback((width: number, height: number) => {
-    console.log('[ShotTracker] Invalid frame dimensions:', width, height)
-  }, [])
-
-  const logBallDetected = useCallback((confidence: number, x: number, y: number) => {
-    console.log('[ShotTracker] Ball detected! conf:', confidence.toFixed(2), 'x:', x.toFixed(2), 'y:', y.toFixed(2))
-  }, [])
-
-  const logBallCoordinates = useCallback((ball: any) => {
-    if (ball) {
-      console.log('[ShotTracker] Ball coords - x:', ball.x.toFixed(3), 'y:', ball.y.toFixed(3), 'w:', ball.width.toFixed(3), 'h:', ball.height.toFixed(3))
-    }
-  }, [])
-
-  const logYoloRawOutput = useCallback((cx: number, cy: number, w: number, h: number, conf: number) => {
-    console.log('[ShotTracker] YOLO raw - cx:', cx.toFixed(3), 'cy:', cy.toFixed(3), 'w:', w.toFixed(3), 'h:', h.toFixed(3), 'conf:', conf.toFixed(3))
-  }, [])
-
-  const logYoloError = useCallback((error: string) => {
-    console.log('[ShotTracker] YOLO inference error:', error)
-  }, [])
-
-  const logPoseError = useCallback((error: string) => {
-    console.log('[ShotTracker] Pose inference error:', error)
-  }, [])
-
-  const logFrameError = useCallback((error: string) => {
-    console.log('[ShotTracker] Frame processing error:', error)
-  }, [])
-
-  const logYoloInferenceTime = useCallback((ms: number) => {
-    console.log(`[YOLO] inference: ${ms} ms`)
-  }, [])
 
   // ── Resize plugin (stateless per-call, come nell'architettura originale) ──
-  const { resize } = useResizePlugin()
+  const { resizer: yoloResizer } = useResizer({
+    width: YOLO_INPUT_SIZE,
+    height: YOLO_INPUT_SIZE,
+    channelOrder: 'rgb',
+    dataType: 'float32',
+    pixelLayout: 'planar',
+    scaleMode: 'contain',
+  })
+  const { resizer: poseResizer } = useResizer({
+    width: POSE_INPUT_SIZE,
+    height: POSE_INPUT_SIZE,
+    channelOrder: 'rgb',
+    dataType: 'uint8',
+    pixelLayout: 'interleaved',
+    scaleMode: 'contain',
+  })
 
   // ── Bridge JS thread (react-native-worklets-core, il runtime worklet usato
   //    davvero dai Frame Processor di VisionCamera — NON scheduleOnRN di
   //    react-native-worklets, che è il bridge di Reanimated e vive su un
   //    runtime worklet diverso e incompatibile con questo contesto) ────────
   const jsBridge = useMemo(() => ({
-    logFirstFrame: (Worklets.createRunOnJS as any)(logFirstFrame),
-    logModelNotReady: (Worklets.createRunOnJS as any)(logModelNotReady),
-    logInvalidFrame: (Worklets.createRunOnJS as any)(logInvalidFrame),
-    logBallDetected: (Worklets.createRunOnJS as any)(logBallDetected),
-    logBallCoordinates: (Worklets.createRunOnJS as any)(logBallCoordinates),
-    logYoloRawOutput: (Worklets.createRunOnJS as any)(logYoloRawOutput),
-    logYoloError: (Worklets.createRunOnJS as any)(logYoloError),
-    logPoseError: (Worklets.createRunOnJS as any)(logPoseError),
-    logFrameError: (Worklets.createRunOnJS as any)(logFrameError),
-    logYoloInferenceTime: (Worklets.createRunOnJS as any)(logYoloInferenceTime),
     emitBallDetection: (Worklets.createRunOnJS as any)(emitBallDetection),
     emitPoseResult: (Worklets.createRunOnJS as any)(emitPoseResult),
-  }), [
-    logFirstFrame, logModelNotReady, logInvalidFrame,
-    logBallDetected, logBallCoordinates, logYoloRawOutput,
-    logYoloError, logPoseError, logFrameError, logYoloInferenceTime,
-    emitBallDetection, emitPoseResult,
-  ])
+  }), [emitBallDetection, emitPoseResult])
 
-  // ── Frame Processor (worklet) ─────────────────────────────────────────────
-  const frameProcessor = useFrameProcessor((frame: Frame) => {
-    'worklet'
-
-    try {
-      frameCounter.value = frameCounter.value + 1
-      const frameId = frameCounter.value
-
-      if (frameId === 1) {
-        jsBridge.logFirstFrame(frame.width, frame.height)
-      }
-
-      const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
-      if (!yoloReady) {
-        if (frameId <= 3) jsBridge.logModelNotReady()
-        return
-      }
-
-      if (!ballEnabledShared.value) return
-
-      if (!frame.width || !frame.height || frame.width <= 0 || frame.height <= 0) {
-        jsBridge.logInvalidFrame(frame.width, frame.height)
-        return
-      }
-
-      // ── 1. YOLO ──────────────────────────────────────────────────────────
-      const activeYoloSkip = lastBallDetected.value ? 1 : YOLO_FRAME_SKIP
-      const ranYolo = frameId % activeYoloSkip === 0
-      if (ranYolo) {
-        try {
-          // Resize a YOLO_INPUT_SIZE x YOLO_INPUT_SIZE RGB float32 (HWC)
-          const resized = resize(frame, {
-            scale: { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE },
-            pixelFormat: 'rgb',
-            dataType: 'float32',
-          })
-
-          // Convert HWC → CHW per il modello YOLO
-          const plane = YOLO_INPUT_SIZE * YOLO_INPUT_SIZE
-          const chw = new Float32Array(3 * plane)
-          for (let i = 0; i < plane; i++) {
-            chw[i] = resized[i * 3]
-            chw[plane + i] = resized[i * 3 + 1]
-            chw[plane * 2 + i] = resized[i * 3 + 2]
-          }
-
-          const inferenceStart = Date.now()
-          const yoloOutputs = yoloModel.model!.runSync([chw])
-          const inferenceMs = Date.now() - inferenceStart
-          jsBridge.logYoloInferenceTime(inferenceMs)
-
-          const yoloOutput = yoloOutputs[0] as Float32Array
-
-          const { ball, rim, debug } = parseYoloOutput(
-            yoloOutput,
-            adaptiveThreshold.value,
-            frame.width,
-            frame.height
-          )
-
-          if (debug && frameId % 30 === 0) {
-            jsBridge.logYoloRawOutput(debug.cx, debug.cy, debug.w, debug.h, debug.conf)
-          }
-
-          lastBallDetected.value = ball !== null
-
-          if (ball && frameId % 10 === 0) {
-            jsBridge.logBallDetected(ball.confidence, ball.x, ball.y)
-          }
-          if (ball && frameId % 30 === 0) {
-            jsBridge.logBallCoordinates(ball)
-          }
-
-          jsBridge.emitBallDetection({
-            ball: ball ?? undefined,
-            rim: rim ?? undefined,
-            timestamp: Date.now(),
-          })
-        } catch (error) {
-          jsBridge.logYoloError(String(error))
-        }
-      }
-
-      // ── 2. MoveNet ──────────────────────────────────────────────────────
-      if (!poseEnabledShared.value) return
-      if (frameId % POSE_FRAME_SKIP !== 0) return
-
-      const poseReady = poseModel.state === 'loaded' && poseModel.model != null
-      if (!poseReady) return
+  // ── Frame Output (worklet) ───────────────────────────────────────────────
+  const frameOutput = useFrameOutput({
+    pixelFormat: 'rgb',
+    onFrame: (frame: Frame) => {
+      'worklet'
 
       try {
-        // Resize a POSE_INPUT_SIZE x POSE_INPUT_SIZE RGB uint8 (HWC) - nessuna conversione CHW per MoveNet
-        const poseResized = resize(frame, {
-          scale: { width: POSE_INPUT_SIZE, height: POSE_INPUT_SIZE },
-          pixelFormat: 'rgb',
-          dataType: 'uint8',
-        })
+        if (!enabledShared.value) return
 
-        const poseOutputs = poseModel.model!.runSync([poseResized])
-        const poseOutput = poseOutputs[0] as Float32Array
+        const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
+        const poseReady = poseModel.state === 'loaded' && poseModel.model != null
 
-        const keypoints = parseMoveNetOutput(poseOutput)
-        const angles = computeJointAngles(keypoints as any)
+        if (!yoloReady && !poseReady) {
+          frame.dispose()
+          return
+        }
 
-        jsBridge.emitPoseResult({
-          keypoints,
-          angles,
-          timestamp: Date.now(),
-        })
+        const frameWidth = frame.width
+        const frameHeight = frame.height
+
+        // Run YOLO detection (throttled)
+        if (yoloReady && ballEnabledShared.value) {
+          frameCounter.value += 1
+          if (frameCounter.value % YOLO_FRAME_SKIP === 0) {
+            const yoloResized = yoloResizer?.resize(frame)
+            if (yoloResized) {
+              const arrayBuffer = yoloResized.getPixelBuffer()
+              const buffer = new Float32Array(arrayBuffer)
+              yoloResized.dispose()
+
+              const outputs = yoloModel.model.runSync([buffer])
+              const output = outputs[0] as Float32Array
+
+              const { ball, rim } = parseYoloOutput(output, adaptiveThreshold.value, frameWidth, frameHeight)
+
+              jsBridge.emitBallDetection({
+                ball: ball ? {
+                  x: ball.x,
+                  y: ball.y,
+                  width: ball.width,
+                  height: ball.height,
+                  confidence: ball.confidence,
+                } : undefined,
+                rim: rim ? {
+                  x: rim.x,
+                  y: rim.y,
+                  width: rim.width,
+                  height: rim.height,
+                  confidence: rim.confidence,
+                } : undefined,
+                timestamp: Date.now(),
+              })
+            }
+          }
+        }
+
+        // Run Pose detection (throttled)
+        if (poseReady && poseEnabledShared.value) {
+          if (frameCounter.value % POSE_FRAME_SKIP === 0) {
+            const poseResized = poseResizer?.resize(frame)
+            if (poseResized) {
+              const arrayBuffer = poseResized.getPixelBuffer()
+              const buffer = new Uint8Array(arrayBuffer)
+              poseResized.dispose()
+
+              const outputs = poseModel.model.runSync([buffer])
+              const output = outputs[0] as Float32Array
+
+              const pose = parseMoveNetOutput(output, frameWidth, frameHeight)
+              const angles = computeJointAngles(pose)
+
+              jsBridge.emitPoseResult({
+                pose,
+                angles,
+                timestamp: Date.now(),
+              })
+            }
+          }
+        }
       } catch (error) {
-        jsBridge.logPoseError(String(error))
+        // Error in worklet - silent fail to avoid crash
+      } finally {
+        frame.dispose()
       }
-    } catch (error) {
-      jsBridge.logFrameError(String(error))
-    }
-  }, [
-    resize,
-    yoloModel.state, yoloModel.model,
-    poseModel.state, poseModel.model,
-    jsBridge,
-  ])
+    },
+  })
 
   const resetShotTracking = useCallback(() => {
     shotDetector.current.reset()
@@ -416,5 +340,5 @@ export const useShotTracker = (
     yoloModel.state === 'loaded' && yoloModel.model != null &&
     poseModel.state === 'loaded' && poseModel.model != null
 
-  return { frameProcessor, isModelReady, resetShotTracking }
+  return { frameOutput, isModelReady, resetShotTracking }
 }

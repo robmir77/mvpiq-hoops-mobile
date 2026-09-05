@@ -174,12 +174,13 @@ export const useTrackingEngine = () => {
             ballHeight.value = ballDetection.height || 0
             confidence.value = ballDetection.confidence
 
-            if (__DEV__ && Math.random() < 0.05) { // Log 5% degli aggiornamenti
+            if (__DEV__) { // Log tutti gli aggiornamenti per debug overlay
               console.log('[TrackingEngine] Shared Values updated:', {
                 ballX: ballDetection.x.toFixed(3),
                 ballY: ballDetection.y.toFixed(3),
                 ballWidth: (ballDetection.width || 0).toFixed(3),
-                ballHeight: (ballDetection.height || 0).toFixed(3)
+                ballHeight: (ballDetection.height || 0).toFixed(3),
+                confidence: ballDetection.confidence.toFixed(3)
               })
             }
 

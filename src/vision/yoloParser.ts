@@ -5,10 +5,8 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
+const CONF_THRESHOLD = 0.25
 const N_ANCHORS = 3549
-
-// Worklet-safe constant - must be defined inside the function scope for worklets
-let CONF_THRESHOLD = 0.10
 
 export function setCropParameters(_cropX?: number, _cropY?: number, _cropDim?: number) {
   'worklet'; // eslint-disable-line
@@ -58,7 +56,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
 
   // Filter: reject detections larger than half screen (normalized coordinates)
-  const MAX_BOX_SIZE = 0.85 // Increased from 0.7 to 0.85 to allow even more distant objects
+  const MAX_BOX_SIZE = 0.7 // Increased from 0.5 to 0.7 to allow more distant objects
 
   // Extract detections from YOLO output
   // Layout: separate arrays for each parameter
@@ -93,24 +91,13 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       continue
     }
 
-    // Normalize bounding box coordinates [0, 1] relative to the frame
-    const x1 = cx - w * 0.5
-    const y1 = cy - h * 0.5
-    const x2 = cx + w * 0.5
-    const y2 = cy + h * 0.5
-
-    // Store debug info for the best detection
-    if (!debugInfo && (ballScore > 0.1 || rimScore > 0.1)) {
-      debugInfo = { cx, cy, w, h, conf: Math.max(ballScore, rimScore) }
-    }
-
     // Add ball detection if score above threshold
     if (ballScore >= threshold) {
       raw.push([
-        x1,
-        y1,
-        x2,
-        y2,
+        (cx - w * 0.5),
+        (cy - h * 0.5),
+        (cx + w * 0.5),
+        (cy + h * 0.5),
         ballScore,
         0, // ball class
       ])
@@ -119,10 +106,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     // Add rim detection if score above threshold (controlled by external flag)
     if (rimScore >= threshold) {
       raw.push([
-        x1,
-        y1,
-        x2,
-        y2,
+        (cx - w * 0.5),
+        (cy - h * 0.5),
+        (cx + w * 0.5),
+        (cy + h * 0.5),
         rimScore,
         1, // rim class
       ])
@@ -140,20 +127,15 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
-    const rawX = (x1 + x2) / 2
-    const rawY = (y1 + y2) / 2
-    const rawW = x2 - x1
-    const rawH = y2 - y1
-
     const detection = {
-      // Landscape sensor to portrait display coordinate transform:
-      // Same transform used by MoveNet poseParser (x: 1 - y, y: x)
-      x: Math.max(0, Math.min(1, 1 - rawY)),
-      y: Math.max(0, Math.min(1, rawX)),
-      width: Math.max(0, Math.min(1, rawH)),
-      height: Math.max(0, Math.min(1, rawW)),
+      // Coordinate dirette senza swap X↔Y
+      x: (x1 + x2) / 2,
+      y: (y1 + y2) / 2,
+      width: (x2 - x1),
+      height: (y2 - y1),
       confidence: conf,
     }
+
 
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection

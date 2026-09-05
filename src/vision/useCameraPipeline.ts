@@ -18,7 +18,7 @@ export interface CameraPipelineResult {
   isActive: boolean
   requestPermission: () => Promise<boolean>
   setIsActive: (v: boolean) => void
-  frameProcessor: any | null
+  frameOutput: any | null
   isModelReady: boolean
   resetShotTracking: () => void
 }
@@ -45,7 +45,7 @@ export const useCameraPipeline = (
   }
 
   // Initialize shot tracker with the new architecture
-  const { frameProcessor, isModelReady, resetShotTracking } = useShotTracker(
+  const { frameOutput, isModelReady, resetShotTracking } = useShotTracker(
     onBallDetection,
     onPoseResult,
     onShotEvent,
@@ -84,7 +84,7 @@ export const useCameraPipeline = (
     isActive,
     requestPermission,
     setIsActive: safeSetIsActive,
-    frameProcessor,
+    frameOutput,
     isModelReady,
     resetShotTracking,
   }

@@ -26,7 +26,7 @@ import {
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
 import { useDerivedValue } from 'react-native-reanimated'
-import { Camera } from 'react-native-vision-camera'
+import { Camera, type CameraRef } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
@@ -296,10 +296,22 @@ const TrackingOverlay = React.memo(({
     const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
 
     // Derived values per coordinate pixel
-    const ballXPx = useDerivedValue(() => ballX.value * SCREEN_W, [ballX])
-    const ballYPx = useDerivedValue(() => ballY.value * CAMERA_H, [ballY])
-    const hoopXPx = useDerivedValue(() => hoopX.value * SCREEN_W, [hoopX])
-    const hoopYPx = useDerivedValue(() => hoopY.value * CAMERA_H, [hoopY])
+    // Usa dimensioni del Canvas Skia (SCREEN_W x CAMERA_H) per mappare coordinate YOLO normalizzate a pixel
+    // Aggiungi swap X↔Y nell'overlay per correggere la posizione (landscape sensor → portrait display)
+    const ballXPx = useDerivedValue(() => {
+      const px = (1 - ballY.value) * SCREEN_W
+      if (__DEV__ && ballX.value > 0) {
+        console.log('[Overlay] Ball pixel coords:', {
+          normalized: { x: ballX.value.toFixed(3), y: ballY.value.toFixed(3) },
+          pixel: { x: px.toFixed(1), y: (ballX.value * CAMERA_H).toFixed(1) },
+          canvas: { w: SCREEN_W, h: CAMERA_H }
+        })
+      }
+      return px
+    }, [ballX])
+    const ballYPx = useDerivedValue(() => ballX.value * CAMERA_H, [ballX])
+    const hoopXPx = useDerivedValue(() => (1 - hoopY.value) * SCREEN_W, [hoopY])
+    const hoopYPx = useDerivedValue(() => hoopX.value * CAMERA_H, [hoopX])
 
     // Scia del tiro:
     //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
@@ -1052,7 +1064,7 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode } = route.params || {}
+    const { sessionId, cameraMode, selectedResolution, selectedFps } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1087,8 +1099,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
-    const cameraRef       = useRef<Camera>(null)
+    const cameraRef       = useRef<CameraRef>(null)
     const lastUiUpdate    = useRef<number>(0)
+
+    // Camera configuration constraints
+    const constraints = React.useMemo(() => {
+        const constraints: any[] = []
+        if (selectedFps !== null) {
+            constraints.push({ fps: selectedFps })
+        }
+        if (selectedResolution !== null) {
+            constraints.push({ targetResolution: selectedResolution })
+        }
+        return constraints
+    }, [selectedResolution, selectedFps])
 
     // Performance monitoring - tracking state updates
     useEffect(() => {
@@ -1297,7 +1321,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isActive,
         requestPermission,
         setIsActive,
-        frameProcessor: frameOutput,
+        frameOutput,
         isModelReady,
     } = useCameraPipeline(
         handleBallDetection,
@@ -1536,7 +1560,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    frameProcessor={frameOutput}
+                    constraints={constraints}
+                    {...(frameOutput ? { outputs: [frameOutput] } : {})}
                     onError={(error) => {
                         const cameraError = error as Error & { code?: string }
                         if (cameraError.code === 'session/invalid-output-configuration') {
