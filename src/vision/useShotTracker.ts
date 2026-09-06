@@ -166,27 +166,36 @@ export const useShotTracker = (
     // ─────────────────────────────────────────────────────────────────────────
     // Model delegates
     //
-    // IMPORTANT:
+    // Hardware-accelerated delegates:
+    //   Android → GPU delegate ('android-gpu'), backed by the OpenCL/Mali
+    //             libraries already declared in app.json under
+    //             react-native-fast-tflite's enableAndroidGpuLibraries.
+    //   iOS     → Core ML delegate ('core-ml').
     //
-    // For this diagnostic/final-stability build both models use CPU.
-    //
-    // YOLO:
-    //   CPU
-    //
-    // MoveNet:
-    //   CPU
-    //
-    // We will re-enable NNAPI/GPU only after the complete pipeline is stable.
+    // If a delegate fails to load on a given device, useTensorflowModel's
+    // state flips to 'error' (see the diagnostics effects below, already
+    // logging yoloModel/poseModel .error) — it does NOT automatically fall
+    // back to CPU. Worth watching after this change; say the word if you
+    // want an automatic CPU-fallback path added.
     // ─────────────────────────────────────────────────────────────────────────
 
-    const yoloDelegates = useMemo(
-        () => (Platform.OS === 'android' ? ['android-gpu'] : Platform.OS === 'ios' ? ['core-ml'] : []),
-        []
-    )
-    const poseDelegates = useMemo(
-        () => (Platform.OS === 'android' ? ['android-gpu'] : Platform.OS === 'ios' ? ['core-ml'] : []),
-        []
-    )
+    const yoloDelegates =
+        useMemo(
+            () =>
+                Platform.OS === 'android'
+                    ? ['android-gpu']
+                    : ['core-ml'],
+            []
+        )
+
+    const poseDelegates =
+        useMemo(
+            () =>
+                Platform.OS === 'android'
+                    ? ['android-gpu']
+                    : ['core-ml'],
+            []
+        )
 
     // ─────────────────────────────────────────────────────────────────────────
     // Models
@@ -701,49 +710,31 @@ export const useShotTracker = (
     // Resizers
     // ─────────────────────────────────────────────────────────────────────────
 
+    const yoloResizerConfig = useMemo(() => ({
+        width: YOLO_INPUT_SIZE,
+        height: YOLO_INPUT_SIZE,
+        channelOrder: 'rgb' as const,
+        dataType: 'float32' as const,
+        pixelLayout: 'interleaved' as const,
+        scaleMode: 'contain' as const,
+    }), [])
+
+    const poseResizerConfig = useMemo(() => ({
+        width: POSE_INPUT_SIZE,
+        height: POSE_INPUT_SIZE,
+        channelOrder: 'rgb' as const,
+        dataType: 'uint8' as const,
+        pixelLayout: 'interleaved' as const,
+        scaleMode: 'contain' as const,
+    }), [])
+
     const {
         resizer: yoloResizer,
-    } = useResizer({
-        width:
-        YOLO_INPUT_SIZE,
-
-        height:
-        YOLO_INPUT_SIZE,
-
-        channelOrder:
-            'rgb',
-
-        dataType:
-            'float32',
-
-        pixelLayout:
-            'interleaved',
-
-        scaleMode:
-            'contain',
-    })
+    } = useResizer(yoloResizerConfig)
 
     const {
         resizer: poseResizer,
-    } = useResizer({
-        width:
-        POSE_INPUT_SIZE,
-
-        height:
-        POSE_INPUT_SIZE,
-
-        channelOrder:
-            'rgb',
-
-        dataType:
-            'uint8',
-
-        pixelLayout:
-            'interleaved',
-
-        scaleMode:
-            'contain',
-    })
+    } = useResizer(poseResizerConfig)
 
     // ─────────────────────────────────────────────────────────────────────────
     // Frame processor
@@ -1177,25 +1168,23 @@ export const useShotTracker = (
     // Frame Output
     // ─────────────────────────────────────────────────────────────────────────
 
+    const frameOutputConfig = useMemo(() => ({
+        pixelFormat: 'yuv' as const,
+        targetResolution: {
+            width: 1280,
+            height: 720,
+        },
+        // Inference (YOLO + MoveNet) can take longer than the interval
+        // between camera frames at low fps. Without this, VisionCamera
+        // starts a new onFrame call before the previous one has finished
+        // disposing its Frame/buffer, causing overlapping invocations
+        // and "no ArrayBuffer attached" errors.
+        dropFramesWhileBusy: true,
+        onFrame,
+    }), [onFrame])
+
     const frameOutput =
-        useFrameOutput({
-            pixelFormat:
-                'yuv',
-
-            targetResolution: {
-                width: 1280,
-                height: 720,
-            },
-
-            // Inference (YOLO + MoveNet) can take longer than the interval
-            // between camera frames at low fps. Without this, VisionCamera
-            // starts a new onFrame call before the previous one has finished
-            // disposing its Frame/buffer, causing overlapping invocations
-            // and "no ArrayBuffer attached" errors.
-            dropFramesWhileBusy: true,
-
-            onFrame,
-        })
+        useFrameOutput(frameOutputConfig)
 
     // ─────────────────────────────────────────────────────────────────────────
     // Reset shot tracking

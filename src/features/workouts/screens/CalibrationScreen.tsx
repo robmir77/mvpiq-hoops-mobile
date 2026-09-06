@@ -973,6 +973,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const meta = MODE_META[cameraMode]
 
+    // Early returns for permission/device checks - must be after all hooks
     if (!hasPermission) {
         return (
             <View style={[styles.container, styles.center]}>
@@ -1049,7 +1050,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }
 
+    const [isNavigating, setIsNavigating] = useState(false)
+
     const handleProceed = () => {
+        // Guard against double-tap: navigation.replace() is not itself
+        // reentrancy-safe, and a fast double-tap here was mounting two
+        // instances of WorkoutSessionScreen (each with its own Camera +
+        // Worklet Runtime) before the first was torn down.
+        if (isNavigating) return
+        setIsNavigating(true)
         navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
     }
 
@@ -1057,7 +1066,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
         showWarning(
             'Salta calibrazione',
             'Senza calibrazione il tracking sarà meno preciso.',
-            () => navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+            () => {
+                if (isNavigating) return
+                setIsNavigating(true)
+                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+            }
         )
     }
 
@@ -1289,8 +1302,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         </Text>
                     </TouchableOpacity>
                 ) : (
-                    <TouchableOpacity style={styles.proceedBtn} onPress={handleProceed}>
-                        <Text style={styles.proceedBtnText}>▶ Inizia sessione</Text>
+                    <TouchableOpacity
+                        style={styles.proceedBtn}
+                        onPress={handleProceed}
+                        disabled={isNavigating}
+                    >
+                        <Text style={styles.proceedBtnText}>
+                            {isNavigating ? 'Avvio...' : '▶ Inizia sessione'}
+                        </Text>
                     </TouchableOpacity>
                 )}
             </ScrollView>
