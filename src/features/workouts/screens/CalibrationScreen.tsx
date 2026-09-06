@@ -969,6 +969,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [corners, setCorners] = useState<Point[]>([])
     const [isSaving, setIsSaving] = useState(false)
     const [savedCalibration, setSavedCalibration] = useState<CalibrationData | null>(null)
+    const [isNavigating, setIsNavigating] = useState(false)
     const { alert, showError, showSuccess, showWarning } = useCustomAlert()
 
     const meta = MODE_META[cameraMode]
@@ -1049,8 +1050,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
             setIsSaving(false)
         }
     }
-
-    const [isNavigating, setIsNavigating] = useState(false)
 
     const handleProceed = () => {
         // Guard against double-tap: navigation.replace() is not itself
