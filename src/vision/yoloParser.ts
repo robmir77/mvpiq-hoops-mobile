@@ -84,6 +84,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     if (maxClassScore > maxScore) {
       maxScore = maxClassScore
       maxScoreIdx = i
+      debugInfo = { cx, cy, w, h, conf: maxClassScore }
     }
 
     // Filter: reject detections with bounding box larger than half screen

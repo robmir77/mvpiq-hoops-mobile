@@ -67,7 +67,7 @@ export const useYoloDetector = (
         // Set crop parameters for the parser
         setCropParameters(cropX, cropY, cropDim)
         
-        // Resize frame to 320x320 RGB float32 using native plugin
+        // Resize frame to model input size RGB float32 using native plugin
         const resized = resizer?.resize(frame)
         if (!resized) return
         

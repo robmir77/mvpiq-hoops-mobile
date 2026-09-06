@@ -32,7 +32,9 @@ export const useCameraPipeline = (
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
   enabled: boolean = true,
   poseEnabled: boolean = true,
-  ballEnabled: boolean = true
+  ballEnabled: boolean = true,
+  yoloDelegate?: string[] | null,
+  poseDelegate?: string[] | null
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
@@ -54,7 +56,9 @@ export const useCameraPipeline = (
     kalmanFilteredBall,
     enabled,
     poseEnabled,
-    ballEnabled
+    ballEnabled,
+    yoloDelegate,
+    poseDelegate
   )
 
   // Mark pipeline as ready when models are loaded

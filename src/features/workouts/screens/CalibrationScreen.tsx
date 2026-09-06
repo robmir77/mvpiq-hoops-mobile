@@ -901,6 +901,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const cameraRef = useRef<CameraRef>(null)
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
+    const [yoloDelegate, setYoloDelegate] = useState<string[]>(
+        Platform.OS === 'android' ? ['android-gpu'] : ['core-ml']
+    )
+    const [poseDelegate, setPoseDelegate] = useState<string[]>(
+        Platform.OS === 'android' ? ['android-gpu'] : ['core-ml']
+    )
     const hoopCameraPointRef = useRef<Point | null>(null)
     const cornerCameraPointsRef = useRef<Point[]>([])
     const [showConfigPanel, setShowConfigPanel] = useState(false)
@@ -947,6 +953,21 @@ export default function CalibrationScreen({ navigation, route }: any) {
         () => selectedFps !== null ? [{ fps: selectedFps }] : [],
         [selectedFps]
     )
+
+    // Available delegates based on platform
+    const availableDelegates = React.useMemo(() => {
+        if (Platform.OS === 'android') {
+            return [
+                { value: 'android-gpu', label: 'GPU (Android)' },
+                { value: 'cpu', label: 'CPU' },
+            ]
+        } else {
+            return [
+                { value: 'core-ml', label: 'Core ML (iOS)' },
+                { value: 'cpu', label: 'CPU' },
+            ]
+        }
+    }, [])
 
     // Keep defaults valid when a device exposes a different set of resolutions/FPS.
     useEffect(() => {
@@ -1058,7 +1079,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         // Worklet Runtime) before the first was torn down.
         if (isNavigating) return
         setIsNavigating(true)
-        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate })
     }
 
     const handleSkip = () => {
@@ -1068,7 +1089,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             () => {
                 if (isNavigating) return
                 setIsNavigating(true)
-                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate })
             }
         )
     }
@@ -1170,69 +1191,110 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 {showConfigPanel && (
                     <View style={[styles.configPanel, { bottom: 12 }]}>
                         <Text style={styles.configPanelTitle}>Configurazione Camera</Text>
-
-                        {/* Zoom controls */}
-                        <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>Zoom</Text>
-                            <View style={styles.zoomRow}>
-                                <TouchableOpacity
-                                    style={styles.zoomBtn}
-                                    onPress={handleZoomOut}
-                                    disabled={zoom <= minZoom}
-                                >
-                                    <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
-                                </TouchableOpacity>
-                                <View style={styles.zoomIndicator}>
-                                    <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
+                        <ScrollView style={styles.configPanelScroll} contentContainerStyle={styles.configPanelContent}>
+                            {/* Zoom controls */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>Zoom</Text>
+                                <View style={styles.zoomRow}>
+                                    <TouchableOpacity
+                                        style={styles.zoomBtn}
+                                        onPress={handleZoomOut}
+                                        disabled={zoom <= minZoom}
+                                    >
+                                        <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
+                                    </TouchableOpacity>
+                                    <View style={styles.zoomIndicator}>
+                                        <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={styles.zoomBtn}
+                                        onPress={handleZoomIn}
+                                        disabled={zoom >= maxZoom}
+                                    >
+                                        <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
+                                    </TouchableOpacity>
                                 </View>
-                                <TouchableOpacity
-                                    style={styles.zoomBtn}
-                                    onPress={handleZoomIn}
-                                    disabled={zoom >= maxZoom}
-                                >
-                                    <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
-                                </TouchableOpacity>
                             </View>
-                        </View>
 
-                        {/* Resolution selector */}
-                        <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>Risoluzione acquisizione</Text>
-                            <View style={styles.pickerWrap}>
-                                <Picker
-                                    selectedValue={`${selectedResolution?.width ?? 1280}x${selectedResolution?.height ?? 720}`}
-                                    onValueChange={(value) => {
-                                        const found = availableResolutions.find(r => `${r.width}x${r.height}` === value)
-                                        if (found) setSelectedResolution(found)
-                                    }}
-                                    dropdownIconColor="#ff8c00"
-                                    style={styles.picker}
-                                >
-                                    {availableResolutions.map(res => (
-                                        <Picker.Item key={`${res.width}x${res.height}`} label={`${res.width} × ${res.height}`} value={`${res.width}x${res.height}`} />
-                                    ))}
-                                </Picker>
+                            {/* YOLO Delegate selector */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>YOLO Delegate (Rilevamento palla/ferro)</Text>
+                                <View style={styles.pickerWrap}>
+                                    <Picker
+                                        selectedValue={yoloDelegate.length > 0 ? yoloDelegate[0] : 'cpu'}
+                                        onValueChange={(value) => {
+                                            setYoloDelegate(value === 'cpu' ? [] : [value])
+                                        }}
+                                        dropdownIconColor="#ff8c00"
+                                        style={styles.picker}
+                                    >
+                                        {availableDelegates.map(del => (
+                                            <Picker.Item key={del.value} label={del.label} value={del.value} />
+                                        ))}
+                                    </Picker>
+                                </View>
+                                <Text style={styles.configHint}>Accelerazione hardware per il modello YOLO</Text>
                             </View>
-                            <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
-                        </View>
 
-                        {/* FPS selector */}
-                        <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>FPS desiderati</Text>
-                            <View style={styles.pickerWrap}>
-                                <Picker
-                                    selectedValue={selectedFps ?? DEFAULT_FPS}
-                                    onValueChange={value => setSelectedFps(Number(value))}
-                                    dropdownIconColor="#ff8c00"
-                                    style={styles.picker}
-                                >
-                                    {availableFps.map(fps => (
-                                        <Picker.Item key={fps} label={`${fps} FPS`} value={fps} />
-                                    ))}
-                                </Picker>
+                            {/* Pose Delegate selector */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>Pose Delegate (Rilevamento corpo)</Text>
+                                <View style={styles.pickerWrap}>
+                                    <Picker
+                                        selectedValue={poseDelegate.length > 0 ? poseDelegate[0] : 'cpu'}
+                                        onValueChange={(value) => {
+                                            setPoseDelegate(value === 'cpu' ? [] : [value])
+                                        }}
+                                        dropdownIconColor="#ff8c00"
+                                        style={styles.picker}
+                                    >
+                                        {availableDelegates.map(del => (
+                                            <Picker.Item key={del.value} label={del.label} value={del.value} />
+                                        ))}
+                                    </Picker>
+                                </View>
+                                <Text style={styles.configHint}>Accelerazione hardware per il modello Pose</Text>
                             </View>
-                            <Text style={styles.configHint}>VisionCamera negozia la combinazione compatibile con la risoluzione scelta.</Text>
-                        </View>
+
+                            {/* Resolution selector */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>Risoluzione acquisizione</Text>
+                                <View style={styles.pickerWrap}>
+                                    <Picker
+                                        selectedValue={`${selectedResolution?.width ?? 1280}x${selectedResolution?.height ?? 720}`}
+                                        onValueChange={(value) => {
+                                            const found = availableResolutions.find(r => `${r.width}x${r.height}` === value)
+                                            if (found) setSelectedResolution(found)
+                                        }}
+                                        dropdownIconColor="#ff8c00"
+                                        style={styles.picker}
+                                    >
+                                        {availableResolutions.map(res => (
+                                            <Picker.Item key={`${res.width}x${res.height}`} label={`${res.width} × ${res.height}`} value={`${res.width}x${res.height}`} />
+                                        ))}
+                                    </Picker>
+                                </View>
+                                <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
+                            </View>
+
+                            {/* FPS selector */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>FPS desiderati</Text>
+                                <View style={styles.pickerWrap}>
+                                    <Picker
+                                        selectedValue={selectedFps ?? DEFAULT_FPS}
+                                        onValueChange={value => setSelectedFps(Number(value))}
+                                        dropdownIconColor="#ff8c00"
+                                        style={styles.picker}
+                                    >
+                                        {availableFps.map(fps => (
+                                            <Picker.Item key={fps} label={`${fps} FPS`} value={fps} />
+                                        ))}
+                                    </Picker>
+                                </View>
+                                <Text style={styles.configHint}>VisionCamera negozia la combinazione compatibile con la risoluzione scelta.</Text>
+                            </View>
+                        </ScrollView>
 
                         <TouchableOpacity
                             style={styles.closeConfigButton}
@@ -1433,6 +1495,7 @@ const styles = StyleSheet.create({
     },
     configPanelScroll: {
         flex: 1,
+        maxHeight: SH * 0.5,
     },
     configPanelContent: {
         paddingBottom: 4,

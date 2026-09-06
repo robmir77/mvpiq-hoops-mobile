@@ -103,7 +103,10 @@ export const useShotTracker = (
 
     enabled: boolean = true,
     poseEnabled: boolean = true,
-    ballEnabled: boolean = true
+    ballEnabled: boolean = true,
+
+    yoloDelegate?: string[] | null,
+    poseDelegate?: string[] | null
 ) => {
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -181,20 +184,28 @@ export const useShotTracker = (
 
     const yoloDelegates =
         useMemo(
-            () =>
-                Platform.OS === 'android'
-                    ? ['android-gpu']
-                    : ['core-ml'],
-            []
+            () => {
+                if (yoloDelegate !== undefined && yoloDelegate !== null) {
+                    return yoloDelegate
+                }
+                return Platform.OS === 'android'
+                    ? []
+                    : ['core-ml']
+            },
+            [yoloDelegate]
         )
 
     const poseDelegates =
         useMemo(
-            () =>
-                Platform.OS === 'android'
-                    ? ['android-gpu']
-                    : ['core-ml'],
-            []
+            () => {
+                if (poseDelegate !== undefined && poseDelegate !== null) {
+                    return poseDelegate
+                }
+                return Platform.OS === 'android'
+                    ? []
+                    : ['core-ml']
+            },
+            [poseDelegate]
         )
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -708,25 +719,62 @@ export const useShotTracker = (
 
     // ─────────────────────────────────────────────────────────────────────────
     // Resizers
+    //
+    // IMPORTANT: these config objects must be memoized. useResizer() uses
+    // them to decide whether to recreate its native resizer, and an
+    // unstable reference here was the root cause of the frame processor
+    // being torn down and recreated on every render (~106 HybridWorkletQueueFactory
+    // creations observed in logcat), racing on the TFLite model buffer and
+    // producing "TypedArray can only be updated with an array of the same size".
     // ─────────────────────────────────────────────────────────────────────────
 
-    const yoloResizerConfig = useMemo(() => ({
-        width: YOLO_INPUT_SIZE,
-        height: YOLO_INPUT_SIZE,
-        channelOrder: 'rgb' as const,
-        dataType: 'float32' as const,
-        pixelLayout: 'interleaved' as const,
-        scaleMode: 'contain' as const,
-    }), [])
+    const yoloResizerConfig =
+        useMemo(
+            () => ({
+                width:
+                YOLO_INPUT_SIZE,
 
-    const poseResizerConfig = useMemo(() => ({
-        width: POSE_INPUT_SIZE,
-        height: POSE_INPUT_SIZE,
-        channelOrder: 'rgb' as const,
-        dataType: 'uint8' as const,
-        pixelLayout: 'interleaved' as const,
-        scaleMode: 'contain' as const,
-    }), [])
+                height:
+                YOLO_INPUT_SIZE,
+
+                channelOrder:
+                    'rgb' as const,
+
+                dataType:
+                    'float32' as const,
+
+                pixelLayout:
+                    'interleaved' as const,
+
+                scaleMode:
+                    'contain' as const,
+            }),
+            []
+        )
+
+    const poseResizerConfig =
+        useMemo(
+            () => ({
+                width:
+                POSE_INPUT_SIZE,
+
+                height:
+                POSE_INPUT_SIZE,
+
+                channelOrder:
+                    'rgb' as const,
+
+                dataType:
+                    'uint8' as const,
+
+                pixelLayout:
+                    'interleaved' as const,
+
+                scaleMode:
+                    'contain' as const,
+            }),
+            []
+        )
 
     const {
         resizer: yoloResizer,
@@ -880,19 +928,55 @@ export const useShotTracker = (
                                         arrayBuffer
                                     )
 
+                                console.log(
+                                    '[ShotTracker][YOLO] BUFFER SIZE CHECK',
+                                    currentFrame,
+                                    'actual:',
+                                    source.length,
+                                    'expected:',
+                                    YOLO_INPUT_ELEMENTS,
+                                    'arrayBuffer.byteLength:',
+                                    arrayBuffer.byteLength
+                                )
+
                                 if (
                                     source.length !==
                                     YOLO_INPUT_ELEMENTS
                                 ) {
 
                                     console.error(
-                                        '[ShotTracker][YOLO] BUFFER SIZE:',
+                                        '[ShotTracker][YOLO] BUFFER SIZE MISMATCH:',
                                         source.length,
                                         'EXPECTED:',
                                         YOLO_INPUT_ELEMENTS
                                     )
 
                                 } else {
+
+                                    // Diagnostic: check whether the resizer's
+                                    // float32 output is normalized (0-1) or
+                                    // raw (0-255). A YOLO model trained on
+                                    // 0-1 inputs will produce near-zero
+                                    // confidence on 0-255 inputs and vice
+                                    // versa.
+                                    let minVal = source[0]
+                                    let maxVal = source[0]
+                                    for (let i = 1; i < source.length; i += 97) {
+                                        // sample every 97th element — cheap,
+                                        // still representative, avoids
+                                        // scanning 519k floats per frame
+                                        if (source[i] < minVal) minVal = source[i]
+                                        if (source[i] > maxVal) maxVal = source[i]
+                                    }
+
+                                    console.log(
+                                        '[ShotTracker][YOLO] INPUT RANGE',
+                                        currentFrame,
+                                        'min:',
+                                        minVal.toFixed(3),
+                                        'max:',
+                                        maxVal.toFixed(3)
+                                    )
 
                                     // IMPORTANT:
                                     // Create a fresh TypedArray for runSync.
@@ -928,6 +1012,7 @@ export const useShotTracker = (
                                     const {
                                         ball,
                                         rim,
+                                        debug,
                                     } =
                                         parseYoloOutput(
                                             output,
@@ -942,7 +1027,11 @@ export const useShotTracker = (
                                         'ball:',
                                         !!ball,
                                         'rim:',
-                                        !!rim
+                                        !!rim,
+                                        'maxConf:',
+                                        debug?.conf?.toFixed(3),
+                                        'threshold:',
+                                        adaptiveThreshold.value
                                     )
 
                                     scheduleOnRN(
@@ -1140,7 +1229,9 @@ export const useShotTracker = (
 
                     console.error(
                         '[ShotTracker][FRAME ERROR]',
-                        error
+                        error,
+                        'stack:',
+                        (error as any)?.stack
                     )
 
                 } finally {
@@ -1168,23 +1259,25 @@ export const useShotTracker = (
     // Frame Output
     // ─────────────────────────────────────────────────────────────────────────
 
-    const frameOutputConfig = useMemo(() => ({
-        pixelFormat: 'yuv' as const,
-        targetResolution: {
-            width: 1280,
-            height: 720,
-        },
-        // Inference (YOLO + MoveNet) can take longer than the interval
-        // between camera frames at low fps. Without this, VisionCamera
-        // starts a new onFrame call before the previous one has finished
-        // disposing its Frame/buffer, causing overlapping invocations
-        // and "no ArrayBuffer attached" errors.
-        dropFramesWhileBusy: true,
-        onFrame,
-    }), [onFrame])
-
     const frameOutput =
-        useFrameOutput(frameOutputConfig)
+        useFrameOutput({
+            pixelFormat:
+                'yuv',
+
+            targetResolution: {
+                width: 1280,
+                height: 720,
+            },
+
+            // Inference (YOLO + MoveNet) can take longer than the interval
+            // between camera frames at low fps. Without this, VisionCamera
+            // starts a new onFrame call before the previous one has finished
+            // disposing its Frame/buffer, causing overlapping invocations
+            // and "no ArrayBuffer attached" errors.
+            dropFramesWhileBusy: true,
+
+            onFrame,
+        })
 
     // ─────────────────────────────────────────────────────────────────────────
     // Reset shot tracking
@@ -1229,11 +1322,13 @@ export const useShotTracker = (
         )
 
         console.log(
-            '[ShotTracker] YOLO: CPU TFLite + RGB Resizer'
+            '[ShotTracker] YOLO:',
+            Platform.OS === 'android' ? 'CPU TFLite + RGB Resizer' : 'Core ML TFLite + RGB Resizer'
         )
 
         console.log(
-            '[ShotTracker] MoveNet: CPU TFLite + RGB Resizer'
+            '[ShotTracker] MoveNet:',
+            Platform.OS === 'android' ? 'CPU TFLite + RGB Resizer' : 'Core ML TFLite + RGB Resizer'
         )
 
         console.log(
