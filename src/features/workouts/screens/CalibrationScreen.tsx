@@ -21,6 +21,13 @@ import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData, CourtType } from '../types/workouts.types'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import {
+    ANDROID_DELEGATE_OPTIONS,
+    DEFAULT_ANDROID_DELEGATE,
+    DEFAULT_IOS_DELEGATE,
+    type AndroidDelegateOption,
+    type IosDelegateOption,
+} from '@/vision'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
@@ -901,11 +908,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const cameraRef = useRef<CameraRef>(null)
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
-    const [yoloDelegate, setYoloDelegate] = useState<string[] | null>(
-        Platform.OS === 'android' ? ['nnapi'] : ['core-ml']
+    const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
+        Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE
     )
-    const [poseDelegate, setPoseDelegate] = useState<string[] | null>(
-        Platform.OS === 'android' ? ['nnapi'] : ['core-ml']
+    const [poseDelegate, setPoseDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
+        Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE
     )
     const hoopCameraPointRef = useRef<Point | null>(null)
     const cornerCameraPointsRef = useRef<Point[]>([])
@@ -954,19 +961,20 @@ export default function CalibrationScreen({ navigation, route }: any) {
         [selectedFps]
     )
 
-    // Available delegates based on platform
+    // Available delegates based on platform — sourced from the same
+    // constants useShotTracker.ts uses, so this list can't drift out of
+    // sync with what's actually valid. No CPU option: it was never a
+    // deliberate choice, and 'android-cpu'/'metal' weren't real delegate
+    // strings fast-tflite recognizes.
     const availableDelegates = React.useMemo(() => {
         if (Platform.OS === 'android') {
-            return [
-                { value: 'nnapi', label: 'NNAPI (Android)' },
-                { value: 'android-cpu', label: 'CPU (Android)' },
-                { value: 'cpu', label: 'CPU (Fallback)' },
-            ]
+            return ANDROID_DELEGATE_OPTIONS.map(value => ({
+                value,
+                label: value === 'android-gpu' ? 'GPU (Android)' : 'NNAPI (Android)',
+            }))
         } else {
             return [
-                { value: 'core-ml', label: 'Core ML (iOS)' },
-                { value: 'metal', label: 'Metal (iOS)' },
-                { value: 'cpu', label: 'CPU (Fallback)' },
+                { value: DEFAULT_IOS_DELEGATE, label: 'Core ML (iOS)' },
             ]
         }
     }, [])
@@ -1223,9 +1231,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <Text style={styles.configLabel}>YOLO Delegate (Rilevamento palla/ferro)</Text>
                                 <View style={styles.pickerWrap}>
                                     <Picker
-                                        selectedValue={yoloDelegate?.[0] || 'cpu'}
+                                        selectedValue={yoloDelegate}
                                         onValueChange={(value) => {
-                                            setYoloDelegate(value === 'cpu' ? null : [value])
+                                            setYoloDelegate(value)
                                         }}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}
@@ -1243,9 +1251,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <Text style={styles.configLabel}>Pose Delegate (Rilevamento corpo)</Text>
                                 <View style={styles.pickerWrap}>
                                     <Picker
-                                        selectedValue={poseDelegate?.[0] || 'cpu'}
+                                        selectedValue={poseDelegate}
                                         onValueChange={(value) => {
-                                            setPoseDelegate(value === 'cpu' ? null : [value])
+                                            setPoseDelegate(value)
                                         }}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}

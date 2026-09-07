@@ -34,6 +34,26 @@ const YOLO_INPUT_SIZE = 416
 const POSE_INPUT_SIZE = 192
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Hardware delegate options
+//
+// Android: choose between the GPU delegate and NNAPI — plain CPU is
+// intentionally not offered as a selectable option. 'android-gpu' is the
+// default (NNAPI is flagged as deprecated by fast-tflite's own maintainers
+// from Android 15 onward, GPU is the currently recommended path).
+//
+// iOS: Core ML is the only accelerated delegate fast-tflite exposes on iOS
+// — there's no NNAPI-equivalent second choice, so it's not a selection,
+// just the fixed default.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AndroidDelegateOption = 'android-gpu' | 'nnapi'
+export const ANDROID_DELEGATE_OPTIONS: AndroidDelegateOption[] = ['android-gpu', 'nnapi']
+export const DEFAULT_ANDROID_DELEGATE: AndroidDelegateOption = 'android-gpu'
+
+export type IosDelegateOption = 'core-ml'
+export const DEFAULT_IOS_DELEGATE: IosDelegateOption = 'core-ml'
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -105,8 +125,8 @@ export const useShotTracker = (
     poseEnabled: boolean = true,
     ballEnabled: boolean = true,
 
-    yoloDelegate?: string[] | null,
-    poseDelegate?: string[] | null
+    yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
+    poseDelegate?: AndroidDelegateOption | IosDelegateOption | null
 ) => {
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -264,11 +284,11 @@ export const useShotTracker = (
         useMemo(
             () => {
                 if (yoloDelegate !== undefined && yoloDelegate !== null) {
-                    return yoloDelegate
+                    return [yoloDelegate]
                 }
                 return Platform.OS === 'android'
-                    ? []
-                    : ['core-ml']
+                    ? [DEFAULT_ANDROID_DELEGATE]
+                    : [DEFAULT_IOS_DELEGATE]
             },
             [yoloDelegate]
         )
@@ -277,11 +297,11 @@ export const useShotTracker = (
         useMemo(
             () => {
                 if (poseDelegate !== undefined && poseDelegate !== null) {
-                    return poseDelegate
+                    return [poseDelegate]
                 }
                 return Platform.OS === 'android'
-                    ? []
-                    : ['core-ml']
+                    ? [DEFAULT_ANDROID_DELEGATE]
+                    : [DEFAULT_IOS_DELEGATE]
             },
             [poseDelegate]
         )
@@ -960,17 +980,21 @@ export const useShotTracker = (
                         0
                     ) {
 
+                        console.log('[ShotTracker][YOLO] BEFORE resize', currentFrame)
                         const resized =
                             yoloResizer?.resize(
                                 frame
                             )
+                        console.log('[ShotTracker][YOLO] AFTER resize', currentFrame, !!resized)
 
                         if (resized) {
 
                             try {
 
+                                console.log('[ShotTracker][YOLO] BEFORE getPixelBuffer', currentFrame)
                                 const arrayBuffer =
                                     resized.getPixelBuffer()
+                                console.log('[ShotTracker][YOLO] AFTER getPixelBuffer', currentFrame)
 
                                 const source =
                                     new Float32Array(
@@ -990,10 +1014,12 @@ export const useShotTracker = (
                                     const input =
                                         source.slice()
 
+                                    console.log('[ShotTracker][YOLO] BEFORE runSync', currentFrame)
                                     const outputs =
                                         yoloModelInstance!.runSync(
                                             [input]
                                         )
+                                    console.log('[ShotTracker][YOLO] AFTER runSync', currentFrame, 'outputs:', outputs.length)
 
                                     const output =
                                         outputs[0] as Float32Array
@@ -1001,6 +1027,7 @@ export const useShotTracker = (
                                     const {
                                         ball,
                                         rim,
+                                        debug,
                                     } =
                                         parseYoloOutput(
                                             output,
@@ -1008,6 +1035,19 @@ export const useShotTracker = (
                                             frameWidth,
                                             frameHeight
                                         )
+
+                                    console.log(
+                                        '[ShotTracker][YOLO] PARSED',
+                                        currentFrame,
+                                        'ball:',
+                                        !!ball,
+                                        'rim:',
+                                        !!rim,
+                                        'maxConf:',
+                                        debug?.conf?.toFixed(3),
+                                        'threshold:',
+                                        adaptiveThreshold.value
+                                    )
 
                                     scheduleOnRN(
                                         emitBallDetection,
@@ -1042,7 +1082,9 @@ export const useShotTracker = (
 
                             } finally {
 
+                                console.log('[ShotTracker][YOLO] BEFORE dispose', currentFrame)
                                 resized.dispose()
+                                console.log('[ShotTracker][YOLO] AFTER dispose', currentFrame)
                             }
                         }
                     }
@@ -1059,17 +1101,21 @@ export const useShotTracker = (
                         0
                     ) {
 
+                        console.log('[ShotTracker][POSE] BEFORE resize', currentFrame)
                         const resized =
                             poseResizer?.resize(
                                 frame
                             )
+                        console.log('[ShotTracker][POSE] AFTER resize', currentFrame, !!resized)
 
                         if (resized) {
 
                             try {
 
+                                console.log('[ShotTracker][POSE] BEFORE getPixelBuffer', currentFrame)
                                 const arrayBuffer =
                                     resized.getPixelBuffer()
+                                console.log('[ShotTracker][POSE] AFTER getPixelBuffer', currentFrame)
 
                                 const source =
                                     new Uint8Array(
@@ -1094,18 +1140,24 @@ export const useShotTracker = (
                                         source
                                     )
 
+                                    console.log('[ShotTracker][POSE] BEFORE runSync', currentFrame)
                                     const outputs =
                                         poseModelInstance!.runSync(
                                             [input]
                                         )
+                                    console.log('[ShotTracker][POSE] AFTER runSync', currentFrame, 'outputs:', outputs.length)
 
                                     const output =
                                         outputs[0] as Float32Array
+
+                                    console.log('[ShotTracker][POSE] OUTPUT LENGTH', output.length)
 
                                     const pose =
                                         parseMoveNetOutput(
                                             output
                                         )
+
+                                    console.log('[ShotTracker][POSE] PARSED', currentFrame)
 
                                     const angles =
                                         computeJointAngles(
@@ -1125,7 +1177,9 @@ export const useShotTracker = (
 
                             } finally {
 
+                                console.log('[ShotTracker][POSE] BEFORE dispose', currentFrame)
                                 resized.dispose()
+                                console.log('[ShotTracker][POSE] AFTER dispose', currentFrame)
                             }
                         }
                     }
@@ -1243,13 +1297,15 @@ export const useShotTracker = (
         )
 
         console.log(
-            '[ShotTracker] YOLO:',
-            Platform.OS === 'android' ? 'CPU TFLite + RGB Resizer' : 'Core ML TFLite + RGB Resizer'
+            '[ShotTracker] YOLO delegate:',
+            JSON.stringify(yoloDelegates),
+            '+ RGB Resizer'
         )
 
         console.log(
-            '[ShotTracker] MoveNet:',
-            Platform.OS === 'android' ? 'CPU TFLite + RGB Resizer' : 'Core ML TFLite + RGB Resizer'
+            '[ShotTracker] MoveNet delegate:',
+            JSON.stringify(poseDelegates),
+            '+ RGB Resizer'
         )
 
         console.log(
@@ -1272,7 +1328,7 @@ export const useShotTracker = (
             'frames'
         )
 
-    }, [isModelReady])
+    }, [isModelReady, yoloDelegates, poseDelegates])
 
     // ─────────────────────────────────────────────────────────────────────────
     // Return

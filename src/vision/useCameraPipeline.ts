@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
-import { useShotTracker } from './useShotTracker'
+import { useShotTracker, type AndroidDelegateOption, type IosDelegateOption } from './useShotTracker'
 import type { BallDetection, PoseResult, ShotEvent } from './types'
 
 export interface CameraPipelineResult {
@@ -33,8 +33,8 @@ export const useCameraPipeline = (
   enabled: boolean = true,
   poseEnabled: boolean = true,
   ballEnabled: boolean = true,
-  yoloDelegate?: string[] | null,
-  poseDelegate?: string[] | null
+  yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
+  poseDelegate?: AndroidDelegateOption | IosDelegateOption | null
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
