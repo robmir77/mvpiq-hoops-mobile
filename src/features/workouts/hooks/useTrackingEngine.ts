@@ -148,7 +148,7 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
-        if (ballDetection && ballDetection.confidence > 0.03) {
+        if (ballDetection && ballDetection.confidence > 0.3) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
             current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
@@ -178,6 +178,37 @@ export const useTrackingEngine = () => {
             if (smoothed.y < peakY.current) {
                 peakY.current = smoothed.y
                 apexPoint.current = { x: smoothed.x, y: smoothed.y }
+            }
+        } else if (current.ballPosition && lastFrameTs.current > 0) {
+            // Prediction step when ball not detected - continue trajectory with last known velocity
+            const k = kalman.current
+            const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
+            
+            // Predict position based on last velocity
+            const predX = k.x + k.vx * dt
+            const predY = k.y + k.vy * dt
+            
+            current.ballPosition = { x: predX, y: predY }
+            current.ballVelocity = { vx: k.vx, vy: k.vy }
+            
+            // Update Shared Values with predicted position
+            ballX.value = predX
+            ballY.value = predY
+            
+            // Add predicted point to trajectory
+            trajectoryBuffer.current[trajectoryHead.current] = { x: predX, y: predY, t: frameTs }
+            trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
+            if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+            
+            // Only copy trajectory for UI every 5 frames when inFlight
+            if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
+                current.trajectory = getTrajectory()
+            }
+            
+            // Update peak with predicted position
+            if (predY < peakY.current) {
+                peakY.current = predY
+                apexPoint.current = { x: predX, y: predY }
             }
         }
 

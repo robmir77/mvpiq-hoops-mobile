@@ -487,10 +487,8 @@ const TrackingOverlay = React.memo(({
                             }, [hoopXPx, hoopYPx, hoopWidth, hoopHeight])
                             
                             const hoopOvalPath = useDerivedValue(() => {
-                                const path = Skia.Path.Make()
                                 const rect = hoopRect.value
-                                path.addOval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
-                                return path
+                                return Skia.Path.Oval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
                             }, [hoopRect])
                             
                             return (
@@ -1080,6 +1078,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sharedValues } = tracking
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
+    const resetShotTrackingRef = useRef<(() => void) | null>(null)
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
 
@@ -1228,6 +1227,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 easing: Easing.out(Easing.ease), useNativeDriver: true,
             }).start()
             tracking.resetShot()
+            resetShotTrackingRef.current?.()
         } catch (e: any) { showError('Errore tiro', e.message) }
         finally { isRecordingRef.current = false; setIsRecording(false) }
     }, [user?.id, sessionId, tracking, calibration, jointAngles])
@@ -1285,6 +1285,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 pendingScreenshotUri.current = null
             }
         } else if (event.shotMiss) {
+            void handleAutoShotDetected('MISS')
             if (pendingScreenshotUri.current) {
                 const data = JSON.parse(pendingScreenshotUri.current)
                 void saveScreenshotWithResult(data, 'MISS')
@@ -1338,6 +1339,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return null
     }, [trackingState?.ballPosition, trackingState?.ballVelocity])
 
+    // ── New architecture: useCameraPipeline integrates everything ─────────
     const {
         device,
         hasPermission,
@@ -1346,6 +1348,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         setIsActive,
         frameProcessor,
         isModelReady,
+        resetShotTracking,
     } = useCameraPipeline(
         handleBallDetection,
         handlePoseResult,
@@ -1355,6 +1358,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         kalmanFilteredBall,
         true
     )
+
+    // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
+    resetShotTrackingRef.current = resetShotTracking
 
     // Format selection removed in v5 - use Camera defaults
 
@@ -1411,11 +1417,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         setModelsReady(isModelReady)
     }, [isModelReady])
 
-    useEffect(() => {
-        if (trackingState?.shotDetected && trackingState.shotResult)
-            void handleAutoShotDetected(trackingState.shotResult)
-    }, [trackingState?.shotDetected])
-
     const loadSession = async () => {
         if (!user?.id || !sessionId) return
         try {
@@ -1450,9 +1451,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const sid = sessionIdRef.current
         const uid = userIdRef.current
         if (!uid || !sid || frameBatch.current.length === 0) return
-        const last = frameBatch.current[frameBatch.current.length - 1]
+        const batch = [...frameBatch.current]
         frameBatch.current = []
-        try { await saveFrameData(sid, uid, last) } catch (_) {}
+        // Send all frames in the batch to preserve data granularity
+        for (const frame of batch) {
+            try { await saveFrameData(sid, uid, frame) } catch (_) {}
+        }
     }, [])
 
     const handleManualShot = async (result: ShotResult) => {
@@ -1484,10 +1488,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 toValue: 0, duration: 1400,
                 easing: Easing.out(Easing.ease), useNativeDriver: true,
             }).start()
-        } catch (e: any) { 
+            tracking.resetShot()
+            resetShotTrackingRef.current?.()
+        } catch (e: any) {
             console.error('[Manual Shot] Error:', e)
             console.error('[Manual Shot] Error response:', e.response?.data)
-            showError('Errore', e.response?.data?.message || e.message || 'Errore sconosciuto') 
+            showError('Errore', e.response?.data?.message || e.message || 'Errore sconosciuto')
         }
         finally { setIsRecording(false) }
     }

@@ -5,10 +5,10 @@
 
 import type { BallDetection, ShotEvent, ShotCandidate } from './types'
 
-const SHOT_CANDIDATE_THRESHOLD_Y = 0.3 // Ball above 30% of frame height
-const SHOT_CANDIDATE_VELOCITY_Y = -50 // Ball moving upward (negative Y velocity)
-const SHOT_RELEASE_VELOCITY_THRESHOLD = -100 // Minimum upward velocity for release
-const SHOT_APEX_DETECTION_THRESHOLD = 10 // Velocity near zero for apex
+const SHOT_CANDIDATE_THRESHOLD_Y = 0.3 // Ball above 30% of frame height (normalized)
+const SHOT_CANDIDATE_VELOCITY_Y = -0.5 // Ball moving upward (negative Y velocity, normalized units/s)
+const SHOT_RELEASE_VELOCITY_THRESHOLD = -1.0 // Minimum upward velocity for release (normalized units/s)
+const SHOT_APEX_DETECTION_THRESHOLD = 0.1 // Velocity near zero for apex (normalized units/s)
 
 export class ShotDetector {
   private trajectory: Array<{ x: number; y: number; t: number }> = []
@@ -23,14 +23,13 @@ export class ShotDetector {
   // Check if current ball position is a shot candidate
   isShotCandidate(ball: BallDetection['ball'], velocity: { vx: number; vy: number }): boolean {
     if (!ball) return false
-    
-    // Ball must be in upper part of frame
-    const normalizedY = ball.y / 480 // Assuming 480 height
-    if (normalizedY < SHOT_CANDIDATE_THRESHOLD_Y) return false
-    
+
+    // Ball must be in upper part of frame (normalized coordinates)
+    if (ball.y < SHOT_CANDIDATE_THRESHOLD_Y) return false
+
     // Ball must be moving upward
     if (velocity.vy > SHOT_CANDIDATE_VELOCITY_Y) return false
-    
+
     return true
   }
 
@@ -49,19 +48,19 @@ export class ShotDetector {
     }
   }
 
-  // Calculate ball velocity from trajectory
+  // Calculate ball velocity from trajectory (normalized units per second)
   calculateVelocity(): { vx: number; vy: number } | null {
     if (this.trajectory.length < 3) return null
-    
+
     const recent = this.trajectory.slice(-3)
     const dt = recent[2].t - recent[0].t
     if (dt === 0) return null
-    
+
     const dx = recent[2].x - recent[0].x
     const dy = recent[2].y - recent[0].y
-    
+
     return {
-      vx: (dx / dt) * 1000, // pixels per second
+      vx: (dx / dt) * 1000, // normalized units per second
       vy: (dy / dt) * 1000,
     }
   }

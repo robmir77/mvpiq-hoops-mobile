@@ -18,9 +18,9 @@ import { Camera } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData } from '../types/workouts.types'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
-import { useCameraFormat } from 'react-native-vision-camera'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { calculateHomography, getCourtCornersMeters } from '../utils/homography'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
@@ -504,16 +504,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const { user } = useContext(AuthContext) || {}
     const { hasPermission, requestPermission } = useCameraPermission()
     const device = useCameraDevice('back')
-    
-    // Camera configuration state
-    const [selectedResolution, setSelectedResolution] = useState({ width: 1280, height: 720 })
-    const [selectedFps, setSelectedFps] = useState(30)
-    const [showConfigPanel, setShowConfigPanel] = useState(false)
-    
-    const format = useCameraFormat(device, [
-        { videoResolution: selectedResolution },
-        { fps: selectedFps },
-    ])
     const isActive = true
     
     // Get zoom range from device
@@ -521,34 +511,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const maxZoom = device?.maxZoom ?? 1
     // Use device minimum zoom as default
     const [zoom, setZoom] = useState(minZoom)
-    
-    // Get available formats from device
-    const availableFormats = device?.formats ?? []
-    const uniqueResolutions = React.useMemo(() => {
-        const resolutions = new Map<string, { width: number; height: number }>()
-        availableFormats.forEach(fmt => {
-            const key = `${fmt.videoWidth}x${fmt.videoHeight}`
-            if (!resolutions.has(key)) {
-                resolutions.set(key, { width: fmt.videoWidth, height: fmt.videoHeight })
-            }
-        })
-        return Array.from(resolutions.values()).sort((a, b) => (b.width * b.height) - (a.width * a.height))
-    }, [availableFormats])
-    
-    const uniqueFps = React.useMemo(() => {
-        // Common FPS values that most cameras support
-        return [60, 30, 24, 15].filter(fps => fps <= 60)
-    }, [])
-    
-    // Set default to lowest resolution and lowest FPS for better performance
-    React.useEffect(() => {
-        if (uniqueResolutions.length > 0) {
-            setSelectedResolution(uniqueResolutions[uniqueResolutions.length - 1]) // Lowest resolution
-        }
-        if (uniqueFps.length > 0) {
-            setSelectedFps(uniqueFps[uniqueFps.length - 1]) // Lowest FPS
-        }
-    }, [uniqueResolutions, uniqueFps])
 
     const [step, setStep] = useState<CalibStep>('hoop')
     const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
@@ -604,15 +566,32 @@ export default function CalibrationScreen({ navigation, route }: any) {
         try {
             const normHoop = normalizePoint(hoopCenter.x, hoopCenter.y)
             let courtCorners
+            let homographyMatrix: number[] = []
+            
             if (corners.length === 4) {
                 const nc = corners.map(c => normalizePoint(c.x, c.y))
                 courtCorners = {
                     topLeft: nc[0], topRight: nc[1],
                     bottomRight: nc[2], bottomLeft: nc[3],
                 }
+                
+                // Calculate real homography matrix from image corners to court coordinates in meters
+                // Court dimensions: 15.24m width, 28.65m height (FIBA/NBA full court)
+                const COURT_WIDTH_M = 15.24
+                const COURT_HEIGHT_M = 28.65
+                const dstCorners = getCourtCornersMeters(COURT_WIDTH_M, COURT_HEIGHT_M)
+                
+                try {
+                    homographyMatrix = calculateHomography(nc, dstCorners)
+                } catch (e) {
+                    console.warn('Failed to calculate homography:', e)
+                    // Fall back to empty matrix if calculation fails
+                    homographyMatrix = []
+                }
             }
+            
             const cal: CalibrationData = {
-                homographyMatrix: corners.length === 4 ? [1,0,0,0,1,0,0,0,1] : [],
+                homographyMatrix,
                 hoopCenter: normHoop,
                 courtCorners,
             }
@@ -627,14 +606,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const handleProceed = () => {
-        navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+        navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom })
     }
 
     const handleSkip = () => {
         showWarning(
             'Salta calibrazione',
             'Senza calibrazione il tracking sarà meno preciso.',
-            () => navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
+            () => navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom })
         )
     }
 
@@ -687,7 +666,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive}
-                    format={format}
                     zoom={zoom}
                 />
                 <OverlayComponent
@@ -729,76 +707,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
                     </TouchableOpacity>
                 </View>
-                
-                {/* Camera config button */}
-                <TouchableOpacity 
-                    style={styles.configBtn}
-                    onPress={() => setShowConfigPanel(!showConfigPanel)}
-                >
-                    <Text style={styles.configBtnText}>⚙️</Text>
-                </TouchableOpacity>
-                
-                {/* Camera config panel */}
-                {showConfigPanel && (
-                    <View style={styles.configPanel}>
-                        <Text style={styles.configPanelTitle}>Configurazione Camera</Text>
-                        
-                        {/* Resolution selector */}
-                        <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>Risoluzione</Text>
-                            <View style={styles.configOptions}>
-                                {uniqueResolutions.map((res) => (
-                                    <TouchableOpacity
-                                        key={`${res.width}x${res.height}`}
-                                        style={[
-                                            styles.configOption,
-                                            selectedResolution.width === res.width && selectedResolution.height === res.height && styles.configOptionSelected
-                                        ]}
-                                        onPress={() => setSelectedResolution(res)}
-                                    >
-                                        <Text style={[
-                                            styles.configOptionText,
-                                            selectedResolution.width === res.width && selectedResolution.height === res.height && styles.configOptionTextSelected
-                                        ]}>
-                                            {res.width}x{res.height}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        </View>
-                        
-                        {/* FPS selector */}
-                        <View style={styles.configSection}>
-                            <Text style={styles.configLabel}>FPS</Text>
-                            <View style={styles.configOptions}>
-                                {uniqueFps.map((fps) => (
-                                    <TouchableOpacity
-                                        key={fps}
-                                        style={[
-                                            styles.configOption,
-                                            selectedFps === fps && styles.configOptionSelected
-                                        ]}
-                                        onPress={() => setSelectedFps(fps)}
-                                    >
-                                        <Text style={[
-                                            styles.configOptionText,
-                                            selectedFps === fps && styles.configOptionTextSelected
-                                        ]}>
-                                            {fps}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        </View>
-                        
-                        <TouchableOpacity 
-                            style={styles.configCloseBtn}
-                            onPress={() => setShowConfigPanel(false)}
-                        >
-                            <Text style={styles.configCloseBtnText}>Chiudi</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
             </View>
 
             {/* Pannello info */}

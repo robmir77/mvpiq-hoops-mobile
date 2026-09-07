@@ -17,6 +17,9 @@ export const useWorkoutWebSocket = (sessionId: string | null, userId: string | n
     const connect = useCallback(() => {
         if (!sessionId || !userId) return
 
+        // Reset reconnect attempts for new connection attempt
+        reconnectAttempts.current = 0
+
         // Sostituisci http/https con ws/wss per il WebSocket
         const wsBase = API_BASE_URL.replace(/^http/, 'ws')
         const url = `${wsBase}/api/workouts/live/${sessionId}?userId=${userId}`

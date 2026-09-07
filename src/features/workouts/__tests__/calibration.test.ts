@@ -5,6 +5,7 @@
 
 import { saveCourtCalibration } from '../api/workouts.api'
 import type { CalibrationData } from '../types/workouts.types'
+import { calculateHomography, getCourtCornersMeters, applyHomography } from '../utils/homography'
 
 // Mock the API
 jest.mock('../api/workouts.api')
@@ -165,26 +166,47 @@ describe('Court Calibration', () => {
   })
 
   describe('Homography Matrix', () => {
-    it('should save homography matrix for coordinate transformation', async () => {
-      const calibrationData: CalibrationData = {
-        homographyMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-        hoopCenter: { x: 0.5, y: 0.3 },
-      }
+    it('should calculate real homography matrix from court corners', () => {
+      const imageCorners = [
+        { x: 0.1, y: 0.1 },
+        { x: 0.9, y: 0.1 },
+        { x: 0.9, y: 0.9 },
+        { x: 0.1, y: 0.9 },
+      ]
+      const courtCorners = getCourtCornersMeters(15.24, 28.65)
 
-      mockSaveCourtCalibration.mockResolvedValue()
+      const homographyMatrix = calculateHomography(imageCorners, courtCorners)
 
-      await saveCourtCalibration('session-123', 'user-123', calibrationData)
+      expect(homographyMatrix).toHaveLength(9)
+      expect(homographyMatrix[8]).toBe(1) // h33 should be 1
 
-      expect(mockSaveCourtCalibration).toHaveBeenCalledWith(
-        'session-123',
-        'user-123',
-        expect.objectContaining({
-          homographyMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-        })
-      )
+      // Verify it's not the identity matrix (which would be incorrect)
+      const isIdentity = homographyMatrix[0] === 1 && homographyMatrix[4] === 1 &&
+                        homographyMatrix[1] === 0 && homographyMatrix[2] === 0 &&
+                        homographyMatrix[3] === 0 && homographyMatrix[5] === 0 &&
+                        homographyMatrix[6] === 0 && homographyMatrix[7] === 0
+      expect(isIdentity).toBe(false)
     })
 
-    it('should handle empty homography matrix', async () => {
+    it('should correctly transform coordinates using homography', () => {
+      const imageCorners = [
+        { x: 0.1, y: 0.1 },
+        { x: 0.9, y: 0.1 },
+        { x: 0.9, y: 0.9 },
+        { x: 0.1, y: 0.9 },
+      ]
+      const courtCorners = getCourtCornersMeters(15.24, 28.65)
+      const homographyMatrix = calculateHomography(imageCorners, courtCorners)
+
+      // Test center point transformation
+      const centerImage = { x: 0.5, y: 0.5 }
+      const centerCourt = applyHomography(centerImage, homographyMatrix)
+
+      expect(centerCourt.x).toBeCloseTo(7.62, 1) // Half of court width
+      expect(centerCourt.y).toBeCloseTo(14.325, 1) // Half of court height
+    })
+
+    it('should handle empty homography matrix (no corners calibration)', async () => {
       const calibrationData: CalibrationData = {
         homographyMatrix: [],
         hoopCenter: { x: 0.5, y: 0.3 },
@@ -224,33 +246,50 @@ describe('Court Calibration', () => {
   })
 
   describe('Coordinate Transformation', () => {
-    it('should transform screen coordinates to court coordinates', () => {
-      // This is a conceptual test for the coordinate transformation logic
-      // In a real implementation, this would test the toCourtMeters function
+    it('should transform screen coordinates to court coordinates using homography', () => {
+      const imageCorners = [
+        { x: 0.1, y: 0.1 },
+        { x: 0.9, y: 0.1 },
+        { x: 0.9, y: 0.9 },
+        { x: 0.1, y: 0.9 },
+      ]
+      const courtCorners = getCourtCornersMeters(15.24, 28.65)
+      const homographyMatrix = calculateHomography(imageCorners, courtCorners)
 
-      const screenX = 0.5
-      const screenY = 0.4
       const calibration: CalibrationData = {
-        homographyMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        homographyMatrix,
         hoopCenter: { x: 0.5, y: 0.3 },
+        courtCorners: {
+          topLeft: imageCorners[0],
+          topRight: imageCorners[1],
+          bottomRight: imageCorners[2],
+          bottomLeft: imageCorners[3],
+        },
       }
 
-      // The transformation would use the homography matrix
-      // For now, we just verify the calibration data structure
+      // Verify the calibration has a valid homography matrix
       expect(calibration.hoopCenter).toBeDefined()
-      expect(calibration.homographyMatrix).toBeDefined()
+      expect(calibration.homographyMatrix).toHaveLength(9)
+      expect(calibration.homographyMatrix[8]).toBe(1)
+
+      // Verify transformation produces meter values, not normalized 0-1
+      const screenPoint = { x: 0.5, y: 0.5 }
+      const courtPoint = applyHomography(screenPoint, calibration.homographyMatrix)
+      
+      // Court coordinates should be in meters (around 7-8m for center)
+      expect(courtPoint.x).toBeGreaterThan(1)
+      expect(courtPoint.y).toBeGreaterThan(1)
     })
 
-    it('should handle coordinate transformation without homography', () => {
-      const screenX = 0.5
-      const screenY = 0.4
+    it('should handle coordinate transformation without homography (fallback)', () => {
       const calibration: CalibrationData = {
         homographyMatrix: [],
         hoopCenter: { x: 0.5, y: 0.3 },
       }
 
-      // Without homography, coordinates would be relative to hoop center
+      // Without homography, the system should use simple scaling fallback
       expect(calibration.hoopCenter).toBeDefined()
+      expect(calibration.homographyMatrix).toHaveLength(0)
     })
   })
 
