@@ -34,6 +34,8 @@ export const useShotTracker = (
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
+  yoloDelegate?: string,
+  poseDelegate?: string,
 ) => {
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
@@ -68,11 +70,11 @@ export const useShotTracker = (
   // Single-class football/basketball detector (320×320, float16, NHWC TFLite)
   const yoloModel = useTensorflowModel(
     require('../../assets/models/ball_rimV8_float16.tflite'),
-    ['nnapi'],
+    (yoloDelegate ? [yoloDelegate] : ['nnapi']) as any,
   )
   const poseModel = useTensorflowModel(
     require('../../assets/models/movenet_lightning_int8.tflite'),
-    ['android-gpu'],
+    (poseDelegate ? [poseDelegate] : ['android-gpu']) as any,
   )
 
   // ── Callback refs ────────────────────────────────────────────────────────────
@@ -369,7 +371,7 @@ export const useShotTracker = (
         perfLastLogTs.value = nowTs
       }
     }
-  }), [])
+  }), [yoloModel, poseModel])
 
   const frameProcessor = useFrameOutput(frameProcessorOptions)
 

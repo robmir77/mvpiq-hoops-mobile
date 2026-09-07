@@ -1048,7 +1048,7 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps } = route.params || {}
+    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1356,7 +1356,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         handleRimDetection,
         effectiveRim,
         kalmanFilteredBall,
-        true
+        true,
+        yoloDelegate,
+        poseDelegate
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
@@ -1614,7 +1616,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive && !isPaused}
                     outputs={[frameProcessor]}
-                    zoom={zoom}
+                    zoom={isActive && !isPaused ? zoom : undefined}
                     onError={(error: any) => {
                         if (error.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')
