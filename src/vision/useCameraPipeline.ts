@@ -7,7 +7,7 @@
 // - Frame processor attachment
 // - NO analysis, tracking, overlay, or basketball logic
 
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
 import { useShotTracker } from './useShotTracker'
 import type { BallDetection, PoseResult, ShotEvent } from './types'

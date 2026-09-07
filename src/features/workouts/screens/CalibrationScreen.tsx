@@ -901,11 +901,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const cameraRef = useRef<CameraRef>(null)
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
-    const [yoloDelegate, setYoloDelegate] = useState<string[]>(
-        Platform.OS === 'android' ? ['android-gpu'] : ['core-ml']
+    const [yoloDelegate, setYoloDelegate] = useState<string[] | null>(
+        Platform.OS === 'android' ? ['nnapi'] : ['core-ml']
     )
-    const [poseDelegate, setPoseDelegate] = useState<string[]>(
-        Platform.OS === 'android' ? ['android-gpu'] : ['core-ml']
+    const [poseDelegate, setPoseDelegate] = useState<string[] | null>(
+        Platform.OS === 'android' ? ['nnapi'] : ['core-ml']
     )
     const hoopCameraPointRef = useRef<Point | null>(null)
     const cornerCameraPointsRef = useRef<Point[]>([])
@@ -958,13 +958,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const availableDelegates = React.useMemo(() => {
         if (Platform.OS === 'android') {
             return [
-                { value: 'android-gpu', label: 'GPU (Android)' },
-                { value: 'cpu', label: 'CPU' },
+                { value: 'nnapi', label: 'NNAPI (Android)' },
+                { value: 'android-cpu', label: 'CPU (Android)' },
+                { value: 'cpu', label: 'CPU (Fallback)' },
             ]
         } else {
             return [
                 { value: 'core-ml', label: 'Core ML (iOS)' },
-                { value: 'cpu', label: 'CPU' },
+                { value: 'metal', label: 'Metal (iOS)' },
+                { value: 'cpu', label: 'CPU (Fallback)' },
             ]
         }
     }, [])
@@ -1221,9 +1223,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <Text style={styles.configLabel}>YOLO Delegate (Rilevamento palla/ferro)</Text>
                                 <View style={styles.pickerWrap}>
                                     <Picker
-                                        selectedValue={yoloDelegate.length > 0 ? yoloDelegate[0] : 'cpu'}
+                                        selectedValue={yoloDelegate?.[0] || 'cpu'}
                                         onValueChange={(value) => {
-                                            setYoloDelegate(value === 'cpu' ? [] : [value])
+                                            setYoloDelegate(value === 'cpu' ? null : [value])
                                         }}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}
@@ -1241,9 +1243,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <Text style={styles.configLabel}>Pose Delegate (Rilevamento corpo)</Text>
                                 <View style={styles.pickerWrap}>
                                     <Picker
-                                        selectedValue={poseDelegate.length > 0 ? poseDelegate[0] : 'cpu'}
+                                        selectedValue={poseDelegate?.[0] || 'cpu'}
                                         onValueChange={(value) => {
-                                            setPoseDelegate(value === 'cpu' ? [] : [value])
+                                            setPoseDelegate(value === 'cpu' ? null : [value])
                                         }}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}

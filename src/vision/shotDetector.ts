@@ -3,12 +3,11 @@
 // Shot detection logic from ball trajectory and pose
 // Determines shot start, release, and result
 
-import type { BallDetection, ShotEvent, ShotCandidate } from './types'
+import type { BallDetection, ShotEvent } from './types'
 
 const SHOT_CANDIDATE_THRESHOLD_Y = 0.3 // Ball above 30% of frame height
 const SHOT_CANDIDATE_VELOCITY_Y = -50 // Ball moving upward (negative Y velocity)
 const SHOT_RELEASE_VELOCITY_THRESHOLD = -100 // Minimum upward velocity for release
-const SHOT_APEX_DETECTION_THRESHOLD = 10 // Velocity near zero for apex
 
 export class ShotDetector {
   private trajectory: Array<{ x: number; y: number; t: number }> = []
@@ -117,21 +116,21 @@ export class ShotDetector {
     if (!velocity || !rim) return false
     
     // Ball must be moving downward
-    if (velocity.vy > 0) {
-      const lastPoint = this.trajectory[this.trajectory.length - 1]
-      const rimCenterX = rim.x + rim.width / 2
-      const rimCenterY = rim.y + rim.height / 2
-      
-      // Check if ball is near rim center
-      const distance = Math.sqrt(
-        Math.pow(lastPoint.x - rimCenterX, 2) + 
-        Math.pow(lastPoint.y - rimCenterY, 2)
-      )
-      
-      if (distance < rim.width / 2) {
-        this.shotMade = true
-        return true
-      }
+    if (velocity.vy <= 0) return false
+    
+    const lastPoint = this.trajectory[this.trajectory.length - 1]
+    const rimCenterX = rim.x + rim.width / 2
+    const rimCenterY = rim.y + rim.height / 2
+    
+    // Check if ball is near rim center
+    const distance = Math.sqrt(
+      Math.pow(lastPoint.x - rimCenterX, 2) + 
+      Math.pow(lastPoint.y - rimCenterY, 2)
+    )
+    
+    if (distance < rim.width / 2) {
+      this.shotMade = true
+      return true
     }
     
     return false

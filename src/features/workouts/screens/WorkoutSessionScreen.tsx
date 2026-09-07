@@ -1064,7 +1064,7 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, selectedResolution, selectedFps } = route.params || {}
+    const { sessionId, cameraMode, selectedResolution, selectedFps, yoloDelegate, poseDelegate } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1334,7 +1334,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         kalmanFilteredBall,
         shotDetectionEnabled,
         poseEnabled,
-        ballEnabled
+        ballEnabled,
+        yoloDelegate,
+        poseDelegate
     )
 
     // DEBUG TEMPORANEO: instrumentazione per capire perché la preview resta nera.

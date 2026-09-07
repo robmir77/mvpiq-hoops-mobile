@@ -43,7 +43,7 @@ function nms(dets: number[][], thr: number): number[][] {
 // This runs in the Worklet - NO runOnJS here
 // Detects both ball (cls 0) and rim (cls 1)
 // Returns the ball with highest confidence and the rim with highest confidence
-export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD, frameWidth: number = 1, frameHeight: number = 1): {
+export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD, _frameWidth: number = 1, _frameHeight: number = 1): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
   debug?: { cx: number; cy: number; w: number; h: number; conf: number }
@@ -64,7 +64,6 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   // For ball_rimV8 model: class 0 = ball, class 1 = rim
   // Class scores are at output[N_ANCHORS * 5 + i] for ball and output[N_ANCHORS * 6 + i] for rim
   let maxScore = 0
-  let maxScoreIdx = -1
 
   const a2 = N_ANCHORS * 2
   const a3 = N_ANCHORS * 3
@@ -83,7 +82,6 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     const maxClassScore = Math.max(ballScore, rimScore)
     if (maxClassScore > maxScore) {
       maxScore = maxClassScore
-      maxScoreIdx = i
       debugInfo = { cx, cy, w, h, conf: maxClassScore }
     }
 

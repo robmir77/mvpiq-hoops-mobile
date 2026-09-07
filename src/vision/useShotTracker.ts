@@ -37,7 +37,7 @@ const POSE_INPUT_SIZE = 192
 // AI throttling
 // ─────────────────────────────────────────────────────────────────────────────
 
-const YOLO_FRAME_SKIP = 3
+const YOLO_FRAME_SKIP = 10
 const POSE_FRAME_SKIP = 9
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,6 +110,39 @@ export const useShotTracker = (
 ) => {
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Mount-instance diagnostic
+    //
+    // If this hook is ever mounted twice concurrently (React remount, a
+    // stale navigation stack entry, etc.), each instance gets its own
+    // Worklet Runtime/shared values — which is consistent with the
+    // remaining rare TypedArray/ArrayBuffer crash surviving every JS-level
+    // stabilization fix so far. This has near-zero cost and tells us
+    // directly, from the same Metro log you already share, whether that's
+    // happening: if you ever see two different [instanceId] values alive
+    // at the same time (a MOUNT for id B before an UNMOUNT for id A),
+    // that's the proof — no adb/logcat needed for this specific check.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const instanceIdRef =
+        useRef(
+            Math.random().toString(36).slice(2, 8)
+        )
+
+    useEffect(() => {
+        console.log(
+            '[ShotTracker][INSTANCE] MOUNT',
+            instanceIdRef.current
+        )
+
+        return () => {
+            console.log(
+                '[ShotTracker][INSTANCE] UNMOUNT',
+                instanceIdRef.current
+            )
+        }
+    }, [])
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Shot detector
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -135,6 +168,51 @@ export const useShotTracker = (
     // Belt-and-suspenders alongside dropFramesWhileBusy below.
     const isProcessingFrame =
         useSharedValue(false)
+
+    // Fatal error guard: stops processing after a critical error (e.g. TypedArray corruption)
+    const hasFatalError =
+        useSharedValue(false)
+
+    // Recovery mechanism: reset the fatal error flag after a delay.
+    // IMPORTANT: this must be scheduled from the JS thread at the moment
+    // the error is actually caught (via scheduleOnRN in the catch block
+    // below) — NOT from a mount-time useEffect. A useEffect with an empty
+    // dependency array only runs once, at mount, when there is no error
+    // yet to react to; mutating a plain useRef from inside the onFrame
+    // worklet doesn't propagate back to the JS thread's ref either way
+    // (worklets get their own copy of captured plain objects — only
+    // shared values are synchronized across runtimes). Net effect of the
+    // old approach: the timeout was never scheduled, and hasFatalError
+    // stayed true forever after the first fatal error.
+    const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    const scheduleFatalErrorRecovery =
+        useCallback(
+            () => {
+                if (recoveryTimerRef.current) {
+                    clearTimeout(recoveryTimerRef.current)
+                }
+
+                recoveryTimerRef.current =
+                    setTimeout(
+                        () => {
+                            hasFatalError.value = false
+                            console.log('[ShotTracker] Recovering from fatal error')
+                        },
+                        3000
+                    )
+            },
+            []
+        )
+
+    useEffect(
+        () => () => {
+            if (recoveryTimerRef.current) {
+                clearTimeout(recoveryTimerRef.current)
+            }
+        },
+        []
+    )
 
     const enabledShared =
         useSharedValue(enabled)
@@ -809,6 +887,13 @@ export const useShotTracker = (
                 // Reentrancy guard
                 // ───────────────────────────────────────────────────────────────────
 
+                if (hasFatalError.value) {
+                    // A fatal error occurred (e.g. TypedArray corruption).
+                    // Stop all processing to prevent cascading failures.
+                    frame.dispose()
+                    return
+                }
+
                 if (isProcessingFrame.value) {
                     // A previous invocation is still running (e.g. slow
                     // model.runSync()). Drop this one instead of letting it
@@ -827,21 +912,6 @@ export const useShotTracker = (
 
                 const currentFrame =
                     frameCounter.value
-
-                // Diagnostic frame logging.
-                if (
-                    currentFrame <= 10 ||
-                    currentFrame % 30 === 0
-                ) {
-
-                    console.log(
-                        '[ShotTracker][FRAME]',
-                        currentFrame,
-                        frame.width,
-                        'x',
-                        frame.height
-                    )
-                }
 
                 try {
 
@@ -890,121 +960,40 @@ export const useShotTracker = (
                         0
                     ) {
 
-                        console.log(
-                            '[ShotTracker][YOLO] BEFORE resize',
-                            currentFrame
-                        )
-
                         const resized =
                             yoloResizer?.resize(
                                 frame
                             )
 
-                        console.log(
-                            '[ShotTracker][YOLO] AFTER resize',
-                            currentFrame,
-                            !!resized
-                        )
-
                         if (resized) {
 
                             try {
 
-                                console.log(
-                                    '[ShotTracker][YOLO] BEFORE getPixelBuffer',
-                                    currentFrame
-                                )
-
                                 const arrayBuffer =
                                     resized.getPixelBuffer()
-
-                                console.log(
-                                    '[ShotTracker][YOLO] AFTER getPixelBuffer',
-                                    currentFrame
-                                )
 
                                 const source =
                                     new Float32Array(
                                         arrayBuffer
                                     )
 
-                                console.log(
-                                    '[ShotTracker][YOLO] BUFFER SIZE CHECK',
-                                    currentFrame,
-                                    'actual:',
-                                    source.length,
-                                    'expected:',
-                                    YOLO_INPUT_ELEMENTS,
-                                    'arrayBuffer.byteLength:',
-                                    arrayBuffer.byteLength
-                                )
-
                                 if (
                                     source.length !==
                                     YOLO_INPUT_ELEMENTS
                                 ) {
-
-                                    console.error(
-                                        '[ShotTracker][YOLO] BUFFER SIZE MISMATCH:',
-                                        source.length,
-                                        'EXPECTED:',
-                                        YOLO_INPUT_ELEMENTS
-                                    )
-
+                                    // Buffer size mismatch - skip this frame
                                 } else {
-
-                                    // Diagnostic: check whether the resizer's
-                                    // float32 output is normalized (0-1) or
-                                    // raw (0-255). A YOLO model trained on
-                                    // 0-1 inputs will produce near-zero
-                                    // confidence on 0-255 inputs and vice
-                                    // versa.
-                                    let minVal = source[0]
-                                    let maxVal = source[0]
-                                    for (let i = 1; i < source.length; i += 97) {
-                                        // sample every 97th element — cheap,
-                                        // still representative, avoids
-                                        // scanning 519k floats per frame
-                                        if (source[i] < minVal) minVal = source[i]
-                                        if (source[i] > maxVal) maxVal = source[i]
-                                    }
-
-                                    console.log(
-                                        '[ShotTracker][YOLO] INPUT RANGE',
-                                        currentFrame,
-                                        'min:',
-                                        minVal.toFixed(3),
-                                        'max:',
-                                        maxVal.toFixed(3)
-                                    )
 
                                     // IMPORTANT:
                                     // Create a fresh TypedArray for runSync.
+                                    // Use slice() to ensure complete copy, not just reference.
                                     const input =
-                                        new Float32Array(
-                                            YOLO_INPUT_ELEMENTS
-                                        )
-
-                                    input.set(
-                                        source
-                                    )
-
-                                    console.log(
-                                        '[ShotTracker][YOLO] BEFORE runSync',
-                                        currentFrame
-                                    )
+                                        source.slice()
 
                                     const outputs =
                                         yoloModelInstance!.runSync(
                                             [input]
                                         )
-
-                                    console.log(
-                                        '[ShotTracker][YOLO] AFTER runSync',
-                                        currentFrame,
-                                        'outputs:',
-                                        outputs?.length
-                                    )
 
                                     const output =
                                         outputs[0] as Float32Array
@@ -1012,7 +1001,6 @@ export const useShotTracker = (
                                     const {
                                         ball,
                                         rim,
-                                        debug,
                                     } =
                                         parseYoloOutput(
                                             output,
@@ -1020,19 +1008,6 @@ export const useShotTracker = (
                                             frameWidth,
                                             frameHeight
                                         )
-
-                                    console.log(
-                                        '[ShotTracker][YOLO] PARSED',
-                                        currentFrame,
-                                        'ball:',
-                                        !!ball,
-                                        'rim:',
-                                        !!rim,
-                                        'maxConf:',
-                                        debug?.conf?.toFixed(3),
-                                        'threshold:',
-                                        adaptiveThreshold.value
-                                    )
 
                                     scheduleOnRN(
                                         emitBallDetection,
@@ -1067,17 +1042,7 @@ export const useShotTracker = (
 
                             } finally {
 
-                                console.log(
-                                    '[ShotTracker][YOLO] BEFORE dispose',
-                                    currentFrame
-                                )
-
                                 resized.dispose()
-
-                                console.log(
-                                    '[ShotTracker][YOLO] AFTER dispose',
-                                    currentFrame
-                                )
                             }
                         }
                     }
@@ -1094,38 +1059,17 @@ export const useShotTracker = (
                         0
                     ) {
 
-                        console.log(
-                            '[ShotTracker][POSE] BEFORE resize',
-                            currentFrame
-                        )
-
                         const resized =
                             poseResizer?.resize(
                                 frame
                             )
 
-                        console.log(
-                            '[ShotTracker][POSE] AFTER resize',
-                            currentFrame,
-                            !!resized
-                        )
-
                         if (resized) {
 
                             try {
 
-                                console.log(
-                                    '[ShotTracker][POSE] BEFORE getPixelBuffer',
-                                    currentFrame
-                                )
-
                                 const arrayBuffer =
                                     resized.getPixelBuffer()
-
-                                console.log(
-                                    '[ShotTracker][POSE] AFTER getPixelBuffer',
-                                    currentFrame
-                                )
 
                                 const source =
                                     new Uint8Array(
@@ -1136,14 +1080,7 @@ export const useShotTracker = (
                                     source.length !==
                                     POSE_INPUT_ELEMENTS
                                 ) {
-
-                                    console.error(
-                                        '[ShotTracker][POSE] BUFFER SIZE:',
-                                        source.length,
-                                        'EXPECTED:',
-                                        POSE_INPUT_ELEMENTS
-                                    )
-
+                                    // Buffer size mismatch - skip this frame
                                 } else {
 
                                     // IMPORTANT:
@@ -1157,30 +1094,13 @@ export const useShotTracker = (
                                         source
                                     )
 
-                                    console.log(
-                                        '[ShotTracker][POSE] BEFORE runSync',
-                                        currentFrame
-                                    )
-
                                     const outputs =
                                         poseModelInstance!.runSync(
                                             [input]
                                         )
 
-                                    console.log(
-                                        '[ShotTracker][POSE] AFTER runSync',
-                                        currentFrame,
-                                        'outputs:',
-                                        outputs?.length
-                                    )
-
                                     const output =
                                         outputs[0] as Float32Array
-
-                                    console.log(
-                                        '[ShotTracker][POSE] OUTPUT LENGTH',
-                                        output?.length
-                                    )
 
                                     const pose =
                                         parseMoveNetOutput(
@@ -1191,11 +1111,6 @@ export const useShotTracker = (
                                         computeJointAngles(
                                             pose
                                         )
-
-                                    console.log(
-                                        '[ShotTracker][POSE] PARSED',
-                                        currentFrame
-                                    )
 
                                     scheduleOnRN(
                                         emitPoseResult,
@@ -1210,29 +1125,34 @@ export const useShotTracker = (
 
                             } finally {
 
-                                console.log(
-                                    '[ShotTracker][POSE] BEFORE dispose',
-                                    currentFrame
-                                )
-
                                 resized.dispose()
-
-                                console.log(
-                                    '[ShotTracker][POSE] AFTER dispose',
-                                    currentFrame
-                                )
                             }
                         }
                     }
 
                 } catch (error) {
 
-                    console.error(
-                        '[ShotTracker][FRAME ERROR]',
-                        error,
-                        'stack:',
-                        (error as any)?.stack
-                    )
+                    const errorMessage = (error as any)?.message || String(error)
+
+                    // Detect fatal errors that indicate TypedArray corruption
+                    if (
+                        errorMessage.includes('TypedArray can only be updated') ||
+                        errorMessage.includes('no ArrayBuffer attached')
+                    ) {
+                        hasFatalError.value = true
+                        scheduleOnRN(scheduleFatalErrorRecovery)
+                        console.error(
+                            '[ShotTracker][FATAL ERROR] Stopping processing:',
+                            errorMessage
+                        )
+                    } else {
+                        console.error(
+                            '[ShotTracker][FRAME ERROR]',
+                            error,
+                            'stack:',
+                            (error as any)?.stack
+                        )
+                    }
 
                 } finally {
 
@@ -1252,6 +1172,7 @@ export const useShotTracker = (
                 poseResizer,
                 emitBallDetection,
                 emitPoseResult,
+                scheduleFatalErrorRecovery,
             ]
         )
 
