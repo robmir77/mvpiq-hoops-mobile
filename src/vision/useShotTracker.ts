@@ -11,10 +11,12 @@ import { useResizer } from 'react-native-vision-camera-resizer'
 import { useSharedValue } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 import { useTensorflowModel } from 'react-native-fast-tflite'
+
 import { parseYoloOutput } from './yoloParser'
 import { parseMoveNetOutput } from './poseParser'
 import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
+
 import type {
     AndroidDelegateOption,
     IosDelegateOption,
@@ -22,10 +24,19 @@ import type {
     PoseResult,
     ShotEvent,
 } from './types'
+
+// Re-export dei delegate types.
+// useCameraPipeline.ts li importa da './useShotTracker'.
+export type {
+    AndroidDelegateOption,
+    IosDelegateOption,
+} from './types'
+
 import {
     incrementYoloFps,
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
+
 import { Platform } from 'react-native'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,19 +49,27 @@ const POSE_INPUT_SIZE = 192
 // ─────────────────────────────────────────────────────────────────────────────
 // Hardware delegate options
 //
-// Android: choose between the GPU delegate and NNAPI — plain CPU is
-// intentionally not offered as a selectable option. 'android-gpu' is the
-// default (NNAPI is flagged as deprecated by fast-tflite's own maintainers
-// from Android 15 onward, GPU is the currently recommended path).
+// Android:
+//   - android-gpu
+//   - nnapi
 //
-// iOS: Core ML is the only accelerated delegate fast-tflite exposes on iOS
-// — there's no NNAPI-equivalent second choice, so it's not a selection,
-// just the fixed default.
+// iOS:
+//   - core-ml
+//
+// react-native-fast-tflite 1.6.1 accepts ONE delegate string,
+// not an array of delegates.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const ANDROID_DELEGATE_OPTIONS: AndroidDelegateOption[] = ['android-gpu', 'nnapi']
-export const DEFAULT_ANDROID_DELEGATE: AndroidDelegateOption = 'android-gpu'
-export const DEFAULT_IOS_DELEGATE: IosDelegateOption = 'core-ml'
+export const ANDROID_DELEGATE_OPTIONS: AndroidDelegateOption[] = [
+    'android-gpu',
+    'nnapi',
+]
+
+export const DEFAULT_ANDROID_DELEGATE: AndroidDelegateOption =
+    'android-gpu'
+
+export const DEFAULT_IOS_DELEGATE: IosDelegateOption =
+    'core-ml'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
@@ -130,16 +149,6 @@ export const useShotTracker = (
 
     // ─────────────────────────────────────────────────────────────────────────
     // Mount-instance diagnostic
-    //
-    // If this hook is ever mounted twice concurrently (React remount, a
-    // stale navigation stack entry, etc.), each instance gets its own
-    // Worklet Runtime/shared values — which is consistent with the
-    // remaining rare TypedArray/ArrayBuffer crash surviving every JS-level
-    // stabilization fix so far. This has near-zero cost and tells us
-    // directly, from the same Metro log you already share, whether that's
-    // happening: if you ever see two different [instanceId] values alive
-    // at the same time (a MOUNT for id B before an UNMOUNT for id A),
-    // that's the proof — no adb/logcat needed for this specific check.
     // ─────────────────────────────────────────────────────────────────────────
 
     const instanceIdRef =
@@ -148,6 +157,7 @@ export const useShotTracker = (
         )
 
     useEffect(() => {
+
         console.log(
             '[ShotTracker][INSTANCE] MOUNT',
             instanceIdRef.current
@@ -159,6 +169,7 @@ export const useShotTracker = (
                 instanceIdRef.current
             )
         }
+
     }, [])
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -182,45 +193,43 @@ export const useShotTracker = (
     const frameCounter =
         useSharedValue(0)
 
-    // Reentrancy guard: prevents a second onFrame invocation from starting
-    // while a previous one is still running (e.g. inside model.runSync()).
-    // Belt-and-suspenders alongside dropFramesWhileBusy below.
     const isProcessingFrame =
         useSharedValue(false)
 
-    // Fatal error guard: stops processing after a critical error (e.g. TypedArray corruption)
     const hasFatalError =
         useSharedValue(false)
 
-    // Throttle for scheduleOnRN calls - limit bridge crossings to ~100-150ms
     const lastRNDispatch =
         useSharedValue(0)
 
-    // Recovery mechanism: reset the fatal error flag after a delay.
-    // IMPORTANT: this must be scheduled from the JS thread at the moment
-    // the error is actually caught (via scheduleOnRN in the catch block
-    // below) — NOT from a mount-time useEffect. A useEffect with an empty
-    // dependency array only runs once, at mount, when there is no error
-    // yet to react to; mutating a plain useRef from inside the onFrame
-    // worklet doesn't propagate back to the JS thread's ref either way
-    // (worklets get their own copy of captured plain objects — only
-    // shared values are synchronized across runtimes). Net effect of the
-    // old approach: the timeout was never scheduled, and hasFatalError
-    // stayed true forever after the first fatal error.
-    const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fatal error recovery
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const recoveryTimerRef =
+        useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const scheduleFatalErrorRecovery =
         useCallback(
             () => {
+
                 if (recoveryTimerRef.current) {
-                    clearTimeout(recoveryTimerRef.current)
+                    clearTimeout(
+                        recoveryTimerRef.current
+                    )
                 }
 
                 recoveryTimerRef.current =
                     setTimeout(
                         () => {
-                            hasFatalError.value = false
-                            console.log('[ShotTracker] Recovering from fatal error')
+
+                            hasFatalError.value =
+                                false
+
+                            console.log(
+                                '[ShotTracker] Recovering from fatal error'
+                            )
+
                         },
                         3000
                     )
@@ -230,12 +239,20 @@ export const useShotTracker = (
 
     useEffect(
         () => () => {
+
             if (recoveryTimerRef.current) {
-                clearTimeout(recoveryTimerRef.current)
+                clearTimeout(
+                    recoveryTimerRef.current
+                )
             }
+
         },
         []
     )
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Enable flags
+    // ─────────────────────────────────────────────────────────────────────────
 
     const enabledShared =
         useSharedValue(enabled)
@@ -270,41 +287,50 @@ export const useShotTracker = (
     // ─────────────────────────────────────────────────────────────────────────
     // Model delegates
     //
-    // Hardware-accelerated delegates:
-    //   Android → GPU delegate ('android-gpu'), backed by the OpenCL/Mali
-    //             libraries already declared in app.json under
-    //             react-native-fast-tflite's enableAndroidGpuLibraries.
-    //   iOS     → Core ML delegate ('core-ml').
+    // IMPORTANT:
+    // react-native-fast-tflite 1.6.1 accepts ONE delegate string.
     //
-    // If a delegate fails to load on a given device, useTensorflowModel's
-    // state flips to 'error' (see the diagnostics effects below, already
-    // logging yoloModel/poseModel .error) — it does NOT automatically fall
-    // back to CPU. Worth watching after this change; say the word if you
-    // want an automatic CPU-fallback path added.
+    // NOT:
+    //   ['android-gpu']
+    //
+    // BUT:
+    //   'android-gpu'
     // ─────────────────────────────────────────────────────────────────────────
 
-    const yoloDelegates =
+    const yoloDelegateValue =
         useMemo(
             () => {
-                if (yoloDelegate !== undefined && yoloDelegate !== null) {
-                    return [yoloDelegate]
+
+                if (
+                    yoloDelegate !== undefined &&
+                    yoloDelegate !== null
+                ) {
+                    return yoloDelegate
                 }
+
                 return Platform.OS === 'android'
-                    ? [DEFAULT_ANDROID_DELEGATE]
-                    : [DEFAULT_IOS_DELEGATE]
+                    ? DEFAULT_ANDROID_DELEGATE
+                    : DEFAULT_IOS_DELEGATE
+
             },
             [yoloDelegate]
         )
 
-    const poseDelegates =
+    const poseDelegateValue =
         useMemo(
             () => {
-                if (poseDelegate !== undefined && poseDelegate !== null) {
-                    return [poseDelegate]
+
+                if (
+                    poseDelegate !== undefined &&
+                    poseDelegate !== null
+                ) {
+                    return poseDelegate
                 }
+
                 return Platform.OS === 'android'
-                    ? [DEFAULT_ANDROID_DELEGATE]
-                    : [DEFAULT_IOS_DELEGATE]
+                    ? DEFAULT_ANDROID_DELEGATE
+                    : DEFAULT_IOS_DELEGATE
+
             },
             [poseDelegate]
         )
@@ -318,7 +344,7 @@ export const useShotTracker = (
             require(
                 '../../assets/models/ball_rimV8_float16.tflite'
             ),
-            yoloDelegates as any
+            yoloDelegateValue
         )
 
     const poseModel =
@@ -326,11 +352,11 @@ export const useShotTracker = (
             require(
                 '../../assets/models/movenet_lightning_int8.tflite'
             ),
-            poseDelegates as any
+            poseDelegateValue
         )
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Stable model instances
+    // Model instances
     // ─────────────────────────────────────────────────────────────────────────
 
     const yoloModelInstance =
@@ -497,18 +523,21 @@ export const useShotTracker = (
                     | undefined
             ) => {
 
-                const now = Date.now()
+                const now =
+                    Date.now()
 
                 detectionHistory.current.push({
                     confidence:
                         ball?.confidence ?? 0,
-                    timestamp: now,
+                    timestamp:
+                        now,
                 })
 
                 detectionHistory.current =
                     detectionHistory.current.filter(
                         d =>
-                            now - d.timestamp <
+                            now -
+                            d.timestamp <
                             ADAPTATION_WINDOW_MS
                     )
 
@@ -528,7 +557,8 @@ export const useShotTracker = (
 
                     const detectedFrames =
                         detectionHistory.current.filter(
-                            d => d.confidence > 0
+                            d =>
+                                d.confidence > 0
                         ).length
 
                     const detectionRate =
@@ -615,12 +645,20 @@ export const useShotTracker = (
                 const ballForTracking =
                     kalmanFilteredBall
                         ? {
-                            x: kalmanFilteredBall.x,
-                            y: kalmanFilteredBall.y,
-                            width: ball.width,
-                            height: ball.height,
+                            x:
+                                kalmanFilteredBall.x,
+
+                            y:
+                                kalmanFilteredBall.y,
+
+                            width:
+                                ball.width,
+
+                            height:
+                                ball.height,
+
                             confidence:
-                            ball.confidence,
+                                ball.confidence,
                         }
                         : ball
 
@@ -639,7 +677,7 @@ export const useShotTracker = (
                         ballForTracking.height / 2,
 
                     t:
-                    detection.timestamp,
+                        detection.timestamp,
                 }
 
                 if (
@@ -814,29 +852,18 @@ export const useShotTracker = (
             []
         )
 
-    // NOTE: with react-native-worklets, scheduleOnRN(fn, ...args) is called
-    // directly at the worklet call site (see onFrame below) — no need to
-    // pre-wrap emitBallDetection/emitPoseResult with createRunOnJS here.
-
     // ─────────────────────────────────────────────────────────────────────────
     // Resizers
-    //
-    // IMPORTANT: these config objects must be memoized. useResizer() uses
-    // them to decide whether to recreate its native resizer, and an
-    // unstable reference here was the root cause of the frame processor
-    // being torn down and recreated on every render (~106 HybridWorkletQueueFactory
-    // creations observed in logcat), racing on the TFLite model buffer and
-    // producing "TypedArray can only be updated with an array of the same size".
     // ─────────────────────────────────────────────────────────────────────────
 
     const yoloResizerConfig =
         useMemo(
             () => ({
                 width:
-                YOLO_INPUT_SIZE,
+                    YOLO_INPUT_SIZE,
 
                 height:
-                YOLO_INPUT_SIZE,
+                    YOLO_INPUT_SIZE,
 
                 channelOrder:
                     'rgb' as const,
@@ -857,10 +884,10 @@ export const useShotTracker = (
         useMemo(
             () => ({
                 width:
-                POSE_INPUT_SIZE,
+                    POSE_INPUT_SIZE,
 
                 height:
-                POSE_INPUT_SIZE,
+                    POSE_INPUT_SIZE,
 
                 channelOrder:
                     'rgb' as const,
@@ -879,25 +906,21 @@ export const useShotTracker = (
 
     const {
         resizer: yoloResizer,
-    } = useResizer(yoloResizerConfig)
+    } = useResizer(
+        yoloResizerConfig
+    )
 
     const {
         resizer: poseResizer,
-    } = useResizer(poseResizerConfig)
+    } = useResizer(
+        poseResizerConfig
+    )
 
     // ─────────────────────────────────────────────────────────────────────────
     // Frame processor
     //
     // IMPORTANT:
-    //
-    // onFrame is stabilized with useCallback.
-    //
-    // DO NOT change this back to:
-    //
-    //   onFrame: (frame) => { ... }
-    //
-    // The Test 3F proved that the stable callback prevents the previous
-    // TypedArray/worklet binding problem.
+    // onFrame MUST remain stabilized with useCallback.
     // ─────────────────────────────────────────────────────────────────────────
 
     const onFrame =
@@ -906,30 +929,38 @@ export const useShotTracker = (
 
                 'worklet'
 
-                // ───────────────────────────────────────────────────────────────────
+                // ─────────────────────────────────────────────────────────────
+                // Fatal error guard
+                // ─────────────────────────────────────────────────────────────
+
+                if (
+                    hasFatalError.value
+                ) {
+
+                    frame.dispose()
+
+                    return
+                }
+
+                // ─────────────────────────────────────────────────────────────
                 // Reentrancy guard
-                // ───────────────────────────────────────────────────────────────────
+                // ─────────────────────────────────────────────────────────────
 
-                if (hasFatalError.value) {
-                    // A fatal error occurred (e.g. TypedArray corruption).
-                    // Stop all processing to prevent cascading failures.
+                if (
+                    isProcessingFrame.value
+                ) {
+
                     frame.dispose()
+
                     return
                 }
 
-                if (isProcessingFrame.value) {
-                    // A previous invocation is still running (e.g. slow
-                    // model.runSync()). Drop this one instead of letting it
-                    // race on the same Frame/buffers.
-                    frame.dispose()
-                    return
-                }
+                isProcessingFrame.value =
+                    true
 
-                isProcessingFrame.value = true
-
-                // ───────────────────────────────────────────────────────────────────
+                // ─────────────────────────────────────────────────────────────
                 // Frame counter
-                // ───────────────────────────────────────────────────────────────────
+                // ─────────────────────────────────────────────────────────────
 
                 frameCounter.value += 1
 
@@ -938,9 +969,9 @@ export const useShotTracker = (
 
                 try {
 
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
                     // Global enable
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
 
                     if (
                         !enabledShared.value
@@ -948,9 +979,9 @@ export const useShotTracker = (
                         return
                     }
 
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
                     // Model readiness
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
 
                     const yoloReady =
                         yoloModelInstance != null
@@ -971,9 +1002,9 @@ export const useShotTracker = (
                     const frameHeight =
                         frame.height
 
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
                     // YOLO
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
 
                     if (
                         yoloReady &&
@@ -983,50 +1014,74 @@ export const useShotTracker = (
                         0
                     ) {
 
-                        console.log('[ShotTracker][YOLO] BEFORE resize', currentFrame)
+                        console.log(
+                            '[ShotTracker][YOLO] BEFORE resize',
+                            currentFrame
+                        )
+
                         const resized =
                             yoloResizer?.resize(
                                 frame
                             )
-                        console.log('[ShotTracker][YOLO] AFTER resize', currentFrame, !!resized)
+
+                        console.log(
+                            '[ShotTracker][YOLO] AFTER resize',
+                            currentFrame,
+                            !!resized
+                        )
 
                         if (resized) {
 
                             try {
 
-                                console.log('[ShotTracker][YOLO] BEFORE getPixelBuffer', currentFrame)
+                                console.log(
+                                    '[ShotTracker][YOLO] BEFORE getPixelBuffer',
+                                    currentFrame
+                                )
+
                                 const pixelBuffer =
                                     resized.getPixelBuffer()
-                                console.log('[ShotTracker][YOLO] AFTER getPixelBuffer', currentFrame)
+
+                                console.log(
+                                    '[ShotTracker][YOLO] AFTER getPixelBuffer',
+                                    currentFrame
+                                )
+
+                                // fast-tflite 1.6.1:
+                                // runSync() expects TypedArray[]
+                                //
+                                // YOLO:
+                                // Float32Array[416 * 416 * 3]
 
                                 const source =
                                     new Float32Array(
-                                        pixelBuffer as unknown as ArrayBufferLike
+                                        pixelBuffer as ArrayBuffer
                                     )
 
                                 if (
                                     source.length ===
                                     YOLO_INPUT_ELEMENTS
                                 ) {
-                                    // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
-                                    const inputBuffer =
-                                        source.buffer.slice(
-                                            source.byteOffset,
-                                            source.byteOffset + source.byteLength
-                                        ) as ArrayBuffer
 
-                                    console.log('[ShotTracker][YOLO] BEFORE runSync', currentFrame)
+                                    console.log(
+                                        '[ShotTracker][YOLO] BEFORE runSync',
+                                        currentFrame
+                                    )
+
                                     const outputs =
                                         yoloModelInstance!.runSync(
-                                            [inputBuffer]
+                                            [source]
                                         )
-                                    console.log('[ShotTracker][YOLO] AFTER runSync', currentFrame, 'outputs:', outputs.length)
 
-                                    // TFLite 3.x: runSync restituisce ArrayBuffer[], converti a Float32Array
+                                    console.log(
+                                        '[ShotTracker][YOLO] AFTER runSync',
+                                        currentFrame,
+                                        'outputs:',
+                                        outputs.length
+                                    )
+
                                     const output =
-                                        new Float32Array(
-                                            outputs[0] as ArrayBufferLike
-                                        )
+                                        outputs[0] as Float32Array
 
                                     const {
                                         ball,
@@ -1053,34 +1108,61 @@ export const useShotTracker = (
                                         adaptiveThreshold.value
                                     )
 
-                                    // Throttle scheduleOnRN a 150ms per evitare instabilità del bridge
-                                    const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 150) {
-                                        lastRNDispatch.value = now
+                                    // Limit bridge crossings.
+                                    const now =
+                                        Date.now()
+
+                                    if (
+                                        now -
+                                        lastRNDispatch.value >=
+                                        150
+                                    ) {
+
+                                        lastRNDispatch.value =
+                                            now
+
                                         scheduleOnRN(
                                             emitBallDetection,
                                             {
-                                                ball: ball
-                                                    ? {
-                                                        x: ball.x,
-                                                        y: ball.y,
-                                                        width: ball.width,
-                                                        height: ball.height,
-                                                        confidence:
-                                                        ball.confidence,
-                                                    }
-                                                    : undefined,
+                                                ball:
+                                                    ball
+                                                        ? {
+                                                            x:
+                                                                ball.x,
 
-                                                rim: rim
-                                                    ? {
-                                                        x: rim.x,
-                                                        y: rim.y,
-                                                        width: rim.width,
-                                                        height: rim.height,
-                                                        confidence:
-                                                        rim.confidence,
-                                                    }
-                                                    : undefined,
+                                                            y:
+                                                                ball.y,
+
+                                                            width:
+                                                                ball.width,
+
+                                                            height:
+                                                                ball.height,
+
+                                                            confidence:
+                                                                ball.confidence,
+                                                        }
+                                                        : undefined,
+
+                                                rim:
+                                                    rim
+                                                        ? {
+                                                            x:
+                                                                rim.x,
+
+                                                            y:
+                                                                rim.y,
+
+                                                            width:
+                                                                rim.width,
+
+                                                            height:
+                                                                rim.height,
+
+                                                            confidence:
+                                                                rim.confidence,
+                                                        }
+                                                        : undefined,
 
                                                 timestamp:
                                                     Date.now(),
@@ -1091,16 +1173,24 @@ export const useShotTracker = (
 
                             } finally {
 
-                                console.log('[ShotTracker][YOLO] BEFORE dispose', currentFrame)
+                                console.log(
+                                    '[ShotTracker][YOLO] BEFORE dispose',
+                                    currentFrame
+                                )
+
                                 resized.dispose()
-                                console.log('[ShotTracker][YOLO] AFTER dispose', currentFrame)
+
+                                console.log(
+                                    '[ShotTracker][YOLO] AFTER dispose',
+                                    currentFrame
+                                )
                             }
                         }
                     }
 
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
                     // MoveNet
-                    // ────────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────
 
                     if (
                         poseReady &&
@@ -1110,74 +1200,116 @@ export const useShotTracker = (
                         0
                     ) {
 
-                        console.log('[ShotTracker][POSE] BEFORE resize', currentFrame)
+                        console.log(
+                            '[ShotTracker][POSE] BEFORE resize',
+                            currentFrame
+                        )
+
                         const resized =
                             poseResizer?.resize(
                                 frame
                             )
-                        console.log('[ShotTracker][POSE] AFTER resize', currentFrame, !!resized)
+
+                        console.log(
+                            '[ShotTracker][POSE] AFTER resize',
+                            currentFrame,
+                            !!resized
+                        )
 
                         if (resized) {
 
                             try {
 
-                                console.log('[ShotTracker][POSE] BEFORE getPixelBuffer', currentFrame)
+                                console.log(
+                                    '[ShotTracker][POSE] BEFORE getPixelBuffer',
+                                    currentFrame
+                                )
+
                                 const pixelBuffer =
                                     resized.getPixelBuffer()
-                                console.log('[ShotTracker][POSE] AFTER getPixelBuffer', currentFrame)
+
+                                console.log(
+                                    '[ShotTracker][POSE] AFTER getPixelBuffer',
+                                    currentFrame
+                                )
+
+                                // fast-tflite 1.6.1:
+                                // runSync() expects TypedArray[]
+                                //
+                                // MoveNet:
+                                // Uint8Array[192 * 192 * 3]
 
                                 const source =
                                     new Uint8Array(
-                                        pixelBuffer as unknown as ArrayBufferLike
+                                        pixelBuffer as ArrayBuffer
                                     )
 
                                 if (
                                     source.length ===
                                     POSE_INPUT_ELEMENTS
                                 ) {
-                                    // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
-                                    const inputBuffer =
-                                        source.buffer.slice(
-                                            source.byteOffset,
-                                            source.byteOffset + source.byteLength
-                                        ) as ArrayBuffer
 
-                                    console.log('[ShotTracker][POSE] BEFORE runSync', currentFrame)
+                                    console.log(
+                                        '[ShotTracker][POSE] BEFORE runSync',
+                                        currentFrame
+                                    )
+
                                     const outputs =
                                         poseModelInstance!.runSync(
-                                            [inputBuffer]
+                                            [source]
                                         )
-                                    console.log('[ShotTracker][POSE] AFTER runSync', currentFrame, 'outputs:', outputs.length)
 
-                                    // TFLite 3.x: runSync restituisce ArrayBuffer[], converti a Float32Array
+                                    console.log(
+                                        '[ShotTracker][POSE] AFTER runSync',
+                                        currentFrame,
+                                        'outputs:',
+                                        outputs.length
+                                    )
+
                                     const output =
-                                        new Float32Array(
-                                            outputs[0] as ArrayBufferLike
-                                        )
+                                        outputs[0] as Float32Array
 
-                                    console.log('[ShotTracker][POSE] OUTPUT LENGTH', output.length)
+                                    console.log(
+                                        '[ShotTracker][POSE] OUTPUT LENGTH',
+                                        output.length
+                                    )
 
                                     const pose =
                                         parseMoveNetOutput(
                                             output
                                         )
 
-                                    console.log('[ShotTracker][POSE] PARSED', currentFrame)
+                                    console.log(
+                                        '[ShotTracker][POSE] PARSED',
+                                        currentFrame
+                                    )
 
                                     const angles =
                                         computeJointAngles(
                                             pose
                                         )
 
-                                    // Throttle scheduleOnRN a 150ms per evitare instabilità del bridge
-                                    const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 150) {
-                                        lastRNDispatch.value = now
+                                    // Limit bridge crossings.
+                                    const now =
+                                        Date.now()
+
+                                    if (
+                                        now -
+                                        lastRNDispatch.value >=
+                                        150
+                                    ) {
+
+                                        lastRNDispatch.value =
+                                            now
+
                                         scheduleOnRN(
                                             emitPoseResult,
                                             {
-                                                keypoints: pose,
+                                                keypoints:
+                                                    pose,
+
                                                 angles,
+
                                                 timestamp:
                                                     Date.now(),
                                             }
@@ -1187,37 +1319,26 @@ export const useShotTracker = (
 
                             } finally {
 
-                                console.log('[ShotTracker][POSE] BEFORE dispose', currentFrame)
+                                console.log(
+                                    '[ShotTracker][POSE] BEFORE dispose',
+                                    currentFrame
+                                )
+
                                 resized.dispose()
-                                console.log('[ShotTracker][POSE] AFTER dispose', currentFrame)
+
+                                console.log(
+                                    '[ShotTracker][POSE] AFTER dispose',
+                                    currentFrame
+                                )
                             }
                         }
                     }
 
                 } catch (error) {
 
-                    const errorMessage = (error as any)?.message || String(error)
-
-                    // TEST: Recovery disabilitato per isolare il problema ArrayBuffer
-                    // Detect fatal errors that indicate TypedArray corruption
-                    // if (
-                    //     errorMessage.includes('TypedArray can only be updated') ||
-                    //     errorMessage.includes('no ArrayBuffer attached')
-                    // ) {
-                    //     hasFatalError.value = true
-                    //     scheduleOnRN(scheduleFatalErrorRecovery)
-                    //     console.error(
-                    //         '[ShotTracker][FATAL ERROR] Stopping processing:',
-                    //         errorMessage
-                    //     )
-                    // } else {
-                    //     console.error(
-                    //         '[ShotTracker][FRAME ERROR]',
-                    //         error,
-                    //         'stack:',
-                    //         (error as any)?.stack
-                    //     )
-                    // }
+                    const errorMessage =
+                        (error as any)?.message ||
+                        String(error)
 
                     console.error(
                         '[ShotTracker][FRAME ERROR]',
@@ -1230,12 +1351,10 @@ export const useShotTracker = (
 
                 } finally {
 
-                    // Camera frame is disposed exactly once.
                     frame.dispose()
 
-                    // Always release the guard, even on error, so the next
-                    // frame can be processed.
-                    isProcessingFrame.value = false
+                    isProcessingFrame.value =
+                        false
                 }
             },
 
@@ -1264,12 +1383,8 @@ export const useShotTracker = (
                 height: 720,
             },
 
-            // Inference (YOLO + MoveNet) can take longer than the interval
-            // between camera frames at low fps. Without this, VisionCamera
-            // starts a new onFrame call before the previous one has finished
-            // disposing its Frame/buffer, causing overlapping invocations
-            // and "no ArrayBuffer attached" errors.
-            dropFramesWhileBusy: true,
+            dropFramesWhileBusy:
+                true,
 
             onFrame,
         })
@@ -1279,14 +1394,17 @@ export const useShotTracker = (
     // ─────────────────────────────────────────────────────────────────────────
 
     const resetShotTracking =
-        useCallback(() => {
+        useCallback(
+            () => {
 
-            shotDetector.current.reset()
+                shotDetector.current.reset()
 
-            lastBallRef.current =
-                null
+                lastBallRef.current =
+                    null
 
-        }, [])
+            },
+            []
+        )
 
     // ─────────────────────────────────────────────────────────────────────────
     // Model ready
@@ -1318,13 +1436,17 @@ export const useShotTracker = (
 
         console.log(
             '[ShotTracker] YOLO delegate:',
-            JSON.stringify(yoloDelegates),
+            JSON.stringify(
+                yoloDelegateValue
+            ),
             '+ RGB Resizer'
         )
 
         console.log(
             '[ShotTracker] MoveNet delegate:',
-            JSON.stringify(poseDelegates),
+            JSON.stringify(
+                poseDelegateValue
+            ),
             '+ RGB Resizer'
         )
 
@@ -1348,7 +1470,11 @@ export const useShotTracker = (
             'frames'
         )
 
-    }, [isModelReady, yoloDelegates, poseDelegates])
+    }, [
+        isModelReady,
+        yoloDelegateValue,
+        poseDelegateValue,
+    ])
 
     // ─────────────────────────────────────────────────────────────────────────
     // Return

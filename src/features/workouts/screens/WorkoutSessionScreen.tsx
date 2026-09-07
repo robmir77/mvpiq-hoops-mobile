@@ -31,7 +31,7 @@ import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
-import { useCameraPipeline, type AndroidDelegateOption, DEFAULT_ANDROID_DELEGATE, ANDROID_DELEGATE_OPTIONS } from '@/vision'
+import { useCameraPipeline } from '@/vision'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
 import {
     WorkoutSession, ShotResult,
@@ -1112,7 +1112,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(false)
     const [poseEnabled, setPoseEnabled] = useState(true)
     const [ballEnabled, setBallEnabled] = useState(true)
-    const [androidDelegate, setAndroidDelegate] = useState<AndroidDelegateOption>(DEFAULT_ANDROID_DELEGATE)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
@@ -1365,8 +1364,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         shotDetectionEnabled,
         poseEnabled,
         ballEnabled,
-        yoloDelegate ?? (Platform.OS === 'android' ? androidDelegate : undefined),
-        poseDelegate ?? (Platform.OS === 'android' ? androidDelegate : undefined)
+        yoloDelegate,
+        poseDelegate
     )
 
     // DEBUG TEMPORANEO: instrumentazione per capire perché la preview resta nera.
@@ -1712,22 +1711,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         labelOff="🏀 Palla OFF"
                         onPress={() => setBallEnabled(!ballEnabled)}
                     />
-                    {Platform.OS === 'android' && (
-                        <ToggleButton
-                            active={true}
-                            disabled={isPaused || isEnding}
-                            labelOn={androidDelegate === 'android-gpu' ? '⚡ GPU' : '⚡ NNAPI'}
-                            labelOff={androidDelegate === 'android-gpu' ? '⚡ GPU' : '⚡ NNAPI'}
-                            onPress={() =>
-                                setAndroidDelegate(
-                                    ANDROID_DELEGATE_OPTIONS[
-                                        (ANDROID_DELEGATE_OPTIONS.indexOf(androidDelegate) + 1) %
-                                        ANDROID_DELEGATE_OPTIONS.length
-                                    ]
-                                )
-                            }
-                        />
-                    )}
                     <TouchableOpacity
                         style={[styles.endBtn, isEnding && styles.endBtnDisabled]}
                         onPress={handleEndSession}
