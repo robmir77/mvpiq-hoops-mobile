@@ -16,6 +16,8 @@ import { parseMoveNetOutput } from './poseParser'
 import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
 import type {
+    AndroidDelegateOption,
+    IosDelegateOption,
     BallDetection,
     PoseResult,
     ShotEvent,
@@ -46,11 +48,8 @@ const POSE_INPUT_SIZE = 192
 // just the fixed default.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type AndroidDelegateOption = 'android-gpu' | 'nnapi'
 export const ANDROID_DELEGATE_OPTIONS: AndroidDelegateOption[] = ['android-gpu', 'nnapi']
 export const DEFAULT_ANDROID_DELEGATE: AndroidDelegateOption = 'android-gpu'
-
-export type IosDelegateOption = 'core-ml'
 export const DEFAULT_IOS_DELEGATE: IosDelegateOption = 'core-ml'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,6 +191,10 @@ export const useShotTracker = (
     // Fatal error guard: stops processing after a critical error (e.g. TypedArray corruption)
     const hasFatalError =
         useSharedValue(false)
+
+    // Throttle for scheduleOnRN calls - limit bridge crossings to ~100-150ms
+    const lastRNDispatch =
+        useSharedValue(0)
 
     // Recovery mechanism: reset the fatal error flag after a delay.
     // IMPORTANT: this must be scheduled from the JS thread at the moment
@@ -992,37 +995,38 @@ export const useShotTracker = (
                             try {
 
                                 console.log('[ShotTracker][YOLO] BEFORE getPixelBuffer', currentFrame)
-                                const arrayBuffer =
+                                const pixelBuffer =
                                     resized.getPixelBuffer()
                                 console.log('[ShotTracker][YOLO] AFTER getPixelBuffer', currentFrame)
 
                                 const source =
                                     new Float32Array(
-                                        arrayBuffer
+                                        pixelBuffer as unknown as ArrayBufferLike
                                     )
 
                                 if (
-                                    source.length !==
+                                    source.length ===
                                     YOLO_INPUT_ELEMENTS
                                 ) {
-                                    // Buffer size mismatch - skip this frame
-                                } else {
-
-                                    // IMPORTANT:
-                                    // Create a fresh TypedArray for runSync.
-                                    // Use slice() to ensure complete copy, not just reference.
-                                    const input =
-                                        source.slice()
+                                    // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
+                                    const inputBuffer =
+                                        source.buffer.slice(
+                                            source.byteOffset,
+                                            source.byteOffset + source.byteLength
+                                        ) as ArrayBuffer
 
                                     console.log('[ShotTracker][YOLO] BEFORE runSync', currentFrame)
                                     const outputs =
                                         yoloModelInstance!.runSync(
-                                            [input]
+                                            [inputBuffer]
                                         )
                                     console.log('[ShotTracker][YOLO] AFTER runSync', currentFrame, 'outputs:', outputs.length)
 
+                                    // TFLite 3.x: runSync restituisce ArrayBuffer[], converti a Float32Array
                                     const output =
-                                        outputs[0] as Float32Array
+                                        new Float32Array(
+                                            outputs[0] as ArrayBufferLike
+                                        )
 
                                     const {
                                         ball,
@@ -1049,35 +1053,40 @@ export const useShotTracker = (
                                         adaptiveThreshold.value
                                     )
 
-                                    scheduleOnRN(
-                                        emitBallDetection,
-                                        {
-                                            ball: ball
-                                                ? {
-                                                    x: ball.x,
-                                                    y: ball.y,
-                                                    width: ball.width,
-                                                    height: ball.height,
-                                                    confidence:
-                                                    ball.confidence,
-                                                }
-                                                : undefined,
+                                    // Throttle scheduleOnRN a 150ms per evitare instabilità del bridge
+                                    const now = Date.now()
+                                    if (now - lastRNDispatch.value >= 150) {
+                                        lastRNDispatch.value = now
+                                        scheduleOnRN(
+                                            emitBallDetection,
+                                            {
+                                                ball: ball
+                                                    ? {
+                                                        x: ball.x,
+                                                        y: ball.y,
+                                                        width: ball.width,
+                                                        height: ball.height,
+                                                        confidence:
+                                                        ball.confidence,
+                                                    }
+                                                    : undefined,
 
-                                            rim: rim
-                                                ? {
-                                                    x: rim.x,
-                                                    y: rim.y,
-                                                    width: rim.width,
-                                                    height: rim.height,
-                                                    confidence:
-                                                    rim.confidence,
-                                                }
-                                                : undefined,
+                                                rim: rim
+                                                    ? {
+                                                        x: rim.x,
+                                                        y: rim.y,
+                                                        width: rim.width,
+                                                        height: rim.height,
+                                                        confidence:
+                                                        rim.confidence,
+                                                    }
+                                                    : undefined,
 
-                                            timestamp:
-                                                Date.now(),
-                                        }
-                                    )
+                                                timestamp:
+                                                    Date.now(),
+                                            }
+                                        )
+                                    }
                                 }
 
                             } finally {
@@ -1113,42 +1122,38 @@ export const useShotTracker = (
                             try {
 
                                 console.log('[ShotTracker][POSE] BEFORE getPixelBuffer', currentFrame)
-                                const arrayBuffer =
+                                const pixelBuffer =
                                     resized.getPixelBuffer()
                                 console.log('[ShotTracker][POSE] AFTER getPixelBuffer', currentFrame)
 
                                 const source =
                                     new Uint8Array(
-                                        arrayBuffer
+                                        pixelBuffer as unknown as ArrayBufferLike
                                     )
 
                                 if (
-                                    source.length !==
+                                    source.length ===
                                     POSE_INPUT_ELEMENTS
                                 ) {
-                                    // Buffer size mismatch - skip this frame
-                                } else {
-
-                                    // IMPORTANT:
-                                    // Create a fresh TypedArray for runSync.
-                                    const input =
-                                        new Uint8Array(
-                                            POSE_INPUT_ELEMENTS
-                                        )
-
-                                    input.set(
-                                        source
-                                    )
+                                    // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
+                                    const inputBuffer =
+                                        source.buffer.slice(
+                                            source.byteOffset,
+                                            source.byteOffset + source.byteLength
+                                        ) as ArrayBuffer
 
                                     console.log('[ShotTracker][POSE] BEFORE runSync', currentFrame)
                                     const outputs =
                                         poseModelInstance!.runSync(
-                                            [input]
+                                            [inputBuffer]
                                         )
                                     console.log('[ShotTracker][POSE] AFTER runSync', currentFrame, 'outputs:', outputs.length)
 
+                                    // TFLite 3.x: runSync restituisce ArrayBuffer[], converti a Float32Array
                                     const output =
-                                        outputs[0] as Float32Array
+                                        new Float32Array(
+                                            outputs[0] as ArrayBufferLike
+                                        )
 
                                     console.log('[ShotTracker][POSE] OUTPUT LENGTH', output.length)
 
@@ -1164,15 +1169,20 @@ export const useShotTracker = (
                                             pose
                                         )
 
-                                    scheduleOnRN(
-                                        emitPoseResult,
-                                        {
-                                            keypoints: pose,
-                                            angles,
-                                            timestamp:
-                                                Date.now(),
-                                        }
-                                    )
+                                    // Throttle scheduleOnRN a 150ms per evitare instabilità del bridge
+                                    const now = Date.now()
+                                    if (now - lastRNDispatch.value >= 150) {
+                                        lastRNDispatch.value = now
+                                        scheduleOnRN(
+                                            emitPoseResult,
+                                            {
+                                                keypoints: pose,
+                                                angles,
+                                                timestamp:
+                                                    Date.now(),
+                                            }
+                                        )
+                                    }
                                 }
 
                             } finally {
@@ -1188,25 +1198,35 @@ export const useShotTracker = (
 
                     const errorMessage = (error as any)?.message || String(error)
 
+                    // TEST: Recovery disabilitato per isolare il problema ArrayBuffer
                     // Detect fatal errors that indicate TypedArray corruption
-                    if (
-                        errorMessage.includes('TypedArray can only be updated') ||
-                        errorMessage.includes('no ArrayBuffer attached')
-                    ) {
-                        hasFatalError.value = true
-                        scheduleOnRN(scheduleFatalErrorRecovery)
-                        console.error(
-                            '[ShotTracker][FATAL ERROR] Stopping processing:',
-                            errorMessage
-                        )
-                    } else {
-                        console.error(
-                            '[ShotTracker][FRAME ERROR]',
-                            error,
-                            'stack:',
-                            (error as any)?.stack
-                        )
-                    }
+                    // if (
+                    //     errorMessage.includes('TypedArray can only be updated') ||
+                    //     errorMessage.includes('no ArrayBuffer attached')
+                    // ) {
+                    //     hasFatalError.value = true
+                    //     scheduleOnRN(scheduleFatalErrorRecovery)
+                    //     console.error(
+                    //         '[ShotTracker][FATAL ERROR] Stopping processing:',
+                    //         errorMessage
+                    //     )
+                    // } else {
+                    //     console.error(
+                    //         '[ShotTracker][FRAME ERROR]',
+                    //         error,
+                    //         'stack:',
+                    //         (error as any)?.stack
+                    //     )
+                    // }
+
+                    console.error(
+                        '[ShotTracker][FRAME ERROR]',
+                        error,
+                        'message:',
+                        errorMessage,
+                        'stack:',
+                        (error as any)?.stack
+                    )
 
                 } finally {
 
