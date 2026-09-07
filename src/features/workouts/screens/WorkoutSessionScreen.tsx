@@ -27,13 +27,12 @@ import {
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
 import { useDerivedValue } from 'react-native-reanimated'
-import { Camera, useCameraFormat } from 'react-native-vision-camera'
+import { Camera, type CameraRef } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useCameraPipeline } from '@/vision'
-import type { Camera as CameraType } from 'react-native-vision-camera'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
 import {
     WorkoutSession, ShotResult,
@@ -1114,7 +1113,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
-    const cameraRef       = useRef<CameraType>(null)
+    const cameraRef       = useRef<CameraRef>(null)
     const lastUiUpdate    = useRef<number>(0)
 
     // Performance monitoring - tracking state updates
@@ -1295,66 +1294,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [handleAutoShotDetected, captureShotScreenshot, saveScreenshotWithResult])
 
     // ── Session Video Recording Functions ──────────────────────────────────
+    // NOTE: Video recording API changed in v5 - needs migration
     const startSessionVideoRecording = useCallback(async () => {
-        if (!cameraRef.current) {
-            showError('Camera non pronta', 'La fotocamera non è ancora inizializzata.')
-            return
-        }
-        try {
-            setIsVideoRecording(true)
-            isVideoRecordingRef.current = true
-
-            // Snap initial overlay screenshot
-            void captureShotScreenshot(0)
-
-            cameraRef.current.startRecording({
-                onRecordingFinished: async (video) => {
-                    console.log('[WorkoutSession] Video session recording finished:', video.path)
-                    try {
-                        const asset = await MediaLibrary.createAssetAsync(video.path)
-                        let album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
-                        if (!album) {
-                            await MediaLibrary.createAlbumAsync('MVPiQ Hoops', asset, false)
-                        } else {
-                            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false)
-                        }
-                        showSuccess(
-                            '📹 Video Salvato!',
-                            'Il video della sessione è stato salvato nella galleria (MVPiQ Hoops).'
-                        )
-                    } catch (err: any) {
-                        console.error('[WorkoutSession] Error saving video to album:', err)
-                        showError('Errore salvataggio', 'Impossibile salvare il video nella galleria.')
-                    }
-                },
-                onRecordingError: (error) => {
-                    console.error('[WorkoutSession] Video recording error:', error)
-                    setIsVideoRecording(false)
-                    isVideoRecordingRef.current = false
-                    showError('Errore registrazione', error.message || 'Errore durante la registrazione del video.')
-                },
-            })
-        } catch (err: any) {
-            console.error('[WorkoutSession] Failed to start video recording:', err)
-            setIsVideoRecording(false)
-            isVideoRecordingRef.current = false
-            showError('Errore', err.message || 'Impossibile avviare la registrazione video.')
-        }
-    }, [captureShotScreenshot, showError, showSuccess])
+        console.warn('[WorkoutSession] Video recording not yet migrated to v5 API')
+        showError('Funzione non disponibile', 'La registrazione video richiede migrazione all\'API v5.')
+    }, [showError])
 
     const stopSessionVideoRecording = useCallback(async () => {
-        if (!cameraRef.current || !isVideoRecordingRef.current) return
-        try {
-            // Snap final overlay screenshot
-            void captureShotScreenshot(shotCounter.current)
-            await cameraRef.current.stopRecording()
-        } catch (err: any) {
-            console.error('[WorkoutSession] Error stopping video recording:', err)
-        } finally {
-            setIsVideoRecording(false)
-            isVideoRecordingRef.current = false
-        }
-    }, [captureShotScreenshot])
+        console.warn('[WorkoutSession] Video recording not yet migrated to v5 API')
+        setIsVideoRecording(false)
+        isVideoRecordingRef.current = false
+    }, [])
 
     const toggleSessionVideoRecording = useCallback(() => {
         if (isVideoRecording) {
@@ -1406,10 +1356,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         true
     )
 
-    const format = useCameraFormat(device, [
-        { videoResolution: selectedResolution || { width: 1280, height: 720 } },
-        { fps: selectedFps || 30 },
-    ])
+    // Format selection removed in v5 - use Camera defaults
 
     // ── Request media library permissions for saving screenshots ─────────────
     useEffect(() => {
@@ -1660,12 +1607,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    frameProcessor={frameProcessor}
-                    format={format}
+                    outputs={[frameProcessor]}
                     zoom={zoom}
-                    video={true}
-                    audio={false}
-                    onError={(error) => {
+                    onError={(error: any) => {
                         if (error.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')
                             setIsActive(false)

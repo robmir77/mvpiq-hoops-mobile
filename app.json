@@ -43,14 +43,7 @@
     "plugins": [
       "expo-asset",
       "expo-font",
-      "expo-camera",
       "expo-image-picker",
-      [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "MVPiQ Hoops richiede accesso alla fotocamera"
-        }
-      ],
       [
         "expo-build-properties",
         {
