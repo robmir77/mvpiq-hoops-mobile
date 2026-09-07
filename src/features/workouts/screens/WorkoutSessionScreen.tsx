@@ -21,17 +21,19 @@ import {
     Dimensions, Animated, Easing, Platform,
 } from 'react-native'
 import { captureRef } from 'react-native-view-shot'
+import * as MediaLibrary from 'expo-media-library'
 import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
 import { useDerivedValue } from 'react-native-reanimated'
-import { Camera, type CameraRef } from 'react-native-vision-camera'
+import { Camera, useCameraFormat } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useCameraPipeline } from '@/vision'
+import type { Camera as CameraType } from 'react-native-vision-camera'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
 import {
     WorkoutSession, ShotResult,
@@ -285,6 +287,7 @@ const TrackingOverlay = React.memo(({
 
     // Memoize Skia path objects to avoid continuous allocations
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
+    const hoopPathRef = React.useRef(Skia.Path.Make())
 
     // Derived values per Skia (leggono direttamente dai Shared Values - no React bridge)
     const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
@@ -296,22 +299,10 @@ const TrackingOverlay = React.memo(({
     const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
 
     // Derived values per coordinate pixel
-    // Usa dimensioni del Canvas Skia (SCREEN_W x CAMERA_H) per mappare coordinate YOLO normalizzate a pixel
-    // Aggiungi swap X↔Y nell'overlay per correggere la posizione (landscape sensor → portrait display)
-    const ballXPx = useDerivedValue(() => {
-      const px = (1 - ballY.value) * SCREEN_W
-      if (__DEV__ && ballX.value > 0) {
-        console.log('[Overlay] Ball pixel coords:', {
-          normalized: { x: ballX.value.toFixed(3), y: ballY.value.toFixed(3) },
-          pixel: { x: px.toFixed(1), y: (ballX.value * CAMERA_H).toFixed(1) },
-          canvas: { w: SCREEN_W, h: CAMERA_H }
-        })
-      }
-      return px
-    }, [ballX])
-    const ballYPx = useDerivedValue(() => ballX.value * CAMERA_H, [ballX])
-    const hoopXPx = useDerivedValue(() => (1 - hoopY.value) * SCREEN_W, [hoopY])
-    const hoopYPx = useDerivedValue(() => hoopX.value * CAMERA_H, [hoopX])
+    const ballXPx = useDerivedValue(() => ballX.value * SCREEN_W, [ballX])
+    const ballYPx = useDerivedValue(() => ballY.value * CAMERA_H, [ballY])
+    const hoopXPx = useDerivedValue(() => hoopX.value * SCREEN_W, [hoopX])
+    const hoopYPx = useDerivedValue(() => hoopY.value * CAMERA_H, [hoopY])
 
     // Scia del tiro:
     //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
@@ -441,19 +432,13 @@ const TrackingOverlay = React.memo(({
                         <SkiaCircle
                             cx={ballXPx}
                             cy={ballYPx}
-                            r={useDerivedValue(() => {
-                                const w = ballWidth.value * SCREEN_W
-                                return w > 0 ? Math.max(w / 2, 16) : 16
-                            }, [ballWidth])}
+                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
                             color="rgba(255,140,0,0.22)"
                         />
                         <SkiaCircle
                             cx={ballXPx}
                             cy={ballYPx}
-                            r={useDerivedValue(() => {
-                                const w = ballWidth.value * SCREEN_W
-                                return w > 0 ? Math.max(w / 2, 16) : 16
-                            }, [ballWidth])}
+                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
                             color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
@@ -492,8 +477,8 @@ const TrackingOverlay = React.memo(({
                         {/* Dynamic hoop oval based on detected dimensions (width and height) */}
                         {(() => {
                             const hoopRect = useDerivedValue(() => {
-                                const w = hoopWidth.value > 0 ? hoopWidth.value * SCREEN_W * 2 : 80
-                                const h = hoopHeight.value > 0 ? hoopHeight.value * CAMERA_H * 0.3 : 15
+                                const w = hoopWidth.value > 0 ? hoopWidth.value * SCREEN_W : 40
+                                const h = hoopHeight.value > 0 ? hoopHeight.value * CAMERA_H : 40
                                 return {
                                     x: hoopXPx.value - w / 2,
                                     y: hoopYPx.value - h / 2,
@@ -503,8 +488,10 @@ const TrackingOverlay = React.memo(({
                             }, [hoopXPx, hoopYPx, hoopWidth, hoopHeight])
                             
                             const hoopOvalPath = useDerivedValue(() => {
+                                const path = Skia.Path.Make()
                                 const rect = hoopRect.value
-                                return Skia.Path.Oval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
+                                path.addOval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
+                                return path
                             }, [hoopRect])
                             
                             return (
@@ -1062,38 +1049,9 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
     </View>
 )
 
-// ─── ToggleButton ─────────────────────────────────────────────────────────────
-const ToggleButton = ({
-    active,
-    disabled,
-    labelOn,
-    labelOff,
-    onPress,
-}: {
-    active: boolean
-    disabled: boolean
-    labelOn: string
-    labelOff: string
-    onPress: () => void
-}) => (
-    <TouchableOpacity
-        style={[
-            styles.detectionToggleBtn,
-            active ? styles.detectionToggleBtnActive : styles.detectionToggleBtnInactive,
-            disabled && styles.btnDisabled,
-        ]}
-        onPress={onPress}
-        disabled={disabled}
-    >
-        <Text style={styles.detectionToggleBtnText}>
-            {active ? labelOn : labelOff}
-        </Text>
-    </TouchableOpacity>
-)
-
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, selectedFps, yoloDelegate, poseDelegate } = route.params || {}
+    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1101,6 +1059,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [isEnding, setIsEnding]           = useState(false)
     const [isRecording, setIsRecording]     = useState(false)
     const isRecordingRef = useRef(false)
+    const [isVideoRecording, setIsVideoRecording] = useState(false)
+    const [videoDuration, setVideoDuration]         = useState(0)
+    const isVideoRecordingRef                       = useRef(false)
+    const videoTimerRef                             = useRef<ReturnType<typeof setInterval> | null>(null)
     const [shotCount, setShotCount]         = useState({ total: 0, made: 0 })
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
@@ -1108,16 +1070,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
-    const [shotDetectionEnabled, setShotDetectionEnabled] = useState(true)
-    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(false)
-    const [poseEnabled, setPoseEnabled] = useState(true)
-    const [ballEnabled, setBallEnabled] = useState(true)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
     const pendingScreenshotUri = useRef<string | null>(null)
 
-    const { alert, showError, showWarning } = useCustomAlert()
+    const { alert, showError, showWarning, showSuccess } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
     const tracking = useTrackingEngine()
     const { sharedValues } = tracking
@@ -1125,25 +1083,39 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const isActiveRef     = useRef(true)
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
+
+    // Gestione timer durata registrazione video
+    useEffect(() => {
+        isVideoRecordingRef.current = isVideoRecording
+        if (isVideoRecording) {
+            setVideoDuration(0)
+            videoTimerRef.current = setInterval(() => {
+                setVideoDuration(prev => prev + 1)
+            }, 1000)
+        } else {
+            if (videoTimerRef.current) {
+                clearInterval(videoTimerRef.current)
+                videoTimerRef.current = null
+            }
+        }
+        return () => {
+            if (videoTimerRef.current) {
+                clearInterval(videoTimerRef.current)
+                videoTimerRef.current = null
+            }
+        }
+    }, [isVideoRecording])
+
+    const formatVideoDuration = useCallback((seconds: number) => {
+        const mins = Math.floor(seconds / 60)
+        const secs = seconds % 60
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    }, [])
     const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
-    const cameraRef       = useRef<CameraRef>(null)
+    const cameraRef       = useRef<CameraType>(null)
     const lastUiUpdate    = useRef<number>(0)
-
-    // Camera configuration constraints
-    const constraints = React.useMemo(() => {
-        // IMPORTANT: VisionCamera 5 constraints are a tagged union.
-        // { targetResolution: ... } is NOT a valid constraint and causes:
-        // CameraSession.configure(...): Cannot convert "[object Object]" to any type...
-        // Resolution belongs to the CameraOutput (useFrameOutput), while FPS
-        // is a real Camera constraint.
-        const constraints: any[] = []
-        if (selectedFps !== null) {
-            constraints.push({ fps: selectedFps })
-        }
-        return constraints
-    }, [selectedFps])
 
     // Performance monitoring - tracking state updates
     useEffect(() => {
@@ -1169,14 +1141,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // ── Ball detection callback (new architecture) ────────────────────────
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
-        if (ball && Math.random() < 0.1) { // Log 10% delle rilevazioni
-            console.log('[WorkoutSession] Ball detection received:', {
-                x: ball.x.toFixed(3),
-                y: ball.y.toFixed(3),
-                confidence: ball.confidence.toFixed(3)
-            })
-        }
-        const rimForTracking = rimDetectionEnabled && rimFromDetection ? {
+        const rim = detection.rim
+        const rimForTracking = rimFromDetection ? {
             x: rimFromDetection.x,
             y: rimFromDetection.y,
             width: rimFromDetection.width,
@@ -1277,8 +1243,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 quality: 0.9,
                 result: 'tmpfile',
             })
-            console.log('[WorkoutSession] Screenshot captured:', uri)
-            return { uri, timestamp, shotNumber }
+            const asset = await MediaLibrary.createAssetAsync(uri)
+            console.log('[WorkoutSession] Screenshot captured:', asset.uri)
+            return { asset, timestamp, shotNumber }
         } catch (error) {
             console.error('[WorkoutSession] Failed to capture screenshot:', error)
             return null
@@ -1290,9 +1257,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         try {
             const resultLabel = result === 'MADE' ? `CANESTRO_${screenshotData.shotNumber}` : 'FAIL'
             const filename = `MVPiQ_Shot_${resultLabel}_${screenshotData.timestamp}.jpg`
-            console.log('[WorkoutSession] Screenshot saved:', filename)
+            let album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
+            if (!album) {
+                album = await MediaLibrary.createAlbumAsync('MVPiQ Hoops', screenshotData.asset, false)
+            } else {
+                await MediaLibrary.addAssetsToAlbumAsync([screenshotData.asset], album, false)
+            }
+            console.log('[WorkoutSession] Screenshot saved to album:', filename)
         } catch (error) {
-            console.error('[WorkoutSession] Failed to save screenshot:', error)
+            console.error('[WorkoutSession] Failed to save screenshot to album:', error)
         }
     }, [])
 
@@ -1321,11 +1294,80 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [handleAutoShotDetected, captureShotScreenshot, saveScreenshotWithResult])
 
+    // ── Session Video Recording Functions ──────────────────────────────────
+    const startSessionVideoRecording = useCallback(async () => {
+        if (!cameraRef.current) {
+            showError('Camera non pronta', 'La fotocamera non è ancora inizializzata.')
+            return
+        }
+        try {
+            setIsVideoRecording(true)
+            isVideoRecordingRef.current = true
+
+            // Snap initial overlay screenshot
+            void captureShotScreenshot(0)
+
+            cameraRef.current.startRecording({
+                onRecordingFinished: async (video) => {
+                    console.log('[WorkoutSession] Video session recording finished:', video.path)
+                    try {
+                        const asset = await MediaLibrary.createAssetAsync(video.path)
+                        let album = await MediaLibrary.getAlbumAsync('MVPiQ Hoops')
+                        if (!album) {
+                            await MediaLibrary.createAlbumAsync('MVPiQ Hoops', asset, false)
+                        } else {
+                            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false)
+                        }
+                        showSuccess(
+                            '📹 Video Salvato!',
+                            'Il video della sessione è stato salvato nella galleria (MVPiQ Hoops).'
+                        )
+                    } catch (err: any) {
+                        console.error('[WorkoutSession] Error saving video to album:', err)
+                        showError('Errore salvataggio', 'Impossibile salvare il video nella galleria.')
+                    }
+                },
+                onRecordingError: (error) => {
+                    console.error('[WorkoutSession] Video recording error:', error)
+                    setIsVideoRecording(false)
+                    isVideoRecordingRef.current = false
+                    showError('Errore registrazione', error.message || 'Errore durante la registrazione del video.')
+                },
+            })
+        } catch (err: any) {
+            console.error('[WorkoutSession] Failed to start video recording:', err)
+            setIsVideoRecording(false)
+            isVideoRecordingRef.current = false
+            showError('Errore', err.message || 'Impossibile avviare la registrazione video.')
+        }
+    }, [captureShotScreenshot, showError, showSuccess])
+
+    const stopSessionVideoRecording = useCallback(async () => {
+        if (!cameraRef.current || !isVideoRecordingRef.current) return
+        try {
+            // Snap final overlay screenshot
+            void captureShotScreenshot(shotCounter.current)
+            await cameraRef.current.stopRecording()
+        } catch (err: any) {
+            console.error('[WorkoutSession] Error stopping video recording:', err)
+        } finally {
+            setIsVideoRecording(false)
+            isVideoRecordingRef.current = false
+        }
+    }, [captureShotScreenshot])
+
+    const toggleSessionVideoRecording = useCallback(() => {
+        if (isVideoRecording) {
+            void stopSessionVideoRecording()
+        } else {
+            void startSessionVideoRecording()
+        }
+    }, [isVideoRecording, startSessionVideoRecording, stopSessionVideoRecording])
 
     // ── New architecture: useCameraPipeline integrates everything ─────────
     const rimFromCalibration = React.useMemo(() =>
         calibration?.hoopCenter
-            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.08, height: 0.03 }
+            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.05, height: 0.05 }
             : null
     , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
@@ -1352,7 +1394,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isActive,
         requestPermission,
         setIsActive,
-        frameOutput,
+        frameProcessor,
         isModelReady,
     } = useCameraPipeline(
         handleBallDetection,
@@ -1361,23 +1403,23 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         handleRimDetection,
         effectiveRim,
         kalmanFilteredBall,
-        shotDetectionEnabled,
-        poseEnabled,
-        ballEnabled,
-        yoloDelegate,
-        poseDelegate
+        true
     )
 
-    // DEBUG TEMPORANEO: instrumentazione per capire perché la preview resta nera.
-    // Da rimuovere una volta individuata la causa.
+    const format = useCameraFormat(device, [
+        { videoResolution: selectedResolution || { width: 1280, height: 720 } },
+        { fps: selectedFps || 30 },
+    ])
+
+    // ── Request media library permissions for saving screenshots ─────────────
     useEffect(() => {
-        console.log('[WorkoutSession][DEBUG] device:', device?.id ?? null,
-            '| hasPermission:', hasPermission,
-            '| isActive:', isActive,
-            '| frameOutput:', frameOutput ? 'presente' : 'assente')
-    }, [device, hasPermission, isActive, frameOutput])
-
-
+        void (async () => {
+            const { status } = await MediaLibrary.requestPermissionsAsync()
+            if (status !== 'granted') {
+                console.warn('[WorkoutSession] Media library permission not granted')
+            }
+        })()
+    }, [])
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -1507,6 +1549,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         showWarning('Termina Sessione', 'Sei sicuro di voler terminare?', async () => {
             setIsEnding(true)
             try {
+                // Stop video recording if active before ending session
+                if (isVideoRecordingRef.current) {
+                    await stopSessionVideoRecording()
+                }
                 await flushFrameBatch()
                 await endWorkoutSession(sessionId, user!.id)
                 navigation.replace('ShotChart', { sessionId, fromSession: true })
@@ -1531,14 +1577,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }
 
     if (!hasPermission) return (
-        <View style={[styles.container, styles.center]} pointerEvents="box-none">
-            <View style={styles.permContent} pointerEvents="auto">
-                <Text style={styles.permTitle}>📷 Permesso Camera</Text>
-                <Text style={styles.permDesc}>Necessario per il tracking AI dei tiri</Text>
-                <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
-                    <Text style={styles.permBtnText}>Concedi Permesso</Text>
-                </TouchableOpacity>
-            </View>
+        <View style={[styles.container, styles.center]}>
+            <Text style={styles.permTitle}>📷 Permesso Camera</Text>
+            <Text style={styles.permDesc}>Necessario per il tracking AI dei tiri</Text>
+            <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
+                <Text style={styles.permBtnText}>Concedi Permesso</Text>
+            </TouchableOpacity>
         </View>
     )
 
@@ -1549,11 +1593,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     )
 
     const isPaused    = session?.status === 'PAUSED'
-
-    // DEBUG TEMPORANEO
-    useEffect(() => {
-        console.log('[WorkoutSession][DEBUG] isPaused:', isPaused)
-    }, [isPaused])
     const fgPct       = shotCount.total > 0 ? ((shotCount.made/shotCount.total)*100).toFixed(0) : '0'
     const streak      = wsStats?.shotStreak ?? 0
     const elbowAngle  = jointAngles.elbowAngle != null ? `${jointAngles.elbowAngle.toFixed(0)}°` : '—'
@@ -1571,6 +1610,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         {!modelsReady && <Text style={styles.loadingBadge}>⏳ AI...</Text>}
                     </View>
                     <View style={styles.headerRightGroup}>
+                        <TouchableOpacity
+                            onPress={toggleSessionVideoRecording}
+                            style={[
+                                styles.recordHeaderBtn,
+                                isVideoRecording && styles.recordHeaderBtnActive,
+                                (isPaused || isEnding) && styles.btnDisabled,
+                            ]}
+                            disabled={isPaused || isEnding}
+                        >
+                            <View style={[styles.recHeaderDot, isVideoRecording && styles.recHeaderDotActive]} />
+                            <Text style={[styles.recordHeaderBtnText, isVideoRecording && styles.recordHeaderBtnTextActive]}>
+                                {isVideoRecording ? formatVideoDuration(videoDuration) : 'REC'}
+                            </Text>
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={handlePauseResume} style={styles.headerBtn}>
                             <Text style={styles.headerBtnText}>{isPaused ? '▶' : '⏸'}</Text>
                         </TouchableOpacity>
@@ -1601,26 +1654,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 </View>
             </View>
 
-    <View style={{ height: CAMERA_H }} ref={cameraViewRef} collapsable={false}>
+            <View style={{ height: CAMERA_H }} ref={cameraViewRef} collapsable={false}>
                 <Camera
                     ref={cameraRef}
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    constraints={constraints}
-                    {...(frameOutput ? { outputs: [frameOutput] } : {})}
+                    frameProcessor={frameProcessor}
+                    format={format}
+                    zoom={zoom}
+                    video={true}
+                    audio={false}
                     onError={(error) => {
-                        // DEBUG TEMPORANEO: logga SEMPRE l'errore completo, per capire se la
-                        // preview nera è dovuta a un errore reale che finora veniva filtrato.
-                        const cameraError = error as Error & { code?: string; cause?: Error & { code?: string } }
-                        console.error('[WorkoutSession][CAMERA ERROR]', {
-                            code: cameraError?.code,
-                            message: cameraError?.message,
-                            causeCode: cameraError?.cause?.code,
-                            causeMessage: cameraError?.cause?.message,
-                            error: String(error),
-                        })
-                        if (cameraError.code === 'session/invalid-output-configuration') {
+                        if (error.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')
                             setIsActive(false)
                             setTimeout(() => setIsActive(true), 500)
@@ -1628,6 +1674,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     }}
                 />
 
+                {/* Visual indicator for active video session recording */}
+                {isVideoRecording && (
+                    <View style={styles.recBanner} pointerEvents="none">
+                        <View style={styles.recDotPulsing} />
+                        <Text style={styles.recBannerText}>🔴 REC {formatVideoDuration(videoDuration)}</Text>
+                    </View>
+                )}
 
                 {/* Overlay completo: scia + palla + canestro + pose */}
                 <TrackingOverlay
@@ -1680,37 +1733,22 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         <Text style={styles.autoLabel}>
                             {!modelsReady             ? 'Caricamento modelli AI...' :
                              trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
-                             trackingState?.ballPosition ? 'Rilev. auto attivo' : 'In attesa della palla…'}
+                             trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
                         </Text>
                     </View>
-                    <ToggleButton
-                        active={shotDetectionEnabled}
+                    <TouchableOpacity
+                        style={[
+                            styles.recControlBtn,
+                            isVideoRecording ? styles.recControlBtnActive : styles.recControlBtnIdle,
+                            (isPaused || isEnding) && styles.btnDisabled,
+                        ]}
+                        onPress={toggleSessionVideoRecording}
                         disabled={isPaused || isEnding}
-                        labelOn="🎯 Auto Tiro ON"
-                        labelOff="🎯 Auto Tiro OFF"
-                        onPress={() => setShotDetectionEnabled(!shotDetectionEnabled)}
-                    />
-                    <ToggleButton
-                        active={rimDetectionEnabled}
-                        disabled={isPaused || isEnding}
-                        labelOn="🏀 Canestro ON"
-                        labelOff="🏀 Canestro OFF"
-                        onPress={() => setRimDetectionEnabled(!rimDetectionEnabled)}
-                    />
-                    <ToggleButton
-                        active={poseEnabled}
-                        disabled={isPaused || isEnding}
-                        labelOn="🧍 Pose ON"
-                        labelOff="🧍 Pose OFF"
-                        onPress={() => setPoseEnabled(!poseEnabled)}
-                    />
-                    <ToggleButton
-                        active={ballEnabled}
-                        disabled={isPaused || isEnding}
-                        labelOn="🏀 Palla ON"
-                        labelOff="🏀 Palla OFF"
-                        onPress={() => setBallEnabled(!ballEnabled)}
-                    />
+                    >
+                        <Text style={styles.recControlBtnText}>
+                            {isVideoRecording ? `⏹ Stop REC (${formatVideoDuration(videoDuration)})` : '🔴 Record'}
+                        </Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.endBtn, isEnding && styles.endBtnDisabled]}
                         onPress={handleEndSession}
@@ -1796,16 +1834,12 @@ const styles = StyleSheet.create({
     shotMissText:      { color: '#f87171' },
     controls:          { backgroundColor: '#121826', borderTopWidth: 1, borderTopColor: '#2a2a2a', padding: 14 },
     pausedLabel:       { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
-    autoRow:           { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 },
-    autoStatus:        { flexDirection: 'row', alignItems: 'center', gap: 7 },
+    autoRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+    autoStatus:        { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
     autoDot:           { width: 9, height: 9, borderRadius: 4.5 },
     autoDotActive:     { backgroundColor: '#4ade80' },
     autoDotIdle:       { backgroundColor: '#555' },
     autoLabel:         { fontSize: 12, color: '#aaa', fontWeight: '500' },
-    detectionToggleBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', marginRight: 6 },
-    detectionToggleBtnInactive: { backgroundColor: '#1e2433', borderWidth: 1, borderColor: '#555' },
-    detectionToggleBtnActive: { backgroundColor: '#3b82f6', borderWidth: 1, borderColor: '#60a5fa' },
-    detectionToggleBtnText: { color: '#fff', fontWeight: '800', fontSize: 11 },
     recControlBtn:     { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', marginRight: 6 },
     recControlBtnIdle: { backgroundColor: '#2a1515', borderWidth: 1, borderColor: '#ef4444' },
     recControlBtnActive:{ backgroundColor: '#ef4444', borderWidth: 1, borderColor: '#fca5a5' },
@@ -1828,7 +1862,4 @@ const styles = StyleSheet.create({
     permDesc:          { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
     permBtn:           { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
     permBtnText:       { color: '#fff', fontWeight: '700', fontSize: 16 },
-    permContent:       { alignItems: 'center' },
 })
-
-

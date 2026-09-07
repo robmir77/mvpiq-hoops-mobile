@@ -8,14 +8,14 @@ import CalibrationScreen from '../screens/CalibrationScreen'
 import WorkoutSessionScreen from '../screens/WorkoutSessionScreen'
 import ShotChartScreen from '../screens/ShotChartScreen'
 import StatsScreen from '../screens/StatsScreen'
-import { CameraMode, CourtType } from '../types/workouts.types'
+import { CameraMode } from '../types/workouts.types'
 
 export type WorkoutStackParamList = {
     WorkoutHome:    undefined
     WorkoutSetup:   undefined
     // cameraMode passato a Calibration E a WorkoutSession per il debug overlay
-    Calibration:    { sessionId: string; cameraMode: CameraMode; courtType?: CourtType }
-    WorkoutSession: { sessionId: string; cameraMode: CameraMode; courtType?: CourtType }
+    Calibration:    { sessionId: string; cameraMode: CameraMode }
+    WorkoutSession: { sessionId: string; cameraMode: CameraMode }
     ShotChart:      { sessionId: string; fromSession?: boolean }
     Stats:          { sessionId: string }
 }

@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from "react"
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native"
 
-// import { CameraView, useCameraPermissions } from "expo-camera"
+import { CameraView, useCameraPermissions } from "expo-camera"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { uploadVideo } from "../api/videoUpload.api"
 import { RootStackParamList } from "@/app/navigation/types"
@@ -17,10 +17,10 @@ export default function VideoAnalysisRecorderScreen({
                                                         navigation,
                                                     }: Props) {
 
-    // const cameraRef = useRef<any>(null)
+    const cameraRef = useRef<any>(null)
 
-    // const [permission, requestPermission] = useCameraPermissions()
-    // const [recording, setRecording] = useState(false)
+    const [permission, requestPermission] = useCameraPermissions()
+    const [recording, setRecording] = useState(false)
 
     const { type } = route.params
 
@@ -36,46 +36,46 @@ export default function VideoAnalysisRecorderScreen({
         throw new Error("User not available")
     }
 
-    // useEffect(() => {
-    //     if (!permission) return
-    //     if (!permission.granted) {
-    //         requestPermission()
-    //     }
-    // }, [permission])
+    useEffect(() => {
+        if (!permission) return
+        if (!permission.granted) {
+            requestPermission()
+        }
+    }, [permission])
 
-    // const recordVideo = async () => {
+    const recordVideo = async () => {
 
-    //     if (!cameraRef.current) return
+        if (!cameraRef.current) return
 
-    //     try {
+        try {
 
-    //         setRecording(true)
+            setRecording(true)
 
-    //         const video = await cameraRef.current.recordAsync({
-    //             maxDuration: type?.maxVideoSeconds || 10,
-    //         })
+            const video = await cameraRef.current.recordAsync({
+                maxDuration: type?.maxVideoSeconds || 10,
+            })
 
-    //         setRecording(false)
+            setRecording(false)
 
-    //         console.log("Video URI:", video.uri)
+            console.log("Video URI:", video.uri)
 
-    //         const userId = user.id
+            const userId = user.id
 
-    //         // upload su supabase
-    //         const videoUrl = await uploadVideo(video.uri, userId)
+            // upload su supabase
+            const videoUrl = await uploadVideo(video.uri, userId)
 
-    //         console.log("Uploaded video URL:", videoUrl)
+            console.log("Uploaded video URL:", videoUrl)
 
-    //         navigation.navigate("VideoProcessing", {
-    //             videoUrl,
-    //             type,
-    //         })
+            navigation.navigate("VideoProcessing", {
+                videoUrl,
+                type,
+            })
 
-    //     } catch (err) {
-    //         console.error(err)
-    //         setRecording(false)
-    //     }
-    // }
+        } catch (err) {
+            console.error(err)
+            setRecording(false)
+        }
+    }
 
     const pickVideoFromGallery = async () => {
 
@@ -119,29 +119,29 @@ export default function VideoAnalysisRecorderScreen({
         }
     }
 
-    // const stopRecording = () => {
-    //     if (cameraRef.current) {
-    //         cameraRef.current.stopRecording()
-    //     }
-    // }
+    const stopRecording = () => {
+        if (cameraRef.current) {
+            cameraRef.current.stopRecording()
+        }
+    }
 
-    // if (!permission) {
-    //     return <Text>Loading camera...</Text>
-    // }
+    if (!permission) {
+        return <Text>Loading camera...</Text>
+    }
 
-    // if (!permission.granted) {
-    //     return <Text>No camera permission</Text>
-    // }
+    if (!permission.granted) {
+        return <Text>No camera permission</Text>
+    }
 
     return (
         <View style={styles.container}>
 
-            {/* <CameraView
+            <CameraView
                 ref={cameraRef}
                 style={styles.camera}
                 facing="back"
                 mode="video"
-            /> */}
+            />
 
             <TouchableOpacity
                 style={globalStyles.button}
@@ -150,7 +150,7 @@ export default function VideoAnalysisRecorderScreen({
                 <Text style={globalStyles.buttonText}>📂 Upload from gallery</Text>
             </TouchableOpacity>
 
-            {/* {!recording ? (
+            {!recording ? (
                 <TouchableOpacity style={globalStyles.button} onPress={recordVideo}>
                     <Text style={globalStyles.buttonText}>🎥 Record video</Text>
                 </TouchableOpacity>
@@ -158,7 +158,7 @@ export default function VideoAnalysisRecorderScreen({
                 <TouchableOpacity style={globalStyles.button} onPress={stopRecording}>
                     <Text style={globalStyles.buttonText}>🎥 Stop Recording</Text>
                 </TouchableOpacity>
-            )} */}
+            )}
 
         </View>
     )
@@ -168,10 +168,8 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: "#000",
-        justifyContent: 'center',
-        alignItems: 'center',
     },
-    // camera: {
-    //     flex: 1,
-    // },
+    camera: {
+        flex: 1,
+    },
 })

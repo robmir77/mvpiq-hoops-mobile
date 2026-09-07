@@ -22,24 +22,21 @@ const KP_MAP: Record<number, string> = {
   16: 'rightAnkle',
 }
 
-export function parseMoveNetOutput(outputData: Float32Array | Uint8Array | Int8Array): {
+export function parseMoveNetOutput(outputData: Float32Array): {
   [key: string]: { x: number; y: number; score: number }
 } {
   'worklet'
 
   const keypoints: { [key: string]: { x: number; y: number; score: number } } = {}
 
-  // Convert to float values if needed (for INT8/UINT8 quantized output)
-  const isQuantized = outputData instanceof Uint8Array || outputData instanceof Int8Array
-
-  // MoveNet output shape: [1, 1, 17, 3] -> flat array of 51 elements
+  // MoveNet output shape: [1, 1, 17, 3] -> flat Float32Array of 51 elements
   // Each keypoint: [y, x, score]
   // Apply same coordinate transformation as ball detection: x/y swap + horizontal flip
   for (let i = 0; i < 17; i++) {
     const offset = i * 3
-    const yNorm = isQuantized ? outputData[offset] / 255.0 : outputData[offset]
-    const xNorm = isQuantized ? outputData[offset + 1] / 255.0 : outputData[offset + 1]
-    const score = isQuantized ? outputData[offset + 2] / 255.0 : outputData[offset + 2]
+    const yNorm = outputData[offset]
+    const xNorm = outputData[offset + 1]
+    const score = outputData[offset + 2]
 
     if (score < SCORE_THRESHOLD) continue
 

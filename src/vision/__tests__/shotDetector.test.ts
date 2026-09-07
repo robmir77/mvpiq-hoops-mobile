@@ -6,8 +6,6 @@
 import { ShotDetector } from '../shotDetector'
 import type { BallDetection } from '../types'
 
-type Ball = BallDetection['ball']
-
 describe('ShotDetector', () => {
   let detector: ShotDetector
 
@@ -17,7 +15,7 @@ describe('ShotDetector', () => {
 
   describe('detectShotStart', () => {
     it('should detect shot start when ball moves upward in upper frame', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200, // Upper part of frame (above 30% threshold)
         width: 20,
@@ -36,7 +34,7 @@ describe('ShotDetector', () => {
     })
 
     it('should not detect shot start when ball is in lower frame', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 400, // Lower part of frame (below 30% threshold)
         width: 20,
@@ -50,7 +48,7 @@ describe('ShotDetector', () => {
     })
 
     it('should not detect shot start when ball moves downward', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -70,7 +68,7 @@ describe('ShotDetector', () => {
 
   describe('detectShotRelease', () => {
     it('should detect shot release with strong upward velocity', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -94,7 +92,7 @@ describe('ShotDetector', () => {
     })
 
     it('should not detect release before shot start', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -110,7 +108,7 @@ describe('ShotDetector', () => {
 
   describe('detectShotMade', () => {
     it('should detect shot made when ball goes through rim', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -144,7 +142,7 @@ describe('ShotDetector', () => {
     })
 
     it('should not detect made when ball is far from rim', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -177,7 +175,7 @@ describe('ShotDetector', () => {
 
   describe('detectShotMiss', () => {
     it('should detect shot miss after timeout', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -205,7 +203,7 @@ describe('ShotDetector', () => {
     })
 
     it('should not detect miss before timeout', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -231,7 +229,7 @@ describe('ShotDetector', () => {
 
   describe('reset', () => {
     it('should reset all shot detection state', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,
@@ -258,7 +256,7 @@ describe('ShotDetector', () => {
     })
 
     it('should return event with shot data after release', () => {
-      const ball: Ball = {
+      const ball: BallDetection['ball'] = {
         x: 100,
         y: 200,
         width: 20,

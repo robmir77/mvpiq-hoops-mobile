@@ -8,10 +8,6 @@ const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.25
 const N_ANCHORS = 3549
 
-export function setCropParameters(_cropX?: number, _cropY?: number, _cropDim?: number) {
-  'worklet'; // eslint-disable-line
-}
-
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
   'worklet'; // eslint-disable-line
@@ -43,14 +39,12 @@ function nms(dets: number[][], thr: number): number[][] {
 // This runs in the Worklet - NO runOnJS here
 // Detects both ball (cls 0) and rim (cls 1)
 // Returns the ball with highest confidence and the rim with highest confidence
-export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD, _frameWidth: number = 1, _frameHeight: number = 1): {
+export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
-  debug?: { cx: number; cy: number; w: number; h: number; conf: number }
 } {
   'worklet'; // eslint-disable-line
   const raw: number[][] = []
-  let debugInfo: { cx: number; cy: number; w: number; h: number; conf: number } | undefined = undefined
 
   // Convert to float values if needed (for INT8 quantized output)
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
@@ -64,6 +58,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   // For ball_rimV8 model: class 0 = ball, class 1 = rim
   // Class scores are at output[N_ANCHORS * 5 + i] for ball and output[N_ANCHORS * 6 + i] for rim
   let maxScore = 0
+  let maxScoreIdx = -1
 
   const a2 = N_ANCHORS * 2
   const a3 = N_ANCHORS * 3
@@ -82,7 +77,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     const maxClassScore = Math.max(ballScore, rimScore)
     if (maxClassScore > maxScore) {
       maxScore = maxClassScore
-      debugInfo = { cx, cy, w, h, conf: maxClassScore }
+      maxScoreIdx = i
     }
 
     // Filter: reject detections with bounding box larger than half screen
@@ -102,7 +97,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       ])
     }
 
-    // Add rim detection if score above threshold (controlled by external flag)
+    // Add rim detection if score above threshold
     if (rimScore >= threshold) {
       raw.push([
         (cx - w * 0.5),
@@ -115,11 +110,17 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  // NOTE: Do NOT add console.log here — this runs in a VisionCamera worklet thread
-  // where console is not available. Use scheduleOnRN(() => console.log(...)) instead.
+  // Log the highest confidence score and its anchor position for debugging (commented out for high-frequency performance)
+  // if (__DEV__) {
+  //   console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
+  //   console.log('[YOLO Parser] Detections above threshold:', raw.length)
+  // }
 
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
+  // if (__DEV__) {
+  //   console.log('[YOLO Parser] Detections after NMS:', kept.length)
+  // }
 
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
@@ -127,14 +128,12 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      // Coordinate dirette senza swap X↔Y
-      x: (x1 + x2) / 2,
-      y: (y1 + y2) / 2,
-      width: (x2 - x1),
-      height: (y2 - y1),
+      x: 1 - (y1 + y2) / 2,
+      y: (x1 + x2) / 2,
+      width: (y2 - y1),
+      height: (x2 - x1),
       confidence: conf,
     }
-
 
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
@@ -144,6 +143,5 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-
-  return { ball: bestBall, rim: bestRim, debug: debugInfo }
+  return { ball: bestBall, rim: bestRim }
 }

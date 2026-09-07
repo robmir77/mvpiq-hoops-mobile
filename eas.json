@@ -12,9 +12,6 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EAS_BUILD_DISABLE_CACHE": "1"
       }
     },
     "production": {

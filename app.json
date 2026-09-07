@@ -6,9 +6,15 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "assetBundlePatterns": [
       "**/*"
     ],
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mvpiqhoopsmobile",
@@ -37,19 +43,20 @@
     "plugins": [
       "expo-asset",
       "expo-font",
+      "expo-camera",
       "expo-image-picker",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "MVPiQ Hoops richiede accesso alla fotocamera"
+        }
+      ],
       [
         "expo-build-properties",
         {
           "android": {
             "minSdkVersion": 26
           }
-        }
-      ],
-      [
-        "react-native-fast-tflite",
-        {
-          "enableAndroidGpuLibraries": ["libOpenCL.so", "libOpenCL-pixel.so", "libGLES_mali.so"]
         }
       ],
       "@react-native-firebase/app",

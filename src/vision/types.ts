@@ -78,6 +78,3 @@ export interface ShotEvent {
   releaseAngle?: number
   timestamp: number
 }
-
-export type AndroidDelegateOption = 'android-gpu' | 'nnapi'
-export type IosDelegateOption = 'core-ml'

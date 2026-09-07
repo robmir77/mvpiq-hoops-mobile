@@ -5,7 +5,7 @@
 //   - LATERAL:  vista laterale pura — palo + tabellone + traiettoria arco
 //   - FRONTAL:  vista frontale dal fondo — paint + tabellone centrato
 
-import React, { useState, useContext, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useContext } from 'react'
 import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, ScrollView, Platform,
@@ -14,26 +14,16 @@ import Svg, {
     Circle, Line, Polygon, Rect, Path, Defs,
     LinearGradient, Stop, G, Text as SvgText, Ellipse,
 } from 'react-native-svg'
-import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from 'react-native-vision-camera'
-import { Picker } from '@react-native-picker/picker'
-import { useIsFocused } from '@react-navigation/native'
+import { Camera } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { CameraMode, CalibrationData, CourtType } from '../types/workouts.types'
+import { CameraMode, CalibrationData } from '../types/workouts.types'
+import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
+import { useCameraFormat } from 'react-native-vision-camera'
 import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
-import {
-    ANDROID_DELEGATE_OPTIONS,
-    DEFAULT_ANDROID_DELEGATE,
-    DEFAULT_IOS_DELEGATE,
-    type AndroidDelegateOption,
-    type IosDelegateOption,
-} from '@/vision'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
-const MIN_CAPTURE = { width: 1280, height: 720 }
-const DEFAULT_CAPTURE = { width: 1280, height: 720 }
-const DEFAULT_FPS = 15
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
@@ -72,7 +62,7 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
 
     const line = (p1: Point, p2: Point, color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke={color} strokeWidth={w} strokeDasharray={dash} />
+            stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Arco 3pt in prospettiva (approssimato con segmenti)
@@ -116,10 +106,10 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
             {/* Arco 3pt */}
             {arc3pts.map((p, i) => i > 0 && (
                 <Line key={i}
-                      x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
-                      x2={p.x} y2={p.y}
-                      stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
-                      strokeDasharray="5,3" />
+                    x1={arc3pts[i-1].x} y1={arc3pts[i-1].y}
+                    x2={p.x} y2={p.y}
+                    stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
+                    strokeDasharray="5,3" />
             ))}
 
             {/* Tabellone */}
@@ -145,165 +135,24 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
 
             {/* Labels */}
             <SvgText x={W * 0.71} y={H * 0.23} textAnchor="middle"
-                     fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.46} y={H * 0.67} textAnchor="middle"
-                     fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
+                fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
             <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle"
-                     fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
+                fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
 
             {/* Ghost hoop quando non ancora toccato */}
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                            strokeWidth={1.5} strokeDasharray="5,3" />
+                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                        strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                            strokeWidth={2} strokeDasharray="4,3" />
+                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                        strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
-            {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
-        </Svg>
-    )
-}
-
-// ─── Overlay 45° Full Court ─────────────────────────────────────────────────────
-// Campo intero visto a 45° laterale: prospettiva diagonale estesa
-const Overlay45Full = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
-    const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.70, y: H * 0.28 }
-
-    // Punti campo intero in prospettiva 45°
-    const courtPts = {
-        // Linea di fondo (vicina - nostro canestro)
-        bl: { x: W * 0.04, y: H * 0.87 },
-        br: { x: W * 0.96, y: H * 0.76 },
-        // Linea di fondo (lontana / tiro libero)
-        tl: { x: W * 0.20, y: H * 0.38 },
-        tr: { x: W * 0.82, y: H * 0.28 },
-        // Linea centro campo (estesa per full court)
-        cl: { x: W * 0.08, y: H * 0.15 },
-        cr: { x: W * 0.92, y: H * 0.12 },
-        // Paint
-        pl1: { x: W * 0.30, y: H * 0.87 },
-        pl2: { x: W * 0.42, y: H * 0.50 },
-        pr1: { x: W * 0.55, y: H * 0.83 },
-        pr2: { x: W * 0.62, y: H * 0.48 },
-        // Tiro libero
-        ftl: { x: W * 0.42, y: H * 0.50 },
-        ftr: { x: W * 0.62, y: H * 0.48 },
-        // Tabellone
-        bbl: { x: W * 0.60, y: H * 0.20 },
-        bbr: { x: W * 0.76, y: H * 0.18 },
-        bbtl: { x: W * 0.61, y: H * 0.13 },
-        bbtr: { x: W * 0.77, y: H * 0.11 },
-    }
-
-    const line = (p1: Point, p2: Point, color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
-        <Line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke={color} strokeWidth={w} strokeDasharray={dash} />
-    )
-
-    // Arco 3pt in prospettiva (approssimato con segmenti)
-    const arc3pts = [
-        { x: W * 0.04, y: H * 0.75 },
-        { x: W * 0.08, y: H * 0.60 },
-        { x: W * 0.16, y: H * 0.48 },
-        { x: W * 0.28, y: H * 0.40 },
-        { x: W * 0.44, y: H * 0.36 },
-        { x: W * 0.60, y: H * 0.35 },
-        { x: W * 0.72, y: H * 0.33 },
-        { x: W * 0.84, y: H * 0.30 },
-        { x: W * 0.96, y: H * 0.68 },
-    ]
-
-    return (
-        <Svg style={StyleSheet.absoluteFill} width={W} height={H} pointerEvents="none">
-            <Defs>
-                <LinearGradient id="paintFill45Full" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor="#ff8c00" stopOpacity="0.03" />
-                    <Stop offset="1" stopColor="#ff8c00" stopOpacity="0.10" />
-                </LinearGradient>
-            </Defs>
-
-            {/* Paint area */}
-            <Polygon
-                points={`${courtPts.pl1.x},${courtPts.pl1.y} ${courtPts.pr1.x},${courtPts.pr1.y} ${courtPts.pr2.x},${courtPts.pr2.y} ${courtPts.ftr.x},${courtPts.ftr.y} ${courtPts.ftl.x},${courtPts.ftl.y} ${courtPts.pl2.x},${courtPts.pl2.y}`}
-                fill="url(#paintFill45Full)" stroke="rgba(255,140,0,0.20)" strokeWidth={1} />
-
-            {/* Linee perimetro campo (full court) */}
-            {line(courtPts.bl, courtPts.br)}
-            {line(courtPts.bl, courtPts.cl)}
-            {line(courtPts.br, courtPts.cr)}
-            {line(courtPts.cl, courtPts.cr)}
-            {line(courtPts.tl, courtPts.tr)}
-
-            {/* Paint */}
-            {line(courtPts.pl1, courtPts.pl2)}
-            {line(courtPts.pr1, courtPts.pr2)}
-            {line(courtPts.ftl, courtPts.ftr)}
-
-            {/* Arco 3pt */}
-            {arc3pts.map((p, i) => i > 0 && (
-                <Line key={i}
-                      x1={arc3pts[i - 1].x} y1={arc3pts[i - 1].y}
-                      x2={p.x} y2={p.y}
-                      stroke="rgba(255,255,255,0.22)" strokeWidth={1.5}
-                      strokeDasharray="5,3" />
-            ))}
-
-            {/* Linea centro campo */}
-            {line(courtPts.cl, courtPts.cr, 'rgba(255,255,255,0.15)', 1.5, '8,4')}
-
-            {/* Tabellone */}
-            {line(courtPts.bbl, courtPts.bbr, 'rgba(255,255,255,0.35)', 1.5)}
-            {line(courtPts.bbl, courtPts.bbtl, 'rgba(255,255,255,0.35)', 1.5)}
-            {line(courtPts.bbr, courtPts.bbtr, 'rgba(255,255,255,0.35)', 1.5)}
-            {line(courtPts.bbtl, courtPts.bbtr, 'rgba(255,255,255,0.35)', 1.5)}
-            {/* Rettangolo mira sul tabellone */}
-            <Rect
-                x={W * 0.64} y={H * 0.14}
-                width={W * 0.09} height={H * 0.05}
-                fill="none" stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
-
-            {/* Canestro — ferro ellisse */}
-            <Ellipse
-                cx={W * 0.700} cy={H * 0.290}
-                rx={W * 0.028} ry={H * 0.012}
-                fill="rgba(255,100,0,0.10)"
-                stroke="rgba(255,140,0,0.45)" strokeWidth={2} />
-            {/* Palo */}
-            {line({ x: W * 0.700, y: H * 0.30 }, { x: W * 0.700, y: H * 0.80 },
-                'rgba(255,255,255,0.18)', 2)}
-
-            {/* Labels */}
-            <SvgText x={W * 0.71} y={H * 0.23} textAnchor="middle"
-                     fill="rgba(255,140,0,0.70)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
-            <SvgText x={W * 0.46} y={H * 0.67} textAnchor="middle"
-                     fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
-            <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle"
-                     fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
-            <SvgText x={W * 0.50} y={H * 0.14} textAnchor="middle"
-                     fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
-
-            {/* Ghost hoop quando non ancora toccato */}
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                            strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                            strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -325,9 +174,9 @@ const OverlayLateral = ({ hoopCenter, corners, step }: {
     const poleTop = H * 0.10
 
     const line = (x1: number, y1: number, x2: number, y2: number,
-                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke={color} strokeWidth={w} strokeDasharray={dash} />
+            stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Traiettoria parabola del tiro (arco)
@@ -374,170 +223,51 @@ const OverlayLateral = ({ hoopCenter, corners, step }: {
             {line(poleX - W * 0.025, H * 0.35, poleX + W * 0.010, H * 0.35,
                 'rgba(255,120,0,0.55)', 2.5)}
             <Ellipse cx={poleX - W * 0.010} cy={H * 0.355}
-                     rx={W * 0.022} ry={H * 0.010}
-                     fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
+                rx={W * 0.022} ry={H * 0.010}
+                fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
 
             {/* Rete (semplificata) */}
             {[0, 0.008, -0.008, 0.016, -0.016].map((dx, i) => (
                 <Line key={i}
-                      x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
-                      x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
-                      stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
+                    x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
+                    x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
+                    stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
             ))}
 
             {/* Traiettoria tiro (arco tratteggiato arancione) */}
             <Path d={arcPath}
-                  fill="none" stroke="rgba(255,140,0,0.35)"
-                  strokeWidth={1.5} strokeDasharray="6,4" />
+                fill="none" stroke="rgba(255,140,0,0.35)"
+                strokeWidth={1.5} strokeDasharray="6,4" />
             {/* Freccia sulla traiettoria */}
             <SvgText x={W * 0.44} y={H * 0.12} textAnchor="middle"
-                     fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
+                fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
 
             {/* Zona di tiro (rettangolo semitrasparente) */}
             <Rect x={W * 0.01} y={H * 0.75} width={W * 0.38} height={H * 0.13}
-                  fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
-                  strokeWidth={1} strokeDasharray="4,3" />
+                fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
+                strokeWidth={1} strokeDasharray="4,3" />
 
             {/* Labels */}
             <SvgText x={poleX} y={H * 0.06} textAnchor="middle"
-                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.28} y={H * 0.72} textAnchor="middle"
-                     fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
+                fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
             <SvgText x={W * 0.06} y={H * 0.72} textAnchor="middle"
-                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
+                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
-                     fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
+                fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
 
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                            strokeWidth={1.5} strokeDasharray="5,3" />
+                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                        strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                            strokeWidth={2} strokeDasharray="4,3" />
+                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                        strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
-            {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
-        </Svg>
-    )
-}
-
-// ─── Overlay Laterale Full Court ─────────────────────────────────────────────────
-// Vista laterale campo intero: estensione delle linee fino al centro campo
-const OverlayLateralFull = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
-    const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.76, y: H * 0.34 }
-
-    const F = H * 0.88  // pavimento
-    const poleX = W * 0.76
-    const poleTop = H * 0.10
-
-    const line = (x1: number, y1: number, x2: number, y2: number,
-                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
-        <Line x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke={color} strokeWidth={w} strokeDasharray={dash} />
-    )
-
-    // Traiettoria parabola del tiro (arco)
-    const arcPath = `M ${W * 0.18} ${F * 0.96}
-        Q ${W * 0.45} ${H * 0.05} ${poleX} ${H * 0.36}`
-
-    return (
-        <Svg style={StyleSheet.absoluteFill} width={W} height={H} pointerEvents="none">
-            <Defs>
-                <LinearGradient id="floorGradFull" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor="#ffffff" stopOpacity="0" />
-                    <Stop offset="1" stopColor="#ffffff" stopOpacity="0.06" />
-                </LinearGradient>
-            </Defs>
-
-            {/* Pavimento esteso */}
-            {line(W * 0.01, F, W * 0.99, F)}
-
-            {/* Linee campo laterali (full court) */}
-            {/* 3pt */}
-            {line(W * 0.06, F, W * 0.06, H * 0.40, 'rgba(255,255,255,0.22)', 1.5, '5,3')}
-            {/* Tiro libero */}
-            {line(W * 0.28, F, W * 0.28, H * 0.45, 'rgba(255,255,255,0.22)', 1.5, '5,3')}
-            {/* Linea fondo */}
-            {line(W * 0.78, F, W * 0.78, H * 0.50, 'rgba(255,255,255,0.18)', 1.5)}
-            {/* Linea centro campo */}
-            {line(W * 0.01, H * 0.15, W * 0.99, H * 0.15, 'rgba(255,255,255,0.15)', 1.5, '8,4')}
-
-            {/* Palo canestro */}
-            {line(poleX, F, poleX, poleTop + H * 0.14,
-                'rgba(255,255,255,0.30)', 3)}
-
-            {/* Tabellone */}
-            <Rect
-                x={poleX - W * 0.09} y={poleTop}
-                width={W * 0.18} height={H * 0.14}
-                fill="rgba(255,255,255,0.06)"
-                stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
-            {/* Rettangolo mira */}
-            <Rect
-                x={poleX - W * 0.045} y={poleTop + H * 0.048}
-                width={W * 0.09} height={H * 0.055}
-                fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
-
-            {/* Ferro canestro */}
-            {line(poleX - W * 0.025, H * 0.35, poleX + W * 0.010, H * 0.35,
-                'rgba(255,120,0,0.55)', 2.5)}
-            <Ellipse cx={poleX - W * 0.010} cy={H * 0.355}
-                     rx={W * 0.022} ry={H * 0.010}
-                     fill="none" stroke="rgba(255,120,0,0.50)" strokeWidth={2} />
-
-            {/* Rete (semplificata) */}
-            {[0, 0.008, -0.008, 0.016, -0.016].map((dx, i) => (
-                <Line key={i}
-                      x1={poleX - W * 0.010 + W * dx} y1={H * 0.360}
-                      x2={poleX - W * 0.010 + W * dx * 0.5} y2={H * 0.420}
-                      stroke="rgba(255,255,255,0.20)" strokeWidth={1} />
-            ))}
-
-            {/* Traiettoria tiro (arco tratteggiato arancione) */}
-            <Path d={arcPath}
-                  fill="none" stroke="rgba(255,140,0,0.35)"
-                  strokeWidth={1.5} strokeDasharray="6,4" />
-            {/* Freccia sulla traiettoria */}
-            <SvgText x={W * 0.44} y={H * 0.12} textAnchor="middle"
-                     fill="rgba(255,140,0,0.55)" fontSize={14}>↗</SvgText>
-
-            {/* Zona di tiro (rettangolo semitrasparente) */}
-            <Rect x={W * 0.01} y={H * 0.75} width={W * 0.38} height={H * 0.13}
-                  fill="rgba(255,140,0,0.05)" stroke="rgba(255,140,0,0.15)"
-                  strokeWidth={1} strokeDasharray="4,3" />
-
-            {/* Labels */}
-            <SvgText x={poleX} y={H * 0.06} textAnchor="middle"
-                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
-            <SvgText x={W * 0.28} y={H * 0.72} textAnchor="middle"
-                     fill="rgba(255,255,255,0.30)" fontSize={9}>T.Libero</SvgText>
-            <SvgText x={W * 0.06} y={H * 0.72} textAnchor="middle"
-                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
-            <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
-                     fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
-            <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle"
-                     fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
-
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                            strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                            strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -555,9 +285,9 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
     const ghostHoop = { x: W * 0.50, y: H * 0.30 }
 
     const line = (x1: number, y1: number, x2: number, y2: number,
-                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
+        color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke={color} strokeWidth={w} strokeDasharray={dash} />
+            stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
     // Paint simmetrico
@@ -585,7 +315,7 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
 
             {/* Paint */}
             <Rect x={paintL} y={paintTop} width={paintR - paintL} height={paintBot - paintTop}
-                  fill="url(#paintFillF)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
+                fill="url(#paintFillF)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
 
             {/* Linea di fondo */}
             {line(W * 0.01, H * 0.87, W * 0.99, H * 0.87)}
@@ -596,185 +326,64 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
 
             {/* Arco 3pt */}
             <Path d={arc3Path} fill="none"
-                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
+                stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
             {/* Linee corner 3pt */}
             {line(W * 0.04, H * 0.65, W * 0.04, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
             {line(W * 0.96, H * 0.65, W * 0.96, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
 
             {/* Semicerchio tiro libero */}
             <Path d={ftArc} fill="none"
-                  stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
+                stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
 
             {/* Palo canestro */}
             {line(W * 0.50, H * 0.87, W * 0.50, H * 0.46, 'rgba(255,255,255,0.18)', 2.5)}
 
             {/* Tabellone */}
             <Rect x={W * 0.33} y={H * 0.10}
-                  width={W * 0.34} height={H * 0.14}
-                  fill="rgba(255,255,255,0.06)"
-                  stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
+                width={W * 0.34} height={H * 0.14}
+                fill="rgba(255,255,255,0.06)"
+                stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
             {/* Rettangolo mira */}
             <Rect x={W * 0.39} y={H * 0.147}
-                  width={W * 0.22} height={H * 0.065}
-                  fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
+                width={W * 0.22} height={H * 0.065}
+                fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
 
             {/* Ferro canestro — ellisse frontale */}
             <Ellipse cx={W * 0.50} cy={H * 0.305}
-                     rx={W * 0.065} ry={H * 0.018}
-                     fill="rgba(255,100,0,0.08)"
-                     stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
+                rx={W * 0.065} ry={H * 0.018}
+                fill="rgba(255,100,0,0.08)"
+                stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
             {/* Rete */}
             {[-0.04, -0.02, 0, 0.02, 0.04].map((dx, i) => (
                 <Line key={i}
-                      x1={W * 0.50 + W * dx} y1={H * 0.318}
-                      x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
-                      stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+                    x1={W * 0.50 + W * dx} y1={H * 0.318}
+                    x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
+                    stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
             ))}
             <Line x1={W * 0.46} y1={H * 0.385} x2={W * 0.54} y2={H * 0.385}
-                  stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+                stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
 
             {/* Labels */}
             <SvgText x={W * 0.50} y={H * 0.07} textAnchor="middle"
-                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
+                fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
             <SvgText x={W * 0.50} y={H * 0.66} textAnchor="middle"
-                     fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
+                fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
             <SvgText x={W * 0.10} y={H * 0.60} textAnchor="middle"
-                     fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
+                fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
-                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
+                fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
 
             {!hoopCenter && (
                 <G>
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={36}
-                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                            strokeWidth={1.5} strokeDasharray="5,3" />
+                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
+                        strokeWidth={1.5} strokeDasharray="5,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={20}
-                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                            strokeWidth={2} strokeDasharray="4,3" />
+                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
+                        strokeWidth={2} strokeDasharray="4,3" />
                     <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
                     <SvgText x={ghostHoop.x} y={ghostHoop.y - 44} textAnchor="middle"
-                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
-            {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
-        </Svg>
-    )
-}
-
-// ─── Overlay Frontale Full Court ─────────────────────────────────────────────────
-// Vista frontale campo intero: estensione delle linee fino al centro campo
-const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
-    const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.50, y: H * 0.30 }
-
-    const line = (x1: number, y1: number, x2: number, y2: number,
-                  color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
-        <Line x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke={color} strokeWidth={w} strokeDasharray={dash} />
-    )
-
-    // Paint simmetrico
-    const paintL = W * 0.22, paintR = W * 0.78
-    const paintTop = H * 0.43, paintBot = H * 0.87
-
-    // Arco pittura (semicerchio tiro libero)
-    const ftR = W * 0.14  // raggio semicerchio
-    const ftCx = W * 0.50, ftCy = H * 0.43
-    const ftArc = `M ${ftCx - ftR} ${ftCy} A ${ftR} ${ftR * 0.6} 0 0 1 ${ftCx + ftR} ${ftCy}`
-
-    // Arco 3pt frontale (grande)
-    const arc3Path = `M ${W * 0.04} ${H * 0.87}
-        Q ${W * 0.04} ${H * 0.30} ${W * 0.50} ${H * 0.22}
-        Q ${W * 0.96} ${H * 0.30} ${W * 0.96} ${H * 0.87}`
-
-    return (
-        <Svg style={StyleSheet.absoluteFill} width={W} height={H} pointerEvents="none">
-            <Defs>
-                <LinearGradient id="paintFillFFull" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor="#ff8c00" stopOpacity="0.04" />
-                    <Stop offset="1" stopColor="#ff8c00" stopOpacity="0.12" />
-                </LinearGradient>
-            </Defs>
-
-            {/* Paint */}
-            <Rect x={paintL} y={paintTop} width={paintR - paintL} height={paintBot - paintTop}
-                  fill="url(#paintFillFFull)" stroke="rgba(255,140,0,0.22)" strokeWidth={1.5} />
-
-            {/* Linea di fondo */}
-            {line(W * 0.01, H * 0.87, W * 0.99, H * 0.87)}
-
-            {/* Laterali campo (full court) */}
-            {line(W * 0.01, H * 0.10, W * 0.01, H * 0.87, 'rgba(255,255,255,0.20)')}
-            {line(W * 0.99, H * 0.10, W * 0.99, H * 0.87, 'rgba(255,255,255,0.20)')}
-
-            {/* Linea centro campo */}
-            {line(W * 0.01, H * 0.15, W * 0.99, H * 0.15, 'rgba(255,255,255,0.15)', 1.5, '8,4')}
-
-            {/* Arco 3pt */}
-            <Path d={arc3Path} fill="none"
-                  stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} strokeDasharray="6,4" />
-            {/* Linee corner 3pt */}
-            {line(W * 0.04, H * 0.65, W * 0.04, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
-            {line(W * 0.96, H * 0.65, W * 0.96, H * 0.87, 'rgba(255,255,255,0.22)', 1.5)}
-
-            {/* Semicerchio tiro libero */}
-            <Path d={ftArc} fill="none"
-                  stroke="rgba(255,255,255,0.25)" strokeWidth={1.5} />
-
-            {/* Palo canestro */}
-            {line(W * 0.50, H * 0.87, W * 0.50, H * 0.46, 'rgba(255,255,255,0.18)', 2.5)}
-
-            {/* Tabellone */}
-            <Rect x={W * 0.33} y={H * 0.10}
-                  width={W * 0.34} height={H * 0.14}
-                  fill="rgba(255,255,255,0.06)"
-                  stroke="rgba(255,255,255,0.40)" strokeWidth={1.5} />
-            {/* Rettangolo mira */}
-            <Rect x={W * 0.39} y={H * 0.147}
-                  width={W * 0.22} height={H * 0.065}
-                  fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth={1.5} />
-
-            {/* Ferro canestro — ellisse frontale */}
-            <Ellipse cx={W * 0.50} cy={H * 0.305}
-                     rx={W * 0.065} ry={H * 0.018}
-                     fill="rgba(255,100,0,0.08)"
-                     stroke="rgba(255,120,0,0.55)" strokeWidth={2.5} />
-            {/* Rete */}
-            {[-0.04, -0.02, 0, 0.02, 0.04].map((dx, i) => (
-                <Line key={i}
-                      x1={W * 0.50 + W * dx} y1={H * 0.318}
-                      x2={W * 0.50 + W * dx * 0.6} y2={H * 0.385}
-                      stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
-            ))}
-            <Line x1={W * 0.46} y1={H * 0.385} x2={W * 0.54} y2={H * 0.385}
-                  stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
-
-            {/* Labels */}
-            <SvgText x={W * 0.50} y={H * 0.07} textAnchor="middle"
-                     fill="rgba(255,140,0,0.75)" fontSize={10} fontWeight="700">CANESTRO</SvgText>
-            <SvgText x={W * 0.50} y={H * 0.66} textAnchor="middle"
-                     fill="rgba(255,255,255,0.30)" fontSize={9}>Paint</SvgText>
-            <SvgText x={W * 0.10} y={H * 0.60} textAnchor="middle"
-                     fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
-            <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
-                     fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
-            <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle"
-                     fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
-
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={36}
-                            fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                            strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={20}
-                            fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                            strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 44} textAnchor="middle"
-                             fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
+                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
                 </G>
             )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
@@ -787,15 +396,15 @@ const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
 const HoopConfirmed = ({ p }: { p: Point }) => (
     <G>
         <Circle cx={p.x} cy={p.y} r={28}
-                fill="rgba(255,140,0,0.15)" stroke="#ff8c00" strokeWidth={2.5} />
+            fill="rgba(255,140,0,0.15)" stroke="#ff8c00" strokeWidth={2.5} />
         <Circle cx={p.x} cy={p.y} r={6} fill="#ff8c00" />
-        {[[-36, 0, -24, 0], [24, 0, 36, 0], [0, -36, 0, -24], [0, 24, 0, 36]].map(([x1, y1, x2, y2], i) => (
+        {[[-36,0,-24,0],[24,0,36,0],[0,-36,0,-24],[0,24,0,36]].map(([x1,y1,x2,y2], i) => (
             <Line key={i}
-                  x1={p.x + x1} y1={p.y + y1} x2={p.x + x2} y2={p.y + y2}
-                  stroke="#ff8c00" strokeWidth={2} />
+                x1={p.x+x1} y1={p.y+y1} x2={p.x+x2} y2={p.y+y2}
+                stroke="#ff8c00" strokeWidth={2} />
         ))}
         <SvgText x={p.x} y={p.y - 38} textAnchor="middle"
-                 fill="#ff8c00" fontSize={11} fontWeight="700">✓ Canestro</SvgText>
+            fill="#ff8c00" fontSize={11} fontWeight="700">✓ Canestro</SvgText>
     </G>
 )
 
@@ -813,11 +422,11 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
             {corners.map((c, i) => (
                 <G key={i}>
                     <Circle cx={c.x} cy={c.y} r={16}
-                            fill="rgba(74,222,128,0.20)" stroke="#4ade80" strokeWidth={2} />
+                        fill="rgba(74,222,128,0.20)" stroke="#4ade80" strokeWidth={2} />
                     <Circle cx={c.x} cy={c.y} r={4} fill="#4ade80" />
                     <SvgText x={c.x} y={c.y - 22} textAnchor="middle"
-                             fill="#4ade80" fontSize={13}>
-                        {['↖', '↗', '↘', '↙'][i]}
+                        fill="#4ade80" fontSize={13}>
+                        {['↖','↗','↘','↙'][i]}
                     </SvgText>
                 </G>
             ))}
@@ -825,13 +434,13 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
             {corners.length > 1 && corners.map((c, i) => {
                 if (i === 0) return null
                 return <Line key={i}
-                             x1={corners[i - 1].x} y1={corners[i - 1].y} x2={c.x} y2={c.y}
-                             stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
+                    x1={corners[i-1].x} y1={corners[i-1].y} x2={c.x} y2={c.y}
+                    stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
             })}
             {corners.length === 4 && (
                 <Line x1={corners[3].x} y1={corners[3].y}
-                      x2={corners[0].x} y2={corners[0].y}
-                      stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
+                    x2={corners[0].x} y2={corners[0].y}
+                    stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
             )}
             {/* Ghost angolo successivo */}
             {step === 'corners' && corners.length < 4 && (() => {
@@ -839,10 +448,10 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
                 return (
                     <G>
                         <Circle cx={gc.x} cy={gc.y} r={18}
-                                fill="rgba(74,222,128,0.07)" stroke="rgba(74,222,128,0.38)"
-                                strokeWidth={1.5} strokeDasharray="4,3" />
+                            fill="rgba(74,222,128,0.07)" stroke="rgba(74,222,128,0.38)"
+                            strokeWidth={1.5} strokeDasharray="4,3" />
                         <SvgText x={gc.x} y={gc.y - 26} textAnchor="middle"
-                                 fill="rgba(74,222,128,0.65)" fontSize={10} fontWeight="600">
+                            fill="rgba(74,222,128,0.65)" fontSize={10} fontWeight="600">
                             👆 angolo {corners.length + 1}
                         </SvgText>
                     </G>
@@ -890,122 +499,66 @@ const MODE_META: Record<CameraMode, { title: string; icon: string; description: 
 }
 
 export default function CalibrationScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode: rawMode, courtType: rawCourtType } = route.params || {}
+    const { sessionId, cameraMode: rawMode } = route.params || {}
     const cameraMode: CameraMode = rawMode || 'ANGLE_45'
-    const courtType: 'HALF_COURT' | 'FULL_COURT' = rawCourtType || 'HALF_COURT'
     const { user } = useContext(AuthContext) || {}
     const { hasPermission, requestPermission } = useCameraPermission()
     const device = useCameraDevice('back')
-
+    
     // Camera configuration state
-    // Legato al focus reale della route: con lo stack navigator la schermata
-    // resta montata dopo navigation.navigate('WorkoutSession', ...), quindi
-    // senza questo la Camera qui restava isActive=true e teneva bindata la
-    // fotocamera, impedendo a WorkoutSessionScreen di attivare la sua
-    // (schermo nero, 0fps, nessun errore perché il conflitto è silenzioso).
-    const isFocused = useIsFocused()
-    const isActive = isFocused
-    const cameraRef = useRef<CameraRef>(null)
-    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
-    const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
-    const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
-        Platform.OS === 'android' ? 'nnapi' : DEFAULT_IOS_DELEGATE
-    )
-    const [poseDelegate, setPoseDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
-        Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE
-    )
-    const hoopCameraPointRef = useRef<Point | null>(null)
-    const cornerCameraPointsRef = useRef<Point[]>([])
+    const [selectedResolution, setSelectedResolution] = useState({ width: 1280, height: 720 })
+    const [selectedFps, setSelectedFps] = useState(30)
     const [showConfigPanel, setShowConfigPanel] = useState(false)
-
-    // Get available resolutions and FPS from device
-    const availableResolutions = React.useMemo(() => {
-        if (!device) return [DEFAULT_CAPTURE]
-        try {
-            const resolutions = device.getSupportedResolutions('video') || []
-            const filtered = resolutions
-                .filter((r: { width: number; height: number }) => {
-                    const aspect = r.width / r.height
-                    return r.width >= MIN_CAPTURE.width &&
-                        r.height >= MIN_CAPTURE.height &&
-                        Math.abs(aspect - 16 / 9) < 0.08
-                })
-                .sort((a: any, b: any) => a.width * a.height - b.width * b.height)
-            console.log('[Calibration] Available workout resolutions:', filtered)
-            return filtered.length ? filtered : [DEFAULT_CAPTURE]
-        } catch (e) {
-            console.warn('[Calibration] Error getting resolutions:', e)
-            return [DEFAULT_CAPTURE]
-        }
-    }, [device])
-
-    const availableFps = React.useMemo(() => {
-        if (!device) return [DEFAULT_FPS]
-        try {
-            const values = new Set<number>()
-            for (const range of device.supportedFPSRanges || []) {
-                values.add(range.min)
-                values.add(range.max)
-            }
-            const result = [...values].filter(v => v >= 15 && v <= 30).sort((a, b) => a - b)
-            console.log('[Calibration] Available FPS targets:', result)
-            return result.length ? result : [DEFAULT_FPS]
-        } catch (e) {
-            console.warn('[Calibration] Error getting FPS ranges:', e)
-            return [DEFAULT_FPS]
-        }
-    }, [device])
-
-    const constraints = React.useMemo(
-        () => selectedFps !== null ? [{ fps: selectedFps }] : [],
-        [selectedFps]
-    )
-
-    // Available delegates based on platform — sourced from the same
-    // constants useShotTracker.ts uses, so this list can't drift out of
-    // sync with what's actually valid. No CPU option: it was never a
-    // deliberate choice, and 'android-cpu'/'metal' weren't real delegate
-    // strings fast-tflite recognizes.
-    const availableDelegates = React.useMemo(() => {
-        if (Platform.OS === 'android') {
-            return ANDROID_DELEGATE_OPTIONS.map(value => ({
-                value,
-                label: value === 'android-gpu' ? 'GPU (Android)' : 'NNAPI (Android)',
-            }))
-        } else {
-            return [
-                { value: DEFAULT_IOS_DELEGATE, label: 'Core ML (iOS)' },
-            ]
-        }
-    }, [])
-
-    // Keep defaults valid when a device exposes a different set of resolutions/FPS.
-    useEffect(() => {
-        if (availableResolutions.length > 0 &&
-            !availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
-            setSelectedResolution(availableResolutions[0])
-        }
-        if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
-            setSelectedFps(availableFps[0])
-        }
-    }, [availableResolutions, availableFps])
-
-    // Zoom handling with VisionCamera
-    const minZoom = device?.minZoom ?? 1
-    const maxZoom = Math.min(device?.maxZoom ?? 5, 5)
+    
+    const format = useCameraFormat(device, [
+        { videoResolution: selectedResolution },
+        { fps: selectedFps },
+    ])
+    const isActive = true
+    
+    // Get zoom range from device
+    const minZoom = device?.minZoom ?? 0.5
+    const maxZoom = device?.maxZoom ?? 1
+    // Use device minimum zoom as default
     const [zoom, setZoom] = useState(minZoom)
+    
+    // Get available formats from device
+    const availableFormats = device?.formats ?? []
+    const uniqueResolutions = React.useMemo(() => {
+        const resolutions = new Map<string, { width: number; height: number }>()
+        availableFormats.forEach(fmt => {
+            const key = `${fmt.videoWidth}x${fmt.videoHeight}`
+            if (!resolutions.has(key)) {
+                resolutions.set(key, { width: fmt.videoWidth, height: fmt.videoHeight })
+            }
+        })
+        return Array.from(resolutions.values()).sort((a, b) => (b.width * b.height) - (a.width * a.height))
+    }, [availableFormats])
+    
+    const uniqueFps = React.useMemo(() => {
+        // Common FPS values that most cameras support
+        return [60, 30, 24, 15].filter(fps => fps <= 60)
+    }, [])
+    
+    // Set default to lowest resolution and lowest FPS for better performance
+    React.useEffect(() => {
+        if (uniqueResolutions.length > 0) {
+            setSelectedResolution(uniqueResolutions[uniqueResolutions.length - 1]) // Lowest resolution
+        }
+        if (uniqueFps.length > 0) {
+            setSelectedFps(uniqueFps[uniqueFps.length - 1]) // Lowest FPS
+        }
+    }, [uniqueResolutions, uniqueFps])
 
     const [step, setStep] = useState<CalibStep>('hoop')
     const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
     const [corners, setCorners] = useState<Point[]>([])
     const [isSaving, setIsSaving] = useState(false)
     const [savedCalibration, setSavedCalibration] = useState<CalibrationData | null>(null)
-    const [isNavigating, setIsNavigating] = useState(false)
     const { alert, showError, showSuccess, showWarning } = useCustomAlert()
 
     const meta = MODE_META[cameraMode]
 
-    // Early returns for permission/device checks - must be after all hooks
     if (!hasPermission) {
         return (
             <View style={[styles.container, styles.center]}>
@@ -1026,28 +579,19 @@ export default function CalibrationScreen({ navigation, route }: any) {
         )
     }
 
-    const viewToCameraPoint = (rawX: number, rawY: number): Point => {
-        try {
-            const p = cameraRef.current?.convertViewPointToCameraPoint({ x: rawX, y: rawY })
-            if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
-                return { x: Math.max(0, Math.min(1, p.x)), y: Math.max(0, Math.min(1, p.y)) }
-            }
-        } catch (e) {
-            console.warn('[Calibration] View->camera conversion failed:', e)
-        }
-        return { x: rawX / SW, y: rawY / CAM_H }
-    }
+    const normalizePoint = (rawX: number, rawY: number): Point => ({
+        x: Math.max(0, Math.min(1, rawX / SW)),
+        y: Math.max(0, Math.min(1, rawY / CAM_H)),
+    })
 
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
-        const cameraPoint = viewToCameraPoint(locationX, locationY)
         if (step === 'hoop') {
             setHoopCenter({ x: locationX, y: locationY })
-            hoopCameraPointRef.current = cameraPoint
         } else if (step === 'corners' && corners.length < 4) {
-            setCorners(prev => [...prev, { x: locationX, y: locationY }])
-            cornerCameraPointsRef.current = [...cornerCameraPointsRef.current, cameraPoint]
-            if (corners.length + 1 === 4) setStep('done')
+            const updated = [...corners, { x: locationX, y: locationY }]
+            setCorners(updated)
+            if (updated.length === 4) setStep('done')
         }
     }
 
@@ -1058,54 +602,44 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
         setIsSaving(true)
         try {
-            const normHoop = hoopCameraPointRef.current ?? { x: hoopCenter.x / SW, y: hoopCenter.y / CAM_H }
+            const normHoop = normalizePoint(hoopCenter.x, hoopCenter.y)
             let courtCorners
             if (corners.length === 4) {
-                const nc = cornerCameraPointsRef.current.length === 4 ? cornerCameraPointsRef.current : corners.map(c => ({ x: c.x / SW, y: c.y / CAM_H }))
+                const nc = corners.map(c => normalizePoint(c.x, c.y))
                 courtCorners = {
                     topLeft: nc[0], topRight: nc[1],
                     bottomRight: nc[2], bottomLeft: nc[3],
                 }
             }
             const cal: CalibrationData = {
-                homographyMatrix: corners.length === 4 ? [1, 0, 0, 0, 1, 0, 0, 0, 1] : [],
+                homographyMatrix: corners.length === 4 ? [1,0,0,0,1,0,0,0,1] : [],
                 hoopCenter: normHoop,
                 courtCorners,
             }
             await saveCourtCalibration(sessionId, user.id, cal)
             setSavedCalibration(cal)
             showSuccess('✓ Calibrazione salvata', 'Puoi procedere con la sessione')
-        } catch (e: unknown) {
-            showError('Errore', e instanceof Error ? e.message : 'Impossibile salvare')
+        } catch (e: any) {
+            showError('Errore', e.message || 'Impossibile salvare')
         } finally {
             setIsSaving(false)
         }
     }
 
     const handleProceed = () => {
-        // Guard against double-tap: navigation.replace() is not itself
-        // reentrancy-safe, and a fast double-tap here was mounting two
-        // instances of WorkoutSessionScreen (each with its own Camera +
-        // Worklet Runtime) before the first was torn down.
-        if (isNavigating) return
-        setIsNavigating(true)
-        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate })
+        navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
     }
 
     const handleSkip = () => {
         showWarning(
             'Salta calibrazione',
             'Senza calibrazione il tracking sarà meno preciso.',
-            () => {
-                if (isNavigating) return
-                setIsNavigating(true)
-                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate })
-            }
+            () => navigation.navigate('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps })
         )
     }
 
     const resetAll = () => {
-        setCorners([]); cornerCameraPointsRef.current = []; hoopCameraPointRef.current = null; setStep('hoop'); setHoopCenter(null); setSavedCalibration(null); setZoom(minZoom)
+        setCorners([]); setStep('hoop'); setHoopCenter(null); setSavedCalibration(null); setZoom(1)
     }
 
     const handleZoomIn = () => {
@@ -1118,25 +652,22 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const CORNER_LABELS = ['Ang. SX alto', 'Ang. DX alto', 'Ang. DX basso', 'Ang. SX basso']
     const stepInfo = {
-        hoop: { label: '1/2 — Canestro', hint: 'Tocca il centro del ferro', color: '#ff8c00' },
+        hoop:    { label: '1/2 — Canestro', hint: 'Tocca il centro del ferro', color: '#ff8c00' },
         corners: { label: '2/2 — Angoli', hint: `${CORNER_LABELS[corners.length] ?? '✓'}`, color: '#4ade80' },
-        done: { label: '✓ Completo', hint: 'Tutti i punti definiti', color: '#4ade80' },
+        done:    { label: '✓ Completo', hint: 'Tutti i punti definiti', color: '#4ade80' },
     }[step]
 
     const OverlayComponent =
-        cameraMode === 'LATERAL' && courtType === 'FULL_COURT' ? OverlayLateralFull :
-            cameraMode === 'LATERAL' ? OverlayLateral :
-                cameraMode === 'FRONTAL' && courtType === 'FULL_COURT' ? OverlayFrontalFull :
-                    cameraMode === 'FRONTAL' ? OverlayFrontal :
-                        courtType === 'FULL_COURT' ? Overlay45Full :
-                            Overlay45
+        cameraMode === 'LATERAL' ? OverlayLateral :
+        cameraMode === 'FRONTAL' ? OverlayFrontal :
+        Overlay45
 
     return (
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()}>
-                    <Text style={styles.skipText}>← Indietro</Text>
+                <TouchableOpacity onPress={handleSkip}>
+                    <Text style={styles.skipText}>Salta</Text>
                 </TouchableOpacity>
                 <View style={styles.headerCenter}>
                     <View style={styles.modeTag}>
@@ -1153,28 +684,17 @@ export default function CalibrationScreen({ navigation, route }: any) {
             {/* Camera + overlay */}
             <View style={{ height: CAM_H }} onTouchEnd={handleCameraTouch}>
                 <Camera
-                    ref={cameraRef}
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive}
-                    resizeMode="cover"
+                    format={format}
                     zoom={zoom}
-                    constraints={constraints}
-                    onError={(error: any) => {
-                        // Race condition nota: setZoomRatio chiamato prima che la sessione
-                        // CameraX sia attiva o concorrente. Transitorio e innocuo, non loggarlo.
-                        const msg = error?.message || error?.cause?.message || ''
-                        if (msg.includes('Camera is not active')) return
-                        if (msg.includes('Cancelled due to another zoom value being set')) return
-                        console.warn('[Calibration] Camera error:', error)
-                    }}
                 />
                 <OverlayComponent
                     hoopCenter={hoopCenter}
                     corners={corners}
                     step={step}
                 />
-
                 {/* Crosshair sottile */}
                 <View style={styles.guideH} pointerEvents="none" />
                 <View style={styles.guideV} pointerEvents="none" />
@@ -1188,133 +708,97 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 : '✅ Tutti i punti definiti'}
                     </Text>
                 </View>
-
+                
+                {/* Zoom controls */}
+                <View style={styles.zoomControls}>
+                    <TouchableOpacity 
+                        style={styles.zoomBtn} 
+                        onPress={handleZoomOut}
+                        disabled={zoom <= minZoom}
+                    >
+                        <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
+                    </TouchableOpacity>
+                    <View style={styles.zoomIndicator}>
+                        <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
+                    </View>
+                    <TouchableOpacity 
+                        style={styles.zoomBtn} 
+                        onPress={handleZoomIn}
+                        disabled={zoom >= maxZoom}
+                    >
+                        <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
+                    </TouchableOpacity>
+                </View>
+                
                 {/* Camera config button */}
-                <TouchableOpacity
+                <TouchableOpacity 
                     style={styles.configBtn}
                     onPress={() => setShowConfigPanel(!showConfigPanel)}
                 >
                     <Text style={styles.configBtnText}>⚙️</Text>
                 </TouchableOpacity>
-
+                
                 {/* Camera config panel */}
                 {showConfigPanel && (
-                    <View style={[styles.configPanel, { bottom: 12 }]}>
+                    <View style={styles.configPanel}>
                         <Text style={styles.configPanelTitle}>Configurazione Camera</Text>
-                        <ScrollView style={styles.configPanelScroll} contentContainerStyle={styles.configPanelContent}>
-                            {/* Zoom controls */}
-                            <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>Zoom</Text>
-                                <View style={styles.zoomRow}>
+                        
+                        {/* Resolution selector */}
+                        <View style={styles.configSection}>
+                            <Text style={styles.configLabel}>Risoluzione</Text>
+                            <View style={styles.configOptions}>
+                                {uniqueResolutions.map((res) => (
                                     <TouchableOpacity
-                                        style={styles.zoomBtn}
-                                        onPress={handleZoomOut}
-                                        disabled={zoom <= minZoom}
+                                        key={`${res.width}x${res.height}`}
+                                        style={[
+                                            styles.configOption,
+                                            selectedResolution.width === res.width && selectedResolution.height === res.height && styles.configOptionSelected
+                                        ]}
+                                        onPress={() => setSelectedResolution(res)}
                                     >
-                                        <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
+                                        <Text style={[
+                                            styles.configOptionText,
+                                            selectedResolution.width === res.width && selectedResolution.height === res.height && styles.configOptionTextSelected
+                                        ]}>
+                                            {res.width}x{res.height}
+                                        </Text>
                                     </TouchableOpacity>
-                                    <View style={styles.zoomIndicator}>
-                                        <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
-                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                        
+                        {/* FPS selector */}
+                        <View style={styles.configSection}>
+                            <Text style={styles.configLabel}>FPS</Text>
+                            <View style={styles.configOptions}>
+                                {uniqueFps.map((fps) => (
                                     <TouchableOpacity
-                                        style={styles.zoomBtn}
-                                        onPress={handleZoomIn}
-                                        disabled={zoom >= maxZoom}
+                                        key={fps}
+                                        style={[
+                                            styles.configOption,
+                                            selectedFps === fps && styles.configOptionSelected
+                                        ]}
+                                        onPress={() => setSelectedFps(fps)}
                                     >
-                                        <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
+                                        <Text style={[
+                                            styles.configOptionText,
+                                            selectedFps === fps && styles.configOptionTextSelected
+                                        ]}>
+                                            {fps}
+                                        </Text>
                                     </TouchableOpacity>
-                                </View>
+                                ))}
                             </View>
-
-                            {/* YOLO Delegate selector */}
-                            <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>YOLO Delegate (Rilevamento palla/ferro)</Text>
-                                <View style={styles.pickerWrap}>
-                                    <Picker
-                                        selectedValue={yoloDelegate}
-                                        onValueChange={(value) => {
-                                            setYoloDelegate(value)
-                                        }}
-                                        dropdownIconColor="#ff8c00"
-                                        style={styles.picker}
-                                    >
-                                        {availableDelegates.map(del => (
-                                            <Picker.Item key={del.value} label={del.label} value={del.value} />
-                                        ))}
-                                    </Picker>
-                                </View>
-                                <Text style={styles.configHint}>Accelerazione hardware per il modello YOLO</Text>
-                            </View>
-
-                            {/* Pose Delegate selector */}
-                            <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>Pose Delegate (Rilevamento corpo)</Text>
-                                <View style={styles.pickerWrap}>
-                                    <Picker
-                                        selectedValue={poseDelegate}
-                                        onValueChange={(value) => {
-                                            setPoseDelegate(value)
-                                        }}
-                                        dropdownIconColor="#ff8c00"
-                                        style={styles.picker}
-                                    >
-                                        {availableDelegates.map(del => (
-                                            <Picker.Item key={del.value} label={del.label} value={del.value} />
-                                        ))}
-                                    </Picker>
-                                </View>
-                                <Text style={styles.configHint}>Accelerazione hardware per il modello Pose</Text>
-                            </View>
-
-                            {/* Resolution selector */}
-                            <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>Risoluzione acquisizione</Text>
-                                <View style={styles.pickerWrap}>
-                                    <Picker
-                                        selectedValue={`${selectedResolution?.width ?? 1280}x${selectedResolution?.height ?? 720}`}
-                                        onValueChange={(value) => {
-                                            const found = availableResolutions.find(r => `${r.width}x${r.height}` === value)
-                                            if (found) setSelectedResolution(found)
-                                        }}
-                                        dropdownIconColor="#ff8c00"
-                                        style={styles.picker}
-                                    >
-                                        {availableResolutions.map(res => (
-                                            <Picker.Item key={`${res.width}x${res.height}`} label={`${res.width} × ${res.height}`} value={`${res.width}x${res.height}`} />
-                                        ))}
-                                    </Picker>
-                                </View>
-                                <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
-                            </View>
-
-                            {/* FPS selector */}
-                            <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>FPS desiderati</Text>
-                                <View style={styles.pickerWrap}>
-                                    <Picker
-                                        selectedValue={selectedFps ?? DEFAULT_FPS}
-                                        onValueChange={value => setSelectedFps(Number(value))}
-                                        dropdownIconColor="#ff8c00"
-                                        style={styles.picker}
-                                    >
-                                        {availableFps.map(fps => (
-                                            <Picker.Item key={fps} label={`${fps} FPS`} value={fps} />
-                                        ))}
-                                    </Picker>
-                                </View>
-                                <Text style={styles.configHint}>VisionCamera negozia la combinazione compatibile con la risoluzione scelta.</Text>
-                            </View>
-                        </ScrollView>
-
-                        <TouchableOpacity
-                            style={styles.closeConfigButton}
+                        </View>
+                        
+                        <TouchableOpacity 
+                            style={styles.configCloseBtn}
                             onPress={() => setShowConfigPanel(false)}
                         >
-                            <Text style={styles.closeConfigButtonText}>Chiudi</Text>
+                            <Text style={styles.configCloseBtnText}>Chiudi</Text>
                         </TouchableOpacity>
                     </View>
                 )}
-
             </View>
 
             {/* Pannello info */}
@@ -1373,14 +857,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         </Text>
                     </TouchableOpacity>
                 ) : (
-                    <TouchableOpacity
-                        style={styles.proceedBtn}
-                        onPress={handleProceed}
-                        disabled={isNavigating}
-                    >
-                        <Text style={styles.proceedBtnText}>
-                            {isNavigating ? 'Avvio...' : '▶ Inizia sessione'}
-                        </Text>
+                    <TouchableOpacity style={styles.proceedBtn} onPress={handleProceed}>
+                        <Text style={styles.proceedBtnText}>▶ Inizia sessione</Text>
                     </TouchableOpacity>
                 )}
             </ScrollView>
@@ -1467,12 +945,6 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '700',
     },
-    zoomRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12,
-    },
     configBtn: {
         position: 'absolute',
         left: 16,
@@ -1492,23 +964,14 @@ const styles = StyleSheet.create({
     },
     configPanel: {
         position: 'absolute',
-        top: 56,
+        top: 60,
         left: 16,
         right: 16,
-        bottom: 12,
         backgroundColor: 'rgba(18,24,38,0.95)',
         borderRadius: 12,
         padding: 16,
         borderWidth: 1,
         borderColor: '#2a2a2a',
-        zIndex: 1000,
-    },
-    configPanelScroll: {
-        flex: 1,
-        maxHeight: SH * 0.5,
-    },
-    configPanelContent: {
-        paddingBottom: 4,
     },
     configPanelTitle: {
         fontSize: 14,
@@ -1518,23 +981,6 @@ const styles = StyleSheet.create({
     },
     configSection: {
         marginBottom: 12,
-    },
-    pickerWrap: {
-        borderRadius: 8,
-        overflow: 'hidden',
-        backgroundColor: 'rgba(255,255,255,0.08)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.16)',
-    },
-    picker: {
-        color: '#fff',
-        height: 48,
-    },
-    configHint: {
-        marginTop: 5,
-        fontSize: 10,
-        color: '#777',
-        lineHeight: 14,
     },
     configLabel: {
         fontSize: 12,
@@ -1566,22 +1012,6 @@ const styles = StyleSheet.create({
     },
     configOptionTextSelected: {
         color: '#ff8c00',
-    },
-    configScroll: {
-        marginBottom: 8,
-    },
-    closeConfigButton: {
-        marginTop: 12,
-        backgroundColor: '#2a2a2a',
-        borderRadius: 8,
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        alignItems: 'center',
-    },
-    closeConfigButtonText: {
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: '600',
     },
     configCloseBtn: {
         marginTop: 8,
