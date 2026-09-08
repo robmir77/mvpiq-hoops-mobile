@@ -5,8 +5,13 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.03  // TEMPORARY: lowered from 0.25 to 0.03 for diagnostics
+const CONF_THRESHOLD = 0.001  // Baseline threshold for this model
 const N_ANCHORS = 3549
+
+// The ball detection produces very wide raw boxes, but the center is correct.
+const MAX_BALL_BOX_SIZE = 1.2
+// For rim, keep a more conservative filter.
+const MAX_RIM_BOX_SIZE = 0.7
 
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
@@ -80,13 +85,8 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       maxScoreIdx = i
     }
 
-    // Filter: reject detections with bounding box larger than half screen
-    if (w > MAX_BOX_SIZE || h > MAX_BOX_SIZE) {
-      continue
-    }
-
-    // Add ball detection if score above threshold
-    if (ballScore >= threshold) {
+    // Add ball detection if score above threshold and box size is acceptable
+    if (ballScore >= threshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
       raw.push([
         (cx - w * 0.5),
         (cy - h * 0.5),
@@ -97,8 +97,8 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       ])
     }
 
-    // Add rim detection if score above threshold
-    if (rimScore >= threshold) {
+    // Add rim detection if score above threshold and box size is acceptable
+    if (rimScore >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
       raw.push([
         (cx - w * 0.5),
         (cy - h * 0.5),

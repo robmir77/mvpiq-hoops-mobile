@@ -60,11 +60,12 @@ export const useShotTracker = (
   const perfPoseCallbacks = useSharedValue(0)
   const RIM_CONFIDENCE_THRESHOLD = 0.15 // Soglia confidence per sostituire rim calibrato
 
-  // ── Adaptive confidence threshold ─────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.001)  // Baseline threshold for this model (produces low confidence ~0.001-0.01)
-  const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
-  const TARGET_DETECTION_RATE = 0.2  // Target: 20% of frames should have detections (lowered for distant objects)
-  const ADAPTATION_WINDOW_MS = 2000  // Adjust threshold every 2 seconds
+  // ── Fixed confidence threshold ────────────────────────────────────────────────
+  // Disabled adaptive threshold for debugging - model produces low confidence (~0.001-0.01)
+  const adaptiveThreshold = useSharedValue(0.001)
+  // const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
+  // const TARGET_DETECTION_RATE = 0.2
+  // const ADAPTATION_WINDOW_MS = 2000
 
   // ── Model loading ────────────────────────────────────────────────────────────
   // Single-class football/basketball detector (320×320, float16, NHWC TFLite)
@@ -84,44 +85,33 @@ export const useShotTracker = (
   useEffect(() => { onRimDetectionRef.current = onRimDetection }, [onRimDetection])
 
   // ── Adaptive threshold adjustment (JS thread) ───────────────────────────────
-  const lastAdjustmentTs = useRef(0)
-  const updateAdaptiveThreshold = useCallback((ball: { confidence: number } | null | undefined) => {
-    const now = Date.now()
-    detectionHistory.current.push({ confidence: ball?.confidence ?? 0, timestamp: now })
-
-    // Remove old entries outside adaptation window
-    detectionHistory.current = detectionHistory.current.filter(
-      d => now - d.timestamp < ADAPTATION_WINDOW_MS
-    )
-
-    // Adjust threshold every ADAPTATION_WINDOW_MS
-    if (now - lastAdjustmentTs.current > ADAPTATION_WINDOW_MS && detectionHistory.current.length > 10) {
-      lastAdjustmentTs.current = now
-      const totalFrames = detectionHistory.current.length
-      const detectedFrames = detectionHistory.current.filter(d => d.confidence > 0).length
-      const detectionRate = detectedFrames / totalFrames
-
-      // Increase threshold if too many detections (false positives)
-      // Decrease threshold if too few detections (false negatives)
-      // Cap at 0.06 max so small/fast balls with lower confidence (3%-8%) are never discarded
-      const adjustment = 0.005  // Smaller adjustment for finer control
-      if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
-        adaptiveThreshold.value = Math.min(0.06, adaptiveThreshold.value + adjustment)
-      } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
-        adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
-      }
-
-      // Log the current detection rate and adaptive threshold for monitoring
-      console.log('[AdaptiveThreshold] Rate:', detectionRate.toFixed(2), 'Threshold:', adaptiveThreshold.value.toFixed(3))
-    }
-  }, [])
+  // Disabled for debugging - model produces low confidence (~0.001-0.01)
+  // const lastAdjustmentTs = useRef(0)
+  // const updateAdaptiveThreshold = useCallback((ball: { confidence: number } | null | undefined) => {
+  //   const now = Date.now()
+  //   detectionHistory.current.push({ confidence: ball?.confidence ?? 0, timestamp: now })
+  //   detectionHistory.current = detectionHistory.current.filter(d => now - d.timestamp < ADAPTATION_WINDOW_MS)
+  //   if (now - lastAdjustmentTs.current > ADAPTATION_WINDOW_MS && detectionHistory.current.length > 10) {
+  //     lastAdjustmentTs.current = now
+  //     const totalFrames = detectionHistory.current.length
+  //     const detectedFrames = detectionHistory.current.filter(d => d.confidence > 0).length
+  //     const detectionRate = detectedFrames / totalFrames
+  //     const adjustment = 0.005
+  //     if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
+  //       adaptiveThreshold.value = Math.min(0.06, adaptiveThreshold.value + adjustment)
+  //     } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
+  //       adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
+  //     }
+  //     console.log('[AdaptiveThreshold] Rate:', detectionRate.toFixed(2), 'Threshold:', adaptiveThreshold.value.toFixed(3))
+  //   }
+  // }, [])
 
   // ── Shot detection (JS thread) ───────────────────────────────────────────────
   const handleBallDetectionForShotTracking = useCallback((detection: BallDetection) => {
     const { ball } = detection
 
-    // Update adaptive threshold
-    updateAdaptiveThreshold(ball)
+    // Update adaptive threshold (disabled for debugging)
+    // updateAdaptiveThreshold(ball)
 
     if (!ball) {
       // Reset trajectory if ball disappears for >300 ms
@@ -247,10 +237,11 @@ export const useShotTracker = (
     onFrame(frame: Frame) {
       'worklet'; // eslint-disable-line
 
-      // Increment frame counter
-      frameCounter.value = frameCounter.value + 1
-      const frameId = frameCounter.value
-      perfFrames.value = perfFrames.value + 1
+      try {
+        // Increment frame counter
+        frameCounter.value = frameCounter.value + 1
+        const frameId = frameCounter.value
+        perfFrames.value = perfFrames.value + 1
 
       const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
       if (!yoloReady) {
@@ -271,35 +262,40 @@ export const useShotTracker = (
 
         const yoloResized = yoloResizer?.resize(frame)
         if (yoloResized) {
-          const yoloResizeMs = Date.now() - yoloStartTs
-          perfYoloResizeMs.value = perfYoloResizeMs.value + yoloResizeMs
+          try {
+            const yoloResizeMs = Date.now() - yoloStartTs
+            perfYoloResizeMs.value = perfYoloResizeMs.value + yoloResizeMs
 
-          if (frameId <= 10 || frameId % 30 === 0) {
-            console.log('[ShotTracker][YOLO] #' + frameId + ' AFTER resize ' + yoloResizeMs + 'ms BEFORE runSync')
+            if (frameId <= 10 || frameId % 30 === 0) {
+              console.log('[ShotTracker][YOLO] #' + frameId + ' AFTER resize ' + yoloResizeMs + 'ms BEFORE runSync')
+            }
+
+            const pixelBufferRaw = yoloResized.getPixelBuffer()
+            const yoloRunStart = Date.now()
+            const yoloOutputs = yoloModel.model!.runSync([pixelBufferRaw])
+            const yoloRunMs = Date.now() - yoloRunStart
+            perfYoloRunMs.value = perfYoloRunMs.value + yoloRunMs
+
+            if (frameId <= 10 || frameId % 30 === 0) {
+              console.log('[ShotTracker][YOLO] #' + frameId + ' AFTER runSync ' + yoloRunMs + 'ms outputs=' + yoloOutputs.length)
+            }
+
+            const yoloOutput = new Float32Array(yoloOutputs[0]!)
+            const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
+
+            // Track if ball was detected for MoveNet throttling and YOLO acceleration
+            lastBallDetected.value = ball !== null
+
+            ballDetectionShared.value = {
+              ball: ball ?? undefined,
+              rim: rim ?? undefined,
+              timestamp: Date.now(),
+            }
+
+            perfYoloCallbacks.value = perfYoloCallbacks.value + 1
+          } finally {
+            yoloResized.dispose()
           }
-
-          const pixelBufferRaw = yoloResized.getPixelBuffer()
-          const yoloRunStart = Date.now()
-          const yoloOutputs = yoloModel.model!.runSync([pixelBufferRaw])
-          const yoloRunMs = Date.now() - yoloRunStart
-          perfYoloRunMs.value = perfYoloRunMs.value + yoloRunMs
-
-          if (frameId <= 10 || frameId % 30 === 0) {
-            console.log('[ShotTracker][YOLO] #' + frameId + ' AFTER runSync ' + yoloRunMs + 'ms outputs=' + yoloOutputs.length)
-          }
-
-          const yoloOutput = new Float32Array(yoloOutputs[0]!)
-          const { ball, rim } = parseYoloOutput(yoloOutput, adaptiveThreshold.value)
-
-          // Track if ball was detected for MoveNet throttling and YOLO acceleration
-          lastBallDetected.value = ball !== null
-
-          ballDetectionShared.value = {
-            ball: ball ?? undefined,
-            rim: rim ?? undefined,
-            timestamp: Date.now(),
-          }
-          perfYoloCallbacks.value = perfYoloCallbacks.value + 1
         }
       }
 
@@ -314,30 +310,35 @@ export const useShotTracker = (
       const poseResized = poseResizer?.resize(frame)
 
       if (poseResized) {
-        perfPoseRuns.value = perfPoseRuns.value + 1
-        const poseResizeMs = Date.now() - poseResizeStartTs
-        perfPoseResizeMs.value = perfPoseResizeMs.value + poseResizeMs
+        try {
+          perfPoseRuns.value = perfPoseRuns.value + 1
+          const poseResizeMs = Date.now() - poseResizeStartTs
+          perfPoseResizeMs.value = perfPoseResizeMs.value + poseResizeMs
 
-        if (frameId <= 10 || frameId % 30 === 0) {
-          console.log('[ShotTracker][POSE] #' + frameId + ' AFTER resize ' + poseResizeMs + 'ms BEFORE runSync')
+          if (frameId <= 10 || frameId % 30 === 0) {
+            console.log('[ShotTracker][POSE] #' + frameId + ' AFTER resize ' + poseResizeMs + 'ms BEFORE runSync')
+          }
+
+          const pixelBuffer = poseResized.getPixelBuffer()
+          const poseRunStart = Date.now()
+          const poseOutputs = poseModel.model!.runSync([pixelBuffer])
+          const poseRunMs = Date.now() - poseRunStart
+          perfPoseRunMs.value = perfPoseRunMs.value + poseRunMs
+
+          if (frameId <= 10 || frameId % 30 === 0) {
+            console.log('[ShotTracker][POSE] #' + frameId + ' AFTER runSync ' + poseRunMs + 'ms outputs=' + poseOutputs.length)
+          }
+
+          const poseOutput = new Float32Array(poseOutputs[0]!)
+          const keypoints = parseMoveNetOutput(poseOutput)
+          const angles = computeJointAngles(keypoints as PoseKeypoints)
+
+          poseResultShared.value = { keypoints: keypoints as PoseKeypoints, angles, timestamp: Date.now() }
+
+          perfPoseCallbacks.value = perfPoseCallbacks.value + 1
+        } finally {
+          poseResized.dispose()
         }
-
-        const pixelBuffer = poseResized.getPixelBuffer()
-        const poseRunStart = Date.now()
-        const poseOutputs = poseModel.model!.runSync([pixelBuffer])
-        const poseRunMs = Date.now() - poseRunStart
-        perfPoseRunMs.value = perfPoseRunMs.value + poseRunMs
-
-        if (frameId <= 10 || frameId % 30 === 0) {
-          console.log('[ShotTracker][POSE] #' + frameId + ' AFTER runSync ' + poseRunMs + 'ms outputs=' + poseOutputs.length)
-        }
-        const poseOutput  = new Float32Array(poseOutputs[0]!)
-
-        const keypoints = parseMoveNetOutput(poseOutput)
-        const angles    = computeJointAngles(keypoints as PoseKeypoints)
-
-        poseResultShared.value = { keypoints: keypoints as PoseKeypoints, angles, timestamp: Date.now() }
-        perfPoseCallbacks.value = perfPoseCallbacks.value + 1
       }
 
       // ── 1-second diagnostic heartbeat ──────────────────────────────────────
@@ -369,6 +370,11 @@ export const useShotTracker = (
         perfYoloCallbacks.value = 0
         perfPoseCallbacks.value = 0
         perfLastLogTs.value = nowTs
+      }
+      } finally {
+        // CRITICAL: Dispose frame to return it to camera pipeline
+        // Prevents buffer leak and camera stall
+        frame.dispose()
       }
     }
   }), [yoloModel, poseModel])
