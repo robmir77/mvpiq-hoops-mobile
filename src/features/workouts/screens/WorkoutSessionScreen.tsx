@@ -21,7 +21,7 @@ import {
     Dimensions, Animated, Easing, Platform,
 } from 'react-native'
 import { captureRef } from 'react-native-view-shot'
-import * as MediaLibrary from 'expo-media-library'
+import * as MediaLibrary from 'expo-media-library/legacy'
 import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,

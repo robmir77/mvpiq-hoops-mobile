@@ -41,6 +41,7 @@ export const useShotTracker = (
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
   const frameCounter = useSharedValue(0) // Frame counter for AI inference throttling
   const lastBallDetected = useSharedValue(false) // Track if ball was detected in last YOLO frame
+  const inFlight = useSharedValue(false) // Track if callback is currently executing (for re-entry detection)
 
   // ── SharedValues for passing data from worklet to JS ─────────────────────────
   const ballDetectionShared = useSharedValue<BallDetection | null>(null)
@@ -59,6 +60,17 @@ export const useShotTracker = (
   const perfYoloCallbacks = useSharedValue(0)
   const perfPoseCallbacks = useSharedValue(0)
   const RIM_CONFIDENCE_THRESHOLD = 0.15 // Soglia confidence per sostituire rim calibrato
+
+  // ── Instance ID for debugging duplicate frames ─────────────────────────────────
+  const instanceIdRef = useRef(Math.random().toString(36).substr(2, 9))
+  const instanceId = instanceIdRef.current
+
+  useEffect(() => {
+    console.log('[ShotTracker][INSTANCE ' + instanceId + '] CREATED')
+    return () => {
+      console.log('[ShotTracker][INSTANCE ' + instanceId + '] CLEANUP')
+    }
+  }, [instanceId])
 
   // ── Fixed confidence threshold ────────────────────────────────────────────────
   // Disabled adaptive threshold for debugging - model produces low confidence (~0.001-0.01)
@@ -237,20 +249,35 @@ export const useShotTracker = (
     onFrame(frame: Frame) {
       'worklet'; // eslint-disable-line
 
+      // Re-entry detection - BLOCK to prevent duplicate work
+      const entryTs = Date.now()
+      if (inFlight.value) {
+        console.log('[ShotTracker][INSTANCE ' + instanceId + '] RE-ENTRY BLOCKED inFlight=true at ' + entryTs)
+        frame.dispose()
+        return
+      }
+      inFlight.value = true
+
       try {
+        // Log frameCounter value BEFORE increment to detect race condition
+        const counterBefore = frameCounter.value
+        console.log('[ShotTracker][INSTANCE ' + instanceId + '] COUNTER_BEFORE=' + counterBefore + ' ts=' + entryTs)
+
         // Increment frame counter
         frameCounter.value = frameCounter.value + 1
         const frameId = frameCounter.value
         perfFrames.value = perfFrames.value + 1
 
-      const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
+        console.log('[ShotTracker][INSTANCE ' + instanceId + '] COUNTER_AFTER=' + frameId + ' ts=' + entryTs)
+
+        const yoloReady = yoloModel.state === 'loaded' && yoloModel.model != null
       if (!yoloReady) {
-        if (frameId <= 5) console.log('[ShotTracker][FRAME] #' + frameId + ' models not ready')
+        if (frameId <= 5) console.log('[ShotTracker][INSTANCE ' + instanceId + '][FRAME] #' + frameId + ' models not ready')
         return
       }
 
       if (frameId <= 5 || frameId % 30 === 0) {
-        console.log('[ShotTracker][FRAME] #' + frameId + ' START ' + frame.width + 'x' + frame.height)
+        console.log('[ShotTracker][INSTANCE ' + instanceId + '][FRAME] #' + frameId + ' START ' + frame.width + 'x' + frame.height)
       }
 
       // ── 1. YOLO — accelerate to every frame (skip = 1) when ball is actively detected ──
@@ -267,7 +294,7 @@ export const useShotTracker = (
             perfYoloResizeMs.value = perfYoloResizeMs.value + yoloResizeMs
 
             if (frameId <= 10 || frameId % 30 === 0) {
-              console.log('[ShotTracker][YOLO] #' + frameId + ' AFTER resize ' + yoloResizeMs + 'ms BEFORE runSync')
+              console.log('[ShotTracker][INSTANCE ' + instanceId + '][YOLO] #' + frameId + ' AFTER resize ' + yoloResizeMs + 'ms BEFORE runSync')
             }
 
             const pixelBufferRaw = yoloResized.getPixelBuffer()
@@ -277,7 +304,7 @@ export const useShotTracker = (
             perfYoloRunMs.value = perfYoloRunMs.value + yoloRunMs
 
             if (frameId <= 10 || frameId % 30 === 0) {
-              console.log('[ShotTracker][YOLO] #' + frameId + ' AFTER runSync ' + yoloRunMs + 'ms outputs=' + yoloOutputs.length)
+              console.log('[ShotTracker][INSTANCE ' + instanceId + '][YOLO] #' + frameId + ' AFTER runSync ' + yoloRunMs + 'ms outputs=' + yoloOutputs.length)
             }
 
             const yoloOutput = new Float32Array(yoloOutputs[0]!)
@@ -316,7 +343,7 @@ export const useShotTracker = (
           perfPoseResizeMs.value = perfPoseResizeMs.value + poseResizeMs
 
           if (frameId <= 10 || frameId % 30 === 0) {
-            console.log('[ShotTracker][POSE] #' + frameId + ' AFTER resize ' + poseResizeMs + 'ms BEFORE runSync')
+            console.log('[ShotTracker][INSTANCE ' + instanceId + '][POSE] #' + frameId + ' AFTER resize ' + poseResizeMs + 'ms BEFORE runSync')
           }
 
           const pixelBuffer = poseResized.getPixelBuffer()
@@ -326,7 +353,7 @@ export const useShotTracker = (
           perfPoseRunMs.value = perfPoseRunMs.value + poseRunMs
 
           if (frameId <= 10 || frameId % 30 === 0) {
-            console.log('[ShotTracker][POSE] #' + frameId + ' AFTER runSync ' + poseRunMs + 'ms outputs=' + poseOutputs.length)
+            console.log('[ShotTracker][INSTANCE ' + instanceId + '][POSE] #' + frameId + ' AFTER runSync ' + poseRunMs + 'ms outputs=' + poseOutputs.length)
           }
 
           const poseOutput = new Float32Array(poseOutputs[0]!)
@@ -348,7 +375,7 @@ export const useShotTracker = (
       } else if (nowTs - perfLastLogTs.value >= 1000) {
         const elapsedSec = (nowTs - perfLastLogTs.value) / 1000
         console.log(
-          '[PERF][WORKLET] ' +
+          '[PERF][WORKLET][INSTANCE ' + instanceId + '] ' +
           'Frame=' + (perfFrames.value / elapsedSec).toFixed(1) + 'fps | ' +
           'YOLO=' + (perfYoloRuns.value / elapsedSec).toFixed(1) + 'fps | ' +
           'MoveNet=' + (perfPoseRuns.value / elapsedSec).toFixed(1) + 'fps | ' +
@@ -371,9 +398,12 @@ export const useShotTracker = (
         perfPoseCallbacks.value = 0
         perfLastLogTs.value = nowTs
       }
+
+      const exitTs = Date.now()
+      console.log('[ShotTracker][INSTANCE ' + instanceId + '] EXIT frameId=' + frameId + ' ts=' + exitTs + ' duration=' + (exitTs - entryTs) + 'ms')
       } finally {
-        // CRITICAL: Dispose frame to return it to camera pipeline
-        // Prevents buffer leak and camera stall
+        // Clear inFlight flag and dispose frame
+        inFlight.value = false
         frame.dispose()
       }
     }
