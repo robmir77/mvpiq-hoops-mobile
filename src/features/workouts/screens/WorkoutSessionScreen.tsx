@@ -52,6 +52,23 @@ const COURT_WIDTH_M  = 15.24
 const COURT_HEIGHT_M = 28.65
 const HOOP_Y_M       = 1.575
 
+// ToggleButton component for enabling/disabling features
+const ToggleButton = ({ active, disabled, labelOn, labelOff, onPress }: any) => (
+    <TouchableOpacity
+        style={[
+            styles.toggleBtn,
+            active ? styles.toggleBtnOn : styles.toggleBtnOff,
+            disabled && styles.btnDisabled
+        ]}
+        onPress={onPress}
+        disabled={disabled}
+    >
+        <Text style={[styles.toggleBtnText, active ? styles.toggleBtnTextOn : styles.toggleBtnTextOff]}>
+            {active ? labelOn : labelOff}
+        </Text>
+    </TouchableOpacity>
+)
+
 function toCourtMeters(
     normX: number, normY: number, calibration: CalibrationData | null
 ): { courtX: number; courtY: number; distanceFromHoop: number } {
@@ -425,19 +442,19 @@ const TrackingOverlay = React.memo(({
                     )
                 })()}
 
-                {/* Cerchio palla smoothed (Kalman) - arancione - usa Shared Values */}
-                {sharedValues && (
+                {/* Cerchio palla Kalman smoothed - arancione */}
+                {trackingState?.ballPosition && (
                     <Group>
                         <SkiaCircle
-                            cx={ballXPx}
-                            cy={ballYPx}
-                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
+                            cx={px(trackingState.ballPosition.x)}
+                            cy={py(trackingState.ballPosition.y)}
+                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
                             color="rgba(255,140,0,0.22)"
                         />
                         <SkiaCircle
-                            cx={ballXPx}
-                            cy={ballYPx}
-                            r={useDerivedValue(() => ballWidth.value > 0 ? (ballWidth.value * SCREEN_W) / 2 : 16, [ballWidth])}
+                            cx={px(trackingState.ballPosition.x)}
+                            cy={py(trackingState.ballPosition.y)}
+                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
                             color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
@@ -1068,6 +1085,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [modelsReady, setModelsReady]     = useState(false)
     const [showCalibDebug, setShowCalibDebug] = useState(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
+    const [poseEnabled, setPoseEnabled] = useState(true)
+    const [ballEnabled, setBallEnabled] = useState(true)
+    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(false)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
     const pendingScreenshotUri = useRef<string | null>(null)
@@ -1353,10 +1373,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         handleBallDetection,
         handlePoseResult,
         handleShotEvent,
-        handleRimDetection,
+        rimDetectionEnabled ? handleRimDetection : undefined,
         effectiveRim,
         kalmanFilteredBall,
-        true,
+        true, // enabled
+        poseEnabled,
+        ballEnabled,
         yoloDelegate,
         poseDelegate
     )
@@ -1617,6 +1639,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     isActive={isActive && !isPaused}
                     outputs={[frameProcessor]}
                     zoom={isActive && !isPaused ? zoom : undefined}
+                    resizeMode="cover"
                     onError={(error: any) => {
                         if (error.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')
@@ -1709,6 +1732,29 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         <Text style={styles.endBtnText}>{isEnding ? '...' : '⏹ Fine'}</Text>
                     </TouchableOpacity>
                 </View>
+                <View style={styles.toggleRow}>
+                    <ToggleButton
+                        active={ballEnabled}
+                        disabled={isPaused || isEnding}
+                        labelOn="🏀 Palla"
+                        labelOff="🏀 Palla"
+                        onPress={() => setBallEnabled(!ballEnabled)}
+                    />
+                    <ToggleButton
+                        active={poseEnabled}
+                        disabled={isPaused || isEnding}
+                        labelOn="🧍 Pose"
+                        labelOff="🧍 Pose"
+                        onPress={() => setPoseEnabled(!poseEnabled)}
+                    />
+                    <ToggleButton
+                        active={rimDetectionEnabled}
+                        disabled={isPaused || isEnding}
+                        labelOn="🏀 Canestro"
+                        labelOff="🏀 Canestro"
+                        onPress={() => setRimDetectionEnabled(!rimDetectionEnabled)}
+                    />
+                </View>
                 <View style={styles.manualRow}>
                     <Text style={styles.manualLabel}>Correzione:</Text>
                     <TouchableOpacity
@@ -1788,10 +1834,17 @@ const styles = StyleSheet.create({
     pausedLabel:       { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
     autoRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
     autoStatus:        { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
+    toggleRow:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', marginBottom: 10 },
     autoDot:           { width: 9, height: 9, borderRadius: 4.5 },
     autoDotActive:     { backgroundColor: '#4ade80' },
     autoDotIdle:       { backgroundColor: '#555' },
     autoLabel:         { fontSize: 12, color: '#aaa', fontWeight: '500' },
+    toggleBtn:         { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, marginRight: 4 },
+    toggleBtnOn:       { backgroundColor: 'rgba(34, 197, 94, 0.2)', borderWidth: 1, borderColor: '#22c55e' },
+    toggleBtnOff:      { backgroundColor: 'rgba(100, 100, 100, 0.2)', borderWidth: 1, borderColor: '#666' },
+    toggleBtnText:     { fontSize: 11, fontWeight: '700' },
+    toggleBtnTextOn:   { color: '#22c55e' },
+    toggleBtnTextOff:  { color: '#888' },
     recControlBtn:     { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', marginRight: 6 },
     recControlBtnIdle: { backgroundColor: '#2a1515', borderWidth: 1, borderColor: '#ef4444' },
     recControlBtnActive:{ backgroundColor: '#ef4444', borderWidth: 1, borderColor: '#fca5a5' },

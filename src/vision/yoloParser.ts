@@ -5,11 +5,12 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.001  // Baseline threshold for this model
+const CONF_THRESHOLD = 0.04  // Baseline threshold for this model (4% confidence)
 const N_ANCHORS = 3549
 
 // The ball detection produces very wide raw boxes, but the center is correct.
-const MAX_BALL_BOX_SIZE = 1.2
+// Clamp to reasonable normalized size (max 40% of screen)
+const MAX_BALL_BOX_SIZE = 0.4
 // For rim, keep a more conservative filter.
 const MAX_RIM_BOX_SIZE = 0.7
 
@@ -119,10 +120,11 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      x: 1 - (y1 + y2) / 2,
-      y: (x1 + x2) / 2,
-      width: (y2 - y1),
-      height: (x2 - x1),
+      // Coordinate dirette con inversione assi (senza swap X↔Y)
+      x: 1 - (x1 + x2) / 2,
+      y: 1 - (y1 + y2) / 2,
+      width: (x2 - x1),
+      height: (y2 - y1),
       confidence: conf,
     }
 

@@ -148,7 +148,7 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
-        if (ballDetection && ballDetection.confidence > 0.01) {
+        if (ballDetection) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
             current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
@@ -164,6 +164,16 @@ export const useTrackingEngine = () => {
             ballWidth.value = ballDetection.width || 0
             ballHeight.value = ballDetection.height || 0
             confidence.value = ballDetection.confidence
+
+            if (__DEV__) {
+              console.log('[TrackingEngine] Shared Values updated:', {
+                ballX: ballDetection.x.toFixed(3),
+                ballY: ballDetection.y.toFixed(3),
+                ballWidth: (ballDetection.width || 0).toFixed(3),
+                ballHeight: (ballDetection.height || 0).toFixed(3),
+                confidence: ballDetection.confidence.toFixed(3)
+              })
+            }
 
             // Ring buffer: O(1) insert, no shift()
             trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }

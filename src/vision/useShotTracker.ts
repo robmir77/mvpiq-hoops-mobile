@@ -34,6 +34,9 @@ export const useShotTracker = (
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
+  enabled: boolean = true,
+  poseEnabled: boolean = true,
+  ballEnabled: boolean = true,
   yoloDelegate?: string,
   poseDelegate?: string,
 ) => {
@@ -72,12 +75,11 @@ export const useShotTracker = (
     }
   }, [instanceId])
 
-  // ── Fixed confidence threshold ────────────────────────────────────────────────
-  // Disabled adaptive threshold for debugging - model produces low confidence (~0.001-0.01)
-  const adaptiveThreshold = useSharedValue(0.001)
-  // const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
-  // const TARGET_DETECTION_RATE = 0.2
-  // const ADAPTATION_WINDOW_MS = 2000
+  // ── Adaptive threshold adjustment ───────────────────────────────────────────────
+  const adaptiveThreshold = useSharedValue(0.25)
+  const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
+  const TARGET_DETECTION_RATE = 0.2
+  const ADAPTATION_WINDOW_MS = 2000
 
   // ── Model loading ────────────────────────────────────────────────────────────
   // Single-class football/basketball detector (320×320, float16, NHWC TFLite)
@@ -97,33 +99,38 @@ export const useShotTracker = (
   useEffect(() => { onRimDetectionRef.current = onRimDetection }, [onRimDetection])
 
   // ── Adaptive threshold adjustment (JS thread) ───────────────────────────────
-  // Disabled for debugging - model produces low confidence (~0.001-0.01)
-  // const lastAdjustmentTs = useRef(0)
-  // const updateAdaptiveThreshold = useCallback((ball: { confidence: number } | null | undefined) => {
-  //   const now = Date.now()
-  //   detectionHistory.current.push({ confidence: ball?.confidence ?? 0, timestamp: now })
-  //   detectionHistory.current = detectionHistory.current.filter(d => now - d.timestamp < ADAPTATION_WINDOW_MS)
-  //   if (now - lastAdjustmentTs.current > ADAPTATION_WINDOW_MS && detectionHistory.current.length > 10) {
-  //     lastAdjustmentTs.current = now
-  //     const totalFrames = detectionHistory.current.length
-  //     const detectedFrames = detectionHistory.current.filter(d => d.confidence > 0).length
-  //     const detectionRate = detectedFrames / totalFrames
-  //     const adjustment = 0.005
-  //     if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
-  //       adaptiveThreshold.value = Math.min(0.06, adaptiveThreshold.value + adjustment)
-  //     } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
-  //       adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
-  //     }
-  //     console.log('[AdaptiveThreshold] Rate:', detectionRate.toFixed(2), 'Threshold:', adaptiveThreshold.value.toFixed(3))
-  //   }
-  // }, [])
+  const lastAdjustmentTs = useRef(0)
+  const updateAdaptiveThreshold = useCallback((ball: { confidence: number } | null | undefined) => {
+    const now = Date.now()
+    detectionHistory.current.push({ confidence: ball?.confidence ?? 0, timestamp: now })
+    detectionHistory.current = detectionHistory.current.filter(d => now - d.timestamp < ADAPTATION_WINDOW_MS)
+    if (now - lastAdjustmentTs.current > ADAPTATION_WINDOW_MS && detectionHistory.current.length > 10) {
+      lastAdjustmentTs.current = now
+      const totalFrames = detectionHistory.current.length
+      const detectedFrames = detectionHistory.current.filter(d => d.confidence > 0).length
+      const detectionRate = detectedFrames / totalFrames
+
+      // Increase threshold if too many detections (false positives)
+      // Decrease threshold if too few detections (false negatives)
+      // Cap at 0.06 max so small/fast balls with lower confidence (3%-8%) are never discarded
+      const adjustment = 0.005  // Smaller adjustment for finer control
+      if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
+        adaptiveThreshold.value = Math.min(0.06, adaptiveThreshold.value + adjustment)
+      } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
+        adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
+      }
+
+      // Log the current detection rate and adaptive threshold for monitoring
+      console.log('[AdaptiveThreshold] Rate:', detectionRate.toFixed(2), 'Threshold:', adaptiveThreshold.value.toFixed(3))
+    }
+  }, [])
 
   // ── Shot detection (JS thread) ───────────────────────────────────────────────
   const handleBallDetectionForShotTracking = useCallback((detection: BallDetection) => {
     const { ball } = detection
 
-    // Update adaptive threshold (disabled for debugging)
-    // updateAdaptiveThreshold(ball)
+    // Update adaptive threshold
+    updateAdaptiveThreshold(ball)
 
     if (!ball) {
       // Reset trajectory if ball disappears for >300 ms
@@ -229,7 +236,7 @@ export const useShotTracker = (
     channelOrder: 'rgb' as const,
     dataType: 'float32' as const,
     pixelLayout: 'interleaved' as const,
-    scaleMode: 'contain' as const,  // TEST: changed from 'cover' to 'contain'
+    scaleMode: 'cover' as const,
   }), [])
 
   const poseResizerConfig = useMemo(() => ({
@@ -283,7 +290,7 @@ export const useShotTracker = (
       // ── 1. YOLO — accelerate to every frame (skip = 1) when ball is actively detected ──
       const activeYoloSkip = lastBallDetected.value ? 1 : YOLO_FRAME_SKIP
       const ranYolo = frameId % activeYoloSkip === 0
-      if (ranYolo) {
+      if (ranYolo && enabled && ballEnabled) {
         perfYoloRuns.value = perfYoloRuns.value + 1
         const yoloStartTs = Date.now()
 
@@ -329,6 +336,8 @@ export const useShotTracker = (
       // ── 2. MoveNet — throttled to every POSE_FRAME_SKIP frames (10 FPS) ────────
       // Run independently of YOLO - no return after YOLO block
       if (frameId % POSE_FRAME_SKIP !== 1) return
+
+      if (!enabled || !poseEnabled) return
 
       const poseReady = poseModel.state === 'loaded' && poseModel.model != null
       if (!poseReady) return

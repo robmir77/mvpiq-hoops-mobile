@@ -31,6 +31,8 @@ export const useCameraPipeline = (
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
   enabled: boolean = true,
+  poseEnabled: boolean = true,
+  ballEnabled: boolean = true,
   yoloDelegate?: string,
   poseDelegate?: string,
 ): CameraPipelineResult => {
@@ -50,6 +52,9 @@ export const useCameraPipeline = (
     onRimDetection,
     rimFromCalibration,
     kalmanFilteredBall,
+    enabled,
+    poseEnabled,
+    ballEnabled,
     yoloDelegate,
     poseDelegate
   )
