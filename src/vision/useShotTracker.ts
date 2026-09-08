@@ -300,8 +300,8 @@ export const useShotTracker = (
       }
 
       // ── 2. MoveNet — throttled to every POSE_FRAME_SKIP frames (10 FPS) ────────
-      // Stagger execution: do NOT run MoveNet on frames where YOLO already ran
-      if (ranYolo || (frameId % POSE_FRAME_SKIP !== 1)) return
+      // Run independently of YOLO - no return after YOLO block
+      if (frameId % POSE_FRAME_SKIP !== 1) return
 
       const poseReady = poseModel.state === 'loaded' && poseModel.model != null
       if (!poseReady) return
