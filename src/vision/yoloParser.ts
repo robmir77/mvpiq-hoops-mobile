@@ -7,7 +7,7 @@
 
 const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.02  // Baseline threshold for this model (2% confidence)
-const N_DETECTIONS = 3549
+const N_DETECTIONS = 8400
 
 // The ball detection produces very wide raw boxes, but the center is correct.
 // Clamp to reasonable normalized size (max 35% of screen) for distant shots
@@ -58,18 +58,15 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   // Convert to float values if needed (for INT8 quantized output)
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
 
-  // Standard YOLOv8 format: 6 values per detection (xc, yc, w, h, ball_score, rim_score)
-  const VALUES_PER_DETECTION = 6
-  const numDetections = output.length / VALUES_PER_DETECTION
-
-  for (let i = 0; i < numDetections; i++) {
-    const offset = i * VALUES_PER_DETECTION
-    const cx = isQuantized ? output[offset] / 255.0 : output[offset]
-    const cy = isQuantized ? output[offset + 1] / 255.0 : output[offset + 1]
-    const w  = isQuantized ? output[offset + 2] / 255.0 : output[offset + 2]
-    const h  = isQuantized ? output[offset + 3] / 255.0 : output[offset + 3]
-    const ballScore = isQuantized ? output[offset + 4] / 255.0 : output[offset + 4]
-    const rimScore  = isQuantized ? output[offset + 5] / 255.0 : output[offset + 5]
+  // Channel-major layout: [cx0, cx1, ..., cx8399, cy0, cy1, ..., cy8399, w0, w1, ..., h0, h1, ..., ballScore0, ..., rimScore0, ...]
+  // Model coordinates are inverted relative to image coordinates
+  for (let i = 0; i < N_DETECTIONS; i++) {
+    const cx = 1.0 - (isQuantized ? output[i] / 255.0 : output[i])
+    const cy = 1.0 - (isQuantized ? output[N_DETECTIONS + i] / 255.0 : output[N_DETECTIONS + i])
+    const w  = isQuantized ? output[2 * N_DETECTIONS + i] / 255.0 : output[2 * N_DETECTIONS + i]
+    const h  = isQuantized ? output[3 * N_DETECTIONS + i] / 255.0 : output[3 * N_DETECTIONS + i]
+    const ballScore = isQuantized ? output[4 * N_DETECTIONS + i] / 255.0 : output[4 * N_DETECTIONS + i]
+    const rimScore  = isQuantized ? output[5 * N_DETECTIONS + i] / 255.0 : output[5 * N_DETECTIONS + i]
 
     // Skip invalid detections (zero size only)
     if (w <= 0.01 || h <= 0.01) continue
