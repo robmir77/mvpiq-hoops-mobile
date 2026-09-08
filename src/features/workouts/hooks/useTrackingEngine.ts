@@ -25,8 +25,8 @@ interface KalmanState {
 
 const INITIAL_KALMAN: KalmanState = {
     x: 0, y: 0, vx: 0, vy: 0,
-    px: 2, py: 2,
-    mx: 3, my: 3,
+    px: 5, py: 5,
+    mx: 2.0, my: 2.0,
 }
 
 // ── Soglie shot detection ──────────────────────────────────────────────────
@@ -148,8 +148,7 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
-        // Parser already handles confidence filtering, so we accept all detections
-        if (ballDetection) {
+        if (ballDetection && ballDetection.confidence > 0.01) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
             current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
@@ -159,8 +158,9 @@ export const useTrackingEngine = () => {
             current.ballHeight   = ballDetection.height
 
             // Aggiorna Shared Values per Skia (no React bridge)
-            ballX.value = smoothed.x
-            ballY.value = smoothed.y
+            // Use raw coordinates for the orange circle to match the red debug point
+            ballX.value = ballDetection.x
+            ballY.value = ballDetection.y
             ballWidth.value = ballDetection.width || 0
             ballHeight.value = ballDetection.height || 0
             confidence.value = ballDetection.confidence
