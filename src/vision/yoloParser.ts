@@ -5,7 +5,7 @@
 // NO image data, only coordinates
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.25
+const CONF_THRESHOLD = 0.03  // TEMPORARY: lowered from 0.25 to 0.03 for diagnostics
 const N_ANCHORS = 3549
 
 // Worklet-safe IOU calculation
@@ -50,7 +50,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
 
   // Filter: reject detections larger than half screen (normalized coordinates)
-  const MAX_BOX_SIZE = 0.7 // Increased from 0.5 to 0.7 to allow more distant objects
+  const MAX_BOX_SIZE = 0.7
 
   // Extract detections from YOLO output
   // Layout: separate arrays for each parameter
@@ -110,17 +110,8 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  // Log the highest confidence score and its anchor position for debugging (commented out for high-frequency performance)
-  // if (__DEV__) {
-  //   console.log('[YOLO Parser] Max score:', maxScore.toFixed(4), 'at anchor:', maxScoreIdx)
-  //   console.log('[YOLO Parser] Detections above threshold:', raw.length)
-  // }
-
   // Apply NMS
   const kept = nms(raw, NMS_IOU_THRESHOLD)
-  // if (__DEV__) {
-  //   console.log('[YOLO Parser] Detections after NMS:', kept.length)
-  // }
 
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null

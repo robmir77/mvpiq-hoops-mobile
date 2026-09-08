@@ -61,7 +61,7 @@ export const useShotTracker = (
   const RIM_CONFIDENCE_THRESHOLD = 0.15 // Soglia confidence per sostituire rim calibrato
 
   // ── Adaptive confidence threshold ─────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.03)
+  const adaptiveThreshold = useSharedValue(0.001)  // Baseline threshold for this model (produces low confidence ~0.001-0.01)
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
   const TARGET_DETECTION_RATE = 0.2  // Target: 20% of frames should have detections (lowered for distant objects)
   const ADAPTATION_WINDOW_MS = 2000  // Adjust threshold every 2 seconds
@@ -227,7 +227,7 @@ export const useShotTracker = (
     channelOrder: 'rgb' as const,
     dataType: 'float32' as const,
     pixelLayout: 'interleaved' as const,
-    scaleMode: 'cover' as const,
+    scaleMode: 'contain' as const,  // TEST: changed from 'cover' to 'contain'
   }), [])
 
   const poseResizerConfig = useMemo(() => ({
@@ -278,9 +278,9 @@ export const useShotTracker = (
             console.log('[ShotTracker][YOLO] #' + frameId + ' AFTER resize ' + yoloResizeMs + 'ms BEFORE runSync')
           }
 
-          const pixelBuffer = yoloResized.getPixelBuffer()
+          const pixelBufferRaw = yoloResized.getPixelBuffer()
           const yoloRunStart = Date.now()
-          const yoloOutputs = yoloModel.model!.runSync([pixelBuffer])
+          const yoloOutputs = yoloModel.model!.runSync([pixelBufferRaw])
           const yoloRunMs = Date.now() - yoloRunStart
           perfYoloRunMs.value = perfYoloRunMs.value + yoloRunMs
 

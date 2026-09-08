@@ -148,7 +148,7 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
-        if (ballDetection && ballDetection.confidence > 0.3) {
+        if (ballDetection && ballDetection.confidence >= 0.001) {  // Baseline threshold for this model
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
             current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
