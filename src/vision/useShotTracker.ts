@@ -18,7 +18,7 @@ import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints } from './type
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
 
 // ── Model input sizes ──────────────────────────────────────────────────────────
-const YOLO_INPUT_SIZE = 416   // YOLOv8/v11 ball & rim model resized to 416
+const YOLO_INPUT_SIZE = 640   // YOLOv8/v11 ball & rim model resized to 640
 const POSE_INPUT_SIZE = 192   // MoveNet Lightning (must remain 192)
 
 // ── AI inference throttling ───────────────────────────────────────────────────
@@ -37,6 +37,7 @@ export const useShotTracker = (
   enabled: boolean = true,
   poseEnabled: boolean = true,
   ballEnabled: boolean = true,
+  rimEnabled: boolean = false,
   yoloDelegate?: string,
   poseDelegate?: string,
 ) => {
@@ -76,20 +77,24 @@ export const useShotTracker = (
   }, [instanceId])
 
   // ── Adaptive threshold adjustment ───────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.25)
+  const adaptiveThreshold = useSharedValue(0.04)
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
   const TARGET_DETECTION_RATE = 0.2
   const ADAPTATION_WINDOW_MS = 2000
 
   // ── Model loading ────────────────────────────────────────────────────────────
-  // Single-class football/basketball detector (320×320, float16, NHWC TFLite)
+  // Single-class football/basketball detector (640×640, float16, NHWC TFLite)
+  const yoloDelegates = (yoloDelegate ? [yoloDelegate] : ['android-gpu']) as any
+  console.log('[ShotTracker] Loading YOLO model with delegates:', JSON.stringify(yoloDelegates))
   const yoloModel = useTensorflowModel(
-    require('../../assets/models/ball_rimV8_float16.tflite'),
-    (yoloDelegate ? [yoloDelegate] : ['nnapi']) as any,
+    require('../../assets/models/ball_rimV8_640_float16.tflite'),
+    yoloDelegates,
   )
+  const poseDelegates = (poseDelegate ? [poseDelegate] : ['android-gpu']) as any
+  console.log('[ShotTracker] Loading MoveNet model with delegates:', JSON.stringify(poseDelegates))
   const poseModel = useTensorflowModel(
     require('../../assets/models/movenet_lightning_int8.tflite'),
-    (poseDelegate ? [poseDelegate] : ['android-gpu']) as any,
+    poseDelegates,
   )
 
   // ── Callback refs ────────────────────────────────────────────────────────────
@@ -112,12 +117,12 @@ export const useShotTracker = (
 
       // Increase threshold if too many detections (false positives)
       // Decrease threshold if too few detections (false negatives)
-      // Cap at 0.06 max so small/fast balls with lower confidence (3%-8%) are never discarded
+      // Cap at 0.04 max so small/fast balls with lower confidence (1%-5%) are never discarded
       const adjustment = 0.005  // Smaller adjustment for finer control
       if (detectionRate > TARGET_DETECTION_RATE * 1.5) {
-        adaptiveThreshold.value = Math.min(0.06, adaptiveThreshold.value + adjustment)
+        adaptiveThreshold.value = Math.min(0.04, adaptiveThreshold.value + adjustment)
       } else if (detectionRate < TARGET_DETECTION_RATE * 0.5) {
-        adaptiveThreshold.value = Math.max(0.01, adaptiveThreshold.value - adjustment)
+        adaptiveThreshold.value = Math.max(0.005, adaptiveThreshold.value - adjustment)
       }
 
       // Log the current detection rate and adaptive threshold for monitoring
@@ -236,7 +241,7 @@ export const useShotTracker = (
     channelOrder: 'rgb' as const,
     dataType: 'float32' as const,
     pixelLayout: 'interleaved' as const,
-    scaleMode: 'cover' as const,
+    scaleMode: 'contain' as const,  // Use 'contain' to avoid cropping
   }), [])
 
   const poseResizerConfig = useMemo(() => ({
@@ -322,7 +327,7 @@ export const useShotTracker = (
 
             ballDetectionShared.value = {
               ball: ball ?? undefined,
-              rim: rim ?? undefined,
+              rim: rimEnabled ? rim ?? undefined : undefined,
               timestamp: Date.now(),
             }
 
@@ -416,7 +421,7 @@ export const useShotTracker = (
         frame.dispose()
       }
     }
-  }), [yoloModel, poseModel])
+  }), [yoloModel, poseModel, enabled, ballEnabled, poseEnabled, rimEnabled])
 
   const frameProcessor = useFrameOutput(frameProcessorOptions)
 
@@ -428,6 +433,23 @@ export const useShotTracker = (
   const isModelReady =
     yoloModel.state === 'loaded' && yoloModel.model != null &&
     poseModel.state === 'loaded' && poseModel.model != null
+
+  // Log model state changes
+  useEffect(() => {
+    if (yoloModel.state === 'loaded') {
+      console.log('[ShotTracker] YOLO model loaded successfully with state:', yoloModel.state)
+    } else if (yoloModel.state === 'error') {
+      console.log('[ShotTracker] YOLO model failed to load with state:', yoloModel.state)
+    }
+  }, [yoloModel.state])
+
+  useEffect(() => {
+    if (poseModel.state === 'loaded') {
+      console.log('[ShotTracker] MoveNet model loaded successfully with state:', poseModel.state)
+    } else if (poseModel.state === 'error') {
+      console.log('[ShotTracker] MoveNet model failed to load with state:', poseModel.state)
+    }
+  }, [poseModel.state])
 
   return { frameProcessor, isModelReady, resetShotTracking }
 }

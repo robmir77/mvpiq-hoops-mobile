@@ -3,14 +3,15 @@
 // YOLO output parser - runs in Worklet
 // Converts raw YOLO output to BallDetection interface
 // NO image data, only coordinates
+// Format: standard YOLOv8 [x, y, w, h, conf, cls] per detection
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.04  // Baseline threshold for this model (4% confidence)
-const N_ANCHORS = 3549
+const CONF_THRESHOLD = 0.02  // Baseline threshold for this model (2% confidence)
+const N_DETECTIONS = 3549
 
 // The ball detection produces very wide raw boxes, but the center is correct.
-// Clamp to reasonable normalized size (max 40% of screen)
-const MAX_BALL_BOX_SIZE = 0.4
+// Clamp to reasonable normalized size (max 35% of screen) for distant shots
+const MAX_BALL_BOX_SIZE = 0.35
 // For rim, keep a more conservative filter.
 const MAX_RIM_BOX_SIZE = 0.7
 
@@ -45,6 +46,8 @@ function nms(dets: number[][], thr: number): number[][] {
 // This runs in the Worklet - NO runOnJS here
 // Detects both ball (cls 0) and rim (cls 1)
 // Returns the ball with highest confidence and the rim with highest confidence
+// Standard YOLOv8 TFLite format: (1, 6, num_anchors) where 6 = 4 coords + 2 class scores
+// Layout: [xc, yc, w, h, ball_score, rim_score] for each anchor
 export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
@@ -55,36 +58,21 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   // Convert to float values if needed (for INT8 quantized output)
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
 
-  // Filter: reject detections larger than half screen (normalized coordinates)
-  const MAX_BOX_SIZE = 0.7
+  // Standard YOLOv8 format: 6 values per detection (xc, yc, w, h, ball_score, rim_score)
+  const VALUES_PER_DETECTION = 6
+  const numDetections = output.length / VALUES_PER_DETECTION
 
-  // Extract detections from YOLO output
-  // Layout: separate arrays for each parameter
-  // output[i] = cx, output[N_ANCHORS + i] = cy, output[N_ANCHORS * 2 + i] = w, output[N_ANCHORS * 3 + i] = h, output[N_ANCHORS * 4 + i] = score
-  // For ball_rimV8 model: class 0 = ball, class 1 = rim
-  // Class scores are at output[N_ANCHORS * 5 + i] for ball and output[N_ANCHORS * 6 + i] for rim
-  let maxScore = 0
-  let maxScoreIdx = -1
+  for (let i = 0; i < numDetections; i++) {
+    const offset = i * VALUES_PER_DETECTION
+    const cx = isQuantized ? output[offset] / 255.0 : output[offset]
+    const cy = isQuantized ? output[offset + 1] / 255.0 : output[offset + 1]
+    const w  = isQuantized ? output[offset + 2] / 255.0 : output[offset + 2]
+    const h  = isQuantized ? output[offset + 3] / 255.0 : output[offset + 3]
+    const ballScore = isQuantized ? output[offset + 4] / 255.0 : output[offset + 4]
+    const rimScore  = isQuantized ? output[offset + 5] / 255.0 : output[offset + 5]
 
-  const a2 = N_ANCHORS * 2
-  const a3 = N_ANCHORS * 3
-  const a4 = N_ANCHORS * 4
-  const a5 = N_ANCHORS * 5
-
-  for (let i = 0; i < N_ANCHORS; i++) {
-    const cx = isQuantized ? output[i] / 255.0 : output[i]
-    const cy = isQuantized ? output[N_ANCHORS + i] / 255.0 : output[N_ANCHORS + i]
-    const w  = isQuantized ? output[a2 + i] / 255.0 : output[a2 + i]
-    const h  = isQuantized ? output[a3 + i] / 255.0 : output[a3 + i]
-    const ballScore = isQuantized ? output[a4 + i] / 255.0 : output[a4 + i]
-    const rimScore  = isQuantized ? output[a5 + i] / 255.0 : output[a5 + i]
-
-    // Track maximum score across both classes
-    const maxClassScore = Math.max(ballScore, rimScore)
-    if (maxClassScore > maxScore) {
-      maxScore = maxClassScore
-      maxScoreIdx = i
-    }
+    // Skip invalid detections (zero size only)
+    if (w <= 0.01 || h <= 0.01) continue
 
     // Add ball detection if score above threshold and box size is acceptable
     if (ballScore >= threshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
@@ -120,9 +108,9 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      // Coordinate dirette con inversione assi (senza swap X↔Y)
-      x: 1 - (x1 + x2) / 2,
-      y: 1 - (y1 + y2) / 2,
+      // Coordinate dirette senza inversione (per modello 640x640)
+      x: (x1 + x2) / 2,
+      y: (y1 + y2) / 2,
       width: (x2 - x1),
       height: (y2 - y1),
       confidence: conf,

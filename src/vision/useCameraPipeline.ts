@@ -33,6 +33,7 @@ export const useCameraPipeline = (
   enabled: boolean = true,
   poseEnabled: boolean = true,
   ballEnabled: boolean = true,
+  rimEnabled: boolean = false,
   yoloDelegate?: string,
   poseDelegate?: string,
 ): CameraPipelineResult => {
@@ -55,6 +56,7 @@ export const useCameraPipeline = (
     enabled,
     poseEnabled,
     ballEnabled,
+    rimEnabled,
     yoloDelegate,
     poseDelegate
   )

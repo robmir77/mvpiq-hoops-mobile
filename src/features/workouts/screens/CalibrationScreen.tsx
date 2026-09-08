@@ -740,7 +740,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
     const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
-        Platform.OS === 'android' ? 'nnapi' : DEFAULT_IOS_DELEGATE
+        Platform.OS === 'android' ? 'android-gpu' : DEFAULT_IOS_DELEGATE
     )
     const [poseDelegate, setPoseDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
         Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE

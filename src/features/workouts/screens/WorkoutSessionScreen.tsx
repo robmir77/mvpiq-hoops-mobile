@@ -48,6 +48,9 @@ import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
+const CAMERA_RES_W = 1280  // Camera resolution width
+const CAMERA_RES_H = 720   // Camera resolution height
+const YOLO_INPUT_SIZE = 640 // YOLO model input size
 const COURT_WIDTH_M  = 15.24
 const COURT_HEIGHT_M = 28.65
 const HOOP_Y_M       = 1.575
@@ -286,8 +289,13 @@ const TrackingOverlay = React.memo(({
 }) => {
     incrementOverlayRenders()
 
+    // Conversion functions: normalized coordinates → screen pixels
+    // With 'contain' mode, the image is scaled to fit within 640x640 without cropping
+    // YOLO coordinates (0-1) directly map to the full camera view
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
+    const pxCam = (x: number) => x * SCREEN_W
+    const pyCam = (y: number) => y * CAMERA_H
 
     // Calculate dynamic player size
     const playerSize = calculatePlayerSize(poseKeypoints)
@@ -442,29 +450,29 @@ const TrackingOverlay = React.memo(({
                     )
                 })()}
 
-                {/* Cerchio palla Kalman smoothed - arancione */}
-                {trackingState?.ballPosition && (
+                {/* Cerchio palla YOLO raw (reale) - arancione */}
+                {trackingState?.ballPositionRaw && (
                     <Group>
                         <SkiaCircle
-                            cx={px(trackingState.ballPosition.x)}
-                            cy={py(trackingState.ballPosition.y)}
+                            cx={pxCam(trackingState.ballPositionRaw.x)}
+                            cy={pyCam(trackingState.ballPositionRaw.y)}
                             r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
                             color="rgba(255,140,0,0.22)"
                         />
                         <SkiaCircle
-                            cx={px(trackingState.ballPosition.x)}
-                            cy={py(trackingState.ballPosition.y)}
+                            cx={pxCam(trackingState.ballPositionRaw.x)}
+                            cy={pyCam(trackingState.ballPositionRaw.y)}
                             r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
                             color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
                     </Group>
                 )}
 
-                {/* Punto raw YOLO (senza Kalman) - rosso per debug */}
-                {trackingState?.ballPositionRaw && (
+                {/* Punto Kalman smoothed - rosso per debug */}
+                {trackingState?.ballPosition && (
                     <SkiaCircle
-                        cx={px(trackingState.ballPositionRaw.x)}
-                        cy={py(trackingState.ballPositionRaw.y)}
+                        cx={pxCam(trackingState.ballPosition.x)}
+                        cy={pyCam(trackingState.ballPosition.y)}
                         r={8}
                         color="#ff0000"
                     />
@@ -1177,7 +1185,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const newState = tracking.processFrame(
             ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
             rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
-            detection.timestamp
+            detection.timestamp,
+            poseKeypoints
         )
         incrementTrackingUpdates()
         const now = Date.now()
@@ -1379,6 +1388,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         true, // enabled
         poseEnabled,
         ballEnabled,
+        rimDetectionEnabled,
         yoloDelegate,
         poseDelegate
     )

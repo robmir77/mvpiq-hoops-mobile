@@ -26,7 +26,7 @@ interface KalmanState {
 const INITIAL_KALMAN: KalmanState = {
     x: 0, y: 0, vx: 0, vy: 0,
     px: 5, py: 5,
-    mx: 2.0, my: 2.0,
+    mx: 1.2, my: 1.2,
 }
 
 // ── Soglie shot detection ──────────────────────────────────────────────────
@@ -144,9 +144,35 @@ export const useTrackingEngine = () => {
     const processFrame = useCallback((
         ballDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
         hoopDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
-        frameTs: number
+        frameTs: number,
+        poseKeypoints?: any
     ): TrackingState => {
         const current = state.current
+
+        // Calculate player center position from pose keypoints
+        let playerCenter: { x: number; y: number } | null = null
+        if (poseKeypoints) {
+            const leftHip = poseKeypoints.leftHip
+            const rightHip = poseKeypoints.rightHip
+            if (leftHip && rightHip) {
+                playerCenter = {
+                    x: (leftHip.x + rightHip.x) / 2,
+                    y: (leftHip.y + rightHip.y) / 2
+                }
+            }
+        }
+
+        // Spatial constraint: when not shooting, ball should be near player
+        const MAX_PLAYER_BALL_DISTANCE = 0.35 // 35% of screen
+        if (ballDetection && playerCenter && !current.inFlight) {
+            const dx = ballDetection.x - playerCenter.x
+            const dy = ballDetection.y - playerCenter.y
+            const distance = Math.sqrt(dx * dx + dy * dy)
+            if (distance > MAX_PLAYER_BALL_DISTANCE) {
+                // Ball too far from player when not shooting - ignore detection
+                ballDetection = null
+            }
+        }
 
         if (ballDetection) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
