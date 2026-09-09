@@ -6,12 +6,12 @@
 // Format: standard YOLOv8 [x, y, w, h, conf, cls] per detection
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.02  // Baseline threshold for this model (2% confidence)
+const CONF_THRESHOLD = 0.01  // Baseline threshold for this model (1% confidence) - lowered for distant balls
 const N_DETECTIONS = 8400
 
 // The ball detection produces very wide raw boxes, but the center is correct.
-// Clamp to reasonable normalized size (max 35% of screen) for distant shots
-const MAX_BALL_BOX_SIZE = 0.35
+// Clamp to reasonable normalized size (max 50% of screen) for distant shots
+const MAX_BALL_BOX_SIZE = 0.5
 // For rim, keep a more conservative filter.
 const MAX_RIM_BOX_SIZE = 0.7
 

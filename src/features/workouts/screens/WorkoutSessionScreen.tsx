@@ -289,9 +289,20 @@ const TrackingOverlay = React.memo(({
 }) => {
     incrementOverlayRenders()
 
+    // Calculate scaling factor for 'cover' mode
+    // Camera resolution: 1280x720 (16:9 aspect ratio)
+    // YOLO input: 640x640 (1:1 aspect ratio)
+    // With 'cover', the image is cropped to fill the square
+    // The crop removes 140px from top and bottom (720 * (1 - 640/720) / 2)
+    const cameraAspect = CAMERA_RES_W / CAMERA_RES_H  // 1280/720 = 1.78
+    const yoloAspect = YOLO_INPUT_SIZE / YOLO_INPUT_SIZE  // 640/640 = 1.0
+    // With 'cover', the image is scaled to fill the square, so vertical content is cropped
+    // The scaling factor is 640/720 = 0.89 for the height
+    const coverScaleY = YOLO_INPUT_SIZE / CAMERA_RES_H  // 640/720 = 0.89
+    const coverScaleX = YOLO_INPUT_SIZE / CAMERA_RES_W  // 640/1280 = 0.5
+
     // Conversion functions: normalized coordinates → screen pixels
-    // With 'contain' mode, the image is scaled to fit within 640x640 without cropping
-    // YOLO coordinates (0-1) directly map to the full camera view
+    // With 'cover' mode, YOLO coordinates need to account for the crop
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
     const pxCam = (x: number) => x * SCREEN_W
@@ -379,6 +390,8 @@ const TrackingOverlay = React.memo(({
         <>
             {/* ── Canvas Skia: forme GPU (scia, cerchi, skeleton) ── */}
             <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
+                {/* Clip all rendering to canvas bounds to prevent overflow */}
+                <Group clip={Skia.Path.Make().addRect(Skia.XYWHRect(0, 0, SCREEN_W, CAMERA_H))}>
 
                 {/* ── Dynamic Player Circle (game-style, scales with pose) ── */}
                 {playerCenterX !== null && playerCenterY !== null && playerSize > 0 && (
@@ -624,6 +637,7 @@ const TrackingOverlay = React.memo(({
                         }
                     </Group>
                 )}
+                </Group>
             </Canvas>
 
             {/* ── Label BALL (React Native Text, sopra il canvas) ── */}

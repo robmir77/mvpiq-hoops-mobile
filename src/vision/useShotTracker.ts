@@ -241,7 +241,7 @@ export const useShotTracker = (
     channelOrder: 'rgb' as const,
     dataType: 'float32' as const,
     pixelLayout: 'interleaved' as const,
-    scaleMode: 'contain' as const,  // Use 'contain' to avoid cropping
+    scaleMode: 'cover' as const,  // Use 'cover' to fill entire 640x640 without letterboxing
   }), [])
 
   const poseResizerConfig = useMemo(() => ({
