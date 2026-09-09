@@ -27,14 +27,24 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 2100,
     asset: require('../../assets/models/ball_rimV8_320_float16.tflite'),
   },
-  {
-    id: 'ball_rimV8_416_float16',
-    fileName: 'ball_rimV8_416_float16.tflite',
-    label: 'YOLOv8 · 416 · FP16',
-    inputSize: 416,
-    outputDetections: 3549,
-    asset: require('../../assets/models/ball_rimV8_416_float16.tflite'),
-  },
+  // Commented out - does not detect anything
+  // {
+  //   id: 'ball_rimV8_384_float16',
+  //   fileName: 'ball_rimV8_384_float16.tflite',
+  //   label: 'YOLOv8 · 384 · FP16',
+  //   inputSize: 384,
+  //   outputDetections: 3025,
+  //   asset: require('../../assets/models/ball_rimV8_384_float16.tflite'),
+  // },
+  // Commented out - causes crashes, possibly non-standard resolution
+  // {
+  //   id: 'ball_rimV8_416_float16',
+  //   fileName: 'ball_rimV8_416_float16.tflite',
+  //   label: 'YOLOv8 · 416 · FP16',
+  //   inputSize: 416,
+  //   outputDetections: 3549,
+  //   asset: require('../../assets/models/ball_rimV8_416_float16.tflite'),
+  // },
   {
     id: 'ball_rimV8_512_float16',
     fileName: 'ball_rimV8_512_float16.tflite',
@@ -51,17 +61,17 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 8400,
     asset: require('../../assets/models/ball_rimV8_640_float16.tflite'),
   },
-  {
-    id: 'ball_rimV8_720_float16',
-    fileName: 'ball_rimV8_720_float16.tflite',
-    label: 'YOLOv8 · 720 · FP16',
-    inputSize: 720,
-    outputDetections: 10654,
-    asset: require('../../assets/models/ball_rimV8_720_float16.tflite'),
-  },
+//  {
+//    id: 'ball_rimV8_720_float16',
+//    fileName: 'ball_rimV8_720_float16.tflite',
+//    label: 'YOLOv8 · 720 · FP16',
+//    inputSize: 720,
+//    outputDetections: 10654,
+//    asset: require('../../assets/models/ball_rimV8_720_float16.tflite'),
+//  },
 ]
 
-export const DEFAULT_YOLO_MODEL_ID = YOLO_MODELS[0]?.id ?? ''
+export const DEFAULT_YOLO_MODEL_ID = 'ball_rimV8_512_float16'
 
 // Cache for stable model references to prevent unnecessary reloads
 const modelCache = new Map<string, YoloModelConfig>()

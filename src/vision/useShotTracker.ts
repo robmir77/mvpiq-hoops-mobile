@@ -79,7 +79,7 @@ export const useShotTracker = (
   }, [instanceId])
 
   // ── Adaptive threshold adjustment ───────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.20)
+  const adaptiveThreshold = useSharedValue(0.15)
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
   const TARGET_DETECTION_RATE = 0.2
   const ADAPTATION_WINDOW_MS = 2000
