@@ -77,7 +77,7 @@ export const useShotTracker = (
   }, [instanceId])
 
   // ── Adaptive threshold adjustment ───────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.04)
+  const adaptiveThreshold = useSharedValue(0.20)
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
   const TARGET_DETECTION_RATE = 0.2
   const ADAPTATION_WINDOW_MS = 2000
@@ -241,7 +241,7 @@ export const useShotTracker = (
     channelOrder: 'rgb' as const,
     dataType: 'float32' as const,
     pixelLayout: 'interleaved' as const,
-    scaleMode: 'cover' as const,  // Use 'cover' to fill entire 640x640 without letterboxing
+    scaleMode: 'contain' as const,  // Use 'contain' with coordinate inversion only
   }), [])
 
   const poseResizerConfig = useMemo(() => ({

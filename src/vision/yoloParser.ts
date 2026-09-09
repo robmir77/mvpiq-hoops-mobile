@@ -6,7 +6,7 @@
 // Format: standard YOLOv8 [x, y, w, h, conf, cls] per detection
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.01  // Baseline threshold for this model (1% confidence) - lowered for distant balls
+const CONF_THRESHOLD = 0.20  // Baseline threshold for this model (20% confidence)
 const N_DETECTIONS = 8400
 
 // The ball detection produces very wide raw boxes, but the center is correct.
