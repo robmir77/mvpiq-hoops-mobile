@@ -29,6 +29,7 @@ import {
     type AndroidDelegateOption,
     type IosDelegateOption,
 } from '@/vision'
+import { DEFAULT_YOLO_MODEL_ID, YOLO_MODELS } from '@/vision/yoloModels'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
@@ -739,6 +740,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const cameraRef = useRef<CameraRef>(null)
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
+    const [selectedYoloModelId, setSelectedYoloModelId] = useState<string>(DEFAULT_YOLO_MODEL_ID)
     const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
         Platform.OS === 'android' ? 'android-gpu' : DEFAULT_IOS_DELEGATE
     )
@@ -804,7 +806,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }, [])
 
-    // Keep defaults valid when device exposes different resolutions/FPS
+    // Keep defaults valid when device exposes different resolutions/FPS/models
     useEffect(() => {
         if (availableResolutions.length > 0 &&
             !availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
@@ -813,7 +815,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
         if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
             setSelectedFps(availableFps[0])
         }
-    }, [availableResolutions, availableFps])
+        if (YOLO_MODELS.length > 0 && !YOLO_MODELS.some(m => m.id === selectedYoloModelId)) {
+            setSelectedYoloModelId(DEFAULT_YOLO_MODEL_ID)
+        }
+    }, [availableResolutions, availableFps, selectedYoloModelId])
 
     // Get zoom range from device
     const minZoom = device?.minZoom ?? 1
@@ -917,7 +922,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const handleProceed = () => {
         if (isNavigating) return
         setIsNavigating(true)
-        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate })
+        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
     }
 
     const handleSkip = () => {
@@ -927,7 +932,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             () => {
                 if (isNavigating) return
                 setIsNavigating(true)
-                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate })
+                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
             }
         )
     }
@@ -1086,6 +1091,37 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                     </Picker>
                                 </View>
                                 <Text style={styles.configHint}>Accelerazione hardware per il modello Pose</Text>
+                            </View>
+
+                            {/* YOLO model selector */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>Modello YOLO (palla/ferro)</Text>
+                                <View style={styles.pickerWrap}>
+                                    <Picker
+                                        selectedValue={selectedYoloModelId}
+                                        onValueChange={value => setSelectedYoloModelId(String(value))}
+                                        dropdownIconColor="#ff8c00"
+                                        style={styles.picker}
+                                    >
+                                        {YOLO_MODELS.map(model => (
+                                            <Picker.Item
+                                                key={model.id}
+                                                label={`${model.label} · input ${model.inputSize}×${model.inputSize}`}
+                                                value={model.id}
+                                            />
+                                        ))}
+                                    </Picker>
+                                </View>
+                                <Text style={styles.configHint}>
+                                    {YOLO_MODELS.find(m => m.id === selectedYoloModelId)?.fileName ?? 'Nessun modello disponibile'}
+                                    {' · '}
+                                    input {YOLO_MODELS.find(m => m.id === selectedYoloModelId)?.inputSize ?? '—'}×{YOLO_MODELS.find(m => m.id === selectedYoloModelId)?.inputSize ?? '—'}
+                                    {' · output '}
+                                    {YOLO_MODELS.find(m => m.id === selectedYoloModelId)
+                                        ? `1×6×${YOLO_MODELS.find(m => m.id === selectedYoloModelId)!.outputDetections}`
+                                        : '—'}
+                                    {' · calcolato dal modello'}
+                                </Text>
                             </View>
 
                             {/* Resolution selector */}

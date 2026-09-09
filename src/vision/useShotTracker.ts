@@ -16,6 +16,7 @@ import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
 import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints } from './types'
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
+import { getYoloModel } from './yoloModels'
 
 // ── Model input sizes ──────────────────────────────────────────────────────────
 const YOLO_INPUT_SIZE = 640   // YOLOv8/v11 ball & rim model resized to 640
@@ -40,6 +41,7 @@ export const useShotTracker = (
   rimEnabled: boolean = false,
   yoloDelegate?: string,
   poseDelegate?: string,
+  yoloModelId?: string,
 ) => {
   const shotDetector = useRef(new ShotDetector())
   const lastBallRef  = useRef<{ x: number; y: number; t: number } | null>(null)
@@ -83,11 +85,13 @@ export const useShotTracker = (
   const ADAPTATION_WINDOW_MS = 2000
 
   // ── Model loading ────────────────────────────────────────────────────────────
-  // Single-class football/basketball detector (640×640, float16, NHWC TFLite)
+  // Select YOLO model based on yoloModelId parameter
+  const selectedYoloModel = useMemo(() => getYoloModel(yoloModelId), [yoloModelId])
+  
   const yoloDelegates = (yoloDelegate ? [yoloDelegate] : ['android-gpu']) as any
-  console.log('[ShotTracker] Loading YOLO model with delegates:', JSON.stringify(yoloDelegates))
+  console.log('[ShotTracker] Loading YOLO model:', selectedYoloModel?.fileName, 'input:', selectedYoloModel?.inputSize, 'delegates:', JSON.stringify(yoloDelegates))
   const yoloModel = useTensorflowModel(
-    require('../../assets/models/ball_rimV8_640_float16.tflite'),
+    selectedYoloModel?.asset ?? require('../../assets/models/ball_rimV8_640_float16.tflite'),
     yoloDelegates,
   )
   const poseDelegates = (poseDelegate ? [poseDelegate] : ['android-gpu']) as any
@@ -236,13 +240,13 @@ export const useShotTracker = (
 
   // ── Resizer configurations ──────────────────────────────────────────────────────
   const yoloResizerConfig = useMemo(() => ({
-    width: YOLO_INPUT_SIZE,
-    height: YOLO_INPUT_SIZE,
+    width: selectedYoloModel?.inputSize ?? YOLO_INPUT_SIZE,
+    height: selectedYoloModel?.inputSize ?? YOLO_INPUT_SIZE,
     channelOrder: 'rgb' as const,
     dataType: 'float32' as const,
     pixelLayout: 'interleaved' as const,
     scaleMode: 'contain' as const,  // Use 'contain' with coordinate inversion only
-  }), [])
+  }), [selectedYoloModel?.inputSize])
 
   const poseResizerConfig = useMemo(() => ({
     width: POSE_INPUT_SIZE,

@@ -1076,7 +1076,7 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate } = route.params || {}
+    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate, yoloModelId } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1393,7 +1393,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         ballEnabled,
         rimDetectionEnabled,
         yoloDelegate,
-        poseDelegate
+        poseDelegate,
+        yoloModelId
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline

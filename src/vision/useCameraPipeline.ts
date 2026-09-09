@@ -36,6 +36,7 @@ export const useCameraPipeline = (
   rimEnabled: boolean = false,
   yoloDelegate?: string,
   poseDelegate?: string,
+  yoloModelId?: string,
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
@@ -58,7 +59,8 @@ export const useCameraPipeline = (
     ballEnabled,
     rimEnabled,
     yoloDelegate,
-    poseDelegate
+    poseDelegate,
+    yoloModelId
   )
 
   return {
