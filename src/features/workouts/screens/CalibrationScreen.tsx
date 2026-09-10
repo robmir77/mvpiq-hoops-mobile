@@ -35,7 +35,7 @@ const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
 const MIN_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_CAPTURE = { width: 1280, height: 720 }
-const DEFAULT_FPS = 15
+const DEFAULT_FPS = 30
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'

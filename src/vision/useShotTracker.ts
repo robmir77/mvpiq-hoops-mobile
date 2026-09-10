@@ -17,6 +17,7 @@ import { ShotDetector } from './shotDetector'
 import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints } from './types'
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
 import { getYoloModel } from './yoloModels'
+import * as FileSystem from 'expo-file-system'
 
 // ── Model input sizes ──────────────────────────────────────────────────────────
 const YOLO_INPUT_SIZE = 640   // YOLOv8/v11 ball & rim model resized to 640
@@ -65,7 +66,7 @@ export const useShotTracker = (
   const perfPoseRunMs = useSharedValue(0)
   const perfYoloCallbacks = useSharedValue(0)
   const perfPoseCallbacks = useSharedValue(0)
-  const RIM_CONFIDENCE_THRESHOLD = 0.15 // Soglia confidence per sostituire rim calibrato
+  const RIM_CONFIDENCE_THRESHOLD = 0.12 // Soglia confidence per sostituire rim calibrato
 
   // ── Instance ID for debugging duplicate frames ─────────────────────────────────
   const instanceIdRef = useRef(Math.random().toString(36).substr(2, 9))
@@ -79,7 +80,7 @@ export const useShotTracker = (
   }, [instanceId])
 
   // ── Adaptive threshold adjustment ───────────────────────────────────────────────
-  const adaptiveThreshold = useSharedValue(0.15)
+  const adaptiveThreshold = useSharedValue(0.12)
   const detectionHistory = useRef<Array<{ confidence: number; timestamp: number }>>([])
   const TARGET_DETECTION_RATE = 0.2
   const ADAPTATION_WINDOW_MS = 2000
@@ -91,13 +92,13 @@ export const useShotTracker = (
   const yoloDelegates = (yoloDelegate ? [yoloDelegate] : ['android-gpu']) as any
   console.log('[ShotTracker] Loading YOLO model:', selectedYoloModel?.fileName, 'input:', selectedYoloModel?.inputSize, 'delegates:', JSON.stringify(yoloDelegates))
   const yoloModel = useTensorflowModel(
-    selectedYoloModel?.asset ?? require('../../assets/models/ball_rimV8_640_float16.tflite'),
+    (selectedYoloModel?.fileUri ?? selectedYoloModel?.asset ?? require('../../assets/models/ball_rimV8_640_float16.tflite')) as any,
     yoloDelegates,
   )
   const poseDelegates = (poseDelegate ? [poseDelegate] : ['android-gpu']) as any
   console.log('[ShotTracker] Loading MoveNet model with delegates:', JSON.stringify(poseDelegates))
   const poseModel = useTensorflowModel(
-    require('../../assets/models/movenet_lightning_int8.tflite'),
+    ((FileSystem as any).documentDirectory + 'movenet_lightning_int8.tflite') as any,
     poseDelegates,
   )
 

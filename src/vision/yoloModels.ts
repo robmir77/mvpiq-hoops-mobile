@@ -7,6 +7,9 @@
 // Run: node scripts/generate-yolo-models.mjs
 // after adding/removing .tflite files in assets/models.
 
+import * as FileSystem from 'expo-file-system/legacy'
+import { Asset } from 'expo-asset'
+
 export interface YoloModelConfig {
   id: string
   fileName: string
@@ -14,6 +17,7 @@ export interface YoloModelConfig {
   inputSize: number
   outputDetections: number
   asset: any
+  fileUri?: string
 }
 
 // GENERATED ENTRIES - do not edit manually.
@@ -76,17 +80,65 @@ export const DEFAULT_YOLO_MODEL_ID = 'ball_rimV8_512_float16'
 // Cache for stable model references to prevent unnecessary reloads
 const modelCache = new Map<string, YoloModelConfig>()
 
+// Copy asset from bundle to file system and return file URI
+async function copyAssetToFile(asset: any, fileName: string): Promise<string> {
+  const assetObj = Asset.fromModule(asset)
+  const localUri = assetObj.localUri || assetObj.uri
+
+  const destUri = (FileSystem as any).documentDirectory + fileName
+
+  // Check if file already exists
+  const fileInfo = await FileSystem.getInfoAsync(destUri)
+  if (fileInfo.exists) {
+    console.log('[YoloModels] File already exists:', destUri)
+    return destUri
+  }
+
+  // Copy file to document directory
+  await FileSystem.copyAsync({
+    from: localUri,
+    to: destUri
+  })
+
+  console.log('[YoloModels] Copied asset to:', destUri)
+  return destUri
+}
+
+// Preload all model assets - call this at app startup
+export async function preloadModelAssets(): Promise<void> {
+  console.log('[YoloModels] Preloading model assets...')
+
+  for (const model of YOLO_MODELS) {
+    try {
+      model.fileUri = await copyAssetToFile(model.asset, model.fileName)
+    } catch (error) {
+      console.error('[YoloModels] Failed to copy model:', model.fileName, error)
+    }
+  }
+
+  // Also preload MoveNet model
+  try {
+    const moveNetAsset = require('../../assets/models/movenet_lightning_int8.tflite')
+    const moveNetUri = await copyAssetToFile(moveNetAsset, 'movenet_lightning_int8.tflite')
+    console.log('[YoloModels] MoveNet preloaded:', moveNetUri)
+  } catch (error) {
+    console.error('[YoloModels] Failed to copy MoveNet model:', error)
+  }
+
+  console.log('[YoloModels] All model assets preloaded')
+}
+
 export function getYoloModel(modelId?: string): YoloModelConfig | null {
   const targetId = modelId ?? DEFAULT_YOLO_MODEL_ID
   const model = YOLO_MODELS.find(m => m.id === targetId) ?? YOLO_MODELS[0] ?? null
-  
+
   if (!model) return null
-  
+
   // Return cached reference if available
   if (modelCache.has(model.id)) {
     return modelCache.get(model.id)!
   }
-  
+
   // Cache the model reference
   modelCache.set(model.id, model)
   return model
