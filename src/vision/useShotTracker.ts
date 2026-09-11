@@ -44,7 +44,7 @@ import { getYoloModel, getMoveNetModelUri } from './yoloModels'
 // Model input sizes
 // ─────────────────────────────────────────────────────────────────────────────
 
-const YOLO_INPUT_SIZE = 416
+const YOLO_INPUT_SIZE = 512
 const DEFAULT_POSE_INPUT_SIZE = 192
 const POSE_INPUT_SIZES = [192, 256]
 

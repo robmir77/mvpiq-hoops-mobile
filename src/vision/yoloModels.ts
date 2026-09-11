@@ -36,7 +36,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     fileName: 'ball_rimV8_512_float16.tflite',
     label: 'YOLOv8 · 512 · FP16',
     inputSize: 512,
-    outputDetections: 5400,
+    outputDetections: 5376,
     asset: require('../../assets/models/ball_rimV8_512_float16.tflite'),
   },
   {

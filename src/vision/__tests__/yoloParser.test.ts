@@ -6,7 +6,7 @@
 import { parseYoloOutput } from '../yoloParser'
 
 describe('parseYoloOutput', () => {
-  const N_ANCHORS = 3549
+  const N_ANCHORS = 5376
 
   describe('ball detection', () => {
     it('should detect ball with high confidence', () => {
@@ -143,6 +143,28 @@ describe('parseYoloOutput', () => {
       const result = parseYoloOutput(mockOutput, threshold)
 
       expect(result.ball).toBeDefined()
+      expect(result.ball?.confidence).toBeCloseTo(0.9)
+    })
+  })
+
+  describe('model-dependent output sizes', () => {
+    it.each([
+      [320, 2100],
+      [512, 5376],
+      [640, 8400],
+    ])('parses channel-major output for %ip input (%i anchors)', (_inputSize, nAnchors) => {
+      const mockOutput = new Float32Array(nAnchors * 6)
+      const anchorIdx = Math.floor(nAnchors / 2)
+
+      mockOutput[anchorIdx] = 0.5
+      mockOutput[nAnchors + anchorIdx] = 0.5
+      mockOutput[nAnchors * 2 + anchorIdx] = 0.1
+      mockOutput[nAnchors * 3 + anchorIdx] = 0.1
+      mockOutput[nAnchors * 4 + anchorIdx] = 0.9
+
+      const result = parseYoloOutput(mockOutput, 0.5)
+
+      expect(result.ball).not.toBeNull()
       expect(result.ball?.confidence).toBeCloseTo(0.9)
     })
   })
