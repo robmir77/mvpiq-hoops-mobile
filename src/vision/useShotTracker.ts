@@ -123,7 +123,9 @@ export const useShotTracker = (
 
     yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
     poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
-    yoloModelId?: string
+    yoloModelId?: string,
+    selectedResolution?: { width: number; height: number } | null,
+    selectedFps?: number | null
 ) => {
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1040,17 +1042,21 @@ export const useShotTracker = (
 
                     if (runYolo) {
 
+                        const t0 = performance.now()
                         const resized =
                             yoloResizer?.resize(
                                 frame
                             )
+                        const t1 = performance.now()
 
                         if (resized) {
 
                             try {
 
+                                const t2 = performance.now()
                                 const pixelBuffer =
                                     resized.getPixelBuffer()
+                                const t3 = performance.now()
 
                                 const source =
                                     new Float32Array(
@@ -1062,6 +1068,7 @@ export const useShotTracker = (
                                     yoloInputElements
                                 ) {
                                     // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
+                                    const t4 = performance.now()
                                     const inputBuffer =
                                         source.buffer.slice(
                                             source.byteOffset,
@@ -1072,6 +1079,7 @@ export const useShotTracker = (
                                         yoloModelInstance!.runSync(
                                             [inputBuffer]
                                         )
+                                    const t5 = performance.now()
 
                                     // TFLite 3.x: runSync restituisce ArrayBuffer[], converti a Float32Array
                                     const output =
@@ -1079,6 +1087,7 @@ export const useShotTracker = (
                                             outputs[0] as ArrayBufferLike
                                         )
 
+                                    const t6 = performance.now()
                                     const {
                                         ball,
                                         rim,
@@ -1090,11 +1099,14 @@ export const useShotTracker = (
                                             frameWidth,
                                             frameHeight
                                         )
+                                    const t7 = performance.now()
+
+                                    console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms slice:${(t5-t4).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
 
                                     // Update ball detection flag for POSE conditional execution
                                     ballDetectedShared.value = ball !== null
 
-                                    // Throttle scheduleOnRN a 50ms per evitare instabilità del bridge
+                                    // Throttle scheduleOnJS a 50ms per evitare instabilità del bridge
                                     const now = Date.now()
                                     if (now - lastRNDispatch.value >= 50) {
                                         lastRNDispatch.value = now
@@ -1202,7 +1214,7 @@ export const useShotTracker = (
                                     const t7 = performance.now()
                                     console.log(`[POSE PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t6-t5).toFixed(1)}ms angles:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
 
-                                    // Throttle scheduleOnRN a 50ms per evitare instabilità del bridge
+                                    // Throttle scheduleOnJS a 50ms per evitare instabilità del bridge
                                     const now = Date.now()
                                     if (now - lastRNDispatch.value >= 50) {
                                         lastRNDispatch.value = now
@@ -1282,7 +1294,7 @@ export const useShotTracker = (
             pixelFormat:
                 'yuv',
 
-            targetResolution: {
+            targetResolution: selectedResolution || {
                 width: 1280,
                 height: 720,
             },
@@ -1335,8 +1347,10 @@ export const useShotTracker = (
             '[ShotTracker] Stable pipeline ready:'
         )
 
+        const cameraRes = selectedResolution || { width: 1280, height: 720 }
+        const cameraFps = selectedFps || 30
         console.log(
-            '[ShotTracker] Camera: YUV 1280x720'
+            `[ShotTracker] Camera: YUV ${cameraRes.width}x${cameraRes.height} @ ${cameraFps}fps`
         )
 
         console.log(
@@ -1358,7 +1372,9 @@ export const useShotTracker = (
             yoloInputSize,
             '| every',
             YOLO_FRAME_SKIP,
-            'frames'
+            'frames',
+            '| target FPS:',
+            Math.round(1000 / (yoloInputSize * yoloInputSize / 100000))
         )
 
         console.log(
@@ -1368,7 +1384,9 @@ export const useShotTracker = (
             POSE_INPUT_SIZE,
             '| every',
             POSE_FRAME_SKIP,
-            'frames'
+            'frames',
+            '| target FPS:',
+            Math.round(1000 / (POSE_INPUT_SIZE * POSE_INPUT_SIZE / 100000))
         )
 
     }, [isModelReady, yoloDelegates, poseDelegates])

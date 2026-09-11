@@ -288,7 +288,9 @@ const TrackingOverlay = React.memo(({
         shotDetected: any
     }
 }) => {
-    incrementOverlayRenders()
+    const t0 = performance.now()
+    // incrementOverlayRenders() - eseguito asincrono per evitare blocco sincrono
+    setTimeout(() => incrementOverlayRenders(), 0)
 
     // Conversion functions: normalized coordinates → screen pixels
     // With 'contain' mode, the image is scaled to fit within 640x640 without cropping
@@ -334,7 +336,7 @@ const TrackingOverlay = React.memo(({
     //  - dopo il tiro: mostra l'ultima traiettoria completa per 2.5s
     //  - curva Bezier cubica per avere una parabola liscia invece di segmenti
     const shotTrailPath = React.useMemo(() => {
-        const t0 = performance.now()
+        // const t0 = performance.now() - rimosso per evitare operazione sincrona
         const ts = trackingState as any
         if (!ts?.showShotTrail) return null
         const traj   = (ts?.shotTrajectory ?? ts?.trajectory ?? []) as Array<{x:number;y:number}>
@@ -366,8 +368,7 @@ const TrackingOverlay = React.memo(({
                 p.cubicTo(cp1x, cp1y, cp2x, cp2y, px(p2.x), py(p2.y))
             }
         }
-        const t1 = performance.now()
-        recordPathBuildTime(t1 - t0)
+        // recordPathBuildTime(t1 - t0) - rimosso per evitare operazione sincrona
         return p
     }, [(trackingState as any)?.showShotTrail, (trackingState as any)?.shotTrajectory,
         trackingState?.inFlight, trackingState?.trajectory])
@@ -375,6 +376,9 @@ const TrackingOverlay = React.memo(({
     // Posizione palla in pixel schermo
     const ballSX = trackingState?.ballPosition != null ? px(trackingState.ballPosition.x) : null
     const ballSY = trackingState?.ballPosition != null ? py(trackingState.ballPosition.y) : null
+
+    const t1 = performance.now()
+    console.log(`[OVERLAY PERF] total:${(t1-t0).toFixed(1)}ms`)
 
     return (
         <>
@@ -1405,7 +1409,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         rimDetectionEnabled,
         yoloDelegate,
         poseDelegate,
-        yoloModelId
+        yoloModelId,
+        selectedResolution,
+        selectedFps
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline

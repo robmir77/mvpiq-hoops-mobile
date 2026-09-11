@@ -38,6 +38,8 @@ export const useCameraPipeline = (
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   yoloModelId?: string,
+  selectedResolution?: { width: number; height: number } | null,
+  selectedFps?: number | null,
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
@@ -61,7 +63,9 @@ export const useCameraPipeline = (
     rimEnabled,
     yoloDelegate,
     poseDelegate,
-    yoloModelId
+    yoloModelId,
+    selectedResolution,
+    selectedFps
   )
 
   return {
