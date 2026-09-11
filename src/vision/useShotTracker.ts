@@ -190,7 +190,7 @@ export const useShotTracker = (
     const hasFatalError =
         useSharedValue(false)
 
-    // Throttle for scheduleOnRN calls - limit bridge crossings to ~100-150ms
+    // Throttle for scheduleOnRN calls - limit bridge crossings to ~50ms
     const lastRNDispatch =
         useSharedValue(0)
 
@@ -1094,9 +1094,9 @@ export const useShotTracker = (
                                     // Update ball detection flag for POSE conditional execution
                                     ballDetectedShared.value = ball !== null
 
-                                    // Throttle scheduleOnRN a 150ms per evitare instabilità del bridge
+                                    // Throttle scheduleOnRN a 50ms per evitare instabilità del bridge
                                     const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 150) {
+                                    if (now - lastRNDispatch.value >= 50) {
                                         lastRNDispatch.value = now
                                         scheduleOnRN(
                                             emitBallDetection,
@@ -1202,9 +1202,9 @@ export const useShotTracker = (
                                     const t7 = performance.now()
                                     console.log(`[POSE PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t6-t5).toFixed(1)}ms angles:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
 
-                                    // Throttle scheduleOnRN a 150ms per evitare instabilità del bridge
+                                    // Throttle scheduleOnRN a 50ms per evitare instabilità del bridge
                                     const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 150) {
+                                    if (now - lastRNDispatch.value >= 50) {
                                         lastRNDispatch.value = now
                                         scheduleOnRN(
                                             emitPoseResult,
