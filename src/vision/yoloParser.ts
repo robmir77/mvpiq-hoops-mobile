@@ -48,9 +48,15 @@ function nms(dets: number[][], thr: number): number[][] {
 // Returns the ball with highest confidence and the rim with highest confidence
 // Standard YOLOv8 TFLite format: (1, 6, num_anchors) where 6 = 4 coords + 2 class scores
 // Layout: [xc, yc, w, h, ball_score, rim_score] for each anchor
-export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, threshold: number = CONF_THRESHOLD): {
+export function parseYoloOutput(
+  output: Float32Array | Uint8Array | Int8Array,
+  threshold: number = CONF_THRESHOLD,
+  frameWidth?: number,
+  frameHeight?: number
+): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
+  debug?: { conf: number }
 } {
   'worklet'; // eslint-disable-line
   const raw: number[][] = []
@@ -112,6 +118,7 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
   let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+  let maxConfidence = 0
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
@@ -123,6 +130,10 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
       confidence: conf,
     }
 
+    if (conf > maxConfidence) {
+      maxConfidence = conf
+    }
+
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
     }
@@ -131,5 +142,5 @@ export function parseYoloOutput(output: Float32Array | Uint8Array | Int8Array, t
     }
   }
 
-  return { ball: bestBall, rim: bestRim }
+  return { ball: bestBall, rim: bestRim, debug: { conf: maxConfidence } }
 }

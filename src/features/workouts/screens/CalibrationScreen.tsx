@@ -23,12 +23,14 @@ import { saveCourtCalibration } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { calculateHomography, getCourtCornersMeters } from '../utils/homography'
 import {
+    type AndroidDelegateOption,
+    type IosDelegateOption,
+} from '@/vision/delegates'
+import {
     ANDROID_DELEGATE_OPTIONS,
     DEFAULT_ANDROID_DELEGATE,
     DEFAULT_IOS_DELEGATE,
-    type AndroidDelegateOption,
-    type IosDelegateOption,
-} from '@/vision'
+} from '@/vision/delegates'
 import { DEFAULT_YOLO_MODEL_ID, YOLO_MODELS } from '@/vision/yoloModels'
 
 const { width: SW, height: SH } = Dimensions.get('window')

@@ -1080,6 +1080,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate, yoloModelId } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
+    // Camera constraints for FPS
+    const constraints = React.useMemo(
+        () => selectedFps !== null ? [{ fps: selectedFps }] : [],
+        [selectedFps]
+    )
+
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
     const [isEnding, setIsEnding]           = useState(false)
@@ -1383,7 +1389,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isActive,
         requestPermission,
         setIsActive,
-        frameProcessor,
+        frameOutput,
         isModelReady,
         resetShotTracking,
     } = useCameraPipeline(
@@ -1656,9 +1662,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={isActive && !isPaused}
-                    outputs={[frameProcessor]}
+                    outputs={[frameOutput]}
                     zoom={isActive && !isPaused ? zoom : undefined}
                     resizeMode="cover"
+                    constraints={constraints}
                     onError={(error: any) => {
                         if (error.code === 'session/invalid-output-configuration') {
                             console.log('[WorkoutSession] Camera session error - remounting')

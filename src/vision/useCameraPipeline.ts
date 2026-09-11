@@ -11,6 +11,7 @@ import { useRef, useState } from 'react'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
 import { useShotTracker } from './useShotTracker'
 import type { BallDetection, PoseResult, ShotEvent } from './types'
+import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 
 export interface CameraPipelineResult {
   device: any
@@ -18,7 +19,7 @@ export interface CameraPipelineResult {
   isActive: boolean
   requestPermission: () => Promise<boolean>
   setIsActive: (v: boolean) => void
-  frameProcessor: any
+  frameOutput: any
   isModelReady: boolean
   resetShotTracking: () => void
 }
@@ -34,8 +35,8 @@ export const useCameraPipeline = (
   poseEnabled: boolean = true,
   ballEnabled: boolean = true,
   rimEnabled: boolean = false,
-  yoloDelegate?: string,
-  poseDelegate?: string,
+  yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
+  poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   yoloModelId?: string,
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
@@ -47,7 +48,7 @@ export const useCameraPipeline = (
   }
 
   // Initialize shot tracker with the new architecture
-  const { frameProcessor, isModelReady, resetShotTracking } = useShotTracker(
+  const { frameOutput, isModelReady, resetShotTracking } = useShotTracker(
     onBallDetection,
     onPoseResult,
     onShotEvent,
@@ -69,7 +70,7 @@ export const useCameraPipeline = (
     isActive,
     requestPermission,
     setIsActive,
-    frameProcessor,
+    frameOutput,
     isModelReady,
     resetShotTracking,
   }
