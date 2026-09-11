@@ -16,7 +16,7 @@ import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
 import type { BallDetection, PoseResult, ShotEvent, PoseKeypoints } from './types'
 import { incrementYoloFps, incrementMoveNetFps } from '@/features/workouts/hooks/usePerformanceMonitor'
-import { getYoloModel } from './yoloModels'
+import { getYoloModel, getMoveNetModelUri } from './yoloModels'
 import * as FileSystem from 'expo-file-system'
 
 // ── Model input sizes ──────────────────────────────────────────────────────────
@@ -91,14 +91,21 @@ export const useShotTracker = (
   
   const yoloDelegates = (yoloDelegate ? [yoloDelegate] : ['android-gpu']) as any
   console.log('[ShotTracker] Loading YOLO model:', selectedYoloModel?.fileName, 'input:', selectedYoloModel?.inputSize, 'delegates:', JSON.stringify(yoloDelegates))
+  const yoloModelSource = selectedYoloModel?.fileUri 
+    ? { url: selectedYoloModel.fileUri } as any
+    : selectedYoloModel?.asset as any
   const yoloModel = useTensorflowModel(
-    (selectedYoloModel?.fileUri ?? selectedYoloModel?.asset ?? require('../../assets/models/ball_rimV8_640_float16.tflite')) as any,
+    yoloModelSource,
     yoloDelegates,
   )
   const poseDelegates = (poseDelegate ? [poseDelegate] : ['android-gpu']) as any
-  console.log('[ShotTracker] Loading MoveNet model with delegates:', JSON.stringify(poseDelegates))
+  const moveNetUri = getMoveNetModelUri()
+  console.log('[ShotTracker] Loading MoveNet model with URI:', moveNetUri, 'delegates:', JSON.stringify(poseDelegates))
+  const poseModelSource = moveNetUri 
+    ? { url: moveNetUri } as any
+    : require('../../assets/models/movenet_lightning_int8.tflite') as any
   const poseModel = useTensorflowModel(
-    ((FileSystem as any).documentDirectory + 'movenet_lightning_int8.tflite') as any,
+    poseModelSource,
     poseDelegates,
   )
 

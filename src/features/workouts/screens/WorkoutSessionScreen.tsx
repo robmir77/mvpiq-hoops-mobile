@@ -45,6 +45,7 @@ import {
 } from '../api/workouts.api'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
+import { getYoloModel } from '@/vision/yoloModels'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -1110,6 +1111,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
     const resetShotTrackingRef = useRef<(() => void) | null>(null)
+    
+    // Get YOLO model name for loading messages
+    const selectedYoloModel = getYoloModel(yoloModelId)
+    const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
 
@@ -1701,7 +1706,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     <Text style={styles.trackingText}>
                         {trackingState?.ballPosition
                             ? `🏀 ${Math.round((trackingState.confidence??0)*100)}%`
-                            : modelsReady ? 'Cerca palla...' : 'Caricamento AI...'}
+                            : modelsReady ? 'Cerca palla...' : `Caricamento ${yoloModelName}...`}
                     </Text>
                 </View>
 
@@ -1720,7 +1725,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     <View style={styles.autoStatus}>
                         <View style={[styles.autoDot, trackingState?.ballPosition ? styles.autoDotActive : styles.autoDotIdle]} />
                         <Text style={styles.autoLabel}>
-                            {!modelsReady             ? 'Caricamento modelli AI...' :
+                            {!modelsReady             ? `Caricamento ${yoloModelName}...` :
                              trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
                              trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
                         </Text>

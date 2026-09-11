@@ -44,14 +44,7 @@
       "expo-asset",
       "expo-font",
       "expo-image-picker",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "minSdkVersion": 26
-          }
-        }
-      ],
+      "expo-build-properties",
       [
         "react-native-fast-tflite",
         {

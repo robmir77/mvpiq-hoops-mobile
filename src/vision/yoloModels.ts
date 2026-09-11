@@ -31,24 +31,6 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 2100,
     asset: require('../../assets/models/ball_rimV8_320_float16.tflite'),
   },
-  // Commented out - does not detect anything
-  // {
-  //   id: 'ball_rimV8_384_float16',
-  //   fileName: 'ball_rimV8_384_float16.tflite',
-  //   label: 'YOLOv8 · 384 · FP16',
-  //   inputSize: 384,
-  //   outputDetections: 3025,
-  //   asset: require('../../assets/models/ball_rimV8_384_float16.tflite'),
-  // },
-  // Commented out - causes crashes, possibly non-standard resolution
-  // {
-  //   id: 'ball_rimV8_416_float16',
-  //   fileName: 'ball_rimV8_416_float16.tflite',
-  //   label: 'YOLOv8 · 416 · FP16',
-  //   inputSize: 416,
-  //   outputDetections: 3549,
-  //   asset: require('../../assets/models/ball_rimV8_416_float16.tflite'),
-  // },
   {
     id: 'ball_rimV8_512_float16',
     fileName: 'ball_rimV8_512_float16.tflite',
@@ -65,17 +47,12 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 8400,
     asset: require('../../assets/models/ball_rimV8_640_float16.tflite'),
   },
-//  {
-//    id: 'ball_rimV8_720_float16',
-//    fileName: 'ball_rimV8_720_float16.tflite',
-//    label: 'YOLOv8 · 720 · FP16',
-//    inputSize: 720,
-//    outputDetections: 10654,
-//    asset: require('../../assets/models/ball_rimV8_720_float16.tflite'),
-//  },
 ]
 
 export const DEFAULT_YOLO_MODEL_ID = 'ball_rimV8_512_float16'
+
+// MoveNet model URI - loaded separately
+let moveNetModelUri: string | null = null
 
 // Cache for stable model references to prevent unnecessary reloads
 const modelCache = new Map<string, YoloModelConfig>()
@@ -83,8 +60,7 @@ const modelCache = new Map<string, YoloModelConfig>()
 // Copy asset from bundle to file system and return file URI
 async function copyAssetToFile(asset: any, fileName: string): Promise<string> {
   const assetObj = Asset.fromModule(asset)
-  const localUri = assetObj.localUri || assetObj.uri
-
+  
   const destUri = (FileSystem as any).documentDirectory + fileName
 
   // Check if file already exists
@@ -94,9 +70,12 @@ async function copyAssetToFile(asset: any, fileName: string): Promise<string> {
     return destUri
   }
 
-  // Copy file to document directory
+  // Download asset from bundle to document directory
+  await assetObj.downloadAsync()
+  
+  // Copy from downloaded local URI to destination
   await FileSystem.copyAsync({
-    from: localUri,
+    from: assetObj.localUri || assetObj.uri,
     to: destUri
   })
 
@@ -119,13 +98,18 @@ export async function preloadModelAssets(): Promise<void> {
   // Also preload MoveNet model
   try {
     const moveNetAsset = require('../../assets/models/movenet_lightning_int8.tflite')
-    const moveNetUri = await copyAssetToFile(moveNetAsset, 'movenet_lightning_int8.tflite')
-    console.log('[YoloModels] MoveNet preloaded:', moveNetUri)
+    moveNetModelUri = await copyAssetToFile(moveNetAsset, 'movenet_lightning_int8.tflite')
+    console.log('[YoloModels] MoveNet preloaded:', moveNetModelUri)
   } catch (error) {
     console.error('[YoloModels] Failed to copy MoveNet model:', error)
   }
 
   console.log('[YoloModels] All model assets preloaded')
+}
+
+// Get MoveNet model URI
+export function getMoveNetModelUri(): string | null {
+  return moveNetModelUri
 }
 
 export function getYoloModel(modelId?: string): YoloModelConfig | null {
