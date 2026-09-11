@@ -40,6 +40,7 @@ export const useCameraPipeline = (
   yoloModelId?: string,
   selectedResolution?: { width: number; height: number } | null,
   selectedFps?: number | null,
+  selectedPoseResolution?: number,
 ): CameraPipelineResult => {
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
@@ -65,7 +66,8 @@ export const useCameraPipeline = (
     poseDelegate,
     yoloModelId,
     selectedResolution,
-    selectedFps
+    selectedFps,
+    selectedPoseResolution
   )
 
   return {

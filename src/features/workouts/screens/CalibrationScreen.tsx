@@ -38,6 +38,8 @@ const CAM_H = SH * 0.52
 const MIN_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_FPS = 30
+const DEFAULT_POSE_RESOLUTION = 192
+const POSE_RESOLUTIONS = [192, 256]
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
@@ -742,6 +744,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const cameraRef = useRef<CameraRef>(null)
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
+    const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(DEFAULT_POSE_RESOLUTION)
     const [selectedYoloModelId, setSelectedYoloModelId] = useState<string>(DEFAULT_YOLO_MODEL_ID)
     const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
         Platform.OS === 'android' ? 'android-gpu' : DEFAULT_IOS_DELEGATE
@@ -924,7 +927,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const handleProceed = () => {
         if (isNavigating) return
         setIsNavigating(true)
-        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
+        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
     }
 
     const handleSkip = () => {
@@ -934,7 +937,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             () => {
                 if (isNavigating) return
                 setIsNavigating(true)
-                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
+                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
             }
         )
     }
@@ -1145,6 +1148,24 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                     </Picker>
                                 </View>
                                 <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
+                            </View>
+
+                            {/* Pose Resolution selector */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>Risoluzione Pose (corpo)</Text>
+                                <View style={styles.pickerWrap}>
+                                    <Picker
+                                        selectedValue={selectedPoseResolution}
+                                        onValueChange={value => setSelectedPoseResolution(Number(value))}
+                                        dropdownIconColor="#ff8c00"
+                                        style={styles.picker}
+                                    >
+                                        {POSE_RESOLUTIONS.map(res => (
+                                            <Picker.Item key={res} label={`${res} × ${res}`} value={res} />
+                                        ))}
+                                    </Picker>
+                                </View>
+                                <Text style={styles.configHint}>Risoluzione input per MoveNet · default 192 · 256 per maggiore precisione</Text>
                             </View>
 
                             {/* FPS selector */}

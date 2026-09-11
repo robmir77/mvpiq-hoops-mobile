@@ -60,6 +60,7 @@ export function parseYoloOutput(
 } {
   'worklet'; // eslint-disable-line
   const raw: number[][] = []
+  let maxRawConfidence = 0
 
   // Convert to float values if needed (for INT8 quantized output)
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
@@ -83,6 +84,17 @@ export function parseYoloOutput(
     const h  = isQuantized ? output[3 * nDetections + i] / 255.0 : output[3 * nDetections + i]
     const ballScore = isQuantized ? output[4 * nDetections + i] / 255.0 : output[4 * nDetections + i]
     const rimScore  = isQuantized ? output[5 * nDetections + i] / 255.0 : output[5 * nDetections + i]
+
+    // Unconditional — tracks the model's real signal regardless of
+    // whether anything clears the threshold or the box-size filters
+    // below. Without this, "maxConf" in the logs collapses to 0 the
+    // moment nothing survives thresholding, making it impossible to
+    // tell "the model sees nothing" apart from "close, but just under
+    // threshold".
+    const anchorMax = ballScore > rimScore ? ballScore : rimScore
+    if (anchorMax > maxRawConfidence) {
+        maxRawConfidence = anchorMax
+    }
 
     // Skip invalid detections (zero size only)
     if (w <= 0.01 || h <= 0.01) continue
@@ -118,7 +130,6 @@ export function parseYoloOutput(
   // Keep only the ball with highest confidence and the rim with highest confidence
   let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
   let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
-  let maxConfidence = 0
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
@@ -130,10 +141,6 @@ export function parseYoloOutput(
       confidence: conf,
     }
 
-    if (conf > maxConfidence) {
-      maxConfidence = conf
-    }
-
     if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
       bestBall = detection
     }
@@ -142,5 +149,5 @@ export function parseYoloOutput(
     }
   }
 
-  return { ball: bestBall, rim: bestRim, debug: { conf: maxConfidence } }
+  return { ball: bestBall, rim: bestRim, debug: { conf: maxRawConfidence } }
 }

@@ -45,7 +45,8 @@ import { getYoloModel, getMoveNetModelUri } from './yoloModels'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const YOLO_INPUT_SIZE = 416
-const POSE_INPUT_SIZE = 192
+const DEFAULT_POSE_INPUT_SIZE = 192
+const POSE_INPUT_SIZES = [192, 256]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
@@ -65,8 +66,8 @@ const YOLO_INPUT_ELEMENTS =
     3
 
 const POSE_INPUT_ELEMENTS =
-    POSE_INPUT_SIZE *
-    POSE_INPUT_SIZE *
+    DEFAULT_POSE_INPUT_SIZE *
+    DEFAULT_POSE_INPUT_SIZE *
     3
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,7 +126,8 @@ export const useShotTracker = (
     poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
     yoloModelId?: string,
     selectedResolution?: { width: number; height: number } | null,
-    selectedFps?: number | null
+    selectedFps?: number | null,
+    selectedPoseResolution?: number
 ) => {
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -192,7 +194,7 @@ export const useShotTracker = (
     const hasFatalError =
         useSharedValue(false)
 
-    // Throttle for scheduleOnRN calls - limit bridge crossings to ~50ms
+    // Throttle for scheduleOnRN calls - limit bridge crossings to ~16ms
     const lastRNDispatch =
         useSharedValue(0)
 
@@ -249,9 +251,6 @@ export const useShotTracker = (
     const rimEnabledShared =
         useSharedValue(rimEnabled)
 
-    // Track if ball was detected in recent frames to conditionally run POSE
-    const ballDetectedShared =
-        useSharedValue(false)
 
     // ─────────────────────────────────────────────────────────────────────────
     // Adaptive confidence threshold
@@ -854,8 +853,6 @@ export const useShotTracker = (
                 result: PoseResult
             ) => {
 
-                incrementMoveNetFps()
-
                 onPoseResultRef.current(
                     result
                 )
@@ -895,28 +892,19 @@ export const useShotTracker = (
             [yoloInputSize]
         )
 
+    const poseInputSize = selectedPoseResolution ?? DEFAULT_POSE_INPUT_SIZE
+
     const poseResizerConfig =
         useMemo(
             () => ({
-                width:
-                POSE_INPUT_SIZE,
-
-                height:
-                POSE_INPUT_SIZE,
-
-                channelOrder:
-                    'rgb' as const,
-
-                dataType:
-                    'uint8' as const,
-
-                pixelLayout:
-                    'interleaved' as const,
-
-                scaleMode:
-                    'contain' as const,
+                width: poseInputSize,
+                height: poseInputSize,
+                channelOrder: 'rgb' as const,
+                dataType: 'uint8' as const,
+                pixelLayout: 'interleaved' as const,
+                scaleMode: 'contain' as const,
             }),
-            []
+            [poseInputSize]
         )
 
     const {
@@ -1029,12 +1017,10 @@ export const useShotTracker = (
                         ballEnabledShared.value &&
                         currentFrame % YOLO_FRAME_SKIP === 0
 
-                    // POSE runs only when ball was detected in recent frames
                     const runPose =
                         poseReady &&
                         poseEnabledShared.value &&
-                        currentFrame % POSE_FRAME_SKIP === 0 &&
-                        ballDetectedShared.value
+                        currentFrame % POSE_FRAME_SKIP === 0
 
                     // ────────────────────────────────────────────────────────────────
                     // YOLO
@@ -1103,12 +1089,10 @@ export const useShotTracker = (
 
                                     console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms slice:${(t5-t4).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
 
-                                    // Update ball detection flag for POSE conditional execution
-                                    ballDetectedShared.value = ball !== null
 
-                                    // Throttle scheduleOnJS a 50ms per evitare instabilità del bridge
+                                    // Throttle scheduleOnJS a 16ms per evitare instabilità del bridge
                                     const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 50) {
+                                    if (now - lastRNDispatch.value >= 16) {
                                         lastRNDispatch.value = now
                                         scheduleOnRN(
                                             emitBallDetection,
@@ -1214,9 +1198,12 @@ export const useShotTracker = (
                                     const t7 = performance.now()
                                     console.log(`[POSE PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t6-t5).toFixed(1)}ms angles:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
 
-                                    // Throttle scheduleOnJS a 50ms per evitare instabilità del bridge
+                                    // Increment FPS counter immediately after pose inference
+                                    scheduleOnRN(incrementMoveNetFps)
+
+                                    // Throttle scheduleOnJS a 16ms per evitare instabilità del bridge
                                     const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 50) {
+                                    if (now - lastRNDispatch.value >= 16) {
                                         lastRNDispatch.value = now
                                         scheduleOnRN(
                                             emitPoseResult,
@@ -1379,14 +1366,14 @@ export const useShotTracker = (
 
         console.log(
             '[ShotTracker] MoveNet:',
-            POSE_INPUT_SIZE,
+            poseInputSize,
             'x',
-            POSE_INPUT_SIZE,
+            poseInputSize,
             '| every',
             POSE_FRAME_SKIP,
             'frames',
             '| target FPS:',
-            Math.round(1000 / (POSE_INPUT_SIZE * POSE_INPUT_SIZE / 100000))
+            Math.round(1000 / (poseInputSize * poseInputSize / 100000))
         )
 
     }, [isModelReady, yoloDelegates, poseDelegates])
