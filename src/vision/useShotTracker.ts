@@ -46,14 +46,19 @@ import { DEFAULT_MOVENET_MODEL_ID, getYoloModel, getMoveNetModel, getMoveNetMode
 
 const YOLO_INPUT_SIZE = 512
 const DEFAULT_POSE_INPUT_SIZE = 192
+const DEFAULT_POSE_PROCESSING_RESOLUTION = 320
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
 // ─────────────────────────────────────────────────────────────────────────────
 
-const YOLO_FRAME_SKIP = 1
-// POSE runs only when YOLO detects a ball with sufficient confidence
-const POSE_FRAME_SKIP = 1
+const YOLO_FRAME_SKIP = 2
+// Deterministic MoveNet scheduling:
+// - 192 processing mode: every 3 frames
+// - 320 processing mode: every 4 frames
+// The TFLite Lightning tensor remains fixed at 192x192.
+const POSE_FRAME_SKIP_192 = 3
+const POSE_FRAME_SKIP_320 = 4
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Expected input buffer sizes
@@ -1023,10 +1028,20 @@ export const useShotTracker = (
                         ballEnabledShared.value &&
                         currentFrame % YOLO_FRAME_SKIP === 0
 
+                    const poseProcessingResolution =
+                        selectedPoseResolution === 192
+                            ? 192
+                            : DEFAULT_POSE_PROCESSING_RESOLUTION
+
+                    const poseFrameSkip =
+                        poseProcessingResolution === 320
+                            ? POSE_FRAME_SKIP_320
+                            : POSE_FRAME_SKIP_192
+
                     const runPose =
                         poseReady &&
                         poseEnabledShared.value &&
-                        currentFrame % POSE_FRAME_SKIP === 0
+                        currentFrame % poseFrameSkip === 0
 
                     // ────────────────────────────────────────────────────────────────
                     // YOLO
@@ -1275,6 +1290,7 @@ export const useShotTracker = (
                 emitBallDetection,
                 emitPoseResult,
                 scheduleFatalErrorRecovery,
+                selectedPoseResolution,
             ]
         )
 
@@ -1371,18 +1387,22 @@ export const useShotTracker = (
         )
 
         console.log(
-            '[ShotTracker] MoveNet:',
+            '[ShotTracker] MoveNet processing:',
+            selectedPoseResolution === 192 ? 192 : DEFAULT_POSE_PROCESSING_RESOLUTION,
+            'x',
+            selectedPoseResolution === 192 ? 192 : DEFAULT_POSE_PROCESSING_RESOLUTION,
+            '| tensor:',
             poseInputSize,
             'x',
             poseInputSize,
             '| every',
-            POSE_FRAME_SKIP,
+            selectedPoseResolution === 192 ? POSE_FRAME_SKIP_192 : POSE_FRAME_SKIP_320,
             'frames',
             '| target FPS:',
             Math.round(1000 / (poseInputSize * poseInputSize / 100000))
         )
 
-    }, [isModelReady, yoloDelegates, poseDelegates, poseInputSize, selectedMoveNetModel?.id])
+    }, [isModelReady, yoloDelegates, poseDelegates, poseInputSize, selectedMoveNetModel?.id, selectedPoseResolution])
 
     // ─────────────────────────────────────────────────────────────────────────
     // Return

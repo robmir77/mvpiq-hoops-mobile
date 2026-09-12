@@ -38,7 +38,7 @@ const CAM_H = SH * 0.52
 const MIN_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_FPS = 30
-const DEFAULT_POSE_RESOLUTION = 240
+const DEFAULT_POSE_RESOLUTION = 320
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
@@ -1164,13 +1164,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         style={styles.picker}
                                     >
                                         <Picker.Item label="192 × 192" value={192} />
-                                        <Picker.Item label="240 × 240 · default" value={240} />
-                                        <Picker.Item label="320 × 320" value={320} />
+                                        <Picker.Item label="320 × 320 · default" value={320} />
                                     </Picker>
                                 </View>
                                 <Text style={styles.configHint}>
                                     Elaborazione selezionata: {selectedPoseResolution}×{selectedPoseResolution}
-                                    {' · '}modello TFLite: {MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}×{MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}
+                                    {' · '}tensor TFLite Lightning: {MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}×{MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}
                                 </Text>
                             </View>
 
