@@ -76,6 +76,11 @@ export function parseYoloOutput(
     return { ball: null, rim: null }
   }
 
+  // Track the anchor with maximum confidence for debugging
+  let maxAnchorIndex = -1
+  let maxAnchorConf = -1
+  let maxAnchorRaw: { cx: number; cy: number; w: number; h: number; ballScore: number; rimScore: number } | null = null
+
   // Model coordinates are inverted relative to image coordinates
   for (let i = 0; i < nDetections; i++) {
     const cx = 1.0 - (isQuantized ? output[i] / 255.0 : output[i])
@@ -147,6 +152,29 @@ export function parseYoloOutput(
     if (cls === 1 && detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
       bestRim = detection
     }
+  }
+
+  // Debug: log raw vs parsed for max anchor
+  if (maxAnchorRaw && maxAnchorIndex >= 0) {
+    console.log('[YOLO PARSER DEBUG]', {
+      anchorIndex: maxAnchorIndex,
+      raw: maxAnchorRaw,
+      parsedBall: bestBall ? {
+        x: bestBall.x,
+        y: bestBall.y,
+        width: bestBall.width,
+        height: bestBall.height,
+        confidence: bestBall.confidence
+      } : null,
+      parsedRim: bestRim ? {
+        x: bestRim.x,
+        y: bestRim.y,
+        width: bestRim.width,
+        height: bestRim.height,
+        confidence: bestRim.confidence
+      } : null,
+      threshold: threshold
+    })
   }
 
   return { ball: bestBall, rim: bestRim, debug: { conf: maxRawConfidence } }

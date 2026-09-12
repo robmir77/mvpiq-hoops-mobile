@@ -1135,6 +1135,46 @@ export const useShotTracker = (
                                             outputs[0] as ArrayBufferLike
                                         )
 
+                                    // Dump raw YOLO output to verify 6-channel format
+                                    const nAnchors = Math.floor(output.length / 6)
+                                    if (currentFrame % 10 === 0) { // Log every 10 frames to avoid spam
+                                        console.log('[YOLO RAW]', {
+                                            length: output.length,
+                                            nAnchors: nAnchors,
+                                            first20: Array.from(output.slice(0, 20)),
+                                            channel0_cx: Array.from(output.slice(0, 10)),
+                                            channel1_cy: Array.from(output.slice(nAnchors, nAnchors + 10)),
+                                            channel2_w: Array.from(output.slice(nAnchors * 2, nAnchors * 2 + 10)),
+                                            channel3_h: Array.from(output.slice(nAnchors * 3, nAnchors * 3 + 10)),
+                                            channel4_ball: Array.from(output.slice(nAnchors * 4, nAnchors * 4 + 10)),
+                                            channel5_rim: Array.from(output.slice(nAnchors * 5, nAnchors * 5 + 10)),
+                                        })
+
+                                        // Find anchor with max confidence
+                                        let maxConf = -1
+                                        let maxIdx = -1
+                                        for (let i = 0; i < nAnchors; i++) {
+                                            const ballScore = output[nAnchors * 4 + i]
+                                            const rimScore = output[nAnchors * 5 + i]
+                                            const maxScore = ballScore > rimScore ? ballScore : rimScore
+                                            if (maxScore > maxConf) {
+                                                maxConf = maxScore
+                                                maxIdx = i
+                                            }
+                                        }
+                                        if (maxIdx >= 0) {
+                                            console.log('[YOLO MAX ANCHOR]', {
+                                                index: maxIdx,
+                                                cx: output[maxIdx],
+                                                cy: output[nAnchors + maxIdx],
+                                                w: output[nAnchors * 2 + maxIdx],
+                                                h: output[nAnchors * 3 + maxIdx],
+                                                ballScore: output[nAnchors * 4 + maxIdx],
+                                                rimScore: output[nAnchors * 5 + maxIdx],
+                                            })
+                                        }
+                                    }
+
                                     const t6 = performance.now()
                                     const {
                                         ball,
@@ -1147,6 +1187,51 @@ export const useShotTracker = (
                                             frameWidth,
                                             frameHeight
                                         )
+
+                                    // Debug: compare raw max anchor with parsed result
+                                    if (currentFrame % 10 === 0) {
+                                        // Find max anchor in raw output
+                                        let maxRawConf = -1
+                                        let maxRawIdx = -1
+                                        for (let i = 0; i < nAnchors; i++) {
+                                            const ballScore = output[nAnchors * 4 + i]
+                                            const rimScore = output[nAnchors * 5 + i]
+                                            const maxScore = ballScore > rimScore ? ballScore : rimScore
+                                            if (maxScore > maxRawConf) {
+                                                maxRawConf = maxScore
+                                                maxRawIdx = i
+                                            }
+                                        }
+                                        if (maxRawIdx >= 0) {
+                                            const rawCx = output[maxRawIdx]
+                                            const rawCy = output[nAnchors + maxRawIdx]
+                                            const rawW = output[nAnchors * 2 + maxRawIdx]
+                                            const rawH = output[nAnchors * 3 + maxRawIdx]
+                                            console.log('[YOLO RAW vs PARSED]', {
+                                                rawAnchor: {
+                                                    index: maxRawIdx,
+                                                    normalized: {
+                                                        cx: rawCx,
+                                                        cy: rawCy,
+                                                        w: rawW,
+                                                        h: rawH,
+                                                        ballScore: output[nAnchors * 4 + maxRawIdx],
+                                                        rimScore: output[nAnchors * 5 + maxRawIdx],
+                                                    },
+                                                    pixels: {
+                                                        cx: rawCx * 512,
+                                                        cy: rawCy * 512,
+                                                        w: rawW * 512,
+                                                        h: rawH * 512,
+                                                    }
+                                                },
+                                                parsedBall: ball,
+                                                parsedRim: rim,
+                                                threshold: adaptiveThreshold.value
+                                            })
+                                        }
+                                    }
+
                                     const t7 = performance.now()
                                     yoloExecutedThisFrame = true
                                     perfYoloExecuted.value += 1
