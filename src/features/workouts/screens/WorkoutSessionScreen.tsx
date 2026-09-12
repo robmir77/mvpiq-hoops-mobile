@@ -45,13 +45,17 @@ import {
 } from '../api/workouts.api'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
-import { getYoloModel } from '@/vision/yoloModels'
+import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel } from '@/vision/yoloModels'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
 const CAMERA_RES_W = 1280  // Camera resolution width
 const CAMERA_RES_H = 720   // Camera resolution height
-const YOLO_INPUT_SIZE = 640 // YOLO model input size
+const YOLO_INPUT_SIZE = 512 // YOLO model input size
+const DEFAULT_CAMERA_RESOLUTION = { width: 1280, height: 720 }
+const DEFAULT_CAMERA_FPS = 30
+const DEFAULT_POSE_RESOLUTION = 320
+const DEFAULT_CAMERA_ZOOM = 1
 const COURT_WIDTH_M  = 15.24
 const COURT_HEIGHT_M = 28.65
 const HOOP_Y_M       = 1.575
@@ -1230,10 +1234,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
+    // Resume-safe camera/model defaults. The WorkoutHome "Riprendi" route
+    // intentionally passes only sessionId, so the session screen must never
+    // forward undefined camera parameters to VisionCamera/the pipeline.
+    const effectiveResolution = selectedResolution ?? DEFAULT_CAMERA_RESOLUTION
+    const effectiveFps = selectedFps ?? DEFAULT_CAMERA_FPS
+    const effectivePoseResolution = selectedPoseResolution ?? DEFAULT_POSE_RESOLUTION
+    const effectiveYoloModelId = yoloModelId ?? DEFAULT_YOLO_MODEL_ID
+    const effectiveMoveNetModelId = moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID
+    const effectiveZoom = zoom ?? DEFAULT_CAMERA_ZOOM
+
     // Camera constraints for FPS
     const constraints = React.useMemo(
-        () => selectedFps !== null ? [{ fps: selectedFps }] : [],
-        [selectedFps]
+        () => [{ fps: effectiveFps }],
+        [effectiveFps]
     )
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1270,7 +1284,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const resetShotTrackingRef = useRef<(() => void) | null>(null)
     
     // Get YOLO model name for loading messages
-    const selectedYoloModel = getYoloModel(yoloModelId)
+    const selectedYoloModel = getYoloModel(effectiveYoloModelId)
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
@@ -1568,11 +1582,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         rimDetectionEnabled,
         yoloDelegate,
         poseDelegate,
-        yoloModelId,
-        selectedResolution,
-        selectedFps,
-        selectedPoseResolution,
-        moveNetModelId
+        effectiveYoloModelId,
+        effectiveResolution,
+        effectiveFps,
+        effectivePoseResolution,
+        effectiveMoveNetModelId
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
@@ -1830,7 +1844,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive && !isPaused}
                     outputs={[frameOutput]}
-                    zoom={isActive && !isPaused ? zoom : undefined}
+                    zoom={isActive && !isPaused ? effectiveZoom : undefined}
                     resizeMode="cover"
                     constraints={constraints}
                     onError={(error: any) => {

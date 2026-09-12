@@ -34,7 +34,7 @@ function getAdaptiveThreshold(ballWidth: number, ballHeight: number, baseThresho
 
   // Tiny but still potentially usable balls: do not lower the threshold
   // further than this. Below MIN_BALL_RADIUS we reject as visual noise.
-  return baseThreshold * 0.02
+  return baseThreshold * 0.05
 }
 
 // YOLOv8 detection head strides for multi-scale feature pyramid
@@ -49,7 +49,7 @@ const MAX_BALL_BOX_SIZE = 0.7
 // a radius threshold, not a minimum accepted ball size: above it, smaller
 // balls are made progressively easier to accept via the adaptive threshold.
 // 0.01 radius = 0.02 normalized diameter (~10 px at 512x512).
-const MIN_BALL_RADIUS = 0.02
+const MIN_BALL_RADIUS = 0.01
 // For rim, keep a more conservative filter.
 const MAX_RIM_BOX_SIZE = 0.8
 
