@@ -51,7 +51,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
 const CAMERA_RES_W = 1280  // Camera resolution width
 const CAMERA_RES_H = 720   // Camera resolution height
-const YOLO_INPUT_SIZE = 512 // Default YOLO model input size (actual size comes from selected model)
+const YOLO_INPUT_SIZE = 640 // YOLO model input size
 const COURT_WIDTH_M  = 15.24
 const COURT_HEIGHT_M = 28.65
 const HOOP_Y_M       = 1.575
@@ -1081,7 +1081,7 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 // ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId } = route.params || {}
+    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
     // Camera constraints for FPS
@@ -1412,7 +1412,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         yoloModelId,
         selectedResolution,
         selectedFps,
-        selectedPoseResolution
+        selectedPoseResolution,
+        moveNetModelId
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline

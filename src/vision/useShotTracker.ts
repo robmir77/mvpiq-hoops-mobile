@@ -38,7 +38,7 @@ import {
 } from '@/features/workouts/hooks/usePerformanceMonitor'
 
 import { Platform } from 'react-native'
-import { getYoloModel, getMoveNetModelUri } from './yoloModels'
+import { DEFAULT_MOVENET_MODEL_ID, getYoloModel, getMoveNetModel, getMoveNetModelUri } from './yoloModels'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model input sizes
@@ -46,7 +46,6 @@ import { getYoloModel, getMoveNetModelUri } from './yoloModels'
 
 const YOLO_INPUT_SIZE = 512
 const DEFAULT_POSE_INPUT_SIZE = 192
-const POSE_INPUT_SIZES = [192, 256]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
@@ -65,10 +64,6 @@ const YOLO_INPUT_ELEMENTS =
     YOLO_INPUT_SIZE *
     3
 
-const POSE_INPUT_ELEMENTS =
-    DEFAULT_POSE_INPUT_SIZE *
-    DEFAULT_POSE_INPUT_SIZE *
-    3
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -127,7 +122,8 @@ export const useShotTracker = (
     yoloModelId?: string,
     selectedResolution?: { width: number; height: number } | null,
     selectedFps?: number | null,
-    selectedPoseResolution?: number
+    selectedPoseResolution?: number,
+    moveNetModelId?: string
 ) => {
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -354,13 +350,25 @@ export const useShotTracker = (
         )
 
     // IMPORTANT: same stability requirement as yoloModelSource above.
-    const moveNetUri = getMoveNetModelUri()
+    const selectedMoveNetModel = useMemo(
+        () => getMoveNetModel(moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID),
+        [moveNetModelId]
+    )
+
+    // The currently bundled MoveNet model has a fixed TFLite input size.
+    // Keep the model tensor size separate from the user-selected processing
+    // resolution so a 240/320 selection cannot create an incompatible buffer.
+    const poseInputSize = selectedMoveNetModel?.inputSize ?? DEFAULT_POSE_INPUT_SIZE
+    const poseInputElements = poseInputSize * poseInputSize * 3
+    const poseExpectedKeypoints = selectedMoveNetModel?.outputKeypoints ?? 17
+
+    const moveNetUri = getMoveNetModelUri(moveNetModelId)
     const poseModelSource = useMemo(
         () => moveNetUri
             ? { url: moveNetUri } as any
-            : require('../../assets/models/movenet_lightning_int8.tflite') as any,
+            : selectedMoveNetModel?.asset as any,
         // Re-derive only when the URI itself changes (null → path or path change).
-        [moveNetUri]
+        [moveNetUri, selectedMoveNetModel?.asset]
     )
 
     const poseModel =
@@ -892,8 +900,6 @@ export const useShotTracker = (
             [yoloInputSize]
         )
 
-    const poseInputSize = selectedPoseResolution ?? DEFAULT_POSE_INPUT_SIZE
-
     const poseResizerConfig =
         useMemo(
             () => ({
@@ -1162,7 +1168,7 @@ export const useShotTracker = (
 
                                 if (
                                     source.length ===
-                                    POSE_INPUT_ELEMENTS
+                                    poseInputElements
                                 ) {
                                     // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
                                     const inputBuffer =
@@ -1376,7 +1382,7 @@ export const useShotTracker = (
             Math.round(1000 / (poseInputSize * poseInputSize / 100000))
         )
 
-    }, [isModelReady, yoloDelegates, poseDelegates])
+    }, [isModelReady, yoloDelegates, poseDelegates, poseInputSize, selectedMoveNetModel?.id])
 
     // ─────────────────────────────────────────────────────────────────────────
     // Return

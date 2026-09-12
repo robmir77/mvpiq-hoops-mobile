@@ -10,6 +10,16 @@
 import * as FileSystem from 'expo-file-system/legacy'
 import { Asset } from 'expo-asset'
 
+export interface MoveNetModelConfig {
+  id: string
+  fileName: string
+  label: string
+  inputSize: number
+  outputKeypoints: number
+  asset: any
+  fileUri?: string
+}
+
 export interface YoloModelConfig {
   id: string
   fileName: string
@@ -51,8 +61,24 @@ export const YOLO_MODELS: YoloModelConfig[] = [
 
 export const DEFAULT_YOLO_MODEL_ID = 'ball_rimV8_512_float16'
 
+// MoveNet model registry. Keep the model input size here so the camera
+// resizer and the TFLite input buffer can never drift apart.
+export const MOVENET_MODELS: MoveNetModelConfig[] = [
+  {
+    id: 'movenet_lightning_int8_192',
+    fileName: 'movenet_lightning_int8.tflite',
+    label: 'MoveNet Lightning · INT8 · 192',
+    inputSize: 192,
+    outputKeypoints: 17,
+    asset: require('../../assets/models/movenet_lightning_int8.tflite'),
+  },
+]
+
+export const DEFAULT_MOVENET_MODEL_ID = 'movenet_lightning_int8_192'
+
 // MoveNet model URI - loaded separately
 let moveNetModelUri: string | null = null
+const moveNetModelCache = new Map<string, MoveNetModelConfig>()
 
 // Cache for stable model references to prevent unnecessary reloads
 const modelCache = new Map<string, YoloModelConfig>()
@@ -97,8 +123,10 @@ export async function preloadModelAssets(): Promise<void> {
 
   // Also preload MoveNet model
   try {
-    const moveNetAsset = require('../../assets/models/movenet_lightning_int8.tflite')
-    moveNetModelUri = await copyAssetToFile(moveNetAsset, 'movenet_lightning_int8.tflite')
+    const moveNetModel = getMoveNetModel()
+    if (!moveNetModel) throw new Error('No MoveNet model configured')
+    moveNetModelUri = await copyAssetToFile(moveNetModel.asset, moveNetModel.fileName)
+    moveNetModel.fileUri = moveNetModelUri
     console.log('[YoloModels] MoveNet preloaded:', moveNetModelUri)
   } catch (error) {
     console.error('[YoloModels] Failed to copy MoveNet model:', error)
@@ -108,8 +136,18 @@ export async function preloadModelAssets(): Promise<void> {
 }
 
 // Get MoveNet model URI
-export function getMoveNetModelUri(): string | null {
-  return moveNetModelUri
+export function getMoveNetModel(modelId?: string): MoveNetModelConfig | null {
+  const targetId = modelId ?? DEFAULT_MOVENET_MODEL_ID
+  const model = MOVENET_MODELS.find(m => m.id === targetId) ?? MOVENET_MODELS[0] ?? null
+  if (!model) return null
+  if (moveNetModelCache.has(model.id)) return moveNetModelCache.get(model.id)!
+  moveNetModelCache.set(model.id, model)
+  return model
+}
+
+export function getMoveNetModelUri(modelId?: string): string | null {
+  const model = getMoveNetModel(modelId)
+  return model?.fileUri ?? moveNetModelUri
 }
 
 export function getYoloModel(modelId?: string): YoloModelConfig | null {

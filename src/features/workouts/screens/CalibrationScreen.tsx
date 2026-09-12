@@ -31,15 +31,14 @@ import {
     DEFAULT_ANDROID_DELEGATE,
     DEFAULT_IOS_DELEGATE,
 } from '@/vision/delegates'
-import { DEFAULT_YOLO_MODEL_ID, YOLO_MODELS } from '@/vision/yoloModels'
+import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, MOVENET_MODELS, YOLO_MODELS } from '@/vision/yoloModels'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
 const MIN_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_FPS = 30
-const DEFAULT_POSE_RESOLUTION = 192
-const POSE_RESOLUTIONS = [192, 256]
+const DEFAULT_POSE_RESOLUTION = 240
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
@@ -745,6 +744,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
     const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(DEFAULT_POSE_RESOLUTION)
+    const [selectedMoveNetModelId, setSelectedMoveNetModelId] = useState<string>(DEFAULT_MOVENET_MODEL_ID)
     const [selectedYoloModelId, setSelectedYoloModelId] = useState<string>(DEFAULT_YOLO_MODEL_ID)
     const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
         Platform.OS === 'android' ? 'android-gpu' : DEFAULT_IOS_DELEGATE
@@ -823,7 +823,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
         if (YOLO_MODELS.length > 0 && !YOLO_MODELS.some(m => m.id === selectedYoloModelId)) {
             setSelectedYoloModelId(DEFAULT_YOLO_MODEL_ID)
         }
-    }, [availableResolutions, availableFps, selectedYoloModelId])
+        if (MOVENET_MODELS.length > 0 && !MOVENET_MODELS.some(m => m.id === selectedMoveNetModelId)) {
+            setSelectedMoveNetModelId(DEFAULT_MOVENET_MODEL_ID)
+        }
+    }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId])
 
     // Get zoom range from device
     const minZoom = device?.minZoom ?? 1
@@ -927,7 +930,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const handleProceed = () => {
         if (isNavigating) return
         setIsNavigating(true)
-        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
+        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId })
     }
 
     const handleSkip = () => {
@@ -937,7 +940,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             () => {
                 if (isNavigating) return
                 setIsNavigating(true)
-                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId })
+                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId })
             }
         )
     }
@@ -1150,9 +1153,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
                             </View>
 
-                            {/* Pose Resolution selector */}
+                            {/* MoveNet resolution selector */}
                             <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>Risoluzione Pose (corpo)</Text>
+                                <Text style={styles.configLabel}>Risoluzione MoveNet (corpo)</Text>
                                 <View style={styles.pickerWrap}>
                                     <Picker
                                         selectedValue={selectedPoseResolution}
@@ -1160,12 +1163,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}
                                     >
-                                        {POSE_RESOLUTIONS.map(res => (
-                                            <Picker.Item key={res} label={`${res} × ${res}`} value={res} />
-                                        ))}
+                                        <Picker.Item label="192 × 192" value={192} />
+                                        <Picker.Item label="240 × 240 · default" value={240} />
+                                        <Picker.Item label="320 × 320" value={320} />
                                     </Picker>
                                 </View>
-                                <Text style={styles.configHint}>Risoluzione input per MoveNet · default 192 · 256 per maggiore precisione</Text>
+                                <Text style={styles.configHint}>
+                                    Elaborazione selezionata: {selectedPoseResolution}×{selectedPoseResolution}
+                                    {' · '}modello TFLite: {MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}×{MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}
+                                </Text>
                             </View>
 
                             {/* FPS selector */}

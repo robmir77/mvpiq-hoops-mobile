@@ -3,10 +3,7 @@
 // YOLO output parser - runs in Worklet
 // Converts raw YOLO output to BallDetection interface
 // NO image data, only coordinates
-// Format: YOLOv8 TFLite channel-major output [cx..., cy..., w..., h..., ball..., rim...]
-// The selected model may use 320, 512 or 640 input pixels.
-// Input resolution changes the number of anchors, but NOT the decoding formula.
-// The number of anchors is therefore derived from the actual output buffer.
+// Format: standard YOLOv8 [x, y, w, h, conf, cls] per detection
 
 const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.15  // Baseline threshold for this model (15% confidence)
@@ -49,12 +46,8 @@ function nms(dets: number[][], thr: number): number[][] {
 // This runs in the Worklet - NO runOnJS here
 // Detects both ball (cls 0) and rim (cls 1)
 // Returns the ball with highest confidence and the rim with highest confidence
-// Selected models use the same YOLOv8 TFLite output contract: (1, 6, num_anchors).
-// num_anchors is NOT hardcoded because it changes with the selected input size:
-//   320 -> 2100
-//   512 -> 5376
-//   640 -> 8400
-// Layout is channel-major: [cx...][cy...][w...][h...][ball...][rim...].
+// Standard YOLOv8 TFLite format: (1, 6, num_anchors) where 6 = 4 coords + 2 class scores
+// Layout: [xc, yc, w, h, ball_score, rim_score] for each anchor
 export function parseYoloOutput(
   output: Float32Array | Uint8Array | Int8Array,
   threshold: number = CONF_THRESHOLD,
@@ -75,18 +68,15 @@ export function parseYoloOutput(
   // Channel-major layout:
   // [cx..., cy..., w..., h..., ballScore..., rimScore...]
   //
-  // IMPORTANT: do not hardcode the anchor count. It depends on the selected
-  // input resolution (320 -> 2100, 512 -> 5376, 640 -> 8400).
+  // IMPORTANT: do not hardcode 8400. YOLO output size depends on the selected
+  // input resolution (e.g. 640 -> 8400, 416 -> 3549, 320 -> 2100).
   // Reading the actual output buffer makes the parser model-size agnostic.
   const nDetections = Math.floor(output.length / OUTPUT_CHANNELS)
   if (nDetections <= 0 || output.length % OUTPUT_CHANNELS !== 0) {
     return { ball: null, rim: null }
   }
 
-  // Model coordinates are normalized to [0, 1].
-  // The selected input size does not need to be passed here: once the output
-  // buffer is produced, its length tells us the actual anchor count.
-  // Coordinates therefore have the same interpretation for 320/512/640.
+  // Model coordinates are inverted relative to image coordinates
   for (let i = 0; i < nDetections; i++) {
     const cx = 1.0 - (isQuantized ? output[i] / 255.0 : output[i])
     const cy = 1.0 - (isQuantized ? output[nDetections + i] / 255.0 : output[nDetections + i])
@@ -143,7 +133,7 @@ export function parseYoloOutput(
 
   for (const [x1, y1, x2, y2, conf, cls] of kept) {
     const detection = {
-      // Coordinates are already normalized and independent of the selected input size
+      // Coordinate dirette senza inversione (per modello 640x640)
       x: (x1 + x2) / 2,
       y: (y1 + y2) / 2,
       width: (x2 - x1),
