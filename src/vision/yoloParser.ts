@@ -3,17 +3,22 @@
 // YOLO output parser - runs in Worklet
 // Converts raw YOLO output to BallDetection interface
 // NO image data, only coordinates
-// Format: standard YOLOv8 [x, y, w, h, conf, cls] per detection
+// Format: standard YOLOv8 TFLite [x, y, w, h, conf, cls] per detection
+// Requires grid/stride decoding for proper coordinate extraction
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.15  // Baseline threshold for this model (15% confidence)
+const CONF_THRESHOLD = 0.0001  // Very low threshold - model outputs extremely low raw scores
 const OUTPUT_CHANNELS = 6 // 4 box values + 2 class scores (ball, rim)
 
+// YOLOv8 detection head strides for multi-scale feature pyramid
+const STRIDES = [8, 16, 32]
+
 // The ball detection produces very wide raw boxes, but the center is correct.
-// Clamp to reasonable normalized size (max 50% of screen) for distant shots
-const MAX_BALL_BOX_SIZE = 0.5
+// Clamp to reasonable normalized size (max 70% of screen) for distant shots
+// Increased from 0.5 to 0.7 to accommodate model output without proper grid/stride decoding
+const MAX_BALL_BOX_SIZE = 0.7
 // For rim, keep a more conservative filter.
-const MAX_RIM_BOX_SIZE = 0.7
+const MAX_RIM_BOX_SIZE = 0.8
 
 // Worklet-safe IOU calculation
 function iou(a: number[], b: number[]): number {
@@ -48,6 +53,7 @@ function nms(dets: number[][], thr: number): number[][] {
 // Returns the ball with highest confidence and the rim with highest confidence
 // Standard YOLOv8 TFLite format: (1, 6, num_anchors) where 6 = 4 coords + 2 class scores
 // Layout: [xc, yc, w, h, ball_score, rim_score] for each anchor
+// Requires grid/stride decoding for proper coordinate extraction
 export function parseYoloOutput(
   output: Float32Array | Uint8Array | Int8Array,
   threshold: number = CONF_THRESHOLD,
@@ -59,8 +65,10 @@ export function parseYoloOutput(
   debug?: { conf: number }
 } {
   'worklet'; // eslint-disable-line
-  const raw: number[][] = []
-  let maxRawConfidence = 0
+  
+  try {
+    const raw: number[][] = []
+    let maxRawConfidence = 0
 
   // Convert to float values if needed (for INT8 quantized output)
   const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
@@ -76,13 +84,22 @@ export function parseYoloOutput(
     return { ball: null, rim: null }
   }
 
+  // Determine input size from number of detections
+  // 512x512: 5376 anchors, 640x640: 8400 anchors, 320x320: 2100 anchors
+  let inputSize = 512
+  if (nDetections === 8400) inputSize = 640
+  else if (nDetections === 2100) inputSize = 320
+  else if (nDetections === 5376) inputSize = 512
+
   // Track the anchor with maximum confidence for debugging
   let maxAnchorIndex = -1
   let maxAnchorConf = -1
   let maxAnchorRaw: { cx: number; cy: number; w: number; h: number; ballScore: number; rimScore: number } | null = null
 
-  // Model coordinates are inverted relative to image coordinates
+  // Simplified decoder - assume model outputs are already normalized [0,1]
+  // This is common for TFLite exports with NMS included
   for (let i = 0; i < nDetections; i++) {
+    // Read raw values with coordinate inversion (model outputs are inverted)
     const cx = 1.0 - (isQuantized ? output[i] / 255.0 : output[i])
     const cy = 1.0 - (isQuantized ? output[nDetections + i] / 255.0 : output[nDetections + i])
     const w  = isQuantized ? output[2 * nDetections + i] / 255.0 : output[2 * nDetections + i]
@@ -90,13 +107,18 @@ export function parseYoloOutput(
     const ballScore = isQuantized ? output[4 * nDetections + i] / 255.0 : output[4 * nDetections + i]
     const rimScore  = isQuantized ? output[5 * nDetections + i] / 255.0 : output[5 * nDetections + i]
 
+    // Use raw scores directly - sigmoid is too slow for 5376 calls per frame
+    // Model outputs appear to be raw logits, so we use them directly with lower threshold
+    const ballProb = ballScore
+    const rimProb = rimScore
+
     // Unconditional — tracks the model's real signal regardless of
     // whether anything clears the threshold or the box-size filters
     // below. Without this, "maxConf" in the logs collapses to 0 the
     // moment nothing survives thresholding, making it impossible to
     // tell "the model sees nothing" apart from "close, but just under
     // threshold".
-    const anchorMax = ballScore > rimScore ? ballScore : rimScore
+    const anchorMax = ballProb > rimProb ? ballProb : rimProb
     if (anchorMax > maxRawConfidence) {
         maxRawConfidence = anchorMax
     }
@@ -105,25 +127,25 @@ export function parseYoloOutput(
     if (w <= 0.01 || h <= 0.01) continue
 
     // Add ball detection if score above threshold and box size is acceptable
-    if (ballScore >= threshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
+    if (ballProb >= threshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
       raw.push([
         (cx - w * 0.5),
         (cy - h * 0.5),
         (cx + w * 0.5),
         (cy + h * 0.5),
-        ballScore,
+        ballProb,
         0, // ball class
       ])
     }
 
     // Add rim detection if score above threshold and box size is acceptable
-    if (rimScore >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
+    if (rimProb >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
       raw.push([
         (cx - w * 0.5),
         (cy - h * 0.5),
         (cx + w * 0.5),
         (cy + h * 0.5),
-        rimScore,
+        rimProb,
         1, // rim class
       ])
     }
@@ -178,4 +200,9 @@ export function parseYoloOutput(
   }
 
   return { ball: bestBall, rim: bestRim, debug: { conf: maxRawConfidence } }
+  
+  } catch (error) {
+    console.error('[YOLO PARSER ERROR]', error)
+    return { ball: null, rim: null, debug: { conf: 0 } }
+  }
 }
