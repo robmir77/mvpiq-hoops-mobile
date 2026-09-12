@@ -1047,26 +1047,29 @@ export const useShotTracker = (
                     // the few frames where YOLO preempts POSE are quickly recovered.
                     // ────────────────────────────────────────────────────────────────
 
+                    const nowForMoveNet = Date.now()
+                    const lastMoveNet = lastMoveNetInferenceAt.value
+                    const timeSinceLastMoveNet = lastMoveNet > 0 ? nowForMoveNet - lastMoveNet : MOVENET_INTERVAL_MS
+
+                    const moveNetDue =
+                        poseReady &&
+                        poseEnabledShared.value &&
+                        timeSinceLastMoveNet >= MOVENET_INTERVAL_MS
+
+                    // Priority: MoveNet when due, otherwise YOLO
+                    const runPose = moveNetDue
+
                     const runYolo =
                         yoloReady &&
                         ballEnabledShared.value &&
+                        !moveNetDue &&
                         currentFrame % YOLO_FRAME_SKIP === 0
-
-                    const nowForMoveNet = Date.now()
-                    const timeSinceLastMoveNet = nowForMoveNet - lastMoveNetInferenceAt.value
-
-                    const runPose =
-                        poseReady &&
-                        poseEnabledShared.value &&
-                        (
-                            timeSinceLastMoveNet >= MOVENET_INTERVAL_MS
-                        )
 
                     if (runYolo) perfYoloRequested.value += 1
                     if (runPose) perfMoveNetRequested.value += 1
 
-                    // Log MoveNet throttling for debugging
-                    if (poseReady && poseEnabledShared.value && !runPose) {
+                    // Log MoveNet throttling for debugging (only if pose is enabled but not due)
+                    if (poseReady && poseEnabledShared.value && !moveNetDue) {
                         console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
                     }
 
