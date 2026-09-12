@@ -10,23 +10,31 @@ const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.0001  // Very low threshold - model outputs extremely low raw scores
 const OUTPUT_CHANNELS = 6 // 4 box values + 2 class scores (ball, rim)
 
-// Adaptive threshold based on ball size - smaller balls need lower threshold
+// Adaptive threshold based on ball size - smaller balls need lower threshold.
+// The size is normalized to the frame (0..1).
 function getAdaptiveThreshold(ballWidth: number, ballHeight: number, baseThreshold: number): number {
   'worklet'; // eslint-disable-line
   const avgSize = (ballWidth + ballHeight) / 2
-  
-  // Large balls (> 0.3): use standard threshold
+
+  // Large balls (> 0.30): standard confidence threshold.
   if (avgSize > 0.3) {
     return baseThreshold
   }
-  // Medium balls (0.1-0.3): use medium threshold
-  else if (avgSize > 0.1) {
+
+  // Medium balls (0.10-0.30): moderately more permissive.
+  if (avgSize > 0.1) {
     return baseThreshold * 0.3
   }
-  // Small balls (< 0.1): use very low threshold for distant shots
-  else {
+
+  // Small balls (0.02-0.10): very permissive because distant balls
+  // naturally produce weaker YOLO confidence.
+  if (avgSize > 0.02) {
     return baseThreshold * 0.1
   }
+
+  // Tiny but still potentially usable balls: do not lower the threshold
+  // further than this. Below MIN_BALL_RADIUS we reject as visual noise.
+  return baseThreshold * 0.05
 }
 
 // YOLOv8 detection head strides for multi-scale feature pyramid
@@ -36,6 +44,12 @@ const STRIDES = [8, 16, 32]
 // Clamp to reasonable normalized size (max 70% of screen) for distant shots
 // Increased from 0.5 to 0.7 to accommodate model output without proper grid/stride decoding
 const MAX_BALL_BOX_SIZE = 0.7
+// A ball smaller than this radius is below the reliable visual resolution
+// for the current detector and is treated as noise. This is deliberately
+// a radius threshold, not a minimum accepted ball size: above it, smaller
+// balls are made progressively easier to accept via the adaptive threshold.
+// 0.01 radius = 0.02 normalized diameter (~10 px at 512x512).
+const MIN_BALL_RADIUS = 0.02
 // For rim, keep a more conservative filter.
 const MAX_RIM_BOX_SIZE = 0.8
 
@@ -163,11 +177,27 @@ export function parseYoloOutput(
     // Skip invalid detections (zero size only)
     if (w <= 0.01 || h <= 0.01) continue
 
-    // Use adaptive threshold for ball detection based on size
+    // Use adaptive threshold for ball detection based on apparent size.
+    // Small/distant balls get a lower confidence requirement; extremely tiny
+    // boxes are rejected as noise instead of lowering the threshold forever.
+    const ballRadius = Math.min(w, h) / 2
+    const ballTooSmall = ballRadius < MIN_BALL_RADIUS
     const ballAdaptiveThreshold = getAdaptiveThreshold(w, h, threshold)
-    
-    // Add ball detection if score above adaptive threshold and box size is acceptable
-    if (ballProb >= ballAdaptiveThreshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
+
+    if (__DEV__ && ballProb >= ballAdaptiveThreshold * 0.5) {
+      console.log('[YOLO BALL SIZE]', {
+        width: w.toFixed(4),
+        height: h.toFixed(4),
+        radius: ballRadius.toFixed(4),
+        confidence: ballProb.toFixed(4),
+        threshold: ballAdaptiveThreshold.toFixed(4),
+        rejectedAsNoise: ballTooSmall,
+      })
+    }
+
+    // Accept when confidence clears the size-adaptive threshold, the box is
+    // not absurdly large, and the apparent radius is above the noise floor.
+    if (!ballTooSmall && ballProb >= ballAdaptiveThreshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
       raw.push([
         (finalCx - w * 0.5),
         (finalCy - h * 0.5),

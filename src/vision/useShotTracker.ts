@@ -27,7 +27,6 @@ import type {
     IosDelegateOption,
 } from './delegates'
 import {
-    ANDROID_DELEGATE_OPTIONS,
     DEFAULT_ANDROID_DELEGATE,
     DEFAULT_IOS_DELEGATE,
 } from './delegates'
@@ -57,16 +56,6 @@ const YOLO_FRAME_SKIP = 1
 // Time-based scheduling keeps the target stable if effective camera throughput changes.
 const MOVENET_TARGET_FPS = 3
 const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Expected input buffer sizes
-// ─────────────────────────────────────────────────────────────────────────────
-
-const YOLO_INPUT_ELEMENTS =
-    YOLO_INPUT_SIZE *
-    YOLO_INPUT_SIZE *
-    3
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -382,7 +371,6 @@ export const useShotTracker = (
     // resolution so a 240/320 selection cannot create an incompatible buffer.
     const poseInputSize = selectedMoveNetModel?.inputSize ?? DEFAULT_POSE_INPUT_SIZE
     const poseInputElements = poseInputSize * poseInputSize * 3
-    const poseExpectedKeypoints = selectedMoveNetModel?.outputKeypoints ?? 17
 
     const moveNetUri = getMoveNetModelUri(moveNetModelId)
     const poseModelSource = useMemo(
@@ -1183,7 +1171,6 @@ export const useShotTracker = (
                                     const {
                                         ball,
                                         rim,
-                                        debug,
                                     } =
                                         parseYoloOutput(
                                             output,

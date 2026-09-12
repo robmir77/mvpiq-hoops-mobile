@@ -26,7 +26,7 @@ import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
-import { useDerivedValue } from 'react-native-reanimated'
+import { useAnimatedReaction, useDerivedValue, runOnJS } from 'react-native-reanimated'
 import { Camera, type CameraRef } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
@@ -325,6 +325,38 @@ const TrackingOverlay = React.memo(({
     const hoopY = useDerivedValue(() => sharedValues?.hoopY.value ?? 0, [sharedValues])
     const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0, [sharedValues])
     const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
+
+    // Ball size info is displayed by React Native Text. Never read a Shared Value
+    // directly during React render: derive the display values on the UI thread
+    // and bridge to React only when the formatted value actually changes.
+    const [ballInfo, setBallInfo] = useState({
+        sizeLabel: 'Piccola',
+        radius: '0.000',
+    })
+
+    useAnimatedReaction(
+        () => {
+            const ballW = Number(sharedValues?.ballWidth?.value ?? 0)
+            const ballH = Number(sharedValues?.ballHeight?.value ?? 0)
+            const avgSize = (ballW + ballH) / 2
+            const radius = avgSize / 2
+
+            let sizeLabel = 'Piccola'
+            if (avgSize > 0.3) sizeLabel = 'Grande'
+            else if (avgSize > 0.1) sizeLabel = 'Media'
+
+            return `${sizeLabel}|${radius.toFixed(3)}`
+        },
+        (current, previous) => {
+            if (current !== previous) {
+                const separator = current.indexOf('|')
+                const sizeLabel = separator >= 0 ? current.slice(0, separator) : current
+                const radius = separator >= 0 ? current.slice(separator + 1) : '0.000'
+                runOnJS(setBallInfo)({ sizeLabel, radius })
+            }
+        },
+        [sharedValues]
+    )
 
     // Derived values per coordinate pixel
     const ballXPx = useDerivedValue(() => ballX.value * SCREEN_W, [ballX])
@@ -700,27 +732,12 @@ const TrackingOverlay = React.memo(({
             {sharedValues && (
                 <View pointerEvents="none" style={ovStyles.ballInfoPanel}>
                     <Text style={ovStyles.ballInfoTitle}>🏀 Palla</Text>
-                    {(() => {
-                        const ballW = Number(sharedValues.ballWidth?.value ?? 0)
-                        const ballH = Number(sharedValues.ballHeight?.value ?? 0)
-                        const avgSize = (ballW + ballH) / 2
-                        const radius = avgSize / 2
-                        
-                        let sizeLabel = 'Piccola'
-                        if (avgSize > 0.3) sizeLabel = 'Grande'
-                        else if (avgSize > 0.1) sizeLabel = 'Media'
-                        
-                        return (
-                            <>
-                                <Text style={ovStyles.ballInfoText}>
-                                    {sizeLabel}
-                                </Text>
-                                <Text style={ovStyles.ballInfoText}>
-                                    Raggio: {radius.toFixed(3)}
-                                </Text>
-                            </>
-                        )
-                    })()}
+                    <Text style={ovStyles.ballInfoText}>
+                        {ballInfo.sizeLabel}
+                    </Text>
+                    <Text style={ovStyles.ballInfoText}>
+                        Raggio: {ballInfo.radius}
+                    </Text>
                 </View>
             )}
 
