@@ -266,7 +266,7 @@ const getReleaseColor = (angle: number): string => {
 }
 
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, yoloInputSize,
 }: {
     trackingState: TrackingState | null
     poseKeypoints: PoseKeypoints | null
@@ -288,18 +288,57 @@ const TrackingOverlay = React.memo(({
         shotDetected: any
     }
     fpsMetrics?: { yoloFps: number; moveNetFps: number }
+    yoloInputSize?: number
 }) => {
     const t0 = performance.now()
     // incrementOverlayRenders() - eseguito asincrono per evitare blocco sincrono
     setTimeout(() => incrementOverlayRenders(), 0)
 
     // Conversion functions: normalized coordinates → screen pixels
-    // With 'contain' mode, the image is scaled to fit within 640x640 without cropping
-    // YOLO coordinates (0-1) directly map to the full camera view
+    //
+    // IMPORTANT — YOLO and the preview do NOT share the same coordinate space:
+    // 1) YOLO input is a square with `contain` (1280x720 -> 512x288 + 112px top/bottom padding).
+    // 2) The Camera preview is portrait with `cover`, so the landscape frame is cropped left/right.
+    //
+    // The old overlay mapped YOLO's square-normalized coordinates directly to the portrait view.
+    // That produced the visible vertical/horizontal offset of the orange ball circle.
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
-    const pxCam = (x: number) => x * SCREEN_W
-    const pyCam = (y: number) => y * CAMERA_H
+
+    const mapYoloPointToView = (x: number, y: number) => {
+        const inputSize = yoloInputSize ?? 512
+
+        // Undo YOLO `contain`: square -> original camera frame (normalized 0..1).
+        const containScale = Math.min(
+            inputSize / CAMERA_RES_W,
+            inputSize / CAMERA_RES_H
+        )
+        const resizedW = CAMERA_RES_W * containScale
+        const resizedH = CAMERA_RES_H * containScale
+        const padX = (inputSize - resizedW) / 2
+        const padY = (inputSize - resizedH) / 2
+
+        const sourceX = (x * inputSize - padX) / resizedW
+        const sourceY = (y * inputSize - padY) / resizedH
+
+        // Reproduce Camera `resizeMode="cover"`: landscape frame -> portrait view.
+        const coverScale = Math.max(
+            SCREEN_W / CAMERA_RES_W,
+            CAMERA_H / CAMERA_RES_H
+        )
+        const displayedW = CAMERA_RES_W * coverScale
+        const displayedH = CAMERA_RES_H * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+
+        return {
+            x: sourceX * displayedW - cropX,
+            y: sourceY * displayedH - cropY,
+        }
+    }
+
+    const pxCam = (x: number, y: number = 0) => mapYoloPointToView(x, y).x
+    const pyCam = (x: number, y: number) => mapYoloPointToView(x, y).y
 
     // Calculate dynamic player size
     const playerSize = calculatePlayerSize(poseKeypoints)
@@ -494,14 +533,14 @@ const TrackingOverlay = React.memo(({
                 {trackingState?.ballPositionRaw && (
                     <Group>
                         <SkiaCircle
-                            cx={pxCam(trackingState.ballPositionRaw.x)}
-                            cy={pyCam(trackingState.ballPositionRaw.y)}
+                            cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
+                            cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
                             r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
                             color="rgba(255,140,0,0.22)"
                         />
                         <SkiaCircle
-                            cx={pxCam(trackingState.ballPositionRaw.x)}
-                            cy={pyCam(trackingState.ballPositionRaw.y)}
+                            cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
+                            cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
                             r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
                             color="#ff8c00" style="stroke" strokeWidth={2.5}
                         />
@@ -511,8 +550,8 @@ const TrackingOverlay = React.memo(({
                 {/* Punto Kalman smoothed - rosso per debug */}
                 {trackingState?.ballPosition && (
                     <SkiaCircle
-                        cx={pxCam(trackingState.ballPosition.x)}
-                        cy={pyCam(trackingState.ballPosition.y)}
+                        cx={pxCam(trackingState.ballPosition.x, trackingState.ballPosition.y)}
+                        cy={pyCam(trackingState.ballPosition.x, trackingState.ballPosition.y)}
                         r={8}
                         color="#ff0000"
                     />
@@ -1823,6 +1862,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     calibration={calibration}
                     sharedValues={sharedValues}
                     fpsMetrics={fpsMetrics}
+                    yoloInputSize={selectedYoloModel?.inputSize}
                 />
 
                 {/* Debug overlay calibrazione */}

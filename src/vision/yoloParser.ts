@@ -34,7 +34,7 @@ function getAdaptiveThreshold(ballWidth: number, ballHeight: number, baseThresho
 
   // Tiny but still potentially usable balls: do not lower the threshold
   // further than this. Below MIN_BALL_RADIUS we reject as visual noise.
-  return baseThreshold * 0.05
+  return baseThreshold * 0.02
 }
 
 // YOLOv8 detection head strides for multi-scale feature pyramid
