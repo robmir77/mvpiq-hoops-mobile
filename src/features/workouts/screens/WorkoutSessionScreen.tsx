@@ -33,7 +33,7 @@ import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useCameraPipeline } from '@/vision'
-import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
+import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
 import {
     WorkoutSession, ShotResult,
     TrackingState, PoseKeypoints, CalibrationData, CameraMode,
@@ -266,7 +266,7 @@ const getReleaseColor = (angle: number): string => {
 }
 
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics,
 }: {
     trackingState: TrackingState | null
     poseKeypoints: PoseKeypoints | null
@@ -287,6 +287,7 @@ const TrackingOverlay = React.memo(({
         inFlight: any
         shotDetected: any
     }
+    fpsMetrics?: { yoloFps: number; moveNetFps: number }
 }) => {
     const t0 = performance.now()
     // incrementOverlayRenders() - eseguito asincrono per evitare blocco sincrono
@@ -682,6 +683,47 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
+            {/* ── FPS PANEL ── */}
+            {fpsMetrics && (
+                <View pointerEvents="none" style={ovStyles.fpsPanel}>
+                    <Text style={ovStyles.fpsTitle}>📊 FPS</Text>
+                    <Text style={ovStyles.fpsText}>
+                        YOLO: {fpsMetrics.yoloFps}
+                    </Text>
+                    <Text style={ovStyles.fpsText}>
+                        MoveNet: {fpsMetrics.moveNetFps}
+                    </Text>
+                </View>
+            )}
+
+            {/* ── BALL INFO PANEL ── */}
+            {sharedValues && (
+                <View pointerEvents="none" style={ovStyles.ballInfoPanel}>
+                    <Text style={ovStyles.ballInfoTitle}>🏀 Palla</Text>
+                    {(() => {
+                        const ballW = Number(sharedValues.ballWidth?.value ?? 0)
+                        const ballH = Number(sharedValues.ballHeight?.value ?? 0)
+                        const avgSize = (ballW + ballH) / 2
+                        const radius = avgSize / 2
+                        
+                        let sizeLabel = 'Piccola'
+                        if (avgSize > 0.3) sizeLabel = 'Grande'
+                        else if (avgSize > 0.1) sizeLabel = 'Media'
+                        
+                        return (
+                            <>
+                                <Text style={ovStyles.ballInfoText}>
+                                    {sizeLabel}
+                                </Text>
+                                <Text style={ovStyles.ballInfoText}>
+                                    Raggio: {radius.toFixed(3)}
+                                </Text>
+                            </>
+                        )
+                    })()}
+                </View>
+            )}
+
             {/* ── BIOMECHANICS PANEL ── */}
             {jointAngles && (
                 <View pointerEvents="none" style={ovStyles.bioPanel}>
@@ -943,6 +985,54 @@ const ovStyles = StyleSheet.create({
         borderWidth: 1.5,
         borderColor: 'rgba(147,51,234,0.8)',
     },
+    // FPS Panel
+    fpsPanel: {
+        position: 'absolute',
+        top: 14,
+        left: 14,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(59,130,246,0.5)',
+    },
+    fpsTitle: {
+        color: '#3b82f6',
+        fontSize: 10,
+        fontWeight: '800',
+        marginBottom: 4,
+    },
+    fpsText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '600',
+        marginVertical: 1,
+    },
+    // Ball Info Panel
+    ballInfoPanel: {
+        position: 'absolute',
+        top: 14,
+        right: 14,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(234,179,8,0.5)',
+    },
+    ballInfoTitle: {
+        color: '#eab308',
+        fontSize: 10,
+        fontWeight: '800',
+        marginBottom: 4,
+    },
+    ballInfoText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '600',
+        marginVertical: 1,
+    },
     // Biomechanics Panel
     bioPanel: {
         position: 'absolute',
@@ -1110,6 +1200,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [poseEnabled, setPoseEnabled] = useState(true)
     const [ballEnabled, setBallEnabled] = useState(true)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(false)
+    const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
     const pendingScreenshotUri = useRef<string | null>(null)
@@ -1165,6 +1256,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         startPerfMonitor()
         return () => stopPerfMonitor()
+    }, [])
+
+    // Update FPS metrics every second
+    useEffect(() => {
+        const fpsInterval = setInterval(() => {
+            const metrics = getPerfMetrics()
+            setFpsMetrics({
+                yoloFps: metrics.yoloFps,
+                moveNetFps: metrics.moveNetFps,
+            })
+        }, 1000)
+        return () => clearInterval(fpsInterval)
     }, [])
 
     // ── Pose callback (new architecture) ─────────────────────────────────────
@@ -1702,6 +1805,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         : undefined}
                     calibration={calibration}
                     sharedValues={sharedValues}
+                    fpsMetrics={fpsMetrics}
                 />
 
                 {/* Debug overlay calibrazione */}

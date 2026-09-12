@@ -68,3 +68,12 @@ export function stopPerfMonitor() {
         perfTimer = null
     }
 }
+
+export function getPerfMetrics() {
+    return {
+        yoloFps: perfMetrics.yoloFps,
+        moveNetFps: perfMetrics.moveNetFps,
+        trackingUpdates: perfMetrics.trackingUpdates,
+        overlayRenders: perfMetrics.overlayRenders,
+    }
+}

@@ -10,6 +10,25 @@ const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.0001  // Very low threshold - model outputs extremely low raw scores
 const OUTPUT_CHANNELS = 6 // 4 box values + 2 class scores (ball, rim)
 
+// Adaptive threshold based on ball size - smaller balls need lower threshold
+function getAdaptiveThreshold(ballWidth: number, ballHeight: number, baseThreshold: number): number {
+  'worklet'; // eslint-disable-line
+  const avgSize = (ballWidth + ballHeight) / 2
+  
+  // Large balls (> 0.3): use standard threshold
+  if (avgSize > 0.3) {
+    return baseThreshold
+  }
+  // Medium balls (0.1-0.3): use medium threshold
+  else if (avgSize > 0.1) {
+    return baseThreshold * 0.3
+  }
+  // Small balls (< 0.1): use very low threshold for distant shots
+  else {
+    return baseThreshold * 0.1
+  }
+}
+
 // YOLOv8 detection head strides for multi-scale feature pyramid
 const STRIDES = [8, 16, 32]
 
@@ -99,13 +118,22 @@ export function parseYoloOutput(
   // Simplified decoder - assume model outputs are already normalized [0,1]
   // This is common for TFLite exports with NMS included
   for (let i = 0; i < nDetections; i++) {
-    // Read raw values with coordinate inversion (model outputs are inverted)
-    const cx = 1.0 - (isQuantized ? output[i] / 255.0 : output[i])
-    const cy = 1.0 - (isQuantized ? output[nDetections + i] / 255.0 : output[nDetections + i])
+    // Read raw values
+    const cxRaw = isQuantized ? output[i] / 255.0 : output[i]
+    const cyRaw = isQuantized ? output[nDetections + i] / 255.0 : output[nDetections + i]
     const w  = isQuantized ? output[2 * nDetections + i] / 255.0 : output[2 * nDetections + i]
     const h  = isQuantized ? output[3 * nDetections + i] / 255.0 : output[3 * nDetections + i]
     const ballScore = isQuantized ? output[4 * nDetections + i] / 255.0 : output[4 * nDetections + i]
     const rimScore  = isQuantized ? output[5 * nDetections + i] / 255.0 : output[5 * nDetections + i]
+
+    // Apply coordinate inversion for all balls
+    // Model outputs inverted coordinates
+    const cx = 1.0 - cxRaw
+    const cy = 1.0 - cyRaw
+    
+    // No axis swap needed
+    const finalCx = cx
+    const finalCy = cy
 
     // Use raw scores directly - sigmoid is too slow for 5376 calls per frame
     // Model outputs appear to be raw logits, so we use them directly with lower threshold
@@ -121,18 +149,30 @@ export function parseYoloOutput(
     const anchorMax = ballProb > rimProb ? ballProb : rimProb
     if (anchorMax > maxRawConfidence) {
         maxRawConfidence = anchorMax
+        maxAnchorIndex = i
+        maxAnchorRaw = {
+          cx: finalCx,
+          cy: finalCy,
+          w: w,
+          h: h,
+          ballScore,
+          rimScore
+        }
     }
 
     // Skip invalid detections (zero size only)
     if (w <= 0.01 || h <= 0.01) continue
 
-    // Add ball detection if score above threshold and box size is acceptable
-    if (ballProb >= threshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
+    // Use adaptive threshold for ball detection based on size
+    const ballAdaptiveThreshold = getAdaptiveThreshold(w, h, threshold)
+    
+    // Add ball detection if score above adaptive threshold and box size is acceptable
+    if (ballProb >= ballAdaptiveThreshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
       raw.push([
-        (cx - w * 0.5),
-        (cy - h * 0.5),
-        (cx + w * 0.5),
-        (cy + h * 0.5),
+        (finalCx - w * 0.5),
+        (finalCy - h * 0.5),
+        (finalCx + w * 0.5),
+        (finalCy + h * 0.5),
         ballProb,
         0, // ball class
       ])
@@ -141,10 +181,10 @@ export function parseYoloOutput(
     // Add rim detection if score above threshold and box size is acceptable
     if (rimProb >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
       raw.push([
-        (cx - w * 0.5),
-        (cy - h * 0.5),
-        (cx + w * 0.5),
-        (cy + h * 0.5),
+        (finalCx - w * 0.5),
+        (finalCy - h * 0.5),
+        (finalCx + w * 0.5),
+        (finalCy + h * 0.5),
         rimProb,
         1, // rim class
       ])
