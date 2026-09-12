@@ -52,7 +52,7 @@ const DEFAULT_POSE_PROCESSING_RESOLUTION = 320
 // AI throttling
 // ─────────────────────────────────────────────────────────────────────────────
 
-const YOLO_FRAME_SKIP = 2
+const YOLO_FRAME_SKIP = 1
 // Deterministic MoveNet scheduling:
 // - 192 processing mode: every 3 frames
 // - 320 processing mode: every 4 frames
