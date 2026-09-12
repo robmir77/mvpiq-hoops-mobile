@@ -46,19 +46,17 @@ import { DEFAULT_MOVENET_MODEL_ID, getYoloModel, getMoveNetModel, getMoveNetMode
 
 const YOLO_INPUT_SIZE = 512
 const DEFAULT_POSE_INPUT_SIZE = 192
-const DEFAULT_POSE_PROCESSING_RESOLUTION = 320
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
 // ─────────────────────────────────────────────────────────────────────────────
 
 const YOLO_FRAME_SKIP = 1
-// Deterministic MoveNet scheduling:
-// - 192 processing mode: every 3 frames
-// - 320 processing mode: every 4 frames
-// The TFLite Lightning tensor remains fixed at 192x192.
-const POSE_FRAME_SKIP_192 = 3
-const POSE_FRAME_SKIP_320 = 4
+
+// MoveNet is throttled independently from camera/YOLO.
+// Time-based scheduling keeps the target stable if effective camera throughput changes.
+const MOVENET_TARGET_FPS = 3
+const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Expected input buffer sizes
@@ -198,6 +196,25 @@ export const useShotTracker = (
     // Throttle for scheduleOnRN calls - limit bridge crossings to ~16ms
     const lastRNDispatch =
         useSharedValue(0)
+
+    // Worklet-side throughput instrumentation; sampled once per second.
+    const perfLastLogAt = useSharedValue(0)
+    const perfFramesReceived = useSharedValue(0)
+    const perfFramesProcessed = useSharedValue(0)
+    const perfFramesDroppedBusy = useSharedValue(0)
+    const perfYoloRequested = useSharedValue(0)
+    const perfYoloExecuted = useSharedValue(0)
+    const perfMoveNetRequested = useSharedValue(0)
+    const perfMoveNetExecuted = useSharedValue(0)
+    const perfYoloOnlyRequested = useSharedValue(0)
+    const perfMoveNetOnlyRequested = useSharedValue(0)
+    const perfBothRequested = useSharedValue(0)
+    const perfNeitherRequested = useSharedValue(0)
+    const perfYoloOnlyExecuted = useSharedValue(0)
+    const perfMoveNetOnlyExecuted = useSharedValue(0)
+    const perfBothExecuted = useSharedValue(0)
+    const perfNeitherExecuted = useSharedValue(0)
+    const lastMoveNetInferenceAt = useSharedValue(0)
 
     // Recovery mechanism: reset the fatal error flag after a delay.
     // IMPORTANT: this must be scheduled from the JS thread at the moment
@@ -947,6 +964,8 @@ export const useShotTracker = (
 
                 'worklet'
 
+                perfFramesReceived.value += 1
+
                 // ───────────────────────────────────────────────────────────────────
                 // Reentrancy guard
                 // ───────────────────────────────────────────────────────────────────
@@ -962,11 +981,13 @@ export const useShotTracker = (
                     // A previous invocation is still running (e.g. slow
                     // model.runSync()). Drop this one instead of letting it
                     // race on the same Frame/buffers.
+                    perfFramesDroppedBusy.value += 1
                     frame.dispose()
                     return
                 }
 
                 isProcessingFrame.value = true
+                perfFramesProcessed.value += 1
 
                 // ───────────────────────────────────────────────────────────────────
                 // Frame counter
@@ -978,6 +999,9 @@ export const useShotTracker = (
                     frameCounter.value
 
                 try {
+
+                    let yoloExecutedThisFrame = false
+                    let moveNetExecutedThisFrame = false
 
                     // ────────────────────────────────────────────────────────────────
                     // Global enable
@@ -1028,20 +1052,34 @@ export const useShotTracker = (
                         ballEnabledShared.value &&
                         currentFrame % YOLO_FRAME_SKIP === 0
 
-                    const poseProcessingResolution =
-                        selectedPoseResolution === 192
-                            ? 192
-                            : DEFAULT_POSE_PROCESSING_RESOLUTION
-
-                    const poseFrameSkip =
-                        poseProcessingResolution === 320
-                            ? POSE_FRAME_SKIP_320
-                            : POSE_FRAME_SKIP_192
+                    const nowForMoveNet = Date.now()
+                    const timeSinceLastMoveNet = nowForMoveNet - lastMoveNetInferenceAt.value
 
                     const runPose =
                         poseReady &&
                         poseEnabledShared.value &&
-                        currentFrame % poseFrameSkip === 0
+                        (
+                            timeSinceLastMoveNet >= MOVENET_INTERVAL_MS
+                        )
+
+                    if (runYolo) perfYoloRequested.value += 1
+                    if (runPose) perfMoveNetRequested.value += 1
+
+                    // Log MoveNet throttling for debugging
+                    if (poseReady && poseEnabledShared.value && !runPose) {
+                        console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
+                    }
+
+                    if (runYolo && runPose) {
+                        perfBothRequested.value += 1
+                    } else if (runYolo) {
+                        perfYoloOnlyRequested.value += 1
+                    } else if (runPose) {
+                        perfMoveNetOnlyRequested.value += 1
+                    } else {
+                        perfNeitherRequested.value += 1
+                    }
+
 
                     // ────────────────────────────────────────────────────────────────
                     // YOLO
@@ -1107,6 +1145,8 @@ export const useShotTracker = (
                                             frameHeight
                                         )
                                     const t7 = performance.now()
+                                    yoloExecutedThisFrame = true
+                                    perfYoloExecuted.value += 1
 
                                     console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms slice:${(t5-t4).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
 
@@ -1217,6 +1257,9 @@ export const useShotTracker = (
                                         )
 
                                     const t7 = performance.now()
+                                    moveNetExecutedThisFrame = true
+                                    perfMoveNetExecuted.value += 1
+                                    lastMoveNetInferenceAt.value = Date.now()
                                     console.log(`[POSE PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t6-t5).toFixed(1)}ms angles:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
 
                                     // Increment FPS counter immediately after pose inference
@@ -1243,6 +1286,49 @@ export const useShotTracker = (
                                 resized.dispose()
                             }
                         }
+                    }
+
+                    if (yoloExecutedThisFrame && moveNetExecutedThisFrame) {
+                        perfBothExecuted.value += 1
+                    } else if (yoloExecutedThisFrame) {
+                        perfYoloOnlyExecuted.value += 1
+                    } else if (moveNetExecutedThisFrame) {
+                        perfMoveNetOnlyExecuted.value += 1
+                    } else {
+                        perfNeitherExecuted.value += 1
+                    }
+
+                    const perfNow = Date.now()
+                    if (
+                        perfLastLogAt.value === 0 ||
+                        perfNow - perfLastLogAt.value >= 1000
+                    ) {
+                        console.log(
+                            `[PIPE PERF] received:${perfFramesReceived.value} ` +
+                            `processed:${perfFramesProcessed.value} ` +
+                            `droppedBusy:${perfFramesDroppedBusy.value} | ` +
+                            `YOLO req:${perfYoloRequested.value} exec:${perfYoloExecuted.value} | ` +
+                            `MoveNet req:${perfMoveNetRequested.value} exec:${perfMoveNetExecuted.value} | ` +
+                            `requested[YOLO-only:${perfYoloOnlyRequested.value} MoveNet-only:${perfMoveNetOnlyRequested.value} both:${perfBothRequested.value} neither:${perfNeitherRequested.value}] | ` +
+                            `executed[YOLO-only:${perfYoloOnlyExecuted.value} MoveNet-only:${perfMoveNetOnlyExecuted.value} both:${perfBothExecuted.value} neither:${perfNeitherExecuted.value}]`
+                        )
+
+                        perfLastLogAt.value = perfNow
+                        perfFramesReceived.value = 0
+                        perfFramesProcessed.value = 0
+                        perfFramesDroppedBusy.value = 0
+                        perfYoloRequested.value = 0
+                        perfYoloExecuted.value = 0
+                        perfMoveNetRequested.value = 0
+                        perfMoveNetExecuted.value = 0
+                        perfYoloOnlyRequested.value = 0
+                        perfMoveNetOnlyRequested.value = 0
+                        perfBothRequested.value = 0
+                        perfNeitherRequested.value = 0
+                        perfYoloOnlyExecuted.value = 0
+                        perfMoveNetOnlyExecuted.value = 0
+                        perfBothExecuted.value = 0
+                        perfNeitherExecuted.value = 0
                     }
 
                 } catch (error) {
@@ -1382,24 +1468,20 @@ export const useShotTracker = (
             '| every',
             YOLO_FRAME_SKIP,
             'frames',
-            '| target FPS:',
-            Math.round(1000 / (yoloInputSize * yoloInputSize / 100000))
+            '| target: every available frame'
         )
 
         console.log(
-            '[ShotTracker] MoveNet processing:',
-            selectedPoseResolution === 192 ? 192 : DEFAULT_POSE_PROCESSING_RESOLUTION,
-            'x',
-            selectedPoseResolution === 192 ? 192 : DEFAULT_POSE_PROCESSING_RESOLUTION,
+            '[ShotTracker] MoveNet model:',
+            selectedMoveNetModel?.label ?? 'unknown',
             '| tensor:',
             poseInputSize,
             'x',
             poseInputSize,
-            '| every',
-            selectedPoseResolution === 192 ? POSE_FRAME_SKIP_192 : POSE_FRAME_SKIP_320,
-            'frames',
             '| target FPS:',
-            Math.round(1000 / (poseInputSize * poseInputSize / 100000))
+            MOVENET_TARGET_FPS,
+            '| interval:',
+            `${MOVENET_INTERVAL_MS.toFixed(0)}ms`
         )
 
     }, [isModelReady, yoloDelegates, poseDelegates, poseInputSize, selectedMoveNetModel?.id, selectedPoseResolution])
