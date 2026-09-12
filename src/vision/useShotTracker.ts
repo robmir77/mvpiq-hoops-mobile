@@ -641,12 +641,15 @@ export const useShotTracker = (
                             )
                     }
 
-                    console.log(
-                        '[AdaptiveThreshold] Rate:',
-                        detectionRate.toFixed(2),
-                        'Threshold:',
-                        adaptiveThreshold.value.toFixed(3)
-                    )
+                    // DEV ONLY: Log adaptive threshold changes
+                    if (__DEV__) {
+                        console.log(
+                            '[AdaptiveThreshold] Rate:',
+                            detectionRate.toFixed(2),
+                            'Threshold:',
+                            adaptiveThreshold.value.toFixed(3)
+                        )
+                    }
                 }
             },
             []
@@ -1137,7 +1140,8 @@ export const useShotTracker = (
 
                                     // Dump raw YOLO output to verify 6-channel format
                                     const nAnchors = Math.floor(output.length / 6)
-                                    if (currentFrame % 10 === 0) { // Log every 10 frames to avoid spam
+                                    // DEV ONLY: Log every 10 frames to avoid spam
+                                    if (__DEV__ && currentFrame % 10 === 0) {
                                         console.log('[YOLO RAW]', {
                                             length: output.length,
                                             nAnchors: nAnchors,
@@ -1188,8 +1192,8 @@ export const useShotTracker = (
                                             frameHeight
                                         )
 
-                                    // Debug: compare raw max anchor with parsed result
-                                    if (currentFrame % 10 === 0) {
+                                    // DEV ONLY: Debug: compare raw max anchor with parsed result
+                                    if (__DEV__ && currentFrame % 10 === 0) {
                                         // Find max anchor in raw output
                                         let maxRawConf = -1
                                         let maxRawIdx = -1
@@ -1236,7 +1240,10 @@ export const useShotTracker = (
                                     yoloExecutedThisFrame = true
                                     perfYoloExecuted.value += 1
 
-                                    console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms slice:${(t5-t4).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
+                                    // DEV ONLY: Log YOLO performance metrics
+                                    if (__DEV__) {
+                                        console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms slice:${(t5-t4).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
+                                    }
 
 
                                     // Throttle scheduleOnJS a 16ms per evitare instabilità del bridge
@@ -1348,7 +1355,10 @@ export const useShotTracker = (
                                     moveNetExecutedThisFrame = true
                                     perfMoveNetExecuted.value += 1
                                     lastMoveNetInferenceAt.value = Date.now()
-                                    console.log(`[POSE PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t6-t5).toFixed(1)}ms angles:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
+                                    // DEV ONLY: Log pose performance metrics
+                                    if (__DEV__) {
+                                        console.log(`[POSE PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t6-t5).toFixed(1)}ms angles:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
+                                    }
 
                                     // Increment FPS counter immediately after pose inference
                                     scheduleOnRN(incrementMoveNetFps)
@@ -1391,15 +1401,18 @@ export const useShotTracker = (
                         perfLastLogAt.value === 0 ||
                         perfNow - perfLastLogAt.value >= 1000
                     ) {
-                        console.log(
-                            `[PIPE PERF] received:${perfFramesReceived.value} ` +
-                            `processed:${perfFramesProcessed.value} ` +
-                            `droppedBusy:${perfFramesDroppedBusy.value} | ` +
-                            `YOLO req:${perfYoloRequested.value} exec:${perfYoloExecuted.value} | ` +
-                            `MoveNet req:${perfMoveNetRequested.value} exec:${perfMoveNetExecuted.value} | ` +
-                            `requested[YOLO-only:${perfYoloOnlyRequested.value} MoveNet-only:${perfMoveNetOnlyRequested.value} both:${perfBothRequested.value} neither:${perfNeitherRequested.value}] | ` +
-                            `executed[YOLO-only:${perfYoloOnlyExecuted.value} MoveNet-only:${perfMoveNetOnlyExecuted.value} both:${perfBothExecuted.value} neither:${perfNeitherExecuted.value}]`
-                        )
+                        // DEV ONLY: Log pipeline performance metrics
+                        if (__DEV__) {
+                            console.log(
+                                `[PIPE PERF] received:${perfFramesReceived.value} ` +
+                                `processed:${perfFramesProcessed.value} ` +
+                                `droppedBusy:${perfFramesDroppedBusy.value} | ` +
+                                `YOLO req:${perfYoloRequested.value} exec:${perfYoloExecuted.value} | ` +
+                                `MoveNet req:${perfMoveNetRequested.value} exec:${perfMoveNetExecuted.value} | ` +
+                                `requested[YOLO-only:${perfYoloOnlyRequested.value} MoveNet-only:${perfMoveNetOnlyRequested.value} both:${perfBothRequested.value} neither:${perfNeitherRequested.value}] | ` +
+                                `executed[YOLO-only:${perfYoloOnlyExecuted.value} MoveNet-only:${perfMoveNetOnlyExecuted.value} both:${perfBothExecuted.value} neither:${perfNeitherExecuted.value}]`
+                            )
+                        }
 
                         perfLastLogAt.value = perfNow
                         perfFramesReceived.value = 0

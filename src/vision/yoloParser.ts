@@ -176,8 +176,8 @@ export function parseYoloOutput(
     }
   }
 
-  // Debug: log raw vs parsed for max anchor
-  if (maxAnchorRaw && maxAnchorIndex >= 0) {
+  // DEV ONLY: Debug: log raw vs parsed for max anchor
+  if (typeof __DEV__ !== 'undefined' && __DEV__ && maxAnchorRaw && maxAnchorIndex >= 0) {
     console.log('[YOLO PARSER DEBUG]', {
       anchorIndex: maxAnchorIndex,
       raw: maxAnchorRaw,
