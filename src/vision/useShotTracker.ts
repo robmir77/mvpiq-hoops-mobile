@@ -51,6 +51,9 @@ const DEFAULT_POSE_INPUT_SIZE = 192
 // ─────────────────────────────────────────────────────────────────────────────
 
 const YOLO_FRAME_SKIP = 1
+const YOLO_FRAME_SKIP_STABLE = 3 // Throttle YOLO when ball is stable
+const BALL_STABILITY_THRESHOLD = 0.02 // Position change threshold (2%)
+const BALL_STABILITY_FRAMES = 5 // Consecutive frames to consider stable
 
 // MoveNet is throttled independently from camera/YOLO.
 // Time-based scheduling keeps the target stable if effective camera throughput changes.
@@ -204,6 +207,12 @@ export const useShotTracker = (
     const perfBothExecuted = useSharedValue(0)
     const perfNeitherExecuted = useSharedValue(0)
     const lastMoveNetInferenceAt = useSharedValue(0)
+
+    // Ball stability tracking for intelligent YOLO throttling
+    const lastBallX = useSharedValue(0)
+    const lastBallY = useSharedValue(0)
+    const stableFrameCount = useSharedValue(0)
+    const isBallStable = useSharedValue(false)
 
     // Recovery mechanism: reset the fatal error flag after a delay.
     // IMPORTANT: this must be scheduled from the JS thread at the moment
@@ -1050,10 +1059,12 @@ export const useShotTracker = (
                     // Run YOLO and MoveNet independently - no mutual exclusion
                     const runPose = moveNetDue
 
+                    // Intelligent YOLO throttling based on ball stability
+                    const currentSkip = isBallStable.value ? YOLO_FRAME_SKIP_STABLE : YOLO_FRAME_SKIP
                     const runYolo =
                         yoloReady &&
                         ballEnabledShared.value &&
-                        currentFrame % YOLO_FRAME_SKIP === 0
+                        currentFrame % currentSkip === 0
 
                     if (runYolo) perfYoloRequested.value += 1
                     if (runPose) perfMoveNetRequested.value += 1
@@ -1186,9 +1197,32 @@ export const useShotTracker = (
                                     yoloExecutedThisFrame = true
                                     perfYoloExecuted.value += 1
 
+                                    // Update ball stability tracking
+                                    if (ball) {
+                                        const deltaX = Math.abs(ball.x - lastBallX.value)
+                                        const deltaY = Math.abs(ball.y - lastBallY.value)
+                                        const positionChange = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+
+                                        if (positionChange < BALL_STABILITY_THRESHOLD) {
+                                            stableFrameCount.value += 1
+                                            if (stableFrameCount.value >= BALL_STABILITY_FRAMES) {
+                                                isBallStable.value = true
+                                            }
+                                        } else {
+                                            stableFrameCount.value = 0
+                                            isBallStable.value = false
+                                        }
+
+                                        lastBallX.value = ball.x
+                                        lastBallY.value = ball.y
+                                    }
+
                                     // DEV ONLY: Log YOLO performance metrics
                                     if (__DEV__) {
                                         console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms slice:${(t5-t4).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
+                                        if (isBallStable.value) {
+                                            console.log(`[YOLO Throttle] Ball stable - using ${YOLO_FRAME_SKIP_STABLE}x skip`)
+                                        }
                                     }
 
 

@@ -26,13 +26,13 @@ function getAdaptiveThreshold(ballWidth: number, ballHeight: number, baseThresho
     return baseThreshold * 0.3
   }
 
-  // Small balls (0.02-0.10): fixed 3% minimum confidence
+  // Small balls (0.02-0.10): fixed 1.2% minimum confidence
   if (avgSize > 0.02) {
-    return 0.03
+    return 0.012
   }
 
-  // Tiny balls (≤ 0.02): also fixed 3% minimum confidence
-  return 0.03
+  // Tiny balls (≤ 0.02): also fixed 1.2% minimum confidence
+  return 0.012
 }
 
 // Validate bounding box geometry - reject suspicious aspect ratios
