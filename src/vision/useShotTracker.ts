@@ -16,6 +16,8 @@ import { parseYoloOutput } from './yoloParser'
 import { parseMoveNetOutput } from './poseParser'
 import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
+import { useYoloWorker } from './useYoloWorker'
+import { useMoveNetWorker } from './useMoveNetWorker'
 
 import type {
     BallDetection,
@@ -218,6 +220,22 @@ export const useShotTracker = (
     const lastBallWidth = useSharedValue(0)
     const lastBallHeight = useSharedValue(0)
     const lastValidBallTime = useSharedValue(0)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Parallel Workers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const yoloWorker = useYoloWorker(
+        ballEnabled,
+        yoloDelegate,
+        yoloModelId
+    )
+
+    const moveNetWorker = useMoveNetWorker(
+        poseEnabled,
+        poseDelegate,
+        moveNetModelId
+    )
 
     // Recovery mechanism: reset the fatal error flag after a delay.
     // IMPORTANT: this must be scheduled from the JS thread at the moment
@@ -1089,9 +1107,67 @@ export const useShotTracker = (
                         perfNeitherRequested.value += 1
                     }
 
+                    // ────────────────────────────────────────────────────────────────
+                    // Parallel Worker Dispatch (NEW - replacing serial execution)
+                    // ────────────────────────────────────────────────────────────────
+
+                    const timestamp = Date.now()
+
+                    // Process frames directly in parallel workers (no buffering)
+                    if (ballEnabledShared.value) {
+                        yoloWorker.processFrame(frame, timestamp)
+                    }
+
+                    if (poseEnabledShared.value) {
+                        moveNetWorker.processFrame(frame, timestamp)
+                    }
+
+                    // Process worker results (get latest available from shared values)
+                    const yoloResult = {
+                        ball: yoloWorker.latestResultBall.value,
+                        rim: yoloWorker.latestResultRim.value,
+                        timestamp: yoloWorker.latestResultTimestamp.value
+                    }
+                    const poseResult = {
+                        keypoints: moveNetWorker.latestResultKeypoints.value,
+                        angles: moveNetWorker.latestResultAngles.value,
+                        timestamp: moveNetWorker.latestResultTimestamp.value
+                    }
+
+                    // Process YOLO result if available
+                    if (yoloResult.ball) {
+                        const detection: BallDetection = {
+                            ball: yoloResult.ball,
+                            rim: yoloResult.rim ?? undefined,
+                            timestamp: yoloResult.timestamp
+                        }
+                        
+                        // Emit via bridge
+                        const now = Date.now()
+                        if (now - lastRNDispatch.value >= 16) {
+                            lastRNDispatch.value = now
+                            scheduleOnRN(emitBallDetection, detection)
+                        }
+                    }
+
+                    // Process pose result if available
+                    if (poseResult.keypoints) {
+                        const result: PoseResult = {
+                            keypoints: poseResult.keypoints,
+                            angles: poseResult.angles,
+                            timestamp: poseResult.timestamp
+                        }
+                        
+                        const now = Date.now()
+                        if (now - lastRNDispatch.value >= 16) {
+                            lastRNDispatch.value = now
+                            scheduleOnRN(emitPoseResult, result)
+                        }
+                    }
+
 
                     // ────────────────────────────────────────────────────────────────
-                    // YOLO
+                    // YOLO (SERIAL - TO BE REMOVED AFTER TESTING)
                     // ────────────────────────────────────────────────────────────────
 
                     if (runYolo) {
@@ -1508,13 +1584,22 @@ export const useShotTracker = (
             },
 
             [
+                hasFatalError,
+                perfFramesReceived,
+                perfFramesProcessed,
+                frameCounter,
+                ballEnabledShared,
+                poseEnabledShared,
+                yoloWorker,
+                moveNetWorker,
+                lastRNDispatch,
+                emitBallDetection,
+                emitPoseResult,
+                scheduleFatalErrorRecovery,
                 yoloModelInstance,
                 poseModelInstance,
                 yoloResizer,
                 poseResizer,
-                emitBallDetection,
-                emitPoseResult,
-                scheduleFatalErrorRecovery,
                 selectedPoseResolution,
             ]
         )
