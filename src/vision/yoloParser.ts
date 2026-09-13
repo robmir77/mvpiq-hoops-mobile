@@ -10,29 +10,63 @@ const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.0001  // Very low threshold - model outputs extremely low raw scores
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (basketball, rim, sports ball)
 
-// Adaptive threshold based on ball size - smaller balls need lower threshold.
+// Adaptive confidence threshold based on detected ball size.
+//
 // The size is normalized to the frame (0..1).
-function getAdaptiveThreshold(ballWidth: number, ballHeight: number, baseThreshold: number): number {
+// Smaller balls require a more permissive threshold because
+// distant balls contain fewer pixels and therefore tend to
+// produce lower confidence scores.
+//
+// IMPORTANT:
+// The threshold is continuous rather than using hard size bands,
+// avoiding abrupt changes around 0.10 / 0.02.
+
+function getAdaptiveThreshold(
+  ballWidth: number,
+  ballHeight: number,
+  baseThreshold: number
+): number {
   'worklet'; // eslint-disable-line
+
   const avgSize = (ballWidth + ballHeight) / 2
 
-  // Large balls (> 0.30): standard confidence threshold.
-  if (avgSize > 0.3) {
+  // ----------------------------------------------------------
+  // Large object
+  // ----------------------------------------------------------
+  if (avgSize >= 0.30) {
     return baseThreshold
   }
 
-  // Medium balls (0.10-0.30): moderately more permissive.
-  if (avgSize > 0.1) {
-    return baseThreshold * 0.3
+  // ----------------------------------------------------------
+  // Small / distant object
+  //
+  // Interpolate between:
+  //   0.30 -> baseThreshold
+  //   0.02 -> minimum threshold
+  // ----------------------------------------------------------
+
+  const MIN_SIZE = 0.02
+  const MAX_SIZE = 0.30
+
+  const MIN_THRESHOLD = 0.006
+
+  // Normalize size to 0..1
+  let t = (avgSize - MIN_SIZE) / (MAX_SIZE - MIN_SIZE)
+
+  // Clamp
+  if (t < 0) {
+    t = 0
+  } else if (t > 1) {
+    t = 1
   }
 
-  // Small balls (0.02-0.10): fixed 1.2% minimum confidence
-  if (avgSize > 0.02) {
-    return 0.012
-  }
+  // Smooth interpolation instead of linear interpolation.
+  // This makes the threshold decrease more gradually for
+  // distant balls.
+  const smoothT = t * t * (3 - 2 * t)
 
-  // Tiny balls (≤ 0.02): also fixed 1.2% minimum confidence
-  return 0.012
+  return MIN_THRESHOLD +
+    (baseThreshold - MIN_THRESHOLD) * smoothT
 }
 
 // Validate bounding box geometry - reject suspicious aspect ratios
@@ -46,11 +80,11 @@ function isValidBallGeometry(width: number, height: number): { valid: boolean; a
 
   const aspectRatio = width / height
 
-  // Reject extremely wide or tall boxes (aspect ratio > 4.5 or < 0.22)
+  // Reject extremely wide or tall boxes (aspect ratio > 4.0 or < 0.25)
   // More permissive (was 3.0/0.33) to handle ball occlusions by hand
-  // This filters out the most extreme false positives while allowing
+  // This filters out false positives with ratio 4.0-4.5 while allowing
   // distorted boxes from partial occlusions
-  if (aspectRatio > 4.5 || aspectRatio < 0.22) {
+  if (aspectRatio > 4.0 || aspectRatio < 0.25) {
     return { valid: false, aspectRatio }
   }
 
