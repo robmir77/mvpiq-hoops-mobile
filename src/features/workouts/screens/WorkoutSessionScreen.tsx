@@ -535,22 +535,28 @@ const TrackingOverlay = React.memo(({
                 })()}
 
                 {/* Cerchio palla YOLO raw (reale) - arancione */}
-                {trackingState?.ballPositionRaw && (
-                    <Group>
-                        <SkiaCircle
-                            cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                            cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
-                            color="rgba(255,140,0,0.22)"
-                        />
-                        <SkiaCircle
-                            cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                            cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                            r={trackingState.ballWidth ? (trackingState.ballWidth * SCREEN_W) / 2 : 16}
-                            color="#ff8c00" style="stroke" strokeWidth={2.5}
-                        />
-                    </Group>
-                )}
+                {trackingState?.ballPositionRaw && (() => {
+                    const ballW = trackingState.ballWidth ?? 0
+                    const ballH = trackingState.ballHeight ?? 0
+                    const avgSize = (ballW + ballH) / 2
+                    const radius = Math.max(8, (avgSize * SCREEN_W) / 2) // Minimum 8px radius
+                    return (
+                        <Group>
+                            <SkiaCircle
+                                cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
+                                cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
+                                r={radius}
+                                color="rgba(255,140,0,0.22)"
+                            />
+                            <SkiaCircle
+                                cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
+                                cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
+                                r={radius}
+                                color="#ff8c00" style="stroke" strokeWidth={2.5}
+                            />
+                        </Group>
+                    )
+                })()}
 
                 {/* Punto Kalman smoothed - rosso per debug */}
                 {trackingState?.ballPosition && (

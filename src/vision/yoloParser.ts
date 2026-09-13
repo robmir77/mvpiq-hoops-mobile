@@ -26,15 +26,35 @@ function getAdaptiveThreshold(ballWidth: number, ballHeight: number, baseThresho
     return baseThreshold * 0.3
   }
 
-  // Small balls (0.02-0.10): very permissive because distant balls
-  // naturally produce weaker YOLO confidence.
+  // Small balls (0.02-0.10): fixed 3% minimum confidence
   if (avgSize > 0.02) {
-    return baseThreshold * 0.1
+    return 0.03
   }
 
-  // Tiny but still potentially usable balls: do not lower the threshold
-  // further than this. Below MIN_BALL_RADIUS we reject as visual noise.
-  return baseThreshold * 0.05
+  // Tiny balls (≤ 0.02): also fixed 3% minimum confidence
+  return 0.03
+}
+
+// Validate bounding box geometry - reject suspicious aspect ratios
+// A ball should have roughly equal width and height (aspect ratio close to 1)
+// More permissive to handle occlusions (ball behind hand)
+function isValidBallGeometry(width: number, height: number): { valid: boolean; aspectRatio: number } {
+  'worklet'; // eslint-disable-line
+  if (width <= 0 || height <= 0) {
+    return { valid: false, aspectRatio: 0 }
+  }
+
+  const aspectRatio = width / height
+
+  // Reject extremely wide or tall boxes (aspect ratio > 4.5 or < 0.22)
+  // More permissive (was 3.0/0.33) to handle ball occlusions by hand
+  // This filters out the most extreme false positives while allowing
+  // distorted boxes from partial occlusions
+  if (aspectRatio > 4.5 || aspectRatio < 0.22) {
+    return { valid: false, aspectRatio }
+  }
+
+  return { valid: true, aspectRatio }
 }
 
 // YOLOv8 detection head strides for multi-scale feature pyramid
@@ -88,198 +108,165 @@ function nms(dets: number[][], thr: number): number[][] {
 // Layout: [xc, yc, w, h, basketball_score, rim_score, sports_ball_score] for each anchor
 // Requires grid/stride decoding for proper coordinate extraction
 export function parseYoloOutput(
-  output: Float32Array | Uint8Array | Int8Array,
-  threshold: number = CONF_THRESHOLD,
-  frameWidth?: number,
-  frameHeight?: number
+    output: Float32Array | Uint8Array | Int8Array,
+    threshold: number = CONF_THRESHOLD,
+    frameWidth?: number,
+    frameHeight?: number
 ): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
   debug?: { conf: number }
 } {
   'worklet'; // eslint-disable-line
-  
+
   try {
     const raw: number[][] = []
     let maxRawConfidence = 0
 
-  // Convert to float values if needed (for INT8 quantized output)
-  const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
+    // Convert to float values if needed (for INT8 quantized output)
+    const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
 
-  // Channel-major layout:
-  // [cx..., cy..., w..., h..., ballScore..., rimScore...]
-  //
-  // IMPORTANT: do not hardcode 8400. YOLO output size depends on the selected
-  // input resolution (e.g. 640 -> 8400, 416 -> 3549, 320 -> 2100).
-  // Reading the actual output buffer makes the parser model-size agnostic.
-  const nDetections = Math.floor(output.length / OUTPUT_CHANNELS)
-  if (nDetections <= 0 || output.length % OUTPUT_CHANNELS !== 0) {
-    return { ball: null, rim: null }
-  }
-
-  // Determine input size from number of detections
-  // 512x512: 5376 anchors, 640x640: 8400 anchors, 320x320: 2100 anchors
-  let inputSize = 512
-  if (nDetections === 8400) inputSize = 640
-  else if (nDetections === 2100) inputSize = 320
-  else if (nDetections === 5376) inputSize = 512
-
-  // Track the anchor with maximum confidence for debugging
-  let maxAnchorIndex = -1
-  let maxAnchorConf = -1
-  let maxAnchorRaw: { cx: number; cy: number; w: number; h: number; basketballScore: number; rimScore: number; sportsBallScore: number } | null = null
-
-  // Diagnostic: track top 5 anchors for each class to understand model behavior
-  const topBallAnchors: Array<{ index: number; cx: number; cy: number; w: number; h: number; score: number }> = []
-  const topRimAnchors: Array<{ index: number; cx: number; cy: number; w: number; h: number; score: number }> = []
-  const topSportsBallAnchors: Array<{ index: number; cx: number; cy: number; w: number; h: number; score: number }> = []
-
-  // Simplified decoder - assume model outputs are already normalized [0,1]
-  // This is common for TFLite exports with NMS included
-  for (let i = 0; i < nDetections; i++) {
-    // Read raw values
-    const cxRaw = isQuantized ? output[i] / 255.0 : output[i]
-    const cyRaw = isQuantized ? output[nDetections + i] / 255.0 : output[nDetections + i]
-    const w  = isQuantized ? output[2 * nDetections + i] / 255.0 : output[2 * nDetections + i]
-    const h  = isQuantized ? output[3 * nDetections + i] / 255.0 : output[3 * nDetections + i]
-    const basketballScore = isQuantized ? output[4 * nDetections + i] / 255.0 : output[4 * nDetections + i]
-    const rimScore  = isQuantized ? output[5 * nDetections + i] / 255.0 : output[5 * nDetections + i]
-    const sportsBallScore = isQuantized ? output[6 * nDetections + i] / 255.0 : output[6 * nDetections + i]
-
-    // New ballRim model outputs coordinates already normalized [0,1]
-    // No coordinate inversion needed for this model
-    const cx = cxRaw
-    const cy = cyRaw
-
-    // No axis swap needed
-    const finalCx = cx
-    const finalCy = cy
-
-    // Use raw scores directly - sigmoid is too slow for 5376 calls per frame
-    // Model outputs appear to be raw logits, so we use them directly with lower threshold
-    const basketballProb = basketballScore
-    const rimProb = rimScore
-    const sportsBallProb = sportsBallScore
-
-    // Diagnostic: track top anchors for each class
-    if (basketballProb > 0) {
-      topBallAnchors.push({ index: i, cx: cxRaw, cy: cyRaw, w, h, score: basketballProb })
-      if (topBallAnchors.length > 5) {
-        topBallAnchors.sort((a, b) => b.score - a.score)
-        topBallAnchors.pop()
-      }
-    }
-    if (rimProb > 0) {
-      topRimAnchors.push({ index: i, cx: cxRaw, cy: cyRaw, w, h, score: rimProb })
-      if (topRimAnchors.length > 5) {
-        topRimAnchors.sort((a, b) => b.score - a.score)
-        topRimAnchors.pop()
-      }
-    }
-    if (sportsBallProb > 0) {
-      topSportsBallAnchors.push({ index: i, cx: cxRaw, cy: cyRaw, w, h, score: sportsBallProb })
-      if (topSportsBallAnchors.length > 5) {
-        topSportsBallAnchors.sort((a, b) => b.score - a.score)
-        topSportsBallAnchors.pop()
-      }
+    // Channel-major layout:
+    // [cx..., cy..., w..., h..., ballScore..., rimScore...]
+    //
+    // IMPORTANT: do not hardcode 8400. YOLO output size depends on the selected
+    // input resolution (e.g. 640 -> 8400, 416 -> 3549, 320 -> 2100).
+    // Reading the actual output buffer makes the parser model-size agnostic.
+    const nDetections = Math.floor(output.length / OUTPUT_CHANNELS)
+    if (nDetections <= 0 || output.length % OUTPUT_CHANNELS !== 0) {
+      return { ball: null, rim: null }
     }
 
-    // Unconditional — tracks the model's real signal regardless of
-    // whether anything clears the threshold or the box-size filters
-    // below. Without this, "maxConf" in the logs collapses to 0 the
-    // moment nothing survives thresholding, making it impossible to
-    // tell "the model sees nothing" apart from "close, but just under
-    // threshold".
-    const anchorMax = Math.max(basketballProb, rimProb, sportsBallProb)
-    if (anchorMax > maxRawConfidence) {
+    // Determine input size from number of detections
+    // 512x512: 5376 anchors, 640x640: 8400 anchors, 320x320: 2100 anchors
+    let inputSize = 512
+    if (nDetections === 8400) inputSize = 640
+    else if (nDetections === 2100) inputSize = 320
+    else if (nDetections === 5376) inputSize = 512
+
+    // Simplified decoder - assume model outputs are already normalized [0,1]
+    // This is common for TFLite exports with NMS included
+    for (let i = 0; i < nDetections; i++) {
+      // Read raw values
+      const cxRaw = isQuantized ? output[i] / 255.0 : output[i]
+      const cyRaw = isQuantized ? output[nDetections + i] / 255.0 : output[nDetections + i]
+      const w  = isQuantized ? output[2 * nDetections + i] / 255.0 : output[2 * nDetections + i]
+      const h  = isQuantized ? output[3 * nDetections + i] / 255.0 : output[3 * nDetections + i]
+      const basketballScore = isQuantized ? output[4 * nDetections + i] / 255.0 : output[4 * nDetections + i]
+      const rimScore  = isQuantized ? output[5 * nDetections + i] / 255.0 : output[5 * nDetections + i]
+      const sportsBallScore = isQuantized ? output[6 * nDetections + i] / 255.0 : output[6 * nDetections + i]
+
+      // New ballRim model outputs coordinates already normalized [0,1]
+      // No coordinate inversion needed for this model
+      const cx = cxRaw
+      const cy = cyRaw
+
+      // No axis swap needed
+      const finalCx = cx
+      const finalCy = cy
+
+      // Use raw scores directly - sigmoid is too slow for 5376 calls per frame
+      // Model outputs appear to be raw logits, so we use them directly with lower threshold
+      const basketballProb = basketballScore
+      const rimProb = rimScore
+      const sportsBallProb = sportsBallScore
+
+      // Unconditional — tracks the model's real signal regardless of
+      // whether anything clears the threshold or the box-size filters
+      // below. Without this, "maxConf" in the logs collapses to 0 the
+      // moment nothing survives thresholding, making it impossible to
+      // tell "the model sees nothing" apart from "close, but just under
+      // threshold".
+      const anchorMax = Math.max(basketballProb, rimProb, sportsBallProb)
+      if (anchorMax > maxRawConfidence) {
         maxRawConfidence = anchorMax
-        maxAnchorIndex = i
-        maxAnchorRaw = {
-          cx: finalCx,
-          cy: finalCy,
-          w: w,
-          h: h,
-          basketballScore,
-          rimScore,
-          sportsBallScore
-        }
+      }
+
+      // Skip invalid detections (zero size only)
+      if (w <= 0.01 || h <= 0.01) continue
+
+      // Validate bounding box geometry - reject suspicious aspect ratios
+      const geometryCheck = isValidBallGeometry(w, h)
+      const validGeometry = geometryCheck.valid
+      const aspectRatio = geometryCheck.aspectRatio
+
+      // Use adaptive threshold for ball detection based on apparent size.
+      // Small/distant balls get a lower confidence requirement; extremely tiny
+      // boxes are rejected as noise instead of lowering the threshold forever.
+      const ballRadius = Math.min(w, h) / 2
+      const ballTooSmall = ballRadius < MIN_BALL_RADIUS
+      const ballAdaptiveThreshold = getAdaptiveThreshold(w, h, threshold)
+
+      if (__DEV__ && basketballProb >= ballAdaptiveThreshold * 0.5) {
+        console.log('[YOLO BALL SIZE]', {
+          width: w.toFixed(4),
+          height: h.toFixed(4),
+          radius: ballRadius.toFixed(4),
+          confidence: basketballProb.toFixed(4),
+          threshold: ballAdaptiveThreshold.toFixed(4),
+          rejectedAsNoise: ballTooSmall,
+          aspectRatio: aspectRatio.toFixed(2),
+          validGeometry: validGeometry,
+        })
+      }
+
+      // Accept when:
+      // 1. Not too small (above noise floor)
+      // 2. Valid geometry (aspect ratio not suspicious)
+      // 3. Confidence clears adaptive threshold
+      // 4. Box not absurdly large
+      // Use basketball class (0) for ball detection
+      if (!ballTooSmall && validGeometry && basketballProb >= ballAdaptiveThreshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
+        raw.push([
+          (finalCx - w * 0.5),
+          (finalCy - h * 0.5),
+          (finalCx + w * 0.5),
+          (finalCy + h * 0.5),
+          basketballProb,
+          0, // basketball class
+        ])
+      }
+
+      // Add rim detection if score above threshold and box size is acceptable
+      if (rimProb >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
+        raw.push([
+          (finalCx - w * 0.5),
+          (finalCy - h * 0.5),
+          (finalCx + w * 0.5),
+          (finalCy + h * 0.5),
+          rimProb,
+          1, // rim class
+        ])
+      }
     }
 
-    // Skip invalid detections (zero size only)
-    if (w <= 0.01 || h <= 0.01) continue
+    // Apply NMS
+    const kept = nms(raw, NMS_IOU_THRESHOLD)
 
-    // Use adaptive threshold for ball detection based on apparent size.
-    // Small/distant balls get a lower confidence requirement; extremely tiny
-    // boxes are rejected as noise instead of lowering the threshold forever.
-    const ballRadius = Math.min(w, h) / 2
-    const ballTooSmall = ballRadius < MIN_BALL_RADIUS
-    const ballAdaptiveThreshold = getAdaptiveThreshold(w, h, threshold)
+    // Keep only the ball with highest confidence and the rim with highest confidence
+    let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+    let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
 
-    if (__DEV__ && basketballProb >= ballAdaptiveThreshold * 0.5) {
-      console.log('[YOLO BALL SIZE]', {
-        width: w.toFixed(4),
-        height: h.toFixed(4),
-        radius: ballRadius.toFixed(4),
-        confidence: basketballProb.toFixed(4),
-        threshold: ballAdaptiveThreshold.toFixed(4),
-        rejectedAsNoise: ballTooSmall,
-      })
+    for (const [x1, y1, x2, y2, conf, cls] of kept) {
+      const detection = {
+        // Coordinate dirette senza inversione (per modello 640x640)
+        x: (x1 + x2) / 2,
+        y: (y1 + y2) / 2,
+        width: (x2 - x1),
+        height: (y2 - y1),
+        confidence: conf,
+      }
+
+      if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
+        bestBall = detection
+      }
+      if (cls === 1 && detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
+        bestRim = detection
+      }
     }
 
-    // Accept when confidence clears the size-adaptive threshold, the box is
-    // not absurdly large, and the apparent radius is above the noise floor.
-    // Use basketball class (0) for ball detection
-    if (!ballTooSmall && basketballProb >= ballAdaptiveThreshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
-      raw.push([
-        (finalCx - w * 0.5),
-        (finalCy - h * 0.5),
-        (finalCx + w * 0.5),
-        (finalCy + h * 0.5),
-        basketballProb,
-        0, // basketball class
-      ])
-    }
+    return { ball: bestBall, rim: bestRim, debug: { conf: maxRawConfidence } }
 
-    // Add rim detection if score above threshold and box size is acceptable
-    if (rimProb >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
-      raw.push([
-        (finalCx - w * 0.5),
-        (finalCy - h * 0.5),
-        (finalCx + w * 0.5),
-        (finalCy + h * 0.5),
-        rimProb,
-        1, // rim class
-      ])
-    }
-  }
-
-  // Apply NMS
-  const kept = nms(raw, NMS_IOU_THRESHOLD)
-
-  // Keep only the ball with highest confidence and the rim with highest confidence
-  let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
-  let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
-
-  for (const [x1, y1, x2, y2, conf, cls] of kept) {
-    const detection = {
-      // Coordinate dirette senza inversione (per modello 640x640)
-      x: (x1 + x2) / 2,
-      y: (y1 + y2) / 2,
-      width: (x2 - x1),
-      height: (y2 - y1),
-      confidence: conf,
-    }
-
-    if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
-      bestBall = detection
-    }
-    if (cls === 1 && detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
-      bestRim = detection
-    }
-  }
-
-  return { ball: bestBall, rim: bestRim, debug: { conf: maxRawConfidence } }
-  
   } catch (error) {
     console.error('[YOLO PARSER ERROR]', error)
     return { ball: null, rim: null, debug: { conf: 0 } }
