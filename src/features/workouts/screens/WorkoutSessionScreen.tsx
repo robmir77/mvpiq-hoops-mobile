@@ -310,21 +310,9 @@ const TrackingOverlay = React.memo(({
     const py = (y: number) => y * CAMERA_H
 
     const mapYoloPointToView = (x: number, y: number) => {
-        const inputSize = yoloInputSize ?? 512
-
-        // Undo YOLO `contain`: square -> original camera frame (normalized 0..1).
-        const containScale = Math.min(
-            inputSize / CAMERA_RES_W,
-            inputSize / CAMERA_RES_H
-        )
-        const resizedW = CAMERA_RES_W * containScale
-        const resizedH = CAMERA_RES_H * containScale
-        const padX = (inputSize - resizedW) / 2
-        const padY = (inputSize - resizedH) / 2
-
-        const sourceX = (x * inputSize - padX) / resizedW
-        const sourceY = (y * inputSize - padY) / resizedH
-
+        // Coordinates from yoloParser are already in camera-normalized space (0..1 relative to 1280x720)
+        // yoloParser already handles the YOLO contain conversion, so we skip that step
+        
         // Reproduce Camera `resizeMode="cover"`: landscape frame -> portrait view.
         const coverScale = Math.max(
             SCREEN_W / CAMERA_RES_W,
@@ -335,10 +323,10 @@ const TrackingOverlay = React.memo(({
         const cropX = (displayedW - SCREEN_W) / 2
         const cropY = (displayedH - CAMERA_H) / 2
 
-        // Invert coordinates to fix overlay inversion
+        // Invert both axes for camera preview mirroring
         return {
-            x: SCREEN_W - (sourceX * displayedW - cropX),
-            y: CAMERA_H - (sourceY * displayedH - cropY),
+            x: SCREEN_W - (x * SCREEN_W),
+            y: CAMERA_H - (y * CAMERA_H),
         }
     }
 

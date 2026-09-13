@@ -114,6 +114,17 @@ const MAX_RIM_BOX_SIZE = 0.8
 // Standard YOLOv8 TFLite format: (1, 7, num_anchors) where 7 = 4 coords + 3 class scores
 // Layout: [xc, yc, w, h, basketball_score, rim_score, sports_ball_score] for each anchor
 // Requires grid/stride decoding for proper coordinate extraction
+//
+// IMPORTANT: Coordinate system conversion
+// The resizer uses scaleMode: 'contain' which letterboxes the 1280x720 camera image
+// into the 512x512 YOLO tensor. We need to convert coordinates from the letterboxed
+// tensor space back to the original camera aspect ratio.
+//
+// Camera: 1280x720 (16:9 aspect ratio)
+// YOLO tensor: 512x512 (1:1 aspect ratio)
+// Scale factor: min(512/1280, 512/720) = 0.4
+// Resized image: 512x288
+// Letterboxing: (512-288)/2 = 112px top and bottom
 export function parseYoloOutput(
     output: Float32Array | Uint8Array | Int8Array,
     threshold: number = CONF_THRESHOLD,
@@ -125,6 +136,40 @@ export function parseYoloOutput(
   debug?: { conf: number; ballIndex?: number; rimIndex?: number; rejectedTooSmall: number; rejectedLowConfidence: number; rejectedGeometry: number; tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }>; lowConfidenceAccepted: { confidence: number; width: number; height: number; x: number; y: number } | null; maxBallScore: number; maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null; maxBallAnchorRejection: string | null }
 } {
   'worklet'; // eslint-disable-line
+
+  // Letterboxing parameters for contain mode
+  // Camera: 1280x720 (16:9), YOLO: 512x512 (1:1)
+  const CAMERA_ASPECT = 1280 / 720  // 1.777...
+  const TENSOR_SIZE = 512
+  const SCALE = Math.min(TENSOR_SIZE / 1280, TENSOR_SIZE / 720)  // 0.4
+  const RESIZED_HEIGHT = 720 * SCALE  // 288
+  const LETTERBOX_OFFSET = (TENSOR_SIZE - RESIZED_HEIGHT) / 2  // 112
+
+  // Convert coordinates from letterboxed tensor space to camera-normalized space
+  const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
+    // Convert from normalized tensor coordinates to pixel tensor coordinates
+    const cx_px = cx * TENSOR_SIZE
+    const cy_px = cy * TENSOR_SIZE
+    const w_px = w * TENSOR_SIZE
+    const h_px = h * TENSOR_SIZE
+
+    // Remove letterboxing offset
+    const cy_no_letterbox = cy_px - LETTERBOX_OFFSET
+
+    // Scale back to camera pixel space
+    const cx_camera = cx_px / SCALE
+    const cy_camera = cy_no_letterbox / SCALE
+    const w_camera = w_px / SCALE
+    const h_camera = h_px / SCALE
+
+    // Normalize to camera space (0..1)
+    return {
+      cx: cx_camera / 1280,
+      cy: cy_camera / 720,
+      w: w_camera / 1280,
+      h: h_camera / 720
+    }
+  }
 
   try {
     let maxRawConfidence = 0
@@ -182,6 +227,13 @@ export function parseYoloOutput(
       const finalCx = cx
       const finalCy = cy
 
+      // Convert from letterboxed tensor space to camera-normalized space
+      const converted = convertFromLetterbox(finalCx, finalCy, w, h)
+      const cameraCx = converted.cx
+      const cameraCy = converted.cy
+      const cameraW = converted.w
+      const cameraH = converted.h
+
       // Use raw scores directly - sigmoid is too slow for 5376 calls per frame
       // Model outputs appear to be raw logits, so we use them directly with lower threshold
       const basketballProb = basketballScore
@@ -200,30 +252,30 @@ export function parseYoloOutput(
       }
 
       // Skip invalid detections (zero size only)
-      if (w <= 0.01 || h <= 0.01) continue
+      if (cameraW <= 0.01 || cameraH <= 0.01) continue
 
       // Validate bounding box geometry - reject suspicious aspect ratios
-      const geometryCheck = isValidBallGeometry(w, h)
+      const geometryCheck = isValidBallGeometry(cameraW, cameraH)
       const validGeometry = geometryCheck.valid
       const aspectRatio = geometryCheck.aspectRatio
 
       // Use adaptive threshold for ball detection based on apparent size.
       // Small/distant balls get a lower confidence requirement; extremely tiny
       // boxes are rejected as noise instead of lowering the threshold forever.
-      const ballRadius = Math.min(w, h) / 2
+      const ballRadius = Math.min(cameraW, cameraH) / 2
       const ballTooSmall = ballRadius < MIN_BALL_RADIUS
-      const ballAdaptiveThreshold = getAdaptiveThreshold(w, h, threshold)
+      const ballAdaptiveThreshold = getAdaptiveThreshold(cameraW, cameraH, threshold)
 
       // Track max basketball score for frames without detection
       if (basketballProb > maxBallScore) {
         maxBallScore = basketballProb
-        maxBallAnchor = { index: i, cx: finalCx, cy: finalCy, w, h, confidence: basketballProb }
+        maxBallAnchor = { index: i, cx: cameraCx, cy: cameraCy, w: cameraW, h: cameraH, confidence: basketballProb }
       }
       if (ballTooSmall) {
         rejectedTooSmall++
         // Only sample if confidence is significant (> 0.01) to filter out noise
         if (tooSmallSamples.length < MAX_SAMPLES && basketballProb > 0.01) {
-          tooSmallSamples.push({ confidence: basketballProb, width: w, height: h, radius: ballRadius })
+          tooSmallSamples.push({ confidence: basketballProb, width: cameraW, height: cameraH, radius: ballRadius })
         }
       } else if (!validGeometry) {
         rejectedGeometry++
@@ -239,12 +291,12 @@ export function parseYoloOutput(
       // 3. Confidence clears adaptive threshold
       // 4. Box not absurdly large
       // Use basketball class (0) for ball detection
-      if (!ballTooSmall && validGeometry && basketballProb >= ballAdaptiveThreshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
+      if (!ballTooSmall && validGeometry && basketballProb >= ballAdaptiveThreshold && cameraW <= MAX_BALL_BOX_SIZE && cameraH <= MAX_BALL_BOX_SIZE) {
         const detection = {
-          x: finalCx,
-          y: finalCy,
-          width: w,
-          height: h,
+          x: cameraCx,
+          y: cameraCy,
+          width: cameraW,
+          height: cameraH,
           confidence: basketballProb,
           index: i,
         }
@@ -254,12 +306,12 @@ export function parseYoloOutput(
       }
 
       // Add rim detection if score above threshold and box size is acceptable
-      if (rimProb >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
+      if (rimProb >= threshold && cameraW <= MAX_RIM_BOX_SIZE && cameraH <= MAX_RIM_BOX_SIZE) {
         const detection = {
-          x: finalCx,
-          y: finalCy,
-          width: w,
-          height: h,
+          x: cameraCx,
+          y: cameraCy,
+          width: cameraW,
+          height: cameraH,
           confidence: rimProb,
           index: i,
         }

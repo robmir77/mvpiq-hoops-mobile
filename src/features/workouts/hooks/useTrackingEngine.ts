@@ -25,8 +25,8 @@ interface KalmanState {
 
 const INITIAL_KALMAN: KalmanState = {
     x: 0, y: 0, vx: 0, vy: 0,
-    px: 5, py: 5,
-    mx: 1.2, my: 1.2,
+    px: 0.5, py: 0.5,  // Ridotto da 5 a 0.5 per renderlo più reattivo
+    mx: 0.8, my: 0.8,  // Ridotto da 1.2 a 0.8 per fidarsi di più delle misure
 }
 
 // ── Soglie shot detection ──────────────────────────────────────────────────
