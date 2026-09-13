@@ -214,6 +214,11 @@ export const useShotTracker = (
     const stableFrameCount = useSharedValue(0)
     const isBallStable = useSharedValue(false)
 
+    // Size continuity tracking to filter incompatible detections
+    const lastBallWidth = useSharedValue(0)
+    const lastBallHeight = useSharedValue(0)
+    const lastValidBallTime = useSharedValue(0)
+
     // Recovery mechanism: reset the fatal error flag after a delay.
     // IMPORTANT: this must be scheduled from the JS thread at the moment
     // the error is actually caught (via scheduleOnRN in the catch block
@@ -1200,10 +1205,60 @@ export const useShotTracker = (
                                     yoloExecutedThisFrame = true
                                     perfYoloExecuted.value += 1
 
-                                    // Update ball stability tracking
-                                    if (ball) {
-                                        const deltaX = Math.abs(ball.x - lastBallX.value)
-                                        const deltaY = Math.abs(ball.y - lastBallY.value)
+                                    // Size continuity filter - reject detections with unrealistic size jumps
+                                    const currentTime = performance.now()
+                                    const timeSinceLastValid = currentTime - lastValidBallTime.value
+                                    const MIN_VALID_CONFIDENCE = 0.05 // Only update reference with confident detections
+                                    const MAX_TIME_GAP = 500 // Reset reference if gap > 500ms
+
+                                    // Empirical thresholds from diagnostic logs
+                                    const MIN_AREA_RATIO = 0.5 // Allow up to 2x reduction
+                                    const MAX_AREA_RATIO = 2.0 // Allow up to 2x increase
+
+                                    let sizeCompatible = true
+                                    let widthRatio = 1
+                                    let heightRatio = 1
+                                    let areaRatio = 1
+
+                                    if (ball && lastBallWidth.value > 0 && lastBallHeight.value > 0) {
+                                        widthRatio = ball.width / lastBallWidth.value
+                                        heightRatio = ball.height / lastBallHeight.value
+                                        areaRatio = (ball.width * ball.height) / (lastBallWidth.value * lastBallHeight.value)
+
+                                        // Check if size change is unrealistic based on empirical thresholds
+                                        if (areaRatio < MIN_AREA_RATIO || areaRatio > MAX_AREA_RATIO) {
+                                            sizeCompatible = false
+                                            if (__DEV__) {
+                                                console.log('[SIZE CONTINUITY] Rejected detection with unrealistic size jump', {
+                                                    previous: { width: lastBallWidth.value.toFixed(3), height: lastBallHeight.value.toFixed(3) },
+                                                    current: { width: ball.width.toFixed(3), height: ball.height.toFixed(3) },
+                                                    ratios: { width: widthRatio.toFixed(2), height: heightRatio.toFixed(2), area: areaRatio.toFixed(2) },
+                                                    confidence: ball.confidence.toFixed(3),
+                                                    timeSinceLastValid: timeSinceLastValid.toFixed(0),
+                                                    thresholds: { minArea: MIN_AREA_RATIO, maxArea: MAX_AREA_RATIO }
+                                                })
+                                            }
+                                        }
+                                    }
+
+                                    // Update reference dimensions only with credible detections that pass size continuity
+                                    if (ball && ball.confidence >= MIN_VALID_CONFIDENCE && sizeCompatible) {
+                                        lastBallWidth.value = ball.width
+                                        lastBallHeight.value = ball.height
+                                        lastValidBallTime.value = currentTime
+                                    } else if (timeSinceLastValid > MAX_TIME_GAP) {
+                                        // Reset reference if too much time passed (ball lost)
+                                        lastBallWidth.value = 0
+                                        lastBallHeight.value = 0
+                                    }
+
+                                    // Apply size continuity filter to ball detection
+                                    const filteredBall = sizeCompatible ? ball : null
+
+                                    // Update ball stability tracking with filtered detection
+                                    if (filteredBall) {
+                                        const deltaX = Math.abs(filteredBall.x - lastBallX.value)
+                                        const deltaY = Math.abs(filteredBall.y - lastBallY.value)
                                         const positionChange = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
 
                                         if (positionChange < BALL_STABILITY_THRESHOLD) {
@@ -1216,8 +1271,8 @@ export const useShotTracker = (
                                             isBallStable.value = false
                                         }
 
-                                        lastBallX.value = ball.x
-                                        lastBallY.value = ball.y
+                                        lastBallX.value = filteredBall.x
+                                        lastBallY.value = filteredBall.y
                                     }
 
                                     // DEV ONLY: Log YOLO performance metrics
@@ -1236,14 +1291,14 @@ export const useShotTracker = (
                                         scheduleOnRN(
                                             emitBallDetection,
                                             {
-                                                ball: ball
+                                                ball: filteredBall
                                                     ? {
-                                                        x: ball.x,
-                                                        y: ball.y,
-                                                        width: ball.width,
-                                                        height: ball.height,
+                                                        x: filteredBall.x,
+                                                        y: filteredBall.y,
+                                                        width: filteredBall.width,
+                                                        height: filteredBall.height,
                                                         confidence:
-                                                        ball.confidence,
+                                                        filteredBall.confidence,
                                                     }
                                                     : undefined,
 
