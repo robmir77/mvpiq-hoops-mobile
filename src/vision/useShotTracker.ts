@@ -1123,6 +1123,7 @@ export const useShotTracker = (
                                             source.byteOffset,
                                             source.byteOffset + source.byteLength
                                         ) as ArrayBuffer
+                                    const t4_5 = performance.now()
 
                                     const outputs =
                                         yoloModelInstance!.runSync(
@@ -1219,7 +1220,7 @@ export const useShotTracker = (
 
                                     // DEV ONLY: Log YOLO performance metrics
                                     if (__DEV__) {
-                                        console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms slice:${(t5-t4).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
+                                        console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms Float32Array:${(t4-t3).toFixed(1)}ms slice:${(t4_5-t4).toFixed(1)}ms runSync:${(t5-t4_5).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
                                         if (isBallStable.value) {
                                             console.log(`[YOLO Throttle] Ball stable - using ${YOLO_FRAME_SKIP_STABLE}x skip`)
                                         }

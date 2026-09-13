@@ -7,7 +7,7 @@
 // Requires grid/stride decoding for proper coordinate extraction
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.0001  // Very low threshold - model outputs extremely low raw scores
+const CONF_THRESHOLD = 0.00005  // Very low threshold - model outputs extremely low raw scores
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (basketball, rim, sports ball)
 
 // Adaptive confidence threshold based on detected ball size.
@@ -107,33 +107,6 @@ const MIN_BALL_RADIUS = 0.01
 // For rim, keep a more conservative filter.
 const MAX_RIM_BOX_SIZE = 0.8
 
-// Worklet-safe IOU calculation
-function iou(a: number[], b: number[]): number {
-  'worklet'; // eslint-disable-line
-  const ix1 = Math.max(a[0], b[0])
-  const iy1 = Math.max(a[1], b[1])
-  const ix2 = Math.min(a[2], b[2])
-  const iy2 = Math.min(a[3], b[3])
-  const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1)
-  return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter + 1e-6)
-}
-
-// Worklet-safe NMS
-function nms(dets: number[][], thr: number): number[][] {
-  'worklet'; // eslint-disable-line
-  const s = [...dets].sort((a, b) => b[4] - a[4])
-  const kept: number[][] = []
-  const skip = new Set<number>()
-  for (let i = 0; i < s.length; i++) {
-    if (skip.has(i)) continue
-    kept.push(s[i])
-    for (let j = i + 1; j < s.length; j++) {
-      if (iou(s[i], s[j]) > thr) skip.add(j)
-    }
-  }
-  return kept
-}
-
 // Parse YOLO output to BallDetection
 // This runs in the Worklet - NO runOnJS here
 // Detects both ball (cls 0) and rim (cls 1)
@@ -154,8 +127,9 @@ export function parseYoloOutput(
   'worklet'; // eslint-disable-line
 
   try {
-    const raw: number[][] = []
     let maxRawConfidence = 0
+    let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+    let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
 
     // Convert to float values if needed (for INT8 quantized output)
     const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
@@ -231,18 +205,7 @@ export function parseYoloOutput(
       const ballTooSmall = ballRadius < MIN_BALL_RADIUS
       const ballAdaptiveThreshold = getAdaptiveThreshold(w, h, threshold)
 
-      if (__DEV__ && basketballProb >= ballAdaptiveThreshold * 0.5) {
-        console.log('[YOLO BALL SIZE]', {
-          width: w.toFixed(4),
-          height: h.toFixed(4),
-          radius: ballRadius.toFixed(4),
-          confidence: basketballProb.toFixed(4),
-          threshold: ballAdaptiveThreshold.toFixed(4),
-          rejectedAsNoise: ballTooSmall,
-          aspectRatio: aspectRatio.toFixed(2),
-          validGeometry: validGeometry,
-        })
-      }
+      // Removed per-detection logging - too expensive with 8400 anchors
 
       // Accept when:
       // 1. Not too small (above noise floor)
@@ -251,51 +214,30 @@ export function parseYoloOutput(
       // 4. Box not absurdly large
       // Use basketball class (0) for ball detection
       if (!ballTooSmall && validGeometry && basketballProb >= ballAdaptiveThreshold && w <= MAX_BALL_BOX_SIZE && h <= MAX_BALL_BOX_SIZE) {
-        raw.push([
-          (finalCx - w * 0.5),
-          (finalCy - h * 0.5),
-          (finalCx + w * 0.5),
-          (finalCy + h * 0.5),
-          basketballProb,
-          0, // basketball class
-        ])
+        const detection = {
+          x: finalCx,
+          y: finalCy,
+          width: w,
+          height: h,
+          confidence: basketballProb,
+        }
+        if (!bestBall || detection.confidence > bestBall.confidence) {
+          bestBall = detection
+        }
       }
 
       // Add rim detection if score above threshold and box size is acceptable
       if (rimProb >= threshold && w <= MAX_RIM_BOX_SIZE && h <= MAX_RIM_BOX_SIZE) {
-        raw.push([
-          (finalCx - w * 0.5),
-          (finalCy - h * 0.5),
-          (finalCx + w * 0.5),
-          (finalCy + h * 0.5),
-          rimProb,
-          1, // rim class
-        ])
-      }
-    }
-
-    // Apply NMS
-    const kept = nms(raw, NMS_IOU_THRESHOLD)
-
-    // Keep only the ball with highest confidence and the rim with highest confidence
-    let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
-    let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
-
-    for (const [x1, y1, x2, y2, conf, cls] of kept) {
-      const detection = {
-        // Coordinate dirette senza inversione (per modello 640x640)
-        x: (x1 + x2) / 2,
-        y: (y1 + y2) / 2,
-        width: (x2 - x1),
-        height: (y2 - y1),
-        confidence: conf,
-      }
-
-      if (cls === 0 && (!bestBall || detection.confidence > bestBall.confidence)) {
-        bestBall = detection
-      }
-      if (cls === 1 && detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
-        bestRim = detection
+        const detection = {
+          x: finalCx,
+          y: finalCy,
+          width: w,
+          height: h,
+          confidence: rimProb,
+        }
+        if (detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
+          bestRim = detection
+        }
       }
     }
 
