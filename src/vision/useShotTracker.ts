@@ -1047,13 +1047,12 @@ export const useShotTracker = (
                         poseEnabledShared.value &&
                         timeSinceLastMoveNet >= MOVENET_INTERVAL_MS
 
-                    // Priority: MoveNet when due, otherwise YOLO
+                    // Run YOLO and MoveNet independently - no mutual exclusion
                     const runPose = moveNetDue
 
                     const runYolo =
                         yoloReady &&
                         ballEnabledShared.value &&
-                        !moveNetDue &&
                         currentFrame % YOLO_FRAME_SKIP === 0
 
                     if (runYolo) perfYoloRequested.value += 1
