@@ -122,14 +122,23 @@ export function parseYoloOutput(
 ): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
-  debug?: { conf: number }
+  debug?: { conf: number; ballIndex?: number; rimIndex?: number; rejectedTooSmall: number; rejectedLowConfidence: number; rejectedGeometry: number; tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }>; lowConfidenceAccepted: { confidence: number; width: number; height: number; x: number; y: number } | null; maxBallScore: number; maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null; maxBallAnchorRejection: string | null }
 } {
   'worklet'; // eslint-disable-line
 
   try {
     let maxRawConfidence = 0
-    let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
-    let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+    let maxBallScore = 0
+    let maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null = null
+    let bestBall: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
+    let bestRim: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
+
+    // Diagnostic counters for ball loss analysis
+    let rejectedTooSmall = 0
+    let rejectedLowConfidence = 0
+    let rejectedGeometry = 0
+    let tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }> = []
+    const MAX_SAMPLES = 5
 
     // Convert to float values if needed (for INT8 quantized output)
     const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
@@ -205,6 +214,23 @@ export function parseYoloOutput(
       const ballTooSmall = ballRadius < MIN_BALL_RADIUS
       const ballAdaptiveThreshold = getAdaptiveThreshold(w, h, threshold)
 
+      // Track max basketball score for frames without detection
+      if (basketballProb > maxBallScore) {
+        maxBallScore = basketballProb
+        maxBallAnchor = { index: i, cx: finalCx, cy: finalCy, w, h, confidence: basketballProb }
+      }
+      if (ballTooSmall) {
+        rejectedTooSmall++
+        // Only sample if confidence is significant (> 0.01) to filter out noise
+        if (tooSmallSamples.length < MAX_SAMPLES && basketballProb > 0.01) {
+          tooSmallSamples.push({ confidence: basketballProb, width: w, height: h, radius: ballRadius })
+        }
+      } else if (!validGeometry) {
+        rejectedGeometry++
+      } else if (basketballProb < ballAdaptiveThreshold) {
+        rejectedLowConfidence++
+      }
+
       // Removed per-detection logging - too expensive with 8400 anchors
 
       // Accept when:
@@ -220,6 +246,7 @@ export function parseYoloOutput(
           width: w,
           height: h,
           confidence: basketballProb,
+          index: i,
         }
         if (!bestBall || detection.confidence > bestBall.confidence) {
           bestBall = detection
@@ -234,6 +261,7 @@ export function parseYoloOutput(
           width: w,
           height: h,
           confidence: rimProb,
+          index: i,
         }
         if (detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
           bestRim = detection
@@ -241,10 +269,32 @@ export function parseYoloOutput(
       }
     }
 
-    return { ball: bestBall, rim: bestRim, debug: { conf: maxRawConfidence } }
+    // Classify rejection reason for max ball anchor
+    let maxBallAnchorRejection: string | null = null
+    if (maxBallAnchor) {
+      const ballRadius = Math.min(maxBallAnchor.w, maxBallAnchor.h) / 2
+      const ballTooSmall = ballRadius < MIN_BALL_RADIUS
+      const geometryCheck = isValidBallGeometry(maxBallAnchor.w, maxBallAnchor.h)
+      const ballAdaptiveThreshold = getAdaptiveThreshold(maxBallAnchor.w, maxBallAnchor.h, threshold)
+      const tooLarge = maxBallAnchor.w > MAX_BALL_BOX_SIZE || maxBallAnchor.h > MAX_BALL_BOX_SIZE
+      
+      if (maxBallAnchor.confidence < ballAdaptiveThreshold) {
+        maxBallAnchorRejection = 'LOW_CONFIDENCE'
+      } else if (ballTooSmall) {
+        maxBallAnchorRejection = 'TOO_SMALL'
+      } else if (!geometryCheck.valid) {
+        maxBallAnchorRejection = 'BAD_GEOMETRY'
+      } else if (tooLarge) {
+        maxBallAnchorRejection = 'MAX_SIZE'
+      } else {
+        maxBallAnchorRejection = 'ACCEPTED'
+      }
+    }
+
+    return { ball: bestBall ? { x: bestBall.x, y: bestBall.y, width: bestBall.width, height: bestBall.height, confidence: bestBall.confidence } : null, rim: bestRim ? { x: bestRim.x, y: bestRim.y, width: bestRim.width, height: bestRim.height, confidence: bestRim.confidence } : null, debug: { conf: maxRawConfidence, ballIndex: bestBall?.index, rimIndex: bestRim?.index, rejectedTooSmall, rejectedLowConfidence, rejectedGeometry, tooSmallSamples, lowConfidenceAccepted: bestBall && bestBall.confidence <= 0.03 ? { confidence: bestBall.confidence, width: bestBall.width, height: bestBall.height, x: bestBall.x, y: bestBall.y } : null, maxBallScore, maxBallAnchor, maxBallAnchorRejection } }
 
   } catch (error) {
     console.error('[YOLO PARSER ERROR]', error)
-    return { ball: null, rim: null, debug: { conf: 0 } }
+    return { ball: null, rim: null, debug: { conf: 0, rejectedTooSmall: 0, rejectedLowConfidence: 0, rejectedGeometry: 0, tooSmallSamples: [], lowConfidenceAccepted: null, maxBallScore: 0, maxBallAnchor: null, maxBallAnchorRejection: null } }
   }
 }

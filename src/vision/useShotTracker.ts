@@ -1141,6 +1141,7 @@ export const useShotTracker = (
                                     const {
                                         ball,
                                         rim,
+                                        debug,
                                     } =
                                         parseYoloOutput(
                                             output,
@@ -1149,49 +1150,50 @@ export const useShotTracker = (
                                             frameHeight
                                         )
 
-                                    // DEV ONLY: Debug: compare raw max anchor with parsed result
+                                    // DEV ONLY: Debug: compare selected anchor with parsed result
                                     if (__DEV__ && currentFrame % 10 === 0) {
-                                        // Find max anchor in raw output
                                         const nAnchors = Math.floor(output.length / 7) // 7 channels: cx, cy, w, h, ballScore, rimScore, sportsBallScore
-                                        let maxRawConf = -1
-                                        let maxRawIdx = -1
-                                        for (let i = 0; i < nAnchors; i++) {
-                                            const ballScore = output[nAnchors * 4 + i]
-                                            const rimScore = output[nAnchors * 5 + i]
-                                            const maxScore = ballScore > rimScore ? ballScore : rimScore
-                                            if (maxScore > maxRawConf) {
-                                                maxRawConf = maxScore
-                                                maxRawIdx = i
+                                        const ballIdx = debug?.ballIndex
+                                        const rimIdx = debug?.rimIndex
+
+                                        const getRawAnchor = (idx: number | undefined) => {
+                                            if (idx === undefined || idx < 0 || idx >= nAnchors) return null
+                                            return {
+                                                index: idx,
+                                                normalized: {
+                                                    cx: output[idx],
+                                                    cy: output[nAnchors + idx],
+                                                    w: output[nAnchors * 2 + idx],
+                                                    h: output[nAnchors * 3 + idx],
+                                                    ballScore: output[nAnchors * 4 + idx],
+                                                    rimScore: output[nAnchors * 5 + idx],
+                                                },
+                                                pixels: {
+                                                    cx: output[idx] * yoloInputSize,
+                                                    cy: output[nAnchors + idx] * yoloInputSize,
+                                                    w: output[nAnchors * 2 + idx] * yoloInputSize,
+                                                    h: output[nAnchors * 3 + idx] * yoloInputSize,
+                                                }
                                             }
                                         }
-                                        if (maxRawIdx >= 0) {
-                                            const rawCx = output[maxRawIdx]
-                                            const rawCy = output[nAnchors + maxRawIdx]
-                                            const rawW = output[nAnchors * 2 + maxRawIdx]
-                                            const rawH = output[nAnchors * 3 + maxRawIdx]
-                                            console.log('[YOLO RAW vs PARSED]', {
-                                                rawAnchor: {
-                                                    index: maxRawIdx,
-                                                    normalized: {
-                                                        cx: rawCx,
-                                                        cy: rawCy,
-                                                        w: rawW,
-                                                        h: rawH,
-                                                        ballScore: output[nAnchors * 4 + maxRawIdx],
-                                                        rimScore: output[nAnchors * 5 + maxRawIdx],
-                                                    },
-                                                    pixels: {
-                                                        cx: rawCx * 512,
-                                                        cy: rawCy * 512,
-                                                        w: rawW * 512,
-                                                        h: rawH * 512,
-                                                    }
-                                                },
-                                                parsedBall: ball,
-                                                parsedRim: rim,
-                                                threshold: adaptiveThreshold.value
-                                            })
-                                        }
+
+                                        console.log('[YOLO SELECTED ANCHOR]', {
+                                            ballRaw: ballIdx !== undefined ? getRawAnchor(ballIdx) : null,
+                                            rimRaw: rimIdx !== undefined ? getRawAnchor(rimIdx) : null,
+                                            parsedBall: ball,
+                                            parsedRim: rim,
+                                            threshold: adaptiveThreshold.value,
+                                            rejectionStats: {
+                                                tooSmall: debug?.rejectedTooSmall ?? 0,
+                                                lowConfidence: debug?.rejectedLowConfidence ?? 0,
+                                                badGeometry: debug?.rejectedGeometry ?? 0,
+                                            },
+                                            tooSmallSamples: debug?.tooSmallSamples ?? [],
+                                            lowConfidenceAccepted: debug?.lowConfidenceAccepted ?? null,
+                                            maxBallScore: debug?.maxBallScore ?? 0,
+                                            maxBallAnchor: debug?.maxBallAnchor ?? null,
+                                            maxBallAnchorRejection: debug?.maxBallAnchorRejection ?? null,
+                                        })
                                     }
 
                                     const t7 = performance.now()
