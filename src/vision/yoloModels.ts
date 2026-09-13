@@ -34,32 +34,32 @@ export interface YoloModelConfig {
 // Regenerate with scripts/generate-yolo-models.mjs.
 export const YOLO_MODELS: YoloModelConfig[] = [
   {
-    id: 'ball_rimV8_320_float16',
-    fileName: 'ball_rimV8_320_float16.tflite',
-    label: 'YOLOv8 · 320 · FP16',
+    id: 'best_320_float16',
+    fileName: 'best_320_float16.tflite',
+    label: 'best · 320 · FP16',
     inputSize: 320,
     outputDetections: 2100,
-    asset: require('../../assets/models/ball_rimV8_320_float16.tflite'),
+    asset: require('../../assets/models/best_320_float16.tflite'),
   },
   {
-    id: 'ball_rimV8_512_float16',
-    fileName: 'ball_rimV8_512_float16.tflite',
-    label: 'YOLOv8 · 512 · FP16',
+    id: 'best_512_float16',
+    fileName: 'best_512_float16.tflite',
+    label: 'best · 512 · FP16',
     inputSize: 512,
     outputDetections: 5376,
-    asset: require('../../assets/models/ball_rimV8_512_float16.tflite'),
+    asset: require('../../assets/models/best_512_float16.tflite'),
   },
   {
-    id: 'ball_rimV8_640_float16',
-    fileName: 'ball_rimV8_640_float16.tflite',
-    label: 'YOLOv8 · 640 · FP16',
+    id: 'best_640_float16',
+    fileName: 'best_640_float16.tflite',
+    label: 'best · 640 · FP16',
     inputSize: 640,
     outputDetections: 8400,
-    asset: require('../../assets/models/ball_rimV8_640_float16.tflite'),
+    asset: require('../../assets/models/best_640_float16.tflite'),
   },
 ]
 
-export const DEFAULT_YOLO_MODEL_ID = 'ball_rimV8_512_float16'
+export const DEFAULT_YOLO_MODEL_ID = 'best_512_float16'
 
 // MoveNet model registry. Keep the model input size here so the camera
 // resizer and the TFLite input buffer can never drift apart.

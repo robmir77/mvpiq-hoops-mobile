@@ -1126,47 +1126,6 @@ export const useShotTracker = (
                                             outputs[0] as ArrayBufferLike
                                         )
 
-                                    // Dump raw YOLO output to verify 6-channel format
-                                    const nAnchors = Math.floor(output.length / 6)
-                                    // DEV ONLY: Log every 10 frames to avoid spam
-                                    if (__DEV__ && currentFrame % 10 === 0) {
-                                        console.log('[YOLO RAW]', {
-                                            length: output.length,
-                                            nAnchors: nAnchors,
-                                            first20: Array.from(output.slice(0, 20)),
-                                            channel0_cx: Array.from(output.slice(0, 10)),
-                                            channel1_cy: Array.from(output.slice(nAnchors, nAnchors + 10)),
-                                            channel2_w: Array.from(output.slice(nAnchors * 2, nAnchors * 2 + 10)),
-                                            channel3_h: Array.from(output.slice(nAnchors * 3, nAnchors * 3 + 10)),
-                                            channel4_ball: Array.from(output.slice(nAnchors * 4, nAnchors * 4 + 10)),
-                                            channel5_rim: Array.from(output.slice(nAnchors * 5, nAnchors * 5 + 10)),
-                                        })
-
-                                        // Find anchor with max confidence
-                                        let maxConf = -1
-                                        let maxIdx = -1
-                                        for (let i = 0; i < nAnchors; i++) {
-                                            const ballScore = output[nAnchors * 4 + i]
-                                            const rimScore = output[nAnchors * 5 + i]
-                                            const maxScore = ballScore > rimScore ? ballScore : rimScore
-                                            if (maxScore > maxConf) {
-                                                maxConf = maxScore
-                                                maxIdx = i
-                                            }
-                                        }
-                                        if (maxIdx >= 0) {
-                                            console.log('[YOLO MAX ANCHOR]', {
-                                                index: maxIdx,
-                                                cx: output[maxIdx],
-                                                cy: output[nAnchors + maxIdx],
-                                                w: output[nAnchors * 2 + maxIdx],
-                                                h: output[nAnchors * 3 + maxIdx],
-                                                ballScore: output[nAnchors * 4 + maxIdx],
-                                                rimScore: output[nAnchors * 5 + maxIdx],
-                                            })
-                                        }
-                                    }
-
                                     const t6 = performance.now()
                                     const {
                                         ball,
@@ -1182,6 +1141,7 @@ export const useShotTracker = (
                                     // DEV ONLY: Debug: compare raw max anchor with parsed result
                                     if (__DEV__ && currentFrame % 10 === 0) {
                                         // Find max anchor in raw output
+                                        const nAnchors = Math.floor(output.length / 7) // 7 channels: cx, cy, w, h, ballScore, rimScore, sportsBallScore
                                         let maxRawConf = -1
                                         let maxRawIdx = -1
                                         for (let i = 0; i < nAnchors; i++) {

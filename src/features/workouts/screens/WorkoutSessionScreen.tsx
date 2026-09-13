@@ -335,9 +335,10 @@ const TrackingOverlay = React.memo(({
         const cropX = (displayedW - SCREEN_W) / 2
         const cropY = (displayedH - CAMERA_H) / 2
 
+        // Invert coordinates to fix overlay inversion
         return {
-            x: sourceX * displayedW - cropX,
-            y: sourceY * displayedH - cropY,
+            x: SCREEN_W - (sourceX * displayedW - cropX),
+            y: CAMERA_H - (sourceY * displayedH - cropY),
         }
     }
 
@@ -784,6 +785,28 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
+            {/* ── YOLO DEBUG PANEL ── */}
+            {trackingState?.ballPositionRaw && (
+                <View pointerEvents="none" style={ovStyles.yoloDebugPanel}>
+                    <Text style={ovStyles.yoloDebugTitle}>🔍 YOLO Raw</Text>
+                    <Text style={ovStyles.yoloDebugText}>
+                        X: {trackingState.ballPositionRaw.x.toFixed(3)}
+                    </Text>
+                    <Text style={ovStyles.yoloDebugText}>
+                        Y: {trackingState.ballPositionRaw.y.toFixed(3)}
+                    </Text>
+                    <Text style={ovStyles.yoloDebugText}>
+                        W: {(trackingState.ballWidth ?? 0).toFixed(3)}
+                    </Text>
+                    <Text style={ovStyles.yoloDebugText}>
+                        H: {(trackingState.ballHeight ?? 0).toFixed(3)}
+                    </Text>
+                    <Text style={ovStyles.yoloDebugText}>
+                        Conf: {((trackingState.confidence ?? 0) * 100).toFixed(1)}%
+                    </Text>
+                </View>
+            )}
+
             {/* ── BIOMECHANICS PANEL ── */}
             {jointAngles && (
                 <View pointerEvents="none" style={ovStyles.bioPanel}>
@@ -1088,6 +1111,30 @@ const ovStyles = StyleSheet.create({
         marginBottom: 4,
     },
     ballInfoText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '600',
+        marginVertical: 1,
+    },
+    // YOLO Debug Panel
+    yoloDebugPanel: {
+        position: 'absolute',
+        top: 100,
+        right: 14,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(255,140,0,0.5)',
+    },
+    yoloDebugTitle: {
+        color: '#ff8c00',
+        fontSize: 10,
+        fontWeight: '800',
+        marginBottom: 4,
+    },
+    yoloDebugText: {
         color: '#fff',
         fontSize: 10,
         fontWeight: '600',

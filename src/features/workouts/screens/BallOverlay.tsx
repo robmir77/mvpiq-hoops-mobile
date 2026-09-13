@@ -38,8 +38,8 @@ export function BallOverlay({
     const style = useAnimatedStyle(() => {
         return {
             position: 'absolute',
-            left: ballX.value,
-            top: ballY.value,
+            left: ballX.value - ballW.value / 2,
+            top: ballY.value - ballH.value / 2,
             width: ballW.value,
             height: ballH.value,
             borderWidth: 2,

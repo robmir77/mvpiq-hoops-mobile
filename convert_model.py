@@ -7,7 +7,7 @@ from ultralytics import YOLO
 import os
 
 # Path to the original .pt model from GitHub
-MODEL_PATH = "ball_rimV8.pt"
+MODEL_PATH = "best.pt"
 OUTPUT_DIR = "./tflite_models"
 
 def convert_to_tflite():
