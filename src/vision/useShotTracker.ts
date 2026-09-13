@@ -4,17 +4,12 @@
 // Both YOLO and MoveNet run entirely in the Frame Processor Worklet.
 // Only processed results (BallDetection, PoseResult, ShotEvent) cross to JS.
 
-import { useRef, useCallback, useEffect, useMemo } from 'react'
+import { useRef, useCallback, useEffect, useState } from 'react'
 import { useFrameOutput } from 'react-native-vision-camera'
 import type { Frame } from 'react-native-vision-camera'
-import { useResizer } from 'react-native-vision-camera-resizer'
 import { useSharedValue } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
-import { useTensorflowModel } from 'react-native-fast-tflite'
 
-import { parseYoloOutput } from './yoloParser'
-import { parseMoveNetOutput } from './poseParser'
-import { computeJointAngles } from './biomechanics'
 import { ShotDetector } from './shotDetector'
 import { useYoloWorker } from './useYoloWorker'
 import { useMoveNetWorker } from './useMoveNetWorker'
@@ -28,25 +23,12 @@ import type {
     AndroidDelegateOption,
     IosDelegateOption,
 } from './delegates'
-import {
-    DEFAULT_ANDROID_DELEGATE,
-    DEFAULT_IOS_DELEGATE,
-} from './delegates'
 
 import {
     incrementYoloFps,
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
 
-import { Platform } from 'react-native'
-import { DEFAULT_MOVENET_MODEL_ID, getYoloModel, getMoveNetModel, getMoveNetModelUri } from './yoloModels'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Model input sizes
-// ─────────────────────────────────────────────────────────────────────────────
-
-const YOLO_INPUT_SIZE = 512
-const DEFAULT_POSE_INPUT_SIZE = 192
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
@@ -196,18 +178,6 @@ export const useShotTracker = (
     const perfFramesReceived = useSharedValue(0)
     const perfFramesProcessed = useSharedValue(0)
     const perfFramesDroppedBusy = useSharedValue(0)
-    const perfYoloRequested = useSharedValue(0)
-    const perfYoloExecuted = useSharedValue(0)
-    const perfMoveNetRequested = useSharedValue(0)
-    const perfMoveNetExecuted = useSharedValue(0)
-    const perfYoloOnlyRequested = useSharedValue(0)
-    const perfMoveNetOnlyRequested = useSharedValue(0)
-    const perfBothRequested = useSharedValue(0)
-    const perfNeitherRequested = useSharedValue(0)
-    const perfYoloOnlyExecuted = useSharedValue(0)
-    const perfMoveNetOnlyExecuted = useSharedValue(0)
-    const perfBothExecuted = useSharedValue(0)
-    const perfNeitherExecuted = useSharedValue(0)
     const lastMoveNetInferenceAt = useSharedValue(0)
 
     // Ball stability tracking for intelligent YOLO throttling
@@ -312,218 +282,6 @@ export const useShotTracker = (
     const lastAdjustmentTs =
         useRef(0)
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Model delegates
-    //
-    // Hardware-accelerated delegates:
-    //   Android → GPU delegate ('android-gpu'), backed by the OpenCL/Mali
-    //             libraries already declared in app.json under
-    //             react-native-fast-tflite's enableAndroidGpuLibraries.
-    //   iOS     → Core ML delegate ('core-ml').
-    //
-    // If a delegate fails to load on a given device, useTensorflowModel's
-    // state flips to 'error' (see the diagnostics effects below, already
-    // logging yoloModel/poseModel .error) — it does NOT automatically fall
-    // back to CPU. Worth watching after this change; say the word if you
-    // want an automatic CPU-fallback path added.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const yoloDelegates =
-        useMemo(
-            () => {
-                if (yoloDelegate !== undefined && yoloDelegate !== null) {
-                    return [yoloDelegate]
-                }
-                return Platform.OS === 'android'
-                    ? [DEFAULT_ANDROID_DELEGATE]
-                    : [DEFAULT_IOS_DELEGATE]
-            },
-            [yoloDelegate]
-        )
-
-    const poseDelegates =
-        useMemo(
-            () => {
-                if (poseDelegate !== undefined && poseDelegate !== null) {
-                    return [poseDelegate]
-                }
-                return Platform.OS === 'android'
-                    ? [DEFAULT_ANDROID_DELEGATE]
-                    : [DEFAULT_IOS_DELEGATE]
-            },
-            [poseDelegate]
-        )
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Model selection
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const selectedYoloModel = useMemo(() => getYoloModel(yoloModelId), [yoloModelId])
-
-    const yoloInputSize = selectedYoloModel?.inputSize ?? YOLO_INPUT_SIZE
-    const yoloInputElements = yoloInputSize * yoloInputSize * 3
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Models
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // IMPORTANT: memoize yoloModelSource so useTensorflowModel receives a
-    // stable reference across renders. An unstable object (new { url } literal
-    // every render) causes useTensorflowModel to tear down and reload the model
-    // on every parent re-render, producing the infinite reload loop seen in logs.
-    const yoloModelSource = useMemo(
-        () => {
-            if (!selectedYoloModel) {
-                console.error('[ShotTracker] No valid YOLO model source available. selectedYoloModel:', selectedYoloModel)
-                return undefined as any
-            }
-            return selectedYoloModel.fileUri
-                ? { url: selectedYoloModel.fileUri } as any
-                : selectedYoloModel.asset as any
-        },
-        // Re-derive only when the fileUri or asset identity actually changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [selectedYoloModel?.fileUri, selectedYoloModel?.asset]
-    )
-
-    const yoloModel =
-        useTensorflowModel(
-            yoloModelSource,
-            yoloDelegates as any
-        )
-
-    // IMPORTANT: same stability requirement as yoloModelSource above.
-    const selectedMoveNetModel = useMemo(
-        () => getMoveNetModel(moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID),
-        [moveNetModelId]
-    )
-
-    // The currently bundled MoveNet model has a fixed TFLite input size.
-    // Keep the model tensor size separate from the user-selected processing
-    // resolution so a 240/320 selection cannot create an incompatible buffer.
-    const poseInputSize = selectedMoveNetModel?.inputSize ?? DEFAULT_POSE_INPUT_SIZE
-    const poseInputElements = poseInputSize * poseInputSize * 3
-
-    const moveNetUri = getMoveNetModelUri(moveNetModelId)
-    const poseModelSource = useMemo(
-        () => moveNetUri
-            ? { url: moveNetUri } as any
-            : selectedMoveNetModel?.asset as any,
-        // Re-derive only when the URI itself changes (null → path or path change).
-        [moveNetUri, selectedMoveNetModel?.asset]
-    )
-
-    const poseModel =
-        useTensorflowModel(
-            poseModelSource,
-            poseDelegates as any
-        )
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Stable model instances
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const yoloModelInstance =
-        yoloModel.state === 'loaded' &&
-        yoloModel.model != null
-            ? yoloModel.model
-            : null
-
-    const poseModelInstance =
-        poseModel.state === 'loaded' &&
-        poseModel.model != null
-            ? poseModel.model
-            : null
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Model diagnostics
-    // ─────────────────────────────────────────────────────────────────────────
-
-    useEffect(() => {
-
-        console.log(
-            '[ShotTracker] YOLO Model state changed:',
-            yoloModel.state
-        )
-
-        if (
-            yoloModel.state === 'loaded' &&
-            yoloModel.model
-        ) {
-
-            console.log(
-                '[ShotTracker] YOLO Model loaded successfully!'
-            )
-
-            console.log(
-                '[ShotTracker] YOLO Inputs:',
-                JSON.stringify(
-                    yoloModel.model.inputs
-                )
-            )
-
-            console.log(
-                '[ShotTracker] YOLO Outputs:',
-                JSON.stringify(
-                    yoloModel.model.outputs
-                )
-            )
-        }
-
-        if (
-            yoloModel.state === 'error'
-        ) {
-
-            console.error(
-                '[ShotTracker] YOLO Model load error:',
-                (yoloModel as any).error
-            )
-        }
-
-    }, [yoloModel.state])
-
-    useEffect(() => {
-
-        console.log(
-            '[ShotTracker] Pose Model state changed:',
-            poseModel.state
-        )
-
-        if (
-            poseModel.state === 'loaded' &&
-            poseModel.model
-        ) {
-
-            console.log(
-                '[ShotTracker] Pose Model loaded successfully!'
-            )
-
-            console.log(
-                '[ShotTracker] Pose Inputs:',
-                JSON.stringify(
-                    poseModel.model.inputs
-                )
-            )
-
-            console.log(
-                '[ShotTracker] Pose Outputs:',
-                JSON.stringify(
-                    poseModel.model.outputs
-                )
-            )
-        }
-
-        if (
-            poseModel.state === 'error'
-        ) {
-
-            console.error(
-                '[ShotTracker] Pose Model load error:',
-                (poseModel as any).error
-            )
-        }
-
-    }, [poseModel.state])
 
     // ─────────────────────────────────────────────────────────────────────────
     // Callback refs
@@ -917,54 +675,6 @@ export const useShotTracker = (
     // directly at the worklet call site (see onFrame below) — no need to
     // pre-wrap emitBallDetection/emitPoseResult with createRunOnJS here.
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Resizers
-    //
-    // IMPORTANT: these config objects must be memoized. useResizer() uses
-    // them to decide whether to recreate its native resizer, and an
-    // unstable reference here was the root cause of the frame processor
-    // being torn down and recreated on every render (~106 HybridWorkletQueueFactory
-    // creations observed in logcat), racing on the TFLite model buffer and
-    // producing "TypedArray can only be updated with an array of the same size".
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const yoloResizerConfig =
-        useMemo(
-            () => ({
-                width: yoloInputSize,
-                height: yoloInputSize,
-                channelOrder:
-                    'rgb' as const,
-                dataType:
-                    'float32' as const,
-                pixelLayout:
-                    'interleaved' as const,
-                scaleMode:
-                    'contain' as const,
-            }),
-            [yoloInputSize]
-        )
-
-    const poseResizerConfig =
-        useMemo(
-            () => ({
-                width: poseInputSize,
-                height: poseInputSize,
-                channelOrder: 'rgb' as const,
-                dataType: 'uint8' as const,
-                pixelLayout: 'interleaved' as const,
-                scaleMode: 'contain' as const,
-            }),
-            [poseInputSize]
-        )
-
-    const {
-        resizer: yoloResizer,
-    } = useResizer(yoloResizerConfig)
-
-    const {
-        resizer: poseResizer,
-    } = useResizer(poseResizerConfig)
 
     // ─────────────────────────────────────────────────────────────────────────
     // Frame processor
@@ -1023,9 +733,6 @@ export const useShotTracker = (
 
                 try {
 
-                    let yoloExecutedThisFrame = false
-                    let moveNetExecutedThisFrame = false
-
                     // ────────────────────────────────────────────────────────────────
                     // Global enable
                     // ────────────────────────────────────────────────────────────────
@@ -1040,11 +747,8 @@ export const useShotTracker = (
                     // Model readiness
                     // ────────────────────────────────────────────────────────────────
 
-                    const yoloReady =
-                        yoloModelInstance != null
-
-                    const poseReady =
-                        poseModelInstance != null
+                    const yoloReady = yoloWorker.isReady.value
+                    const poseReady = moveNetWorker.isReady.value
 
                     if (
                         !yoloReady &&
@@ -1089,22 +793,9 @@ export const useShotTracker = (
                         ballEnabledShared.value &&
                         currentFrame % currentSkip === 0
 
-                    if (runYolo) perfYoloRequested.value += 1
-                    if (runPose) perfMoveNetRequested.value += 1
-
                     // Log MoveNet throttling for debugging (only if pose is enabled but not due)
                     if (poseReady && poseEnabledShared.value && !moveNetDue) {
                         console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
-                    }
-
-                    if (runYolo && runPose) {
-                        perfBothRequested.value += 1
-                    } else if (runYolo) {
-                        perfYoloOnlyRequested.value += 1
-                    } else if (runPose) {
-                        perfMoveNetOnlyRequested.value += 1
-                    } else {
-                        perfNeitherRequested.value += 1
                     }
 
                     // ────────────────────────────────────────────────────────────────
@@ -1141,7 +832,7 @@ export const useShotTracker = (
                             rim: yoloResult.rim ?? undefined,
                             timestamp: yoloResult.timestamp
                         }
-                        
+
                         // Emit via bridge
                         const now = Date.now()
                         if (now - lastRNDispatch.value >= 16) {
@@ -1157,357 +848,12 @@ export const useShotTracker = (
                             angles: poseResult.angles,
                             timestamp: poseResult.timestamp
                         }
-                        
+
                         const now = Date.now()
                         if (now - lastRNDispatch.value >= 16) {
                             lastRNDispatch.value = now
                             scheduleOnRN(emitPoseResult, result)
                         }
-                    }
-
-
-                    // ────────────────────────────────────────────────────────────────
-                    // YOLO (SERIAL - TO BE REMOVED AFTER TESTING)
-                    // ────────────────────────────────────────────────────────────────
-
-                    if (runYolo) {
-
-                        const t0 = performance.now()
-                        const resized =
-                            yoloResizer?.resize(
-                                frame
-                            )
-                        const t1 = performance.now()
-
-                        if (resized) {
-
-                            try {
-
-                                const t2 = performance.now()
-                                const pixelBuffer =
-                                    resized.getPixelBuffer()
-                                const t3 = performance.now()
-
-                                const source =
-                                    new Float32Array(
-                                        pixelBuffer as unknown as ArrayBufferLike
-                                    )
-
-                                if (
-                                    source.length ===
-                                    yoloInputElements
-                                ) {
-                                    // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
-                                    const t4 = performance.now()
-                                    const inputBuffer =
-                                        source.buffer.slice(
-                                            source.byteOffset,
-                                            source.byteOffset + source.byteLength
-                                        ) as ArrayBuffer
-                                    const t4_5 = performance.now()
-
-                                    const outputs =
-                                        yoloModelInstance!.runSync(
-                                            [inputBuffer]
-                                        )
-                                    const t5 = performance.now()
-
-                                    // TFLite 3.x: runSync restituisce ArrayBuffer[], converti a Float32Array
-                                    const output =
-                                        new Float32Array(
-                                            outputs[0] as ArrayBufferLike
-                                        )
-
-                                    const t6 = performance.now()
-                                    const {
-                                        ball,
-                                        rim,
-                                        debug,
-                                    } =
-                                        parseYoloOutput(
-                                            output,
-                                            adaptiveThreshold.value,
-                                            frameWidth,
-                                            frameHeight
-                                        )
-
-                                    // DEV ONLY: Debug: compare selected anchor with parsed result
-                                    if (__DEV__ && currentFrame % 10 === 0) {
-                                        const nAnchors = Math.floor(output.length / 7) // 7 channels: cx, cy, w, h, ballScore, rimScore, sportsBallScore
-                                        const ballIdx = debug?.ballIndex
-                                        const rimIdx = debug?.rimIndex
-
-                                        const getRawAnchor = (idx: number | undefined) => {
-                                            if (idx === undefined || idx < 0 || idx >= nAnchors) return null
-                                            return {
-                                                index: idx,
-                                                normalized: {
-                                                    cx: output[idx],
-                                                    cy: output[nAnchors + idx],
-                                                    w: output[nAnchors * 2 + idx],
-                                                    h: output[nAnchors * 3 + idx],
-                                                    ballScore: output[nAnchors * 4 + idx],
-                                                    rimScore: output[nAnchors * 5 + idx],
-                                                },
-                                                pixels: {
-                                                    cx: output[idx] * yoloInputSize,
-                                                    cy: output[nAnchors + idx] * yoloInputSize,
-                                                    w: output[nAnchors * 2 + idx] * yoloInputSize,
-                                                    h: output[nAnchors * 3 + idx] * yoloInputSize,
-                                                }
-                                            }
-                                        }
-
-                                        console.log('[YOLO SELECTED ANCHOR]', {
-                                            ballRaw: ballIdx !== undefined ? getRawAnchor(ballIdx) : null,
-                                            rimRaw: rimIdx !== undefined ? getRawAnchor(rimIdx) : null,
-                                            parsedBall: ball,
-                                            parsedRim: rim,
-                                            threshold: adaptiveThreshold.value,
-                                            rejectionStats: {
-                                                tooSmall: debug?.rejectedTooSmall ?? 0,
-                                                lowConfidence: debug?.rejectedLowConfidence ?? 0,
-                                                badGeometry: debug?.rejectedGeometry ?? 0,
-                                            },
-                                            tooSmallSamples: debug?.tooSmallSamples ?? [],
-                                            lowConfidenceAccepted: debug?.lowConfidenceAccepted ?? null,
-                                            maxBallScore: debug?.maxBallScore ?? 0,
-                                            maxBallAnchor: debug?.maxBallAnchor ?? null,
-                                            maxBallAnchorRejection: debug?.maxBallAnchorRejection ?? null,
-                                        })
-                                    }
-
-                                    const t7 = performance.now()
-                                    yoloExecutedThisFrame = true
-                                    perfYoloExecuted.value += 1
-
-                                    // Size continuity filter - reject detections with unrealistic size jumps
-                                    const currentTime = performance.now()
-                                    const timeSinceLastValid = currentTime - lastValidBallTime.value
-                                    const MIN_VALID_CONFIDENCE = 0.05 // Only update reference with confident detections
-                                    const MAX_TIME_GAP = 500 // Reset reference if gap > 500ms
-
-                                    // Empirical thresholds from diagnostic logs
-                                    const MIN_AREA_RATIO = 0.5 // Allow up to 2x reduction
-                                    const MAX_AREA_RATIO = 2.0 // Allow up to 2x increase
-
-                                    let sizeCompatible = true
-                                    let widthRatio = 1
-                                    let heightRatio = 1
-                                    let areaRatio = 1
-
-                                    if (ball && lastBallWidth.value > 0 && lastBallHeight.value > 0) {
-                                        widthRatio = ball.width / lastBallWidth.value
-                                        heightRatio = ball.height / lastBallHeight.value
-                                        areaRatio = (ball.width * ball.height) / (lastBallWidth.value * lastBallHeight.value)
-
-                                        // Check if size change is unrealistic based on empirical thresholds
-                                        if (areaRatio < MIN_AREA_RATIO || areaRatio > MAX_AREA_RATIO) {
-                                            sizeCompatible = false
-                                            if (__DEV__) {
-                                                console.log('[SIZE CONTINUITY] Rejected detection with unrealistic size jump', {
-                                                    previous: { width: lastBallWidth.value.toFixed(3), height: lastBallHeight.value.toFixed(3) },
-                                                    current: { width: ball.width.toFixed(3), height: ball.height.toFixed(3) },
-                                                    ratios: { width: widthRatio.toFixed(2), height: heightRatio.toFixed(2), area: areaRatio.toFixed(2) },
-                                                    confidence: ball.confidence.toFixed(3),
-                                                    timeSinceLastValid: timeSinceLastValid.toFixed(0),
-                                                    thresholds: { minArea: MIN_AREA_RATIO, maxArea: MAX_AREA_RATIO }
-                                                })
-                                            }
-                                        }
-                                    }
-
-                                    // Update reference dimensions only with credible detections that pass size continuity
-                                    if (ball && ball.confidence >= MIN_VALID_CONFIDENCE && sizeCompatible) {
-                                        lastBallWidth.value = ball.width
-                                        lastBallHeight.value = ball.height
-                                        lastValidBallTime.value = currentTime
-                                    } else if (timeSinceLastValid > MAX_TIME_GAP) {
-                                        // Reset reference if too much time passed (ball lost)
-                                        lastBallWidth.value = 0
-                                        lastBallHeight.value = 0
-                                    }
-
-                                    // Apply size continuity filter to ball detection
-                                    const filteredBall = sizeCompatible ? ball : null
-
-                                    // Update ball stability tracking with filtered detection
-                                    if (filteredBall) {
-                                        const deltaX = Math.abs(filteredBall.x - lastBallX.value)
-                                        const deltaY = Math.abs(filteredBall.y - lastBallY.value)
-                                        const positionChange = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
-
-                                        if (positionChange < BALL_STABILITY_THRESHOLD) {
-                                            stableFrameCount.value += 1
-                                            if (stableFrameCount.value >= BALL_STABILITY_FRAMES) {
-                                                isBallStable.value = true
-                                            }
-                                        } else {
-                                            stableFrameCount.value = 0
-                                            isBallStable.value = false
-                                        }
-
-                                        lastBallX.value = filteredBall.x
-                                        lastBallY.value = filteredBall.y
-                                    }
-
-                                    // DEV ONLY: Log YOLO performance metrics
-                                    if (__DEV__) {
-                                        console.log(`[YOLO PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms Float32Array:${(t4-t3).toFixed(1)}ms slice:${(t4_5-t4).toFixed(1)}ms runSync:${(t5-t4_5).toFixed(1)}ms parse:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
-                                        if (isBallStable.value) {
-                                            console.log(`[YOLO Throttle] Ball stable - using ${YOLO_FRAME_SKIP_STABLE}x skip`)
-                                        }
-                                    }
-
-
-                                    // Throttle scheduleOnJS a 16ms per evitare instabilità del bridge
-                                    const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 16) {
-                                        lastRNDispatch.value = now
-                                        scheduleOnRN(
-                                            emitBallDetection,
-                                            {
-                                                ball: filteredBall
-                                                    ? {
-                                                        x: filteredBall.x,
-                                                        y: filteredBall.y,
-                                                        width: filteredBall.width,
-                                                        height: filteredBall.height,
-                                                        confidence:
-                                                        filteredBall.confidence,
-                                                    }
-                                                    : undefined,
-
-                                                rim: rim
-                                                    ? {
-                                                        x: rim.x,
-                                                        y: rim.y,
-                                                        width: rim.width,
-                                                        height: rim.height,
-                                                        confidence:
-                                                        rim.confidence,
-                                                    }
-                                                    : undefined,
-
-                                                timestamp:
-                                                    Date.now(),
-                                            }
-                                        )
-                                    }
-                                }
-
-                            } finally {
-
-                                resized.dispose()
-                            }
-                        }
-                    }
-
-                    // ────────────────────────────────────────────────────────────────
-                    // MoveNet
-                    // ────────────────────────────────────────────────────────────────
-
-                    if (runPose) {
-
-                        const t0 = performance.now()
-                        const resized =
-                            poseResizer?.resize(
-                                frame
-                            )
-                        const t1 = performance.now()
-
-                        if (resized) {
-
-                            try {
-
-                                const t2 = performance.now()
-                                const pixelBuffer =
-                                    resized.getPixelBuffer()
-                                const t3 = performance.now()
-
-                                const source =
-                                    new Uint8Array(
-                                        pixelBuffer as unknown as ArrayBufferLike
-                                    )
-
-                                if (
-                                    source.length ===
-                                    poseInputElements
-                                ) {
-                                    // TFLite 3.x: usa buffer.slice() per input ArrayBuffer
-                                    const inputBuffer =
-                                        source.buffer.slice(
-                                            source.byteOffset,
-                                            source.byteOffset + source.byteLength
-                                        ) as ArrayBuffer
-
-                                    const t4 = performance.now()
-                                    const outputs =
-                                        poseModelInstance!.runSync(
-                                            [inputBuffer]
-                                        )
-                                    const t5 = performance.now()
-
-                                    // TFLite 3.x: runSync restituisce ArrayBuffer[], converti a Float32Array
-                                    const output =
-                                        new Float32Array(
-                                            outputs[0] as ArrayBufferLike
-                                        )
-
-                                    const pose =
-                                        parseMoveNetOutput(
-                                            output
-                                        )
-
-                                    const t6 = performance.now()
-                                    const angles =
-                                        computeJointAngles(
-                                            pose
-                                        )
-
-                                    const t7 = performance.now()
-                                    moveNetExecutedThisFrame = true
-                                    perfMoveNetExecuted.value += 1
-                                    lastMoveNetInferenceAt.value = Date.now()
-                                    // DEV ONLY: Log pose performance metrics
-                                    if (__DEV__) {
-                                        console.log(`[POSE PERF] resize:${(t1-t0).toFixed(1)}ms getBuffer:${(t3-t2).toFixed(1)}ms runSync:${(t5-t4).toFixed(1)}ms parse:${(t6-t5).toFixed(1)}ms angles:${(t7-t6).toFixed(1)}ms total:${(t7-t0).toFixed(1)}ms`)
-                                    }
-
-                                    // Increment FPS counter immediately after pose inference
-                                    scheduleOnRN(incrementMoveNetFps)
-
-                                    // Throttle scheduleOnJS a 16ms per evitare instabilità del bridge
-                                    const now = Date.now()
-                                    if (now - lastRNDispatch.value >= 16) {
-                                        lastRNDispatch.value = now
-                                        scheduleOnRN(
-                                            emitPoseResult,
-                                            {
-                                                keypoints: pose,
-                                                angles,
-                                                timestamp:
-                                                    Date.now(),
-                                            }
-                                        )
-                                    }
-                                }
-
-                            } finally {
-
-                                resized.dispose()
-                            }
-                        }
-                    }
-
-                    if (yoloExecutedThisFrame && moveNetExecutedThisFrame) {
-                        perfBothExecuted.value += 1
-                    } else if (yoloExecutedThisFrame) {
-                        perfYoloOnlyExecuted.value += 1
-                    } else if (moveNetExecutedThisFrame) {
-                        perfMoveNetOnlyExecuted.value += 1
-                    } else {
-                        perfNeitherExecuted.value += 1
                     }
 
                     const perfNow = Date.now()
@@ -1520,11 +866,7 @@ export const useShotTracker = (
                             console.log(
                                 `[PIPE PERF] received:${perfFramesReceived.value} ` +
                                 `processed:${perfFramesProcessed.value} ` +
-                                `droppedBusy:${perfFramesDroppedBusy.value} | ` +
-                                `YOLO req:${perfYoloRequested.value} exec:${perfYoloExecuted.value} | ` +
-                                `MoveNet req:${perfMoveNetRequested.value} exec:${perfMoveNetExecuted.value} | ` +
-                                `requested[YOLO-only:${perfYoloOnlyRequested.value} MoveNet-only:${perfMoveNetOnlyRequested.value} both:${perfBothRequested.value} neither:${perfNeitherRequested.value}] | ` +
-                                `executed[YOLO-only:${perfYoloOnlyExecuted.value} MoveNet-only:${perfMoveNetOnlyExecuted.value} both:${perfBothExecuted.value} neither:${perfNeitherExecuted.value}]`
+                                `droppedBusy:${perfFramesDroppedBusy.value}`
                             )
                         }
 
@@ -1532,18 +874,6 @@ export const useShotTracker = (
                         perfFramesReceived.value = 0
                         perfFramesProcessed.value = 0
                         perfFramesDroppedBusy.value = 0
-                        perfYoloRequested.value = 0
-                        perfYoloExecuted.value = 0
-                        perfMoveNetRequested.value = 0
-                        perfMoveNetExecuted.value = 0
-                        perfYoloOnlyRequested.value = 0
-                        perfMoveNetOnlyRequested.value = 0
-                        perfBothRequested.value = 0
-                        perfNeitherRequested.value = 0
-                        perfYoloOnlyExecuted.value = 0
-                        perfMoveNetOnlyExecuted.value = 0
-                        perfBothExecuted.value = 0
-                        perfNeitherExecuted.value = 0
                     }
 
                 } catch (error) {
@@ -1596,11 +926,6 @@ export const useShotTracker = (
                 emitBallDetection,
                 emitPoseResult,
                 scheduleFatalErrorRecovery,
-                yoloModelInstance,
-                poseModelInstance,
-                yoloResizer,
-                poseResizer,
-                selectedPoseResolution,
             ]
         )
 
@@ -1643,72 +968,24 @@ export const useShotTracker = (
         }, [])
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Model ready
+    // Model ready (synced from worker shared values to avoid render warning)
     // ─────────────────────────────────────────────────────────────────────────
 
-    const isModelReady =
-        yoloModel.state === 'loaded' &&
-        yoloModel.model != null &&
-        poseModel.state === 'loaded' &&
-        poseModel.model != null
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Pipeline ready log
-    // ─────────────────────────────────────────────────────────────────────────
+    const [isModelReady, setIsModelReady] = useState(false)
 
     useEffect(() => {
-
-        if (!isModelReady) {
-            return
+        // Sync from shared values to state
+        const checkReady = () => {
+            setIsModelReady(yoloWorker.isReady.value && moveNetWorker.isReady.value)
         }
 
-        console.log(
-            '[ShotTracker] Stable pipeline ready:'
-        )
+        checkReady()
 
-        const cameraRes = selectedResolution || { width: 1280, height: 720 }
-        const cameraFps = selectedFps || 30
-        console.log(
-            `[ShotTracker] Camera: YUV ${cameraRes.width}x${cameraRes.height} @ ${cameraFps}fps`
-        )
+        // Set up interval to check periodically (shared values don't trigger re-renders)
+        const interval = setInterval(checkReady, 100)
 
-        console.log(
-            '[ShotTracker] YOLO delegate:',
-            JSON.stringify(yoloDelegates),
-            '+ RGB Resizer'
-        )
-
-        console.log(
-            '[ShotTracker] MoveNet delegate:',
-            JSON.stringify(poseDelegates),
-            '+ RGB Resizer'
-        )
-
-        console.log(
-            '[ShotTracker] YOLO:',
-            yoloInputSize,
-            'x',
-            yoloInputSize,
-            '| every',
-            YOLO_FRAME_SKIP,
-            'frames',
-            '| target: every available frame'
-        )
-
-        console.log(
-            '[ShotTracker] MoveNet model:',
-            selectedMoveNetModel?.label ?? 'unknown',
-            '| tensor:',
-            poseInputSize,
-            'x',
-            poseInputSize,
-            '| target FPS:',
-            MOVENET_TARGET_FPS,
-            '| interval:',
-            `${MOVENET_INTERVAL_MS.toFixed(0)}ms`
-        )
-
-    }, [isModelReady, yoloDelegates, poseDelegates, poseInputSize, selectedMoveNetModel?.id, selectedPoseResolution])
+        return () => clearInterval(interval)
+    }, [yoloWorker.isReady, moveNetWorker.isReady])
 
     // ─────────────────────────────────────────────────────────────────────────
     // Return
