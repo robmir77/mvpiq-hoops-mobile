@@ -123,6 +123,7 @@ export const useYoloWorker = (
 
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
+
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (source.length === yoloInputElements) {

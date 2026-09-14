@@ -441,7 +441,7 @@ export const useShotTracker = (
         useCallback(
             (
                 detection: BallDetection
-            ) => {
+            ): BallDetection | null => {
 
                 const { ball } =
                     detection
@@ -468,37 +468,87 @@ export const useShotTracker = (
                             null
                     }
 
-                    return
+                    return null
+                }
+
+                // Size continuity filter - only fallback when current detection is invalid (0/null)
+                const now = Date.now()
+                const timeSinceLastValid = lastValidBallTime.value > 0 ? now - lastValidBallTime.value : Infinity
+                const MAX_TIME_FOR_FALLBACK = 500 // ms - only fallback for recent gaps
+
+                let filteredBall: typeof ball | null = ball
+                let filterReason: string | null = null
+
+                // Check if current detection is invalid (zero dimensions)
+                const isInvalid = ball.width === 0 || ball.height === 0 || ball.x === 0 || ball.y === 0
+
+                if (isInvalid && lastBallWidth.value > 0 && lastBallHeight.value > 0) {
+                    // Current detection is invalid, fallback to previous valid detection
+                    if (timeSinceLastValid < MAX_TIME_FOR_FALLBACK) {
+                        filterReason = `Current detection invalid (w=${ball.width.toFixed(3)}, h=${ball.height.toFixed(3)}), using previous valid bbox`
+                        filteredBall = {
+                            ...ball,
+                            width: lastBallWidth.value,
+                            height: lastBallHeight.value,
+                            x: ball.x === 0 ? lastBallX.value : ball.x,
+                            y: ball.y === 0 ? lastBallY.value : ball.y
+                        }
+                    } else {
+                        // Too much time passed, don't fallback
+                        filterReason = `Current detection invalid but too much time since last valid (${timeSinceLastValid.toFixed(0)}ms), not using fallback`
+                        filteredBall = null
+                    }
+                }
+
+                // Log filter decisions
+                if (__DEV__ && filterReason) {
+                    console.log(`[BBOX FILTER] ${filterReason}`)
+                    console.log(`[BBOX FILTER] Previous valid bbox: w=${lastBallWidth.value.toFixed(3)}, h=${lastBallHeight.value.toFixed(3)}`)
+                    console.log(`[BBOX FILTER] Current bbox (raw): w=${ball.width.toFixed(3)}, h=${ball.height.toFixed(3)}`)
+                    console.log(`[BBOX FILTER] Filtered bbox passed to tracking: w=${filteredBall?.width.toFixed(3) ?? 'null'}, h=${filteredBall?.height.toFixed(3) ?? 'null'}`)
+                }
+
+                // Update continuity tracking only with valid detections
+                if (!isInvalid && !filterReason) {
+                    lastBallWidth.value = ball.width
+                    lastBallHeight.value = ball.height
+                    lastBallX.value = ball.x
+                    lastBallY.value = ball.y
+                    lastValidBallTime.value = now
                 }
 
                 const ballForTracking =
-                    kalmanFilteredBall
-                        ? {
-                            x: kalmanFilteredBall.x,
-                            y: kalmanFilteredBall.y,
-                            width: ball.width,
-                            height: ball.height,
-                            confidence:
-                            ball.confidence,
-                        }
-                        : ball
+                    !filteredBall
+                        ? undefined
+                        : kalmanFilteredBall
+                            ? {
+                                x: kalmanFilteredBall.x,
+                                y: kalmanFilteredBall.y,
+                                width: filteredBall.width,
+                                height: filteredBall.height,
+                                confidence:
+                                filteredBall.confidence,
+                            }
+                            : filteredBall
 
                 shotDetector.current
                     .updateTrajectory(
                         ballForTracking
                     )
 
-                lastBallRef.current = {
-                    x:
-                        ballForTracking.x +
-                        ballForTracking.width / 2,
+                if (ballForTracking) {
+                    lastBallRef.current = {
+                        x:
+                            ballForTracking.x +
+                            ballForTracking.width / 2,
 
-                    y:
-                        ballForTracking.y +
-                        ballForTracking.height / 2,
+                        y:
+                            ballForTracking.y +
+                            ballForTracking.height / 2,
 
-                    t:
-                    detection.timestamp,
+                        t:
+                        detection.timestamp,
+                    }
                 }
 
                 if (
@@ -515,10 +565,11 @@ export const useShotTracker = (
                 if (
                     !enabledShared.value
                 ) {
-                    return
+                    return null
                 }
 
                 if (
+                    ballForTracking &&
                     shotDetector.current
                         .detectShotStart(
                             ballForTracking
@@ -594,6 +645,16 @@ export const useShotTracker = (
 
                     shotDetector.current.reset()
                 }
+
+                // Return the detection with filtered bbox for TrackingEngine
+                if (!filteredBall) {
+                    return null
+                }
+
+                return {
+                    ...detection,
+                    ball: filteredBall
+                }
             },
             [
                 onShotEvent,
@@ -613,13 +674,15 @@ export const useShotTracker = (
                 detection: BallDetection
             ) => {
 
-                onBallDetection(
+                // Apply filter first to get the filtered bbox
+                const filteredDetection = handleBallDetectionForShotTracking(
                     detection
                 )
 
-                handleBallDetectionForShotTracking(
-                    detection
-                )
+                // Pass the filtered detection to TrackingEngine
+                if (filteredDetection) {
+                    onBallDetection(filteredDetection)
+                }
             },
             [
                 onBallDetection,
