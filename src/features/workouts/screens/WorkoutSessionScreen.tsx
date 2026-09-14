@@ -820,6 +820,9 @@ const TrackingOverlay = React.memo(({
                     <Text style={ovStyles.hoopDebugText}>
                         H: {(trackingState.hoopPosition.height ?? 0).toFixed(3)}
                     </Text>
+                    <Text style={ovStyles.hoopDebugText}>
+                        Conf: {(trackingState.hoopPosition.confidence ?? 0).toFixed(3)}
+                    </Text>
                 </View>
             )}
 
@@ -1159,7 +1162,7 @@ const ovStyles = StyleSheet.create({
     // Hoop Debug Panel
     hoopDebugPanel: {
         position: 'absolute',
-        top: 180,
+        top: 240,
         right: 14,
         backgroundColor: 'rgba(0,0,0,0.75)',
         borderRadius: 10,

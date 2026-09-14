@@ -42,12 +42,12 @@ export function startPerfMonitor() {
     perfTimer = setInterval(() => {
         if (__DEV__) {
             // Single consolidated log to reduce JS bridge serialization overhead
-            console.log(`[PERF] YOLO: ${perfMetrics.yoloFps}fps | MoveNet: ${perfMetrics.moveNetFps}fps | Tracking: ${perfMetrics.trackingUpdates}/s | Overlay: ${perfMetrics.overlayRenders}/s (JS FPS)`)
+            // Note: YOLO/MoveNet FPS now come from worker SharedValues, not this monitor
+            console.log(`[PERF] YOLO: ${perfMetrics.yoloFps}fps | Tracking: ${perfMetrics.trackingUpdates}/s | Overlay: ${perfMetrics.overlayRenders}/s (JS FPS)`)
             
             // Multi-line detailed logs (commented out for high-frequency performance)
             // console.log('[PERF]')
             // console.log('YOLO.............', perfMetrics.yoloFps, 'fps')
-            // console.log('MoveNet..........', perfMetrics.moveNetFps, 'fps')
             // console.log('Tracking Updates.', perfMetrics.trackingUpdates, '/sec')
             // console.log('Overlay Renders..', perfMetrics.overlayRenders, '/sec')
             // console.log('Path Build.......', perfMetrics.pathBuildTime.toFixed(2), 'ms')

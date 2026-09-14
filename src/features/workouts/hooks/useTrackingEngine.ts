@@ -255,6 +255,7 @@ export const useTrackingEngine = () => {
                 y: hoopDetection.y,
                 width: hoopDetection.width,
                 height: hoopDetection.height,
+                confidence: hoopDetection.confidence,
             }
 
             // Aggiorna Shared Values per Skia
