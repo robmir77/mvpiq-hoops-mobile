@@ -24,7 +24,8 @@ const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (basketball, rim, spo
 function getAdaptiveThreshold(
   ballWidth: number,
   ballHeight: number,
-  baseThreshold: number
+  baseThreshold: number,
+  resolutionScale: number = 1.0
 ): number {
   'worklet'; // eslint-disable-line
 
@@ -32,8 +33,10 @@ function getAdaptiveThreshold(
 
   // ----------------------------------------------------------
   // Large object (radius 0.2 = diameter 0.4 = avgSize 0.4)
+  // Normalized to reference resolution 512
   // ----------------------------------------------------------
-  if (avgSize >= 0.40) {
+  const MAX_SIZE = 0.40 * resolutionScale
+  if (avgSize >= MAX_SIZE) {
     return baseThreshold
   }
 
@@ -41,12 +44,12 @@ function getAdaptiveThreshold(
   // Small / distant object (radius 0.05 = diameter 0.1 = avgSize 0.1)
   //
   // Interpolate between:
-  //   0.40 -> baseThreshold (large ball, radius 0.2)
-  //   0.10 -> minimum threshold (small ball, radius 0.05)
+  //   MAX_SIZE -> baseThreshold (large ball, radius 0.2)
+  //   MIN_SIZE -> minimum threshold (small ball, radius 0.05)
+  // Normalized to reference resolution 512
   // ----------------------------------------------------------
 
-  const MIN_SIZE = 0.10
-  const MAX_SIZE = 0.40
+  const MIN_SIZE = 0.10 * resolutionScale
 
   // Lowered from 0.006 to 0.003 to be more permissive for very small balls
   const MIN_THRESHOLD = 0.003
@@ -98,15 +101,18 @@ const STRIDES = [8, 16, 32]
 // The ball detection produces very wide raw boxes, but the center is correct.
 // Clamp to reasonable normalized size (max 80% of screen) for distant shots
 // Increased from 0.7 to 0.8 to accommodate larger detections
+// Normalized to reference resolution 512
 const MAX_BALL_BOX_SIZE = 0.8
 // A ball smaller than this radius is below the reliable visual resolution
 // for the current detector and is treated as noise. This is deliberately
 // a radius threshold, not a minimum accepted ball size: above it, smaller
 // balls are made progressively easier to accept via the adaptive threshold.
 // 0.03 radius = 0.06 normalized diameter (~30 px at 512x512).
+// Normalized to reference resolution 512
 const MIN_BALL_RADIUS = 0.03
 // For rim, keep a more conservative filter.
 // Increased from 0.8 to 0.9 to accommodate larger rim detections
+// Normalized to reference resolution 512
 const MAX_RIM_BOX_SIZE = 0.9
 
 // Parse YOLO output to BallDetection
@@ -183,6 +189,12 @@ export function parseYoloOutput(
     const SCALE = Math.min(TENSOR_SIZE / 1280, TENSOR_SIZE / 720)
     const RESIZED_HEIGHT = 720 * SCALE
     const LETTERBOX_OFFSET = (TENSOR_SIZE - RESIZED_HEIGHT) / 2
+
+    // Normalize thresholds to reference resolution 512
+    const resolutionScale = TENSOR_SIZE / 512
+    const normalizedMinBallRadius = MIN_BALL_RADIUS * resolutionScale
+    const normalizedMaxBallBoxSize = MAX_BALL_BOX_SIZE * resolutionScale
+    const normalizedMaxRimBoxSize = MAX_RIM_BOX_SIZE * resolutionScale
 
     // Convert coordinates from letterboxed tensor space to camera-normalized space
     const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
@@ -267,8 +279,8 @@ export function parseYoloOutput(
       // Small/distant balls get a lower confidence requirement; extremely tiny
       // boxes are rejected as noise instead of lowering the threshold forever.
       const ballRadius = Math.min(cameraW, cameraH) / 2
-      const ballTooSmall = ballRadius < MIN_BALL_RADIUS
-      const ballAdaptiveThreshold = getAdaptiveThreshold(cameraW, cameraH, threshold)
+      const ballTooSmall = ballRadius < normalizedMinBallRadius
+      const ballAdaptiveThreshold = getAdaptiveThreshold(cameraW, cameraH, threshold, resolutionScale)
 
       // Track max basketball score for frames without detection
       if (basketballProb > maxBallScore) {
@@ -295,7 +307,7 @@ export function parseYoloOutput(
       // 3. Confidence clears adaptive threshold
       // 4. Box not absurdly large
       // Use basketball class (0) for ball detection
-      if (!ballTooSmall && validGeometry && basketballProb >= ballAdaptiveThreshold && cameraW <= MAX_BALL_BOX_SIZE && cameraH <= MAX_BALL_BOX_SIZE) {
+      if (!ballTooSmall && validGeometry && basketballProb >= ballAdaptiveThreshold && cameraW <= normalizedMaxBallBoxSize && cameraH <= normalizedMaxBallBoxSize) {
         const detection = {
           x: cameraCx,
           y: cameraCy,
@@ -311,7 +323,7 @@ export function parseYoloOutput(
       }
 
       // Add rim detection if score above threshold and box size is acceptable
-      if (rimProb >= threshold && cameraW <= MAX_RIM_BOX_SIZE && cameraH <= MAX_RIM_BOX_SIZE) {
+      if (rimProb >= threshold && cameraW <= normalizedMaxRimBoxSize && cameraH <= normalizedMaxRimBoxSize) {
         const detection = {
           x: cameraCx,
           y: cameraCy,
@@ -330,10 +342,10 @@ export function parseYoloOutput(
     let maxBallAnchorRejection: string | null = null
     if (maxBallAnchor) {
       const ballRadius = Math.min(maxBallAnchor.w, maxBallAnchor.h) / 2
-      const ballTooSmall = ballRadius < MIN_BALL_RADIUS
+      const ballTooSmall = ballRadius < normalizedMinBallRadius
       const geometryCheck = isValidBallGeometry(maxBallAnchor.w, maxBallAnchor.h)
-      const ballAdaptiveThreshold = getAdaptiveThreshold(maxBallAnchor.w, maxBallAnchor.h, threshold)
-      const tooLarge = maxBallAnchor.w > MAX_BALL_BOX_SIZE || maxBallAnchor.h > MAX_BALL_BOX_SIZE
+      const ballAdaptiveThreshold = getAdaptiveThreshold(maxBallAnchor.w, maxBallAnchor.h, threshold, resolutionScale)
+      const tooLarge = maxBallAnchor.w > normalizedMaxBallBoxSize || maxBallAnchor.h > normalizedMaxBallBoxSize
       
       if (maxBallAnchor.confidence < ballAdaptiveThreshold) {
         maxBallAnchorRejection = 'LOW_CONFIDENCE'
