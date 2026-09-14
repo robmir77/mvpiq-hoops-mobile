@@ -31,24 +31,25 @@ function getAdaptiveThreshold(
   const avgSize = (ballWidth + ballHeight) / 2
 
   // ----------------------------------------------------------
-  // Large object
+  // Large object (radius 0.2 = diameter 0.4 = avgSize 0.4)
   // ----------------------------------------------------------
-  if (avgSize >= 0.30) {
+  if (avgSize >= 0.40) {
     return baseThreshold
   }
 
   // ----------------------------------------------------------
-  // Small / distant object
+  // Small / distant object (radius 0.05 = diameter 0.1 = avgSize 0.1)
   //
   // Interpolate between:
-  //   0.30 -> baseThreshold
-  //   0.02 -> minimum threshold
+  //   0.40 -> baseThreshold (large ball, radius 0.2)
+  //   0.10 -> minimum threshold (small ball, radius 0.05)
   // ----------------------------------------------------------
 
-  const MIN_SIZE = 0.02
-  const MAX_SIZE = 0.30
+  const MIN_SIZE = 0.10
+  const MAX_SIZE = 0.40
 
-  const MIN_THRESHOLD = 0.006
+  // Lowered from 0.006 to 0.003 to be more permissive for very small balls
+  const MIN_THRESHOLD = 0.003
 
   // Normalize size to 0..1
   let t = (avgSize - MIN_SIZE) / (MAX_SIZE - MIN_SIZE)
@@ -95,17 +96,18 @@ function isValidBallGeometry(width: number, height: number): { valid: boolean; a
 const STRIDES = [8, 16, 32]
 
 // The ball detection produces very wide raw boxes, but the center is correct.
-// Clamp to reasonable normalized size (max 70% of screen) for distant shots
-// Increased from 0.5 to 0.7 to accommodate model output without proper grid/stride decoding
-const MAX_BALL_BOX_SIZE = 0.7
+// Clamp to reasonable normalized size (max 80% of screen) for distant shots
+// Increased from 0.7 to 0.8 to accommodate larger detections
+const MAX_BALL_BOX_SIZE = 0.8
 // A ball smaller than this radius is below the reliable visual resolution
 // for the current detector and is treated as noise. This is deliberately
 // a radius threshold, not a minimum accepted ball size: above it, smaller
 // balls are made progressively easier to accept via the adaptive threshold.
-// 0.01 radius = 0.02 normalized diameter (~10 px at 512x512).
-const MIN_BALL_RADIUS = 0.01
+// 0.03 radius = 0.06 normalized diameter (~30 px at 512x512).
+const MIN_BALL_RADIUS = 0.03
 // For rim, keep a more conservative filter.
-const MAX_RIM_BOX_SIZE = 0.8
+// Increased from 0.8 to 0.9 to accommodate larger rim detections
+const MAX_RIM_BOX_SIZE = 0.9
 
 // Parse YOLO output to BallDetection
 // This runs in the Worklet - NO runOnJS here
