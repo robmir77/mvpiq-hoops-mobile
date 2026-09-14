@@ -581,14 +581,17 @@ const TrackingOverlay = React.memo(({
                             const hoopRect = useDerivedValue(() => {
                                 const w = hoopWidth.value > 0 ? hoopWidth.value * SCREEN_W : 40
                                 const h = hoopHeight.value > 0 ? hoopHeight.value * CAMERA_H : 40
+                                // Flatten the hoop: make it wider and shorter
+                                const flattenedW = w * 1.3  // 30% wider
+                                const flattenedH = h * 0.6  // 40% shorter (flattened)
                                 return {
-                                    x: hoopXPx.value - w / 2,
-                                    y: hoopYPx.value - h / 2,
-                                    w: w,
-                                    h: h
+                                    x: hoopXPx.value - flattenedW / 2,
+                                    y: hoopYPx.value - flattenedH / 2,
+                                    w: flattenedW,
+                                    h: flattenedH
                                 }
                             }, [hoopXPx, hoopYPx, hoopWidth, hoopHeight])
-                            
+
                             const hoopOvalPath = useDerivedValue(() => {
                                 const rect = hoopRect.value
                                 return Skia.Path.Oval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
@@ -797,6 +800,25 @@ const TrackingOverlay = React.memo(({
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
                         Conf: {((trackingState.confidence ?? 0) * 100).toFixed(1)}%
+                    </Text>
+                </View>
+            )}
+
+            {/* ── HOOP DEBUG PANEL ── */}
+            {trackingState?.hoopPosition && (
+                <View pointerEvents="none" style={ovStyles.hoopDebugPanel}>
+                    <Text style={ovStyles.hoopDebugTitle}>🏀 Canestro</Text>
+                    <Text style={ovStyles.hoopDebugText}>
+                        X: {trackingState.hoopPosition.x.toFixed(3)}
+                    </Text>
+                    <Text style={ovStyles.hoopDebugText}>
+                        Y: {trackingState.hoopPosition.y.toFixed(3)}
+                    </Text>
+                    <Text style={ovStyles.hoopDebugText}>
+                        W: {(trackingState.hoopPosition.width ?? 0).toFixed(3)}
+                    </Text>
+                    <Text style={ovStyles.hoopDebugText}>
+                        H: {(trackingState.hoopPosition.height ?? 0).toFixed(3)}
                     </Text>
                 </View>
             )}
@@ -1134,6 +1156,30 @@ const ovStyles = StyleSheet.create({
         fontWeight: '600',
         marginVertical: 1,
     },
+    // Hoop Debug Panel
+    hoopDebugPanel: {
+        position: 'absolute',
+        top: 180,
+        right: 14,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(74,222,128,0.5)',
+    },
+    hoopDebugTitle: {
+        color: '#4ade80',
+        fontSize: 10,
+        fontWeight: '800',
+        marginBottom: 4,
+    },
+    hoopDebugText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '600',
+        marginVertical: 1,
+    },
     // Biomechanics Panel
     bioPanel: {
         position: 'absolute',
@@ -1310,7 +1356,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const [poseEnabled, setPoseEnabled] = useState(true)
     const [ballEnabled, setBallEnabled] = useState(true)
-    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(false)
+    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)

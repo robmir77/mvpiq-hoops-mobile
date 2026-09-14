@@ -94,7 +94,7 @@ export const useShotTracker = (
     enabled: boolean = true,
     poseEnabled: boolean = true,
     ballEnabled: boolean = true,
-    rimEnabled: boolean = false,
+    rimEnabled: boolean = true,
 
     yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
     poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
@@ -599,8 +599,26 @@ export const useShotTracker = (
                     }
                 }
 
+                // Filter detected rim: only use if close to calibration point
+                let filteredRim = detection.rim
+                if (detection.rim && rimFromCalibration) {
+                    const dx = detection.rim.x - rimFromCalibration.x
+                    const dy = detection.rim.y - rimFromCalibration.y
+                    const distance = Math.sqrt(dx * dx + dy * dy)
+                    // Reject detected rim if too far from calibration (max 10% of screen)
+                    const MAX_RIM_DISTANCE = 0.1
+                    if (distance > MAX_RIM_DISTANCE) {
+                        filteredRim = undefined
+                        console.log('[ShotTracker] Rejected rim detection: too far from calibration', {
+                            detected: { x: detection.rim.x.toFixed(3), y: detection.rim.y.toFixed(3) },
+                            calibration: { x: rimFromCalibration.x.toFixed(3), y: rimFromCalibration.y.toFixed(3) },
+                            distance: distance.toFixed(3)
+                        })
+                    }
+                }
+
                 const effectiveRim =
-                    detection.rim ||
+                    filteredRim ||
                     rimFromCalibration ||
                     null
 
