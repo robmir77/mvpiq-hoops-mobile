@@ -880,18 +880,22 @@ export const useShotTracker = (
                     }
 
                     // ────────────────────────────────────────────────────────────────
-                    // Parallel Worker Dispatch (NEW - replacing serial execution)
+                    // Mutually Exclusive Worker Dispatch with Fair Scheduling
                     // ────────────────────────────────────────────────────────────────
 
                     const timestamp = Date.now()
 
-                    // Process frames directly in parallel workers (no buffering)
-                    if (ballEnabledShared.value) {
-                        yoloWorker.processFrame(frame, timestamp)
-                    }
+                    // YOLO and MoveNet are mutually exclusive per frame to avoid blocking
+                    // Use frame-based alternation to ensure both get execution slots
+                    // MoveNet target: ~3fps (every 10 frames at 30fps camera)
+                    // YOLO runs in remaining slots with its own throttling
+                    const moveNetSlot = currentFrame % 10 === 0
+                    const yoloSlot = !moveNetSlot
 
-                    if (poseEnabledShared.value) {
+                    if (moveNetSlot && poseEnabledShared.value && poseReady) {
                         moveNetWorker.processFrame(frame, timestamp)
+                    } else if (yoloSlot && ballEnabledShared.value && yoloReady) {
+                        yoloWorker.processFrame(frame, timestamp)
                     }
 
                     // Process worker results (get latest available from shared values)
