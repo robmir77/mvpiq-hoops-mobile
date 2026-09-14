@@ -134,6 +134,13 @@ export const useYoloWorker = (
           const outputs = yoloModelInstance!.runSync([inputBuffer])
           const output = new Float32Array(outputs[0] as ArrayBufferLike)
 
+          // Log output shape for verification
+          if (__DEV__) {
+            console.log(`[YoloWorker] Output buffer length: ${output.length}`)
+            console.log(`[YoloWorker] Expected detections (length/7): ${output.length / 7}`)
+            console.log(`[YoloWorker] Frame size: ${frame.width}x${frame.height}`)
+          }
+
           const { ball, rim } = parseYoloOutput(output, 0.015, frame.width, frame.height)
 
           const t2 = performance.now()
@@ -143,9 +150,12 @@ export const useYoloWorker = (
           latestResultRim.value = rim
           latestResultTimestamp.value = timestamp
           
-          // Update FPS
+          // Update FPS only if valid (greater than 0)
           const inferenceTime = t2 - t0
-          fps.value = 1000 / inferenceTime
+          const calculatedFps = 1000 / inferenceTime
+          if (calculatedFps > 0) {
+            fps.value = calculatedFps
+          }
 
           if (__DEV__) {
             console.log(`[YoloWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)

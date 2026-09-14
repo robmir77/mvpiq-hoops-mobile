@@ -138,38 +138,9 @@ export function parseYoloOutput(
   'worklet'; // eslint-disable-line
 
   // Letterboxing parameters for contain mode
-  // Camera: 1280x720 (16:9), YOLO: 512x512 (1:1)
+  // Camera: 1280x720 (16:9), YOLO: dynamic (1:1)
   const CAMERA_ASPECT = 1280 / 720  // 1.777...
-  const TENSOR_SIZE = 512
-  const SCALE = Math.min(TENSOR_SIZE / 1280, TENSOR_SIZE / 720)  // 0.4
-  const RESIZED_HEIGHT = 720 * SCALE  // 288
-  const LETTERBOX_OFFSET = (TENSOR_SIZE - RESIZED_HEIGHT) / 2  // 112
-
-  // Convert coordinates from letterboxed tensor space to camera-normalized space
-  const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
-    // Convert from normalized tensor coordinates to pixel tensor coordinates
-    const cx_px = cx * TENSOR_SIZE
-    const cy_px = cy * TENSOR_SIZE
-    const w_px = w * TENSOR_SIZE
-    const h_px = h * TENSOR_SIZE
-
-    // Remove letterboxing offset
-    const cy_no_letterbox = cy_px - LETTERBOX_OFFSET
-
-    // Scale back to camera pixel space
-    const cx_camera = cx_px / SCALE
-    const cy_camera = cy_no_letterbox / SCALE
-    const w_camera = w_px / SCALE
-    const h_camera = h_px / SCALE
-
-    // Normalize to camera space (0..1)
-    return {
-      cx: cx_camera / 1280,
-      cy: cy_camera / 720,
-      w: w_camera / 1280,
-      h: h_camera / 720
-    }
-  }
+  let TENSOR_SIZE = 512 // Default, will be updated after nDetections is calculated
 
   try {
     let maxRawConfidence = 0
@@ -177,6 +148,7 @@ export function parseYoloOutput(
     let maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null = null
     let bestBall: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
     let bestRim: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
+    let bestBallRaw: { cxRaw: number; cyRaw: number; wRaw: number; hRaw: number; basketballScore: number; rimScore: number; sportsBallScore: number } | null = null
 
     // Diagnostic counters for ball loss analysis
     let rejectedTooSmall = 0
@@ -201,10 +173,40 @@ export function parseYoloOutput(
 
     // Determine input size from number of detections
     // 512x512: 5376 anchors, 640x640: 8400 anchors, 320x320: 2100 anchors
-    let inputSize = 512
-    if (nDetections === 8400) inputSize = 640
-    else if (nDetections === 2100) inputSize = 320
-    else if (nDetections === 5376) inputSize = 512
+    if (nDetections === 8400) TENSOR_SIZE = 640
+    else if (nDetections === 2100) TENSOR_SIZE = 320
+    else if (nDetections === 5376) TENSOR_SIZE = 512
+
+    // Calculate letterboxing parameters based on dynamic TENSOR_SIZE
+    const SCALE = Math.min(TENSOR_SIZE / 1280, TENSOR_SIZE / 720)
+    const RESIZED_HEIGHT = 720 * SCALE
+    const LETTERBOX_OFFSET = (TENSOR_SIZE - RESIZED_HEIGHT) / 2
+
+    // Convert coordinates from letterboxed tensor space to camera-normalized space
+    const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
+      // Convert from normalized tensor coordinates to pixel tensor coordinates
+      const cx_px = cx * TENSOR_SIZE
+      const cy_px = cy * TENSOR_SIZE
+      const w_px = w * TENSOR_SIZE
+      const h_px = h * TENSOR_SIZE
+
+      // Remove letterboxing offset
+      const cy_no_letterbox = cy_px - LETTERBOX_OFFSET
+
+      // Scale back to camera pixel space
+      const cx_camera = cx_px / SCALE
+      const cy_camera = cy_no_letterbox / SCALE
+      const w_camera = w_px / SCALE
+      const h_camera = h_px / SCALE
+
+      // Normalize to camera space (0..1)
+      return {
+        cx: cx_camera / 1280,
+        cy: cy_camera / 720,
+        w: w_camera / 1280,
+        h: h_camera / 720
+      }
+    }
 
     // Simplified decoder - assume model outputs are already normalized [0,1]
     // This is common for TFLite exports with NMS included
@@ -302,6 +304,7 @@ export function parseYoloOutput(
         }
         if (!bestBall || detection.confidence > bestBall.confidence) {
           bestBall = detection
+          bestBallRaw = { cxRaw, cyRaw, wRaw: w, hRaw: h, basketballScore, rimScore, sportsBallScore }
         }
       }
 
@@ -341,6 +344,26 @@ export function parseYoloOutput(
       } else {
         maxBallAnchorRejection = 'ACCEPTED'
       }
+    }
+
+    // Log raw values of best ball detection for diagnostic
+    if (__DEV__ && bestBallRaw && bestBall) {
+      console.log('[YOLO PARSER RAW] Best ball detection raw values:', {
+        cxRaw: bestBallRaw.cxRaw?.toFixed(6) ?? 'undefined',
+        cyRaw: bestBallRaw.cyRaw?.toFixed(6) ?? 'undefined',
+        wRaw: bestBallRaw.wRaw?.toFixed(6) ?? 'undefined',
+        hRaw: bestBallRaw.hRaw?.toFixed(6) ?? 'undefined',
+        basketballScore: bestBallRaw.basketballScore?.toFixed(6) ?? 'undefined',
+        rimScore: bestBallRaw.rimScore?.toFixed(6) ?? 'undefined',
+        sportsBallScore: bestBallRaw.sportsBallScore?.toFixed(6) ?? 'undefined',
+      })
+      console.log('[YOLO PARSER PARSED] After letterbox mapping:', {
+        x: bestBall.x.toFixed(6),
+        y: bestBall.y.toFixed(6),
+        width: bestBall.width.toFixed(6),
+        height: bestBall.height.toFixed(6),
+        confidence: bestBall.confidence.toFixed(6),
+      })
     }
 
     return { ball: bestBall ? { x: bestBall.x, y: bestBall.y, width: bestBall.width, height: bestBall.height, confidence: bestBall.confidence } : null, rim: bestRim ? { x: bestRim.x, y: bestRim.y, width: bestRim.width, height: bestRim.height, confidence: bestRim.confidence } : null, debug: { conf: maxRawConfidence, ballIndex: bestBall?.index, rimIndex: bestRim?.index, rejectedTooSmall, rejectedLowConfidence, rejectedGeometry, tooSmallSamples, lowConfidenceAccepted: bestBall && bestBall.confidence <= 0.03 ? { confidence: bestBall.confidence, width: bestBall.width, height: bestBall.height, x: bestBall.x, y: bestBall.y } : null, maxBallScore, maxBallAnchor, maxBallAnchorRejection } }

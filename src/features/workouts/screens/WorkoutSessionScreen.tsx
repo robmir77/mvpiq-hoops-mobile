@@ -1363,22 +1363,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const cameraRef       = useRef<CameraRef>(null)
     const lastUiUpdate    = useRef<number>(0)
 
-    // Performance monitoring - tracking state updates
+    // Performance monitoring - tracking state updates (for tracking/overlay metrics only)
+    // Note: YOLO/MoveNet FPS now come from worker SharedValues, not performance monitor
     useEffect(() => {
         startPerfMonitor()
         return () => stopPerfMonitor()
-    }, [])
-
-    // Update FPS metrics every second
-    useEffect(() => {
-        const fpsInterval = setInterval(() => {
-            const metrics = getPerfMetrics()
-            setFpsMetrics({
-                yoloFps: metrics.yoloFps,
-                moveNetFps: metrics.moveNetFps,
-            })
-        }, 1000)
-        return () => clearInterval(fpsInterval)
     }, [])
 
     // ── Pose callback (new architecture) ─────────────────────────────────────
@@ -1610,6 +1599,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         frameOutput,
         isModelReady,
         resetShotTracking,
+        yoloFps,
+        moveNetFps,
     } = useCameraPipeline(
         handleBallDetection,
         handlePoseResult,
@@ -1632,6 +1623,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
     resetShotTrackingRef.current = resetShotTracking
+
+    // Update FPS metrics every second from worker SharedValues
+    useEffect(() => {
+        const fpsInterval = setInterval(() => {
+            setFpsMetrics({
+                yoloFps: Math.round(yoloFps?.value ?? 0),
+                moveNetFps: Math.round(moveNetFps?.value ?? 0),
+            })
+        }, 1000)
+        return () => clearInterval(fpsInterval)
+    }, [yoloFps, moveNetFps])
 
     // Format selection removed in v5 - use Camera defaults
 

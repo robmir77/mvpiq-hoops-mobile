@@ -138,18 +138,26 @@ export const useMoveNetWorker = (
           const angles = computeJointAngles(keypoints)
 
           const t2 = performance.now()
-          
+
           // Update latest result
           latestResultKeypoints.value = keypoints
           latestResultAngles.value = angles
           latestResultTimestamp.value = timestamp
-          
-          // Update FPS
+
+          // Update FPS only if valid (greater than 0)
           const inferenceTime = t2 - t0
-          fps.value = 1000 / inferenceTime
+          const calculatedFps = 1000 / inferenceTime
 
           if (__DEV__) {
-            console.log(`[MoveNetWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)
+            console.log(`[MoveNetWorker] Processed frame in ${inferenceTime.toFixed(1)}ms, FPS: ${calculatedFps.toFixed(1)}`)
+          }
+
+          if (calculatedFps > 0) {
+            fps.value = calculatedFps
+          } else {
+            if (__DEV__) {
+              console.log(`[MoveNetWorker] FPS is 0, not updating. InferenceTime: ${inferenceTime.toFixed(1)}ms`)
+            }
           }
         }
       }

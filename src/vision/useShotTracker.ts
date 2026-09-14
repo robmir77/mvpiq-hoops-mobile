@@ -995,5 +995,7 @@ export const useShotTracker = (
         frameOutput,
         isModelReady,
         resetShotTracking,
+        yoloFps: yoloWorker.fps,
+        moveNetFps: moveNetWorker.fps,
     }
 }

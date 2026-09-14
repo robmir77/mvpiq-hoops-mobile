@@ -22,6 +22,8 @@ export interface CameraPipelineResult {
   frameOutput: any
   isModelReady: boolean
   resetShotTracking: () => void
+  yoloFps: any
+  moveNetFps: any
 }
 
 export const useCameraPipeline = (
@@ -52,7 +54,7 @@ export const useCameraPipeline = (
   }
 
   // Initialize shot tracker with the new architecture
-  const { frameOutput, isModelReady, resetShotTracking } = useShotTracker(
+  const { frameOutput, isModelReady, resetShotTracking, yoloFps, moveNetFps } = useShotTracker(
     onBallDetection,
     onPoseResult,
     onShotEvent,
@@ -81,5 +83,7 @@ export const useCameraPipeline = (
     frameOutput,
     isModelReady,
     resetShotTracking,
+    yoloFps,
+    moveNetFps,
   }
 }

@@ -71,8 +71,8 @@ export function stopPerfMonitor() {
 
 export function getPerfMetrics() {
     return {
-        yoloFps: perfMetrics.yoloFps,
-        moveNetFps: perfMetrics.moveNetFps,
+        yoloFps: 0, // Deprecated: now read from worker SharedValues
+        moveNetFps: 0, // Deprecated: now read from worker SharedValues
         trackingUpdates: perfMetrics.trackingUpdates,
         overlayRenders: perfMetrics.overlayRenders,
     }
