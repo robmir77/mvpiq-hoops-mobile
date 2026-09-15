@@ -7,7 +7,7 @@
 // Requires grid/stride decoding for proper coordinate extraction
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.00005  // Very low threshold - model outputs extremely low raw scores
+const CONF_THRESHOLD = 0.01  // Minimum confidence threshold (1%) - lower values are noise
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
 // Adaptive confidence threshold based on detected ball size.
@@ -51,8 +51,8 @@ function getAdaptiveThreshold(
 
   const MIN_SIZE = 0.10 * resolutionScale
 
-  // Lowered from 0.006 to 0.003 to be more permissive for very small balls
-  const MIN_THRESHOLD = 0.003
+  // Minimum threshold for very small balls - raised to 0.01 for new YOLO11 model
+  const MIN_THRESHOLD = 0.01
 
   // Normalize size to 0..1
   let t = (avgSize - MIN_SIZE) / (MAX_SIZE - MIN_SIZE)

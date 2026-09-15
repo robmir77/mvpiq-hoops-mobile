@@ -14,6 +14,8 @@ import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
 import { getYoloModel } from './yoloModels'
 import { DEFAULT_YOLO_MODEL_ID } from './yoloModels'
+import { telemetryLogger } from './telemetry'
+import { scheduleOnRN } from 'react-native-worklets'
 
 const YOLO_INPUT_SIZE = 512
 const YOLO_TARGET_FPS = 10 // Target 10 FPS for YOLO
@@ -42,6 +44,36 @@ export const useYoloWorker = (
   // Shared values for UI
   const isReady = useSharedValue(false)
   const fps = useSharedValue(0)
+
+  // JS-side callback for telemetry recording
+  const recordTelemetry = useCallback((inferenceTime: number, ball: any) => {
+    telemetryLogger.recordYoloInference(inferenceTime)
+    if (ball) {
+      telemetryLogger.recordBallDetection(ball.confidence)
+      telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
+      
+      // False positive detection
+      const bboxSize = ball.width * ball.height
+      const MIN_BBOX_SIZE = 100
+      const MAX_BBOX_SIZE = 50000
+      
+      if (bboxSize < MIN_BBOX_SIZE) {
+        telemetryLogger.recordFalsePositive('small_bbox', ball.confidence)
+      } else if (bboxSize > MAX_BBOX_SIZE) {
+        telemetryLogger.recordFalsePositive('large_bbox', ball.confidence)
+      }
+      
+      const COURT_MARGIN = 0.1
+      if (ball.x < COURT_MARGIN || ball.x > 1 - COURT_MARGIN ||
+          ball.y < COURT_MARGIN || ball.y > 1 - COURT_MARGIN) {
+        telemetryLogger.recordFalsePositive('outside_court', ball.confidence)
+      }
+      
+      if (ball.confidence < 0.3) {
+        telemetryLogger.recordFalsePositive('low_confidence', ball.confidence)
+      }
+    }
+  }, [])
 
   // Model setup
   const selectedYoloModel = useMemo(() => getYoloModel(yoloModelId), [yoloModelId])
@@ -78,10 +110,24 @@ export const useYoloWorker = (
     ? yoloModel.model
     : null
 
-  // Update ready state
+  // Update ready state and log model metadata
   useEffect(() => {
-    isReady.value = yoloModel.state === 'loaded' && yoloModel.model != null
-  }, [yoloModel.state, yoloModel.model, isReady])
+    const isLoaded = yoloModel.state === 'loaded' && yoloModel.model != null
+    isReady.value = isLoaded
+    
+    // Log model metadata when model loads
+    if (isLoaded && selectedYoloModel) {
+      const delegateName = Platform.OS === 'android' 
+        ? (yoloDelegate as AndroidDelegateOption) || DEFAULT_ANDROID_DELEGATE
+        : (yoloDelegate as IosDelegateOption) || DEFAULT_IOS_DELEGATE
+      
+      telemetryLogger.logModelMetadata({
+        name: selectedYoloModel.fileName,
+        inputSize: selectedYoloModel.inputSize,
+        delegate: typeof delegateName === 'string' ? delegateName : 'unknown'
+      })
+    }
+  }, [yoloModel.state, yoloModel.model, isReady, selectedYoloModel, yoloDelegate])
 
   // Resizer config
   const yoloResizerConfig = useMemo(
@@ -142,7 +188,7 @@ export const useYoloWorker = (
             console.log(`[YoloWorker] Frame size: ${frame.width}x${frame.height}`)
           }
 
-          const { ball, rim } = parseYoloOutput(output, 0.015, frame.width, frame.height)
+          const { ball, rim } = parseYoloOutput(output, 0.01, frame.width, frame.height)
 
           const t2 = performance.now()
           
@@ -157,6 +203,9 @@ export const useYoloWorker = (
           if (calculatedFps > 0) {
             fps.value = calculatedFps
           }
+
+          // Record telemetry via scheduleOnRN
+          scheduleOnRN(recordTelemetry, inferenceTime, ball)
 
           if (__DEV__) {
             console.log(`[YoloWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)

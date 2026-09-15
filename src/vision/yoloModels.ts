@@ -59,7 +59,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
   },
 ]
 
-export const DEFAULT_YOLO_MODEL_ID = 'best_512_float16'
+export const DEFAULT_YOLO_MODEL_ID = 'best_320_float16'
 
 // MoveNet model registry. Keep the model input size here so the camera
 // resizer and the TFLite input buffer can never drift apart.

@@ -5,6 +5,7 @@
 // Only processed results (BallDetection, PoseResult, ShotEvent) cross to JS.
 
 import { useRef, useCallback, useEffect, useState } from 'react'
+import { Platform } from 'react-native'
 import { useFrameOutput } from 'react-native-vision-camera'
 import type { Frame } from 'react-native-vision-camera'
 import { useSharedValue } from 'react-native-reanimated'
@@ -28,6 +29,8 @@ import {
     incrementYoloFps,
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
+import { telemetryLogger } from './telemetry'
+// import * as Battery from 'expo-battery' // TODO: Install expo-battery package first
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,11 +133,49 @@ export const useShotTracker = (
             instanceIdRef.current
         )
 
+        // TODO: Enable battery monitoring after installing expo-battery
+        // const startBatteryMonitoring = async () => {
+        //     try {
+        //         const batteryLevel = await Battery.getBatteryLevelAsync()
+        //         const batteryLevelPercent = Math.round(batteryLevel * 100)
+        //         
+        //         let temperature = 0
+        //         if (Platform.OS === 'android') {
+        //             temperature = 35.0 // Placeholder
+        //         }
+        //         
+        //         telemetryLogger.startBatteryMonitoring(batteryLevelPercent, temperature)
+        //         console.log('[ShotTracker] Battery monitoring started', { level: batteryLevelPercent, temperature })
+        //     } catch (error) {
+        //         console.error('[ShotTracker] Failed to start battery monitoring:', error)
+        //     }
+        // }
+        // startBatteryMonitoring()
+
         return () => {
             console.log(
                 '[ShotTracker][INSTANCE] UNMOUNT',
                 instanceIdRef.current
             )
+
+            // TODO: Enable battery monitoring after installing expo-battery
+            // const endBatteryMonitoring = async () => {
+            //     try {
+            //         const batteryLevel = await Battery.getBatteryLevelAsync()
+            //         const batteryLevelPercent = Math.round(batteryLevel * 100)
+            //         
+            //         let temperature = 0
+            //         if (Platform.OS === 'android') {
+            //             temperature = 35.0 // Placeholder
+            //         }
+            //         
+            //         telemetryLogger.endBatteryMonitoring(batteryLevelPercent, temperature)
+            //         console.log('[ShotTracker] Battery monitoring ended', { level: batteryLevelPercent, temperature })
+            //     } catch (error) {
+            //         console.error('[ShotTracker] Failed to end battery monitoring:', error)
+            //     }
+            // }
+            // endBatteryMonitoring()
         }
     }, [])
 
@@ -179,6 +220,11 @@ export const useShotTracker = (
     const perfFramesProcessed = useSharedValue(0)
     const perfFramesDroppedBusy = useSharedValue(0)
     const lastMoveNetInferenceAt = useSharedValue(0)
+
+    // End-to-end detection tracking
+    const perfYoloBallDetected = useSharedValue(0)
+    const perfTrackingAccepted = useSharedValue(0)
+    const perfOverlayRendered = useSharedValue(0)
 
     // Ball stability tracking for intelligent YOLO throttling
     const lastBallX = useSharedValue(0)
@@ -260,13 +306,43 @@ export const useShotTracker = (
     const rimEnabledShared =
         useSharedValue(rimEnabled)
 
+    // JS-side callback for pipeline telemetry recording
+    const updatePipelineTelemetry = useCallback((
+        received: number,
+        processed: number,
+        droppedBusy: number,
+        trackingAccepted: number,
+        overlayRendered: number
+    ) => {
+        telemetryLogger.updatePipelineMetrics(
+            received,
+            processed,
+            droppedBusy,
+            trackingAccepted,
+            overlayRendered
+        )
+        telemetryLogger.logPipelineMetrics()
+        
+        // Log YOLO performance metrics
+        telemetryLogger.logYoloPerf()
+        
+        // Log ball detection metrics
+        telemetryLogger.logBallDetectionMetrics(processed)
+        
+        // Log false positive summary
+        telemetryLogger.logFalsePositiveSummary()
+        
+        // Log bbox stability
+        telemetryLogger.logBboxStability()
+    }, [])
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // Adaptive confidence threshold
     // ─────────────────────────────────────────────────────────────────────────
 
     const adaptiveThreshold =
-        useSharedValue(0.015)
+        useSharedValue(0.01)
 
     const detectionHistory =
         useRef<
@@ -699,6 +775,7 @@ export const useShotTracker = (
 
                 // Pass the filtered detection to TrackingEngine
                 if (filteredDetection) {
+                    perfTrackingAccepted.value += 1
                     onBallDetection(filteredDetection)
                 }
             },
@@ -906,6 +983,8 @@ export const useShotTracker = (
 
                     // Process YOLO result if available
                     if (yoloResult.ball) {
+                        perfYoloBallDetected.value += 1
+                        
                         const detection: BallDetection = {
                             ball: yoloResult.ball,
                             rim: yoloResult.rim ?? undefined,
@@ -949,10 +1028,23 @@ export const useShotTracker = (
                             )
                         }
 
+                        // Update telemetry pipeline metrics via scheduleOnRN
+                        scheduleOnRN(
+                            updatePipelineTelemetry,
+                            perfFramesReceived.value,
+                            perfFramesProcessed.value,
+                            perfFramesDroppedBusy.value,
+                            perfTrackingAccepted.value,
+                            perfOverlayRendered.value
+                        )
+
                         perfLastLogAt.value = perfNow
                         perfFramesReceived.value = 0
                         perfFramesProcessed.value = 0
                         perfFramesDroppedBusy.value = 0
+                        perfYoloBallDetected.value = 0
+                        perfTrackingAccepted.value = 0
+                        perfOverlayRendered.value = 0
                     }
 
                 } catch (error) {
@@ -1067,6 +1159,26 @@ export const useShotTracker = (
     }, [yoloWorker.isReady, moveNetWorker.isReady])
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Telemetry control
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const exportTelemetrySummary = useCallback(() => {
+        const cameraFPS = selectedFps || 30
+        const moveNetFPS = moveNetWorker.fps.value || 0
+        return telemetryLogger.exportTestSummary(cameraFPS, moveNetFPS)
+    }, [selectedFps, moveNetWorker.fps])
+
+    const logTelemetrySummary = useCallback(() => {
+        const cameraFPS = selectedFps || 30
+        const moveNetFPS = moveNetWorker.fps.value || 0
+        telemetryLogger.logTestSummary(cameraFPS, moveNetFPS)
+    }, [selectedFps, moveNetWorker.fps])
+
+    const resetTelemetry = useCallback(() => {
+        telemetryLogger.reset()
+    }, [])
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Return
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1076,5 +1188,8 @@ export const useShotTracker = (
         resetShotTracking,
         yoloFps: yoloWorker.fps,
         moveNetFps: moveNetWorker.fps,
+        exportTelemetrySummary,
+        logTelemetrySummary,
+        resetTelemetry,
     }
 }

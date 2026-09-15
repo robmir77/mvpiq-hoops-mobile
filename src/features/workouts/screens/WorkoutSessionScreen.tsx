@@ -45,7 +45,8 @@ import {
 } from '../api/workouts.api'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
-import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel } from '@/vision'
+import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
+import { telemetryLogger } from '@/vision'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -430,7 +431,8 @@ const TrackingOverlay = React.memo(({
         showTrail: boolean
     }) => {
         setBallLabelVisible(data.showLabel)
-        setBallLabelPos({ left: px(data.ballX) - 32, top: py(data.ballY) - 44 })
+        const mappedPos = mapYoloPointToView(data.ballX, data.ballY)
+        setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
         setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}%`)
         setPowerBadgeVisible(data.inFlight && shotPower > 0)
         setAngleBadgeVisible(releaseAngle != null && data.inFlight)
@@ -1412,6 +1414,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [ballEnabled, setBallEnabled] = useState(true)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
+    const [showTelemetry, setShowTelemetry] = useState(false)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
     const pendingScreenshotUri = useRef<string | null>(null)
@@ -1456,6 +1459,35 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             runOnJS(updateTrackingBadge)(current.isActive, current.confidence)
         },
         [trackingIsActive, trackingConfidence, updateTrackingBadge]
+    )
+    
+    // Local state per auto status display
+    const [autoStatusText, setAutoStatusText] = React.useState('In attesa della palla…')
+    const [autoDotActive, setAutoDotActive] = React.useState(false)
+    
+    const updateAutoStatus = React.useCallback((ballX: number, inFlight: boolean) => {
+        const isActive = ballX > 0
+        setAutoDotActive(isActive)
+        if (!modelsReady) {
+            setAutoStatusText(`Caricamento ${yoloModelName}...`)
+        } else if (inFlight) {
+            setAutoStatusText('✈ Tiro rilevato — scia attiva')
+        } else if (isActive) {
+            setAutoStatusText('Rilevamento automatico attivo')
+        } else {
+            setAutoStatusText('In attesa della palla…')
+        }
+    }, [modelsReady, yoloModelName])
+    
+    useAnimatedReaction(
+        () => ({
+            ballX: sharedValues?.ballX.value ?? 0,
+            inFlight: sharedValues?.inFlight.value ?? false,
+        }),
+        (current) => {
+            runOnJS(updateAutoStatus)(current.ballX, current.inFlight)
+        },
+        [sharedValues, updateAutoStatus]
     )
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
@@ -1895,6 +1927,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     await stopSessionVideoRecording()
                 }
                 await flushFrameBatch()
+                
+                // Log telemetry summary before ending session
+                telemetryLogger.logTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
+                
                 await endWorkoutSession(sessionId, user!.id)
                 navigation.replace('ShotChart', { sessionId, fromSession: true })
             } catch (e: any) { showError('Errore', e.message) }
@@ -1990,6 +2026,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             </Text>
                         </TouchableOpacity>
                     )}
+                    <TouchableOpacity
+                        onPress={() => setShowTelemetry(v => !v)}
+                        style={[styles.calDebugBtn, showTelemetry && styles.calDebugBtnOn]}
+                    >
+                        <Text style={[styles.calBadge, showTelemetry && { color: '#fff' }]}>
+                            📊 Tel {showTelemetry ? 'ON' : 'OFF'}
+                        </Text>
+                    </TouchableOpacity>
                     <View style={[styles.wsDot, modelsReady ? styles.wsDotOn : styles.wsDotOff, {marginLeft:8}]} />
                     <Text style={styles.wsText}>{modelsReady ? 'AI On' : 'AI Off'}</Text>
                 </View>
@@ -2046,6 +2090,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     />
                 )}
 
+                {/* Telemetry overlay */}
+                <TelemetryOverlay
+                    visible={showTelemetry}
+                    onClose={() => setShowTelemetry(false)}
+                    yoloFps={fpsMetrics.yoloFps}
+                    moveNetFps={fpsMetrics.moveNetFps}
+                />
+
                 <View style={styles.guideH} pointerEvents="none" />
                 <View style={styles.guideV} pointerEvents="none" />
 
@@ -2071,22 +2123,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 {isPaused && <Text style={styles.pausedLabel}>⏸ Sessione in pausa</Text>}
                 <View style={styles.autoRow}>
                     <View style={styles.autoStatus}>
-                        {(() => {
-                            const ballXVal = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
-                            const inFlightVal = useDerivedValue(() => sharedValues?.inFlight.value ?? false, [sharedValues])
-                            const isActive = useDerivedValue(() => (ballXVal.value > 0), [ballXVal])
-
-                            return (
-                                <>
-                                    <View style={[styles.autoDot, isActive.value && styles.autoDotActive]} />
-                                    <Text style={styles.autoLabel}>
-                                        {!modelsReady ? `Caricamento ${yoloModelName}...` :
-                                         inFlightVal.value ? '✈ Tiro rilevato — scia attiva' :
-                                         isActive.value ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
-                                    </Text>
-                                </>
-                            )
-                        })()}
+                        <View style={[styles.autoDot, autoDotActive && styles.autoDotActive]} />
+                        <Text style={styles.autoLabel}>
+                            {autoStatusText}
+                        </Text>
                     </View>
                     <TouchableOpacity
                         style={[
