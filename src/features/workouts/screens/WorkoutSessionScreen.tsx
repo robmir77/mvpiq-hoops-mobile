@@ -1415,6 +1415,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
     const [showTelemetry, setShowTelemetry] = useState(true)
+    const [debugMode, setDebugMode] = useState(false)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
     const pendingScreenshotUri = useRef<string | null>(null)
@@ -1931,6 +1932,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 // Log telemetry summary before ending session
                 telemetryLogger.logTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
                 
+                // Export telemetry summary for saving with session
+                const telemetrySummary = telemetryLogger.exportTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
+                console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
+                
                 await endWorkoutSession(sessionId, user!.id)
                 navigation.replace('ShotChart', { sessionId, fromSession: true })
             } catch (e: any) { showError('Errore', e.message) }
@@ -2103,6 +2108,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     onClose={() => setShowTelemetry(false)}
                     yoloFps={fpsMetrics.yoloFps}
                     moveNetFps={fpsMetrics.moveNetFps}
+                    debugMode={debugMode}
                 />
 
                 <View style={styles.guideH} pointerEvents="none" />
@@ -2177,6 +2183,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         labelOn="🏀 Canestro"
                         labelOff="🏀 Canestro"
                         onPress={() => setRimDetectionEnabled(!rimDetectionEnabled)}
+                    />
+                    <ToggleButton
+                        active={debugMode}
+                        disabled={isPaused || isEnding}
+                        labelOn="🔍 Debug"
+                        labelOff="🔍 Debug"
+                        onPress={() => setDebugMode(!debugMode)}
                     />
                 </View>
                 <View style={styles.manualRow}>

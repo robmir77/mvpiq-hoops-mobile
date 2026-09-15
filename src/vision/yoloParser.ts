@@ -140,6 +140,7 @@ export function parseYoloOutput(
     frameHeight?: number
 ): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
+  player: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
   debug?: { conf: number; ballIndex?: number; rimIndex?: number; rejectedTooSmall: number; rejectedLowConfidence: number; rejectedGeometry: number; tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }>; lowConfidenceAccepted: { confidence: number; width: number; height: number; x: number; y: number } | null; maxBallScore: number; maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null; maxBallAnchorRejection: string | null }
 } {
@@ -155,6 +156,7 @@ export function parseYoloOutput(
     let maxBallScore = 0
     let maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null = null
     let bestBall: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
+    let bestPlayer: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
     let bestRim: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
     let bestBallRaw: { cxRaw: number; cyRaw: number; wRaw: number; hRaw: number; ballScore: number; humanScore: number; rimScore: number } | null = null
 
@@ -176,7 +178,7 @@ export function parseYoloOutput(
     // Reading the actual output buffer makes the parser model-size agnostic.
     const nDetections = Math.floor(output.length / OUTPUT_CHANNELS)
     if (nDetections <= 0 || output.length % OUTPUT_CHANNELS !== 0) {
-      return { ball: null, rim: null }
+      return { ball: null, player: null, rim: null }
     }
 
     // Determine input size from number of detections
@@ -336,6 +338,22 @@ export function parseYoloOutput(
           bestRim = detection
         }
       }
+
+      // Add player detection if score above threshold
+      // Player (human) detection - less strict size constraints than ball
+      if (humanProb >= threshold && cameraW > 0.05 && cameraH > 0.1) {
+        const detection = {
+          x: cameraCx,
+          y: cameraCy,
+          width: cameraW,
+          height: cameraH,
+          confidence: humanProb,
+          index: i,
+        }
+        if (!bestPlayer || detection.confidence > bestPlayer.confidence) {
+          bestPlayer = detection
+        }
+      }
     }
 
     // Classify rejection reason for max ball anchor
@@ -380,10 +398,10 @@ export function parseYoloOutput(
       })
     }
 
-    return { ball: bestBall ? { x: bestBall.x, y: bestBall.y, width: bestBall.width, height: bestBall.height, confidence: bestBall.confidence } : null, rim: bestRim ? { x: bestRim.x, y: bestRim.y, width: bestRim.width, height: bestRim.height, confidence: bestRim.confidence } : null, debug: { conf: maxRawConfidence, ballIndex: bestBall?.index, rimIndex: bestRim?.index, rejectedTooSmall, rejectedLowConfidence, rejectedGeometry, tooSmallSamples, lowConfidenceAccepted: bestBall && bestBall.confidence <= 0.03 ? { confidence: bestBall.confidence, width: bestBall.width, height: bestBall.height, x: bestBall.x, y: bestBall.y } : null, maxBallScore, maxBallAnchor, maxBallAnchorRejection } }
+    return { ball: bestBall ? { x: bestBall.x, y: bestBall.y, width: bestBall.width, height: bestBall.height, confidence: bestBall.confidence } : null, player: bestPlayer ? { x: bestPlayer.x, y: bestPlayer.y, width: bestPlayer.width, height: bestPlayer.height, confidence: bestPlayer.confidence } : null, rim: bestRim ? { x: bestRim.x, y: bestRim.y, width: bestRim.width, height: bestRim.height, confidence: bestRim.confidence } : null, debug: { conf: maxRawConfidence, ballIndex: bestBall?.index, rimIndex: bestRim?.index, rejectedTooSmall, rejectedLowConfidence, rejectedGeometry, tooSmallSamples, lowConfidenceAccepted: bestBall && bestBall.confidence <= 0.03 ? { confidence: bestBall.confidence, width: bestBall.width, height: bestBall.height, x: bestBall.x, y: bestBall.y } : null, maxBallScore, maxBallAnchor, maxBallAnchorRejection } }
 
   } catch (error) {
     console.error('[YOLO PARSER ERROR]', error)
-    return { ball: null, rim: null, debug: { conf: 0, rejectedTooSmall: 0, rejectedLowConfidence: 0, rejectedGeometry: 0, tooSmallSamples: [], lowConfidenceAccepted: null, maxBallScore: 0, maxBallAnchor: null, maxBallAnchorRejection: null } }
+    return { ball: null, player: null, rim: null, debug: { conf: 0, rejectedTooSmall: 0, rejectedLowConfidence: 0, rejectedGeometry: 0, tooSmallSamples: [], lowConfidenceAccepted: null, maxBallScore: 0, maxBallAnchor: null, maxBallAnchorRejection: null } }
   }
 }

@@ -13,9 +13,10 @@ interface TelemetryOverlayProps {
   onClose: () => void
   yoloFps?: number
   moveNetFps?: number
+  debugMode?: boolean
 }
 
-export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps }) => {
+export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, debugMode = false }) => {
   const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ fps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0 })
   const [ballMetrics, setBallMetrics] = useState<BallDetectionMetrics>({
     framesProcessed: 0,
@@ -24,6 +25,14 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     avgConfidence: 0,
     minConfidence: 0,
     maxConfidence: 0,
+  })
+  const [playerMetrics, setPlayerMetrics] = useState<any>({
+    framesProcessed: 0,
+    framesDetected: 0,
+    detectionRate: 0,
+    avgConfidence: 0,
+    avgBboxSize: 0,
+    bboxStability: 0,
   })
   const [fpMetrics, setFpMetrics] = useState<FalsePositiveMetrics>({ suspicious: 0, fpRate: 0, reasons: new Map() })
   const [bboxMetrics, setBboxMetrics] = useState<BboxStabilityMetrics>({
@@ -36,9 +45,14 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
   const [pipelineMetrics, setPipelineMetrics] = useState<PipelineMetrics>({
     received: 0,
     processed: 0,
+    droppedBusy: 0,
     dropped: 0,
     dropRate: 0,
+    yoloDetections: 0,
+    ballDetections: 0,
+    playerDetections: 0,
     trackingAccepted: 0,
+    poseUpdates: 0,
     overlayRendered: 0,
   })
 
@@ -66,6 +80,9 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
       
       // Ball metrics needs framesProcessed
       setBallMetrics(telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed))
+      
+      // Player metrics
+      setPlayerMetrics(telemetryLogger.getPlayerDetectionMetrics(pipelineMetrics.processed))
     }, 500)
 
     return () => clearInterval(interval)
@@ -81,7 +98,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📊 TELEMETRIA</Text>
+        <Text style={styles.headerTitle}>{debugMode ? '🔍 DEBUG' : '📊 TELEMETRIA'}</Text>
         <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
           <Text style={styles.closeBtnText}>✕</Text>
         </TouchableOpacity>
@@ -94,6 +111,14 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
           <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
         </View>
 
+        {/* MoveNet FPS */}
+        {debugMode && (
+          <View style={styles.row}>
+            <Text style={styles.label}>MoveNet FPS:</Text>
+            <Text style={styles.value}>{moveNetFps?.toFixed(1) || '0.0'}</Text>
+          </View>
+        )}
+
         {/* Ball Recall */}
         <View style={styles.row}>
           <Text style={styles.label}>Ball Recall:</Text>
@@ -101,6 +126,32 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
             {ballMetrics.detectionRate.toFixed(1)}%
           </Text>
         </View>
+
+        {/* Player Detection Rate */}
+        {debugMode && (
+          <View style={styles.row}>
+            <Text style={styles.label}>Player Recall:</Text>
+            <Text style={[styles.value, { color: playerMetrics.detectionRate > 50 ? '#4ade80' : '#fbbf24' }]}>
+              {playerMetrics.detectionRate.toFixed(1)}%
+            </Text>
+          </View>
+        )}
+
+        {/* Ball Confidence */}
+        {debugMode && (
+          <View style={styles.row}>
+            <Text style={styles.label}>Ball Conf:</Text>
+            <Text style={styles.value}>{ballMetrics.avgConfidence.toFixed(2)}</Text>
+          </View>
+        )}
+
+        {/* Player Confidence */}
+        {debugMode && (
+          <View style={styles.row}>
+            <Text style={styles.label}>Player Conf:</Text>
+            <Text style={styles.value}>{playerMetrics.avgConfidence.toFixed(2)}</Text>
+          </View>
+        )}
 
         {/* Falsi Positivi */}
         <View style={styles.row}>
@@ -117,6 +168,34 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
             {bboxMetrics.stability.toFixed(0)}%
           </Text>
         </View>
+
+        {/* Pipeline Metrics */}
+        {debugMode && (
+          <>
+            <View style={styles.row}>
+              <Text style={styles.label}>Received:</Text>
+              <Text style={styles.value}>{pipelineMetrics.received}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Processed:</Text>
+              <Text style={styles.value}>{pipelineMetrics.processed}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Dropped:</Text>
+              <Text style={[styles.value, { color: pipelineMetrics.droppedBusy > 0 ? '#ef4444' : '#4ade80' }]}>
+                {pipelineMetrics.droppedBusy}
+              </Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Tracking:</Text>
+              <Text style={styles.value}>{pipelineMetrics.trackingAccepted}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Pose:</Text>
+              <Text style={styles.value}>{pipelineMetrics.poseUpdates}</Text>
+            </View>
+          </>
+        )}
 
         {/* Batteria */}
         <View style={styles.row}>

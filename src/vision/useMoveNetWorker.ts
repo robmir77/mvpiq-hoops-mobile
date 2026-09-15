@@ -14,6 +14,9 @@ import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
 import { getMoveNetModel, getMoveNetModelUri, DEFAULT_MOVENET_MODEL_ID } from './yoloModels'
+import { playerCropManager, type PlayerCropResult } from './playerCrop'
+import { telemetryLogger } from './telemetry'
+import { scheduleOnRN } from 'react-native-worklets'
 
 const DEFAULT_POSE_INPUT_SIZE = 192
 const MOVENET_TARGET_FPS = 3 // Target 3 FPS for MoveNet
@@ -23,6 +26,7 @@ interface PoseWorkerResult {
   keypoints: any
   angles: any
   timestamp: number
+  cropInfo?: PlayerCropResult | null
 }
 
 export const useMoveNetWorker = (
@@ -34,6 +38,7 @@ export const useMoveNetWorker = (
   const latestResultKeypoints = useSharedValue<any>(null)
   const latestResultAngles = useSharedValue<any>(null)
   const latestResultTimestamp = useSharedValue(0)
+  const latestCropInfo = useSharedValue<PlayerCropResult | null>(null)
 
   // Timing - use SharedValue for worklet access
   const lastInferenceAt = useSharedValue(0)
@@ -42,6 +47,9 @@ export const useMoveNetWorker = (
   // Shared values for UI
   const isReady = useSharedValue(false)
   const fps = useSharedValue(0)
+
+  // Player bbox from YOLO (for cropping)
+  const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
 
   // Model setup
   const selectedMoveNetModel = useMemo(
@@ -76,10 +84,15 @@ export const useMoveNetWorker = (
     ? poseModel.model
     : null
 
-  // Update ready state
+  // Update ready state and log MoveNet model input
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
-  }, [poseModel.state, poseModel.model, isReady])
+    
+    // Log MoveNet model input size when model loads
+    if (isReady.value) {
+      telemetryLogger.setMoveNetModelInput(poseInputSize)
+    }
+  }, [poseModel.state, poseModel.model, isReady, poseInputSize])
 
   // Resizer config
   const poseResizerConfig = useMemo(
@@ -95,6 +108,30 @@ export const useMoveNetWorker = (
   )
 
   const { resizer: poseResizer } = useResizer(poseResizerConfig)
+
+  // JS-side callback for telemetry recording
+  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, cropInfo: PlayerCropResult | null) => {
+    telemetryLogger.recordMoveNetInference(inferenceTime)
+    telemetryLogger.incrementPoseUpdates()
+    
+    // Calculate average keypoint confidence
+    if (keypoints) {
+      // Convert PoseKeypoints object to array of values
+      const keypointValues = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0)
+      if (keypointValues.length > 0) {
+        const avgConfidence = keypointValues.reduce((sum: number, kp: any) => sum + kp.score, 0) / keypointValues.length
+        telemetryLogger.recordMoveNetKeypoints(avgConfidence)
+      }
+    }
+    
+    if (__DEV__ && cropInfo) {
+      console.log('[MoveNetWorker] Crop info:', {
+        isValid: cropInfo.isValid,
+        isUsingLastBbox: cropInfo.isUsingLastBbox,
+        cropSize: `${cropInfo.cropWidth.toFixed(0)}x${cropInfo.cropHeight.toFixed(0)}`,
+      })
+    }
+  }, [])
 
   // Process frame immediately (no buffering)
   const processFrame = useCallback((frame: any, timestamp: number) => {
@@ -114,8 +151,68 @@ export const useMoveNetWorker = (
     isProcessing.value = true
 
     let resized: any = null
+    let croppedFrame: any = null
+    let cropInfo: PlayerCropResult | null = null
+    
     try {
       const t0 = performance.now()
+      
+      // Get player bbox from YOLO
+      const bbox = playerBbox.value
+      
+      // Calculate crop region if player bbox is available
+      if (bbox && enabled) {
+        // Calculate crop in pixel coordinates
+        const frameW = frame.width || 1280
+        const frameH = frame.height || 720
+        
+        const cropX = bbox.x * frameW
+        const cropY = bbox.y * frameH
+        const cropW = bbox.width * frameW
+        const cropH = bbox.height * frameH
+        
+        // Add padding (15%)
+        const paddingX = cropW * 0.15
+        const paddingY = cropH * 0.15
+        
+        let finalCropX = cropX - paddingX
+        let finalCropY = cropY - paddingY
+        let finalCropW = cropW + 2 * paddingX
+        let finalCropH = cropH + 2 * paddingY
+        
+        // Clamp to frame boundaries
+        finalCropX = Math.max(0, finalCropX)
+        finalCropY = Math.max(0, finalCropY)
+        finalCropW = Math.min(frameW - finalCropX, finalCropW)
+        finalCropH = Math.min(frameH - finalCropY, finalCropH)
+        
+        // Ensure minimum crop size
+        const minCropSize = Math.min(frameW, frameH) * 0.2
+        finalCropW = Math.max(minCropSize, finalCropW)
+        finalCropH = Math.max(minCropSize, finalCropH)
+        
+        cropInfo = {
+          cropX: finalCropX,
+          cropY: finalCropY,
+          cropWidth: finalCropW,
+          cropHeight: finalCropH,
+          isValid: true,
+          isUsingLastBbox: false,
+        }
+        
+        // Crop the frame (if the frame supports cropping)
+        // Note: react-native-vision-camera-resizer doesn't support direct cropping
+        // We'll use the full frame but log the crop info for now
+        // TODO: Implement actual cropping when resizer supports it
+        if (__DEV__) {
+          console.log('[MoveNetWorker] Using player crop:', {
+            bbox: { x: bbox.x.toFixed(3), y: bbox.y.toFixed(3), width: bbox.width.toFixed(3), height: bbox.height.toFixed(3) },
+            crop: { x: finalCropX.toFixed(0), y: finalCropY.toFixed(0), width: finalCropW.toFixed(0), height: finalCropH.toFixed(0) },
+          })
+        }
+      }
+      
+      // Resize frame (currently full frame, will be cropped in future)
       resized = poseResizer?.resize(frame)
       const t1 = performance.now()
 
@@ -137,12 +234,32 @@ export const useMoveNetWorker = (
           const keypoints = parseMoveNetOutput(output, poseInputSize)
           const angles = computeJointAngles(keypoints)
 
+          // Transform keypoints back to original frame space if crop was used
+          let finalKeypoints = keypoints
+          if (cropInfo && cropInfo.isValid) {
+            const frameW = frame.width || 1280
+            const frameH = frame.height || 720
+            
+            // Transform each keypoint from crop space to frame space
+            finalKeypoints = {}
+            for (const [key, kp] of Object.entries(keypoints)) {
+              if (kp && typeof kp === 'object') {
+                (finalKeypoints as any)[key] = {
+                  ...kp,
+                  x: (cropInfo.cropX + kp.x * cropInfo.cropWidth) / frameW,
+                  y: (cropInfo.cropY + kp.y * cropInfo.cropHeight) / frameH,
+                }
+              }
+            }
+          }
+
           const t2 = performance.now()
 
           // Update latest result
-          latestResultKeypoints.value = keypoints
+          latestResultKeypoints.value = finalKeypoints
           latestResultAngles.value = angles
           latestResultTimestamp.value = timestamp
+          latestCropInfo.value = cropInfo
 
           // Update FPS only if valid (greater than 0)
           const inferenceTime = t2 - t0
@@ -159,6 +276,9 @@ export const useMoveNetWorker = (
               console.log(`[MoveNetWorker] FPS is 0, not updating. InferenceTime: ${inferenceTime.toFixed(1)}ms`)
             }
           }
+
+          // Record telemetry via scheduleOnRN
+          scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, cropInfo)
         }
       }
 
@@ -166,13 +286,16 @@ export const useMoveNetWorker = (
       console.error('[MoveNetWorker] Error processing frame:', error)
     } finally {
       // Dispose GPUFrame to release GPU resources
+      if (croppedFrame) {
+        croppedFrame.dispose()
+      }
       if (resized) {
         resized.dispose()
       }
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [poseModelInstance, poseResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, isProcessing, lastInferenceAt])
+  }, [poseModelInstance, poseResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, recordTelemetry])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -182,18 +305,21 @@ export const useMoveNetWorker = (
     return {
       keypoints: latestResultKeypoints.value,
       angles: latestResultAngles.value,
-      timestamp: latestResultTimestamp.value
+      timestamp: latestResultTimestamp.value,
+      cropInfo: latestCropInfo.value,
     }
-  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp])
+  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo])
 
   // Reset
   const reset = useCallback(() => {
     latestResultKeypoints.value = null
     latestResultAngles.value = null
     latestResultTimestamp.value = 0
+    latestCropInfo.value = null
     lastInferenceAt.value = 0
     isProcessing.value = false
-  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, lastInferenceAt, isProcessing])
+    playerBbox.value = null
+  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, lastInferenceAt, isProcessing, playerBbox])
 
   return {
     processFrame,
@@ -204,5 +330,7 @@ export const useMoveNetWorker = (
     latestResultKeypoints,
     latestResultAngles,
     latestResultTimestamp,
+    latestCropInfo,
+    playerBbox,
   }
 }

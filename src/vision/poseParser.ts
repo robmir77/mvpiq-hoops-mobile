@@ -4,6 +4,8 @@
 // Converts raw MoveNet output to PoseKeypoints interface
 // NO image data, only keypoints
 
+import type { PoseKeypoints } from './types'
+
 const SCORE_THRESHOLD = 0.15
 
 const KP_MAP: Record<number, string> = {
@@ -21,12 +23,10 @@ const KP_MAP: Record<number, string> = {
   16: 'rightAnkle',
 }
 
-export function parseMoveNetOutput(outputData: Float32Array, expectedKeypoints = 17): {
-  [key: string]: { x: number; y: number; score: number }
-} {
+export function parseMoveNetOutput(outputData: Float32Array, expectedKeypoints = 17): PoseKeypoints {
   'worklet'
 
-  const keypoints: { [key: string]: { x: number; y: number; score: number } } = {}
+  const keypoints: PoseKeypoints = {}
 
   // MoveNet output shape: [1, 1, 17, 3] -> flat Float32Array of 51 elements
   // Each keypoint: [y, x, score]
@@ -42,7 +42,7 @@ export function parseMoveNetOutput(outputData: Float32Array, expectedKeypoints =
     const name = KP_MAP[i]
     if (name) {
       // Transform coordinates: x = 1 - y, y = x (same as ball detection)
-      keypoints[name] = { x: 1 - yNorm, y: xNorm, score }
+      (keypoints as any)[name] = { x: 1 - yNorm, y: xNorm, score }
     }
   }
 

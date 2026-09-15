@@ -329,6 +329,9 @@ export const useShotTracker = (
         // Log ball detection metrics
         telemetryLogger.logBallDetectionMetrics(processed)
         
+        // Log player detection metrics
+        telemetryLogger.logPlayerDetectionMetrics(processed)
+        
         // Log false positive summary
         telemetryLogger.logFalsePositiveSummary()
         
@@ -972,6 +975,7 @@ export const useShotTracker = (
                     // Process worker results (get latest available from shared values)
                     const yoloResult = {
                         ball: yoloWorker.latestResultBall.value,
+                        player: yoloWorker.latestResultPlayer.value,
                         rim: yoloWorker.latestResultRim.value,
                         timestamp: yoloWorker.latestResultTimestamp.value
                     }
@@ -979,6 +983,16 @@ export const useShotTracker = (
                         keypoints: moveNetWorker.latestResultKeypoints.value,
                         angles: moveNetWorker.latestResultAngles.value,
                         timestamp: moveNetWorker.latestResultTimestamp.value
+                    }
+
+                    // Pass player bbox to MoveNet worker for cropping
+                    if (yoloResult.player) {
+                        moveNetWorker.playerBbox.value = {
+                            x: yoloResult.player.x,
+                            y: yoloResult.player.y,
+                            width: yoloResult.player.width,
+                            height: yoloResult.player.height,
+                        }
                     }
 
                     // Process YOLO result if available
@@ -997,6 +1011,12 @@ export const useShotTracker = (
                             lastRNDispatch.value = now
                             scheduleOnRN(emitBallDetection, detection)
                         }
+                    }
+
+                    // Process player detection for telemetry
+                    if (yoloResult.player) {
+                        // Player detection is logged via scheduleOnRN in the YOLO worker
+                        // No additional processing needed here for now
                     }
 
                     // Process pose result if available

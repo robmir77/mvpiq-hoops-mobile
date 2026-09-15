@@ -23,6 +23,7 @@ const YOLO_INTERVAL_MS = 1000 / YOLO_TARGET_FPS
 
 interface YoloWorkerResult {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
+  player: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
   timestamp: number
 }
@@ -34,6 +35,7 @@ export const useYoloWorker = (
 ) => {
   // Latest result - use SharedValue for worklet access
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
+  const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultRim = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultTimestamp = useSharedValue(0)
 
@@ -46,8 +48,10 @@ export const useYoloWorker = (
   const fps = useSharedValue(0)
 
   // JS-side callback for telemetry recording
-  const recordTelemetry = useCallback((inferenceTime: number, ball: any) => {
+  const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any) => {
     telemetryLogger.recordYoloInference(inferenceTime)
+    telemetryLogger.incrementYoloDetections()
+    
     if (ball) {
       telemetryLogger.recordBallDetection(ball.confidence)
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
@@ -72,6 +76,14 @@ export const useYoloWorker = (
       if (ball.confidence < 0.3) {
         telemetryLogger.recordFalsePositive('low_confidence', ball.confidence)
       }
+    }
+    if (player) {
+      telemetryLogger.recordPlayerDetection(player.confidence, {
+        x: player.x,
+        y: player.y,
+        w: player.width,
+        h: player.height
+      })
     }
   }, [])
 
@@ -188,12 +200,13 @@ export const useYoloWorker = (
             console.log(`[YoloWorker] Frame size: ${frame.width}x${frame.height}`)
           }
 
-          const { ball, rim } = parseYoloOutput(output, 0.01, frame.width, frame.height)
+          const { ball, player, rim } = parseYoloOutput(output, 0.012, frame.width, frame.height)
 
           const t2 = performance.now()
           
           // Update latest result
           latestResultBall.value = ball
+          latestResultPlayer.value = player
           latestResultRim.value = rim
           latestResultTimestamp.value = timestamp
           
@@ -204,8 +217,8 @@ export const useYoloWorker = (
             fps.value = calculatedFps
           }
 
-          // Temporarily disable telemetry recording to test if it affects detection
-          // scheduleOnRN(recordTelemetry, inferenceTime, ball)
+          // Record telemetry via scheduleOnRN (re-enabled with player parameter)
+          scheduleOnRN(recordTelemetry, inferenceTime, ball, player)
 
           if (__DEV__) {
             console.log(`[YoloWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)
@@ -223,7 +236,7 @@ export const useYoloWorker = (
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, fps, latestResultBall, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt])
+  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, fps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): YoloWorkerResult | null => {
@@ -232,19 +245,21 @@ export const useYoloWorker = (
     }
     return {
       ball: latestResultBall.value,
+      player: latestResultPlayer.value,
       rim: latestResultRim.value,
       timestamp: latestResultTimestamp.value
     }
-  }, [latestResultBall, latestResultRim, latestResultTimestamp])
+  }, [latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp])
 
   // Reset
   const reset = useCallback(() => {
     latestResultBall.value = null
+    latestResultPlayer.value = null
     latestResultRim.value = null
     latestResultTimestamp.value = 0
     lastInferenceAt.value = 0
     isProcessing.value = false
-  }, [latestResultBall, latestResultRim, latestResultTimestamp, lastInferenceAt, isProcessing])
+  }, [latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, lastInferenceAt, isProcessing])
 
   return {
     processFrame,
@@ -253,6 +268,7 @@ export const useYoloWorker = (
     isReady,
     fps,
     latestResultBall,
+    latestResultPlayer,
     latestResultRim,
     latestResultTimestamp,
   }

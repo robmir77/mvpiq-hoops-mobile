@@ -26,6 +26,29 @@ export interface BallDetectionMetrics {
   maxConfidence: number
 }
 
+export interface PlayerDetectionMetrics {
+  framesProcessed: number
+  framesDetected: number
+  detectionRate: number
+  avgConfidence: number
+  minConfidence: number
+  maxConfidence: number
+  avgBboxSize: number
+  bboxStability: number
+}
+
+export interface MoveNetMetrics {
+  modelInput: number // 192 or 320
+  inferenceTimes: number[]
+  fps: number
+  avgMs: number
+  minMs: number
+  maxMs: number
+  validKeypoints: number
+  avgConfidence: number
+  keypointStability: number
+}
+
 export interface FalsePositiveMetrics {
   suspicious: number
   fpRate: number
@@ -43,9 +66,14 @@ export interface BboxStabilityMetrics {
 export interface PipelineMetrics {
   received: number
   processed: number
+  droppedBusy: number
   dropped: number
   dropRate: number
+  yoloDetections: number
+  ballDetections: number
+  playerDetections: number
   trackingAccepted: number
+  poseUpdates: number
   overlayRendered: number
 }
 
@@ -72,6 +100,8 @@ export interface TestSummary {
     moveNetFPS: number
   }
   ball: BallDetectionMetrics
+  player: PlayerDetectionMetrics
+  moveNet: MoveNetMetrics
   falsePositive: FalsePositiveMetrics
   bbox: BboxStabilityMetrics
   pipeline: PipelineMetrics
@@ -83,14 +113,23 @@ class TelemetryLogger {
   private modelMetadata: ModelMetadata | null = null
   private yoloInferenceTimes: number[] = []
   private ballDetections: Array<{ confidence: number; timestamp: number }> = []
+  private playerDetections: Array<{ confidence: number; bbox: { x: number; y: number; w: number; h: number }; timestamp: number }> = []
+  private moveNetInferenceTimes: number[] = []
+  private moveNetModelInput: number = 320 // Default 320
+  private moveNetKeypoints: Array<{ confidence: number; timestamp: number }> = []
   private falsePositives: Map<string, number> = new Map()
   private bboxHistory: Array<{ x: number; y: number; w: number; h: number; timestamp: number }> = []
   private pipelineMetrics: PipelineMetrics = {
     received: 0,
     processed: 0,
+    droppedBusy: 0,
     dropped: 0,
     dropRate: 0,
+    yoloDetections: 0,
+    ballDetections: 0,
+    playerDetections: 0,
     trackingAccepted: 0,
+    poseUpdates: 0,
     overlayRendered: 0,
   }
   private batteryMetrics: BatteryMetrics | null = null
@@ -103,6 +142,11 @@ class TelemetryLogger {
     console.log('[MODEL]', `name=${metadata.name}`)
     console.log('[MODEL]', `input=${metadata.inputSize}x${metadata.inputSize}`)
     console.log('[MODEL]', `delegate=${metadata.delegate}`)
+  }
+
+  setMoveNetModelInput(inputSize: number): void {
+    this.moveNetModelInput = inputSize
+    console.log('[MOVENET]', `modelInput=${inputSize}x${inputSize}`)
   }
 
   recordYoloInference(inferenceTimeMs: number): void {
@@ -142,6 +186,30 @@ class TelemetryLogger {
     // Keep only last 600 samples (20 seconds at 30fps)
     if (this.ballDetections.length > 600) {
       this.ballDetections.shift()
+    }
+  }
+
+  recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }): void {
+    this.playerDetections.push({ confidence, bbox, timestamp: Date.now() })
+    // Keep only last 600 samples (20 seconds at 30fps)
+    if (this.playerDetections.length > 600) {
+      this.playerDetections.shift()
+    }
+  }
+
+  recordMoveNetInference(inferenceTimeMs: number): void {
+    this.moveNetInferenceTimes.push(inferenceTimeMs)
+    // Keep only last 300 samples (10 seconds at 30fps)
+    if (this.moveNetInferenceTimes.length > 300) {
+      this.moveNetInferenceTimes.shift()
+    }
+  }
+
+  recordMoveNetKeypoints(confidence: number): void {
+    this.moveNetKeypoints.push({ confidence, timestamp: Date.now() })
+    // Keep only last 300 samples (10 seconds at 30fps)
+    if (this.moveNetKeypoints.length > 300) {
+      this.moveNetKeypoints.shift()
     }
   }
 
@@ -205,20 +273,33 @@ class TelemetryLogger {
     console.log('[BBOX][STABILITY]', `avgJump=${metrics.avgJump.toFixed(1)}px maxJump=${metrics.maxJump.toFixed(1)}px jitter=${metrics.jitter.toFixed(1)}px stability=${metrics.stability.toFixed(0)}%`)
   }
 
-  updatePipelineMetrics(received: number, processed: number, dropped: number, trackingAccepted: number, overlayRendered: number): void {
+  updatePipelineMetrics(received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
     this.pipelineMetrics = {
       received,
       processed,
-      dropped,
-      dropRate: processed > 0 ? (dropped / received) * 100 : 0,
+      droppedBusy,
+      dropped: droppedBusy,
+      dropRate: received > 0 ? (droppedBusy / received) * 100 : 0,
+      yoloDetections: this.pipelineMetrics.yoloDetections,
+      ballDetections: this.ballDetections.length,
+      playerDetections: this.playerDetections.length,
       trackingAccepted,
+      poseUpdates: this.pipelineMetrics.poseUpdates,
       overlayRendered,
     }
   }
 
+  incrementYoloDetections(): void {
+    this.pipelineMetrics.yoloDetections++
+  }
+
+  incrementPoseUpdates(): void {
+    this.pipelineMetrics.poseUpdates++
+  }
+
   logPipelineMetrics(): void {
     const m = this.pipelineMetrics
-    console.log('[PIPELINE]', `received=${m.received} processed=${m.processed} dropped=${m.dropped} dropRate=${m.dropRate.toFixed(1)}%`)
+    console.log('[PIPELINE]', `received=${m.received} processed=${m.processed} droppedBusy=${m.droppedBusy} yoloDetections=${m.yoloDetections} ball=${m.ballDetections} player=${m.playerDetections} tracking=${m.trackingAccepted} pose=${m.poseUpdates} overlay=${m.overlayRendered}`)
   }
 
   getPipelineMetrics(): PipelineMetrics {
@@ -304,6 +385,128 @@ class TelemetryLogger {
     console.log('[YOLO][SUMMARY]', `detections=${this.ballDetections.length} suspicious=${metrics.suspicious} fpRate=${metrics.fpRate.toFixed(1)}%`)
   }
 
+  getPlayerDetectionMetrics(framesProcessed: number): PlayerDetectionMetrics {
+    if (this.playerDetections.length === 0) {
+      return {
+        framesProcessed,
+        framesDetected: 0,
+        detectionRate: 0,
+        avgConfidence: 0,
+        minConfidence: 0,
+        maxConfidence: 0,
+        avgBboxSize: 0,
+        bboxStability: 0,
+      }
+    }
+
+    const confidences = this.playerDetections.map(d => d.confidence)
+    const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
+    const minConfidence = Math.min(...confidences)
+    const maxConfidence = Math.max(...confidences)
+    const detectionRate = (this.playerDetections.length / framesProcessed) * 100
+
+    // Calculate average bbox size
+    const bboxSizes = this.playerDetections.map(d => d.bbox.w * d.bbox.h)
+    const avgBboxSize = bboxSizes.reduce((a, b) => a + b, 0) / bboxSizes.length
+
+    // Calculate bbox stability
+    if (this.playerDetections.length < 2) {
+      return {
+        framesProcessed,
+        framesDetected: this.playerDetections.length,
+        detectionRate,
+        avgConfidence,
+        minConfidence,
+        maxConfidence,
+        avgBboxSize,
+        bboxStability: 100,
+      }
+    }
+
+    const jumps: number[] = []
+    for (let i = 1; i < this.playerDetections.length; i++) {
+      const prev = this.playerDetections[i - 1].bbox
+      const curr = this.playerDetections[i].bbox
+      const dx = curr.x - prev.x
+      const dy = curr.y - prev.y
+      const jump = Math.sqrt(dx * dx + dy * dy)
+      jumps.push(jump)
+    }
+
+    const avgJump = jumps.reduce((a, b) => a + b, 0) / jumps.length
+    const stableJumps = jumps.filter(j => j < 30).length // 30px threshold for player
+    const bboxStability = (stableJumps / jumps.length) * 100
+
+    return {
+      framesProcessed,
+      framesDetected: this.playerDetections.length,
+      detectionRate,
+      avgConfidence,
+      minConfidence,
+      maxConfidence,
+      avgBboxSize,
+      bboxStability,
+    }
+  }
+
+  logPlayerDetectionMetrics(framesProcessed: number): void {
+    const metrics = this.getPlayerDetectionMetrics(framesProcessed)
+    console.log('[YOLO][PLAYER]', `frames=${metrics.framesProcessed} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
+  }
+
+  getMoveNetMetrics(): MoveNetMetrics {
+    if (this.moveNetInferenceTimes.length === 0) {
+      return {
+        modelInput: this.moveNetModelInput,
+        inferenceTimes: [],
+        fps: 0,
+        avgMs: 0,
+        minMs: 0,
+        maxMs: 0,
+        validKeypoints: 0,
+        avgConfidence: 0,
+        keypointStability: 0,
+      }
+    }
+
+    const avgMs = this.moveNetInferenceTimes.reduce((a, b) => a + b, 0) / this.moveNetInferenceTimes.length
+    const minMs = Math.min(...this.moveNetInferenceTimes)
+    const maxMs = Math.max(...this.moveNetInferenceTimes)
+    const fps = 1000 / avgMs
+
+    // Calculate keypoint metrics
+    const validKeypoints = this.moveNetKeypoints.length
+    const avgConfidence = validKeypoints > 0 
+      ? this.moveNetKeypoints.map(k => k.confidence).reduce((a, b) => a + b, 0) / validKeypoints 
+      : 0
+
+    // Calculate keypoint stability
+    let keypointStability = 100
+    if (this.moveNetKeypoints.length > 1) {
+      const confidences = this.moveNetKeypoints.map(k => k.confidence)
+      const variance = confidences.reduce((sum, conf) => sum + Math.pow(conf - avgConfidence, 2), 0) / confidences.length
+      const stdDev = Math.sqrt(variance)
+      keypointStability = Math.max(0, 100 - (stdDev * 100)) // Lower stdDev = higher stability
+    }
+
+    return {
+      modelInput: this.moveNetModelInput,
+      inferenceTimes: this.moveNetInferenceTimes,
+      fps,
+      avgMs,
+      minMs,
+      maxMs,
+      validKeypoints,
+      avgConfidence,
+      keypointStability,
+    }
+  }
+
+  logMoveNetMetrics(): void {
+    const metrics = this.getMoveNetMetrics()
+    console.log('[MOVENET]', `modelInput=${metrics.modelInput} fps=${metrics.fps.toFixed(1)} avgMs=${metrics.avgMs.toFixed(1)} keypoints=${metrics.validKeypoints} confidence=${metrics.avgConfidence.toFixed(2)}`)
+  }
+
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
     if (!this.modelMetadata || !this.batteryMetrics) {
       console.warn('[TELEMETRY] Cannot generate summary: missing model or battery data')
@@ -312,6 +515,8 @@ class TelemetryLogger {
 
     const yoloPerf = this.getYoloPerfMetrics()
     const ballMetrics = this.getBallDetectionMetrics(this.pipelineMetrics.processed)
+    const playerMetrics = this.getPlayerDetectionMetrics(this.pipelineMetrics.processed)
+    const moveNetMetrics = this.getMoveNetMetrics()
     const fpMetrics = this.getFalsePositiveMetrics()
     const bboxMetrics = this.getBboxStabilityMetrics()
 
@@ -325,6 +530,8 @@ class TelemetryLogger {
         moveNetFPS,
       },
       ball: ballMetrics,
+      player: playerMetrics,
+      moveNet: moveNetMetrics,
       falsePositive: fpMetrics,
       bbox: bboxMetrics,
       pipeline: this.pipelineMetrics,
@@ -337,126 +544,113 @@ class TelemetryLogger {
     const summary = this.generateTestSummary(cameraFPS, moveNetFPS)
     if (!summary) return
 
-    console.log('========== MVPiQ MODEL TEST ==========')
+    console.log('========== MVPiQ VISION SUMMARY ==========')
     console.log('')
     console.log('[MODEL]')
-    console.log(`name=${summary.model.name}`)
-    console.log(`input=${summary.model.inputSize}x${summary.model.inputSize}`)
+    console.log(`YOLO=${summary.model.inputSize}`)
+    console.log(`MoveNet=${summary.moveNet.modelInput}`)
     console.log(`delegate=${summary.model.delegate}`)
     console.log('')
-    console.log('[PERF]')
-    console.log(`duration=${summary.perf.duration.toFixed(0)}s`)
-    console.log(`cameraFPS=${summary.perf.cameraFPS}`)
-    console.log(`yoloFPS=${summary.perf.yoloFPS.toFixed(1)}`)
-    console.log(`yoloAvgMs=${summary.perf.yoloAvgMs.toFixed(1)}`)
-    console.log(`movenetFPS=${summary.perf.moveNetFPS.toFixed(1)}`)
+    console.log('[YOLO]')
+    console.log(`FPS=${summary.perf.yoloFPS.toFixed(1)}`)
+    console.log(`AVG=${summary.perf.yoloAvgMs.toFixed(1)}ms`)
     console.log('')
     console.log('[BALL]')
-    console.log(`frames=${summary.ball.framesProcessed}`)
-    console.log(`detected=${summary.ball.framesDetected}`)
-    console.log(`detectionRate=${summary.ball.detectionRate.toFixed(1)}%`)
-    console.log(`avgConfidence=${summary.ball.avgConfidence.toFixed(2)}`)
-    console.log(`minConfidence=${summary.ball.minConfidence.toFixed(2)}`)
+    console.log(`DetectionRate=${summary.ball.detectionRate.toFixed(1)}%`)
+    console.log(`Confidence=${summary.ball.avgConfidence.toFixed(2)}`)
+    console.log(`Stability=${summary.bbox.stability.toFixed(0)}%`)
     console.log('')
-    console.log('[FALSE_POSITIVE]')
-    console.log(`suspicious=${summary.falsePositive.suspicious}`)
-    console.log(`fpRate=${summary.falsePositive.fpRate.toFixed(1)}%`)
+    console.log('[PLAYER]')
+    console.log(`DetectionRate=${summary.player.detectionRate.toFixed(1)}%`)
+    console.log(`Confidence=${summary.player.avgConfidence.toFixed(2)}`)
+    console.log(`Stability=${summary.player.bboxStability.toFixed(0)}%`)
     console.log('')
-    console.log('[BBOX]')
-    console.log(`avgSize=${summary.bbox.avgSize.toFixed(1)}px`)
-    console.log(`avgJump=${summary.bbox.avgJump.toFixed(1)}px`)
-    console.log(`maxJump=${summary.bbox.maxJump.toFixed(1)}px`)
-    console.log(`jitter=${summary.bbox.jitter.toFixed(1)}px`)
-    console.log(`stability=${summary.bbox.stability.toFixed(0)}%`)
+    console.log('[MOVENET]')
+    console.log(`FPS=${summary.moveNet.fps.toFixed(1)}`)
+    console.log(`AVG=${summary.moveNet.avgMs.toFixed(1)}ms`)
     console.log('')
     console.log('[PIPELINE]')
-    console.log(`received=${summary.pipeline.received}`)
-    console.log(`processed=${summary.pipeline.processed}`)
-    console.log(`dropped=${summary.pipeline.dropped}`)
-    console.log(`dropRate=${summary.pipeline.dropRate.toFixed(1)}%`)
-    console.log(`trackingAccepted=${summary.pipeline.trackingAccepted}`)
+    console.log(`Received=${summary.pipeline.received}`)
+    console.log(`Processed=${summary.pipeline.processed}`)
+    console.log(`DroppedBusy=${summary.pipeline.droppedBusy}`)
+    console.log(`YOLO Detections=${summary.pipeline.yoloDetections}`)
+    console.log(`Ball=${summary.pipeline.ballDetections}`)
+    console.log(`Player=${summary.pipeline.playerDetections}`)
+    console.log(`Tracking=${summary.pipeline.trackingAccepted}`)
+    console.log(`Pose=${summary.pipeline.poseUpdates}`)
     console.log('')
     console.log('[BATTERY]')
-    console.log(`start=${summary.battery.startLevel}%`)
-    console.log(`end=${summary.battery.endLevel}%`)
-    console.log(`drain=${summary.battery.drain}%`)
-    console.log(`temperatureStart=${summary.battery.temperatureStart.toFixed(1)}C`)
-    console.log(`temperatureEnd=${summary.battery.temperatureEnd.toFixed(1)}C`)
-    console.log('')
-    console.log('[DEVICE]')
-    console.log(`temp=${summary.device.temperature.toFixed(1)}C`)
-    console.log('')
-    console.log('=======================================')
+    console.log(`Start=${summary.battery.startLevel}%`)
+    console.log(`Current=${summary.battery.endLevel}%`)
+    console.log('==========================================')
   }
 
   exportTestSummary(cameraFPS: number, moveNetFPS: number): string {
     const summary = this.generateTestSummary(cameraFPS, moveNetFPS)
     if (!summary) return 'Error: Cannot generate summary - missing model or battery data'
 
-    return `========== MVPiQ MODEL TEST ==========
+    return `========== MVPiQ VISION SUMMARY ==========
 
 [MODEL]
-name=${summary.model.name}
-input=${summary.model.inputSize}x${summary.model.inputSize}
+YOLO=${summary.model.inputSize}
+MoveNet=${summary.moveNet.modelInput}
 delegate=${summary.model.delegate}
 
-[PERF]
-duration=${summary.perf.duration.toFixed(0)}s
-cameraFPS=${summary.perf.cameraFPS}
-yoloFPS=${summary.perf.yoloFPS.toFixed(1)}
-yoloAvgMs=${summary.perf.yoloAvgMs.toFixed(1)}
-movenetFPS=${summary.perf.moveNetFPS.toFixed(1)}
+[YOLO]
+FPS=${summary.perf.yoloFPS.toFixed(1)}
+AVG=${summary.perf.yoloAvgMs.toFixed(1)}ms
 
 [BALL]
-frames=${summary.ball.framesProcessed}
-detected=${summary.ball.framesDetected}
-detectionRate=${summary.ball.detectionRate.toFixed(1)}%
-avgConfidence=${summary.ball.avgConfidence.toFixed(2)}
-minConfidence=${summary.ball.minConfidence.toFixed(2)}
+DetectionRate=${summary.ball.detectionRate.toFixed(1)}%
+Confidence=${summary.ball.avgConfidence.toFixed(2)}
+Stability=${summary.bbox.stability.toFixed(0)}%
 
-[FALSE_POSITIVE]
-suspicious=${summary.falsePositive.suspicious}
-fpRate=${summary.falsePositive.fpRate.toFixed(1)}%
+[PLAYER]
+DetectionRate=${summary.player.detectionRate.toFixed(1)}%
+Confidence=${summary.player.avgConfidence.toFixed(2)}
+Stability=${summary.player.bboxStability.toFixed(0)}%
 
-[BBOX]
-avgSize=${summary.bbox.avgSize.toFixed(1)}px
-avgJump=${summary.bbox.avgJump.toFixed(1)}px
-maxJump=${summary.bbox.maxJump.toFixed(1)}px
-jitter=${summary.bbox.jitter.toFixed(1)}px
-stability=${summary.bbox.stability.toFixed(0)}%
+[MOVENET]
+FPS=${summary.moveNet.fps.toFixed(1)}
+AVG=${summary.moveNet.avgMs.toFixed(1)}ms
 
 [PIPELINE]
-received=${summary.pipeline.received}
-processed=${summary.pipeline.processed}
-dropped=${summary.pipeline.dropped}
-dropRate=${summary.pipeline.dropRate.toFixed(1)}%
-trackingAccepted=${summary.pipeline.trackingAccepted}
+Received=${summary.pipeline.received}
+Processed=${summary.pipeline.processed}
+DroppedBusy=${summary.pipeline.droppedBusy}
+YOLO Detections=${summary.pipeline.yoloDetections}
+Ball=${summary.pipeline.ballDetections}
+Player=${summary.pipeline.playerDetections}
+Tracking=${summary.pipeline.trackingAccepted}
+Pose=${summary.pipeline.poseUpdates}
 
 [BATTERY]
-start=${summary.battery.startLevel}%
-end=${summary.battery.endLevel}%
-drain=${summary.battery.drain}%
-temperatureStart=${summary.battery.temperatureStart.toFixed(1)}C
-temperatureEnd=${summary.battery.temperatureEnd.toFixed(1)}C
+Start=${summary.battery.startLevel}%
+Current=${summary.battery.endLevel}%
 
-[DEVICE]
-temp=${summary.device.temperature.toFixed(1)}C
-
-=======================================`
+==========================================`
   }
 
   reset(): void {
     this.modelMetadata = null
     this.yoloInferenceTimes = []
     this.ballDetections = []
+    this.playerDetections = []
+    this.moveNetInferenceTimes = []
+    this.moveNetKeypoints = []
     this.falsePositives.clear()
     this.bboxHistory = []
     this.pipelineMetrics = {
       received: 0,
       processed: 0,
+      droppedBusy: 0,
       dropped: 0,
       dropRate: 0,
+      yoloDetections: 0,
+      ballDetections: 0,
+      playerDetections: 0,
       trackingAccepted: 0,
+      poseUpdates: 0,
       overlayRendered: 0,
     }
     this.batteryMetrics = null
