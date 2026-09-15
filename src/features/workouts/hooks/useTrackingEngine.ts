@@ -86,6 +86,8 @@ export const useTrackingEngine = () => {
     const ballY = useSharedValue(0)
     const ballWidth = useSharedValue(0)
     const ballHeight = useSharedValue(0)
+    const ballXRaw = useSharedValue(0)
+    const ballYRaw = useSharedValue(0)
     const hoopX = useSharedValue(0)
     const hoopY = useSharedValue(0)
     const hoopWidth = useSharedValue(0)
@@ -93,6 +95,17 @@ export const useTrackingEngine = () => {
     const confidence = useSharedValue(0)
     const inFlight = useSharedValue(false)
     const shotDetected = useSharedValue(false)
+    const showShotTrail = useSharedValue(false)
+    const shotResult = useSharedValue<string | null>(null)
+    const releasePointX = useSharedValue(0)
+    const releasePointY = useSharedValue(0)
+    const apexPointX = useSharedValue(0)
+    const apexPointY = useSharedValue(0)
+    
+    // Phase 4: Trajectory SharedValues for direct overlay access (no React bridge)
+    // Store trajectory as flat array: [x1, y1, x2, y2, ...] for efficient SharedValue transfer
+    const trajectoryPoints = useSharedValue(new Float32Array(MAX_POINTS * 2).fill(0))
+    const trajectoryPointCount = useSharedValue(0)
 
     const lastFrameTs  = useRef<number>(0)
     const lastShotTs   = useRef<number>(0)
@@ -187,6 +200,8 @@ export const useTrackingEngine = () => {
             // Use raw coordinates for the orange circle to match the red debug point
             ballX.value = ballDetection.x
             ballY.value = ballDetection.y
+            ballXRaw.value = ballDetection.x
+            ballYRaw.value = ballDetection.y
             ballWidth.value = ballDetection.width || 0
             ballHeight.value = ballDetection.height || 0
             confidence.value = ballDetection.confidence
@@ -205,6 +220,19 @@ export const useTrackingEngine = () => {
             trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }
             trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
             if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+
+            // Phase 4: Update trajectory SharedValues for direct overlay access
+            // Update every frame for smooth trajectory, but only when inFlight
+            if (inFlightRef.current) {
+                const traj = getTrajectory()
+                const points = trajectoryPoints.value
+                for (let i = 0; i < Math.min(traj.length, MAX_POINTS); i++) {
+                    points[i * 2] = traj[i].x
+                    points[i * 2 + 1] = traj[i].y
+                }
+                trajectoryPoints.value = points
+                trajectoryPointCount.value = traj.length
+            }
 
             // Only copy trajectory for UI every 5 frames when inFlight (reduces copies by ~95%)
             if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
@@ -236,6 +264,18 @@ export const useTrackingEngine = () => {
             trajectoryBuffer.current[trajectoryHead.current] = { x: predX, y: predY, t: frameTs }
             trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
             if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+            
+            // Phase 4: Update trajectory SharedValues for direct overlay access
+            if (inFlightRef.current) {
+                const traj = getTrajectory()
+                const points = trajectoryPoints.value
+                for (let i = 0; i < Math.min(traj.length, MAX_POINTS); i++) {
+                    points[i * 2] = traj[i].x
+                    points[i * 2 + 1] = traj[i].y
+                }
+                trajectoryPoints.value = points
+                trajectoryPointCount.value = traj.length
+            }
             
             // Only copy trajectory for UI every 5 frames when inFlight
             if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
@@ -292,8 +332,11 @@ export const useTrackingEngine = () => {
                 if (arcSoFar >= MIN_ARC_HEIGHT && trajectoryCount.current >= MIN_TRAJECTORY_FRAMES) {
                     inFlightRef.current = true
                     inFlight.value = true
+                    showShotTrail.value = true
                     // Save release point when shot starts
                     current.releasePoint = { x: ball.x, y: ball.y }
+                    releasePointX.value = ball.x
+                    releasePointY.value = ball.y
                 }
             }
         }
@@ -331,6 +374,7 @@ export const useTrackingEngine = () => {
                     current.shotDetected = true
                     current.shotResult   = 'MADE'
                     shotDetected.value = true
+                    shotResult.value = 'MADE'
                     lastShotTs.current   = frameTs
                     // Calculate shot quality score (reuse metrics and function)
                     const metrics = trajectoryMetrics || computeTrajectoryMetrics()
@@ -339,6 +383,7 @@ export const useTrackingEngine = () => {
                     current.shotDetected = true
                     current.shotResult   = 'MISS'
                     shotDetected.value = true
+                    shotResult.value = 'MISS'
                     lastShotTs.current   = frameTs
                     // Calculate shot quality score (reuse metrics and function)
                     const metrics = trajectoryMetrics || computeTrajectoryMetrics()
@@ -347,6 +392,7 @@ export const useTrackingEngine = () => {
                     current.shotDetected = true
                     current.shotResult   = dist < 0.25 ? 'MISS' : 'AIRBALL'
                     shotDetected.value = true
+                    shotResult.value = dist < 0.25 ? 'MISS' : 'AIRBALL'
                     lastShotTs.current   = frameTs
                     // Calculate shot quality score (reuse metrics and function)
                     const metrics = trajectoryMetrics || computeTrajectoryMetrics()
@@ -381,7 +427,15 @@ export const useTrackingEngine = () => {
         inFlightRef.current       = false
         risingFrames.current       = 0
         flightStartY.current       = 1.0
-    }, [resetTrajectoryBuffer])
+        // Reset Shared Values
+        inFlight.value = false
+        showShotTrail.value = false
+        shotDetected.value = false
+        shotResult.value = null
+        // Phase 4: Reset trajectory SharedValues
+        trajectoryPoints.value = new Float32Array(MAX_POINTS * 2).fill(0)
+        trajectoryPointCount.value = 0
+    }, [resetTrajectoryBuffer, inFlight, showShotTrail, shotDetected, shotResult, trajectoryPoints, trajectoryPointCount, MAX_POINTS])
 
     const resetAll = useCallback(() => {
         kalman.current      = { ...INITIAL_KALMAN }
@@ -407,6 +461,8 @@ export const useTrackingEngine = () => {
         ballY.value = 0
         ballWidth.value = 0
         ballHeight.value = 0
+        ballXRaw.value = 0
+        ballYRaw.value = 0
         // Don't reset hoop values to keep last positive detection
         // hoopX.value = 0
         // hoopY.value = 0
@@ -414,8 +470,13 @@ export const useTrackingEngine = () => {
         // hoopHeight.value = 0
         confidence.value = 0
         inFlight.value = false
+        showShotTrail.value = false
         shotDetected.value = false
-    }, [resetTrajectoryBuffer, ballX, ballY, ballWidth, ballHeight, hoopX, hoopY, hoopWidth, hoopHeight, confidence, inFlight, shotDetected])
+        shotResult.value = null
+        // Phase 4: Reset trajectory SharedValues
+        trajectoryPoints.value = new Float32Array(MAX_POINTS * 2).fill(0)
+        trajectoryPointCount.value = 0
+    }, [resetTrajectoryBuffer, ballX, ballY, ballWidth, ballHeight, ballXRaw, ballYRaw, hoopX, hoopY, hoopWidth, hoopHeight, confidence, inFlight, showShotTrail, shotDetected, shotResult, trajectoryPoints, trajectoryPointCount, MAX_POINTS])
 
     const setHoopFromCalibration = useCallback((x: number, y: number, width?: number, height?: number) => {
         state.current.hoopPosition = { x, y, width, height }
@@ -495,6 +556,8 @@ export const useTrackingEngine = () => {
             ballY,
             ballWidth,
             ballHeight,
+            ballXRaw,
+            ballYRaw,
             hoopX,
             hoopY,
             hoopWidth,
@@ -502,6 +565,11 @@ export const useTrackingEngine = () => {
             confidence,
             inFlight,
             shotDetected,
+            showShotTrail,
+            shotResult,
+            // Phase 4: Trajectory SharedValues for direct overlay access
+            trajectoryPoints,
+            trajectoryPointCount,
         },
     }
 }

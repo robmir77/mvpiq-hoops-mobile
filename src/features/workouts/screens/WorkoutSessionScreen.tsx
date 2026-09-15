@@ -26,7 +26,7 @@ import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
-import { useAnimatedReaction, useDerivedValue, runOnJS } from 'react-native-reanimated'
+import { useAnimatedReaction, useDerivedValue, runOnJS, useAnimatedStyle } from 'react-native-reanimated'
 import { Camera, type CameraRef } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
@@ -51,7 +51,6 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
 const CAMERA_RES_W = 1280  // Camera resolution width
 const CAMERA_RES_H = 720   // Camera resolution height
-const YOLO_INPUT_SIZE = 512 // YOLO model input size
 const DEFAULT_CAMERA_RESOLUTION = { width: 1280, height: 720 }
 const DEFAULT_CAMERA_FPS = 30
 const DEFAULT_POSE_RESOLUTION = 320
@@ -272,7 +271,7 @@ const getReleaseColor = (angle: number): string => {
 const TrackingOverlay = React.memo(({
     trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, yoloInputSize,
 }: {
-    trackingState: TrackingState | null
+    trackingState: TrackingState | null  // Used only for events/analytics, not realtime visual data
     poseKeypoints: PoseKeypoints | null
     jointAngles?: Partial<JointAngles>
     releaseAngle?: number
@@ -283,6 +282,8 @@ const TrackingOverlay = React.memo(({
         ballY: any
         ballWidth: any
         ballHeight: any
+        ballXRaw: any
+        ballYRaw: any
         hoopX: any
         hoopY: any
         hoopWidth: any
@@ -290,11 +291,14 @@ const TrackingOverlay = React.memo(({
         confidence: any
         inFlight: any
         shotDetected: any
+        showShotTrail: any
+        shotResult: any
+        trajectoryPoints: any
+        trajectoryPointCount: any
     }
     fpsMetrics?: { yoloFps: number; moveNetFps: number }
     yoloInputSize?: number
 }) => {
-    const t0 = performance.now()
     // incrementOverlayRenders() - eseguito asincrono per evitare blocco sincrono
     setTimeout(() => incrementOverlayRenders(), 0)
 
@@ -358,56 +362,141 @@ const TrackingOverlay = React.memo(({
     const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0, [sharedValues])
     const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
 
-    // Ball size info is displayed by React Native Text. Never read a Shared Value
-    // directly during React render: derive the display values on the UI thread
-    // and bridge to React only when the formatted value actually changes.
-    const [ballInfo, setBallInfo] = useState({
-        sizeLabel: 'Piccola',
-        radius: '0.000',
-    })
+    // Derived values per coordinate pixel - combinati per evitare letture da .value durante render
+    const ballXPx = useDerivedValue(() => (sharedValues?.ballX.value ?? 0) * SCREEN_W, [sharedValues])
+    const ballYPx = useDerivedValue(() => (sharedValues?.ballY.value ?? 0) * CAMERA_H, [sharedValues])
+    const hoopXPx = useDerivedValue(() => (sharedValues?.hoopX.value ?? 0) * SCREEN_W, [sharedValues])
+    const hoopYPx = useDerivedValue(() => (sharedValues?.hoopY.value ?? 0) * CAMERA_H, [sharedValues])
 
-    useAnimatedReaction(
-        () => {
-            const ballW = Number(sharedValues?.ballWidth?.value ?? 0)
-            const ballH = Number(sharedValues?.ballHeight?.value ?? 0)
-            const avgSize = (ballW + ballH) / 2
-            const radius = avgSize / 2
+    // FASE 4: Throttling locale per ridurre la frequenza di ricostrucción della traiettoria
+    // La traiettoria viene ricostruita solo ogni 10 frame invece che ad ogni cambio
+    const trajectoryUpdateCounter = useRef(0)
+    const shouldUpdateTrajectory = React.useMemo(() => {
+        trajectoryUpdateCounter.current++
+        return trajectoryUpdateCounter.current % 10 === 0
+    }, [(trackingState as any)?.trajectory?.length])
 
-            let sizeLabel = 'Piccola'
-            if (avgSize > 0.3) sizeLabel = 'Grande'
-            else if (avgSize > 0.1) sizeLabel = 'Media'
-
-            return `${sizeLabel}|${radius.toFixed(3)}`
-        },
-        (current, previous) => {
-            if (current !== previous) {
-                const separator = current.indexOf('|')
-                const sizeLabel = separator >= 0 ? current.slice(0, separator) : current
-                const radius = separator >= 0 ? current.slice(separator + 1) : '0.000'
-                runOnJS(setBallInfo)({ sizeLabel, radius })
-            }
-        },
+    // FASE 5: Eliminated React state bridges for visual data
+    // Now using direct SharedValue reads via useDerivedValue - no runOnJS, no React state updates
+    const showShotTrail = useDerivedValue(() => sharedValues?.showShotTrail.value ?? false, [sharedValues])
+    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false, [sharedValues])
+    const showBallRaw = useDerivedValue(
+        () => (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0,
         [sharedValues]
     )
-
-    // Derived values per coordinate pixel
-    const ballXPx = useDerivedValue(() => ballX.value * SCREEN_W, [ballX])
-    const ballYPx = useDerivedValue(() => ballY.value * CAMERA_H, [ballY])
-    const hoopXPx = useDerivedValue(() => hoopX.value * SCREEN_W, [hoopX])
-    const hoopYPx = useDerivedValue(() => hoopY.value * CAMERA_H, [hoopY])
+    const showBallKalman = useDerivedValue(
+        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0,
+        [sharedValues]
+    )
+    const showBallLabel = useDerivedValue(
+        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0,
+        [sharedValues]
+    )
+    const shotResult = useDerivedValue(() => sharedValues?.shotResult.value ?? null, [sharedValues])
+    const isMade = useDerivedValue(() => sharedValues?.shotResult.value === 'MADE', [sharedValues])
+    const ballDataX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
+    const ballDataY = useDerivedValue(() => sharedValues?.ballY.value ?? 0, [sharedValues])
+    const ballDataConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0, [sharedValues])
+    
+    // Derived values per ball raw (evita accesso a .value durante render)
+    const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0, [sharedValues])
+    const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0, [sharedValues])
+    const ballRadius = useDerivedValue(() => {
+        const ballW = sharedValues?.ballWidth.value ?? 0
+        const ballH = sharedValues?.ballHeight.value ?? 0
+        const avgSize = (ballW + ballH) / 2
+        return Math.max(8, (avgSize * SCREEN_W) / 2)
+    }, [sharedValues])
+    
+    const ballXPxRaw = useDerivedValue(() => SCREEN_W - (ballXRawVal.value * SCREEN_W), [ballXRawVal])
+    const ballYPxRaw = useDerivedValue(() => CAMERA_H - (ballYRawVal.value * CAMERA_H), [ballYRawVal])
+    
+    // Local state per badge (non critico per performance)
+    const [ballLabelVisible, setBallLabelVisible] = React.useState(false)
+    const [ballLabelPos, setBallLabelPos] = React.useState({ left: 0, top: 0 })
+    const [ballLabelText, setBallLabelText] = React.useState('')
+    const [powerBadgeVisible, setPowerBadgeVisible] = React.useState(false)
+    const [angleBadgeVisible, setAngleBadgeVisible] = React.useState(false)
+    const [inFlightBadgeVisible, setInFlightBadgeVisible] = React.useState(false)
+    const [inFlightBadgeText, setInFlightBadgeText] = React.useState('')
+    
+    const updateBadgeState = React.useCallback((data: {
+        showLabel: boolean
+        ballX: number
+        ballY: number
+        confidence: number
+        inFlight: boolean
+        shotResult: string | null
+        showTrail: boolean
+    }) => {
+        setBallLabelVisible(data.showLabel)
+        setBallLabelPos({ left: px(data.ballX) - 32, top: py(data.ballY) - 44 })
+        setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}%`)
+        setPowerBadgeVisible(data.inFlight && shotPower > 0)
+        setAngleBadgeVisible(releaseAngle != null && data.inFlight)
+        setInFlightBadgeVisible(data.showTrail)
+        if (data.inFlight) {
+            setInFlightBadgeText('✈ IN VOLO')
+        } else if (data.shotResult === 'MADE') {
+            setInFlightBadgeText('🟢 CANESTRO')
+        } else if (data.shotResult) {
+            setInFlightBadgeText('🔴 MANCATO')
+        } else {
+            setInFlightBadgeText('')
+        }
+    }, [shotPower, releaseAngle])
+    
+    useAnimatedReaction(
+        () => ({
+            showLabel: showBallLabel.value,
+            ballX: ballDataX.value,
+            ballY: ballDataY.value,
+            confidence: ballDataConfidence.value,
+            inFlight: inFlight.value,
+            shotResult: shotResult.value,
+            showTrail: showShotTrail.value,
+        }),
+        (current) => {
+            runOnJS(updateBadgeState)(current)
+        },
+        [showBallLabel, ballDataX, ballDataY, ballDataConfidence, inFlight, shotResult, showShotTrail, updateBadgeState]
+    )
 
     // Scia del tiro:
     //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
     //  - dopo il tiro: mostra l'ultima traiettoria completa per 2.5s
     //  - curva Bezier cubica per avere una parabola liscia invece di segmenti
+    // Phase 4: Now using trajectory SharedValues directly - no React state dependency
     const shotTrailPath = React.useMemo(() => {
-        // const t0 = performance.now() - rimosso per evitare operazione sincrona
-        const ts = trackingState as any
-        if (!ts?.showShotTrail) return null
-        const traj   = (ts?.shotTrajectory ?? ts?.trajectory ?? []) as Array<{x:number;y:number}>
-        const points = ts?.inFlight
-            ? traj.slice(0, Math.max(0, traj.length - TRAIL_DELAY_POINTS))
-            : traj
+        if (!shouldUpdateTrajectory) {
+            // Riutilizza il path precedente se non è il momento di aggiornare
+            return shotTrailPathRef.current
+        }
+
+        // Read from SharedValues (accesso a .value è permesso dentro useMemo per derived values)
+        const showTrail = showShotTrail.value ?? false
+        const isInFlight = inFlight.value ?? false
+        
+        if (!showTrail) return null
+        
+        // Phase 4: Read trajectory directly from SharedValues (flat array [x1, y1, x2, y2, ...])
+        const trajPoints = sharedValues?.trajectoryPoints.value
+        const trajCount = sharedValues?.trajectoryPointCount.value ?? 0
+        
+        if (!trajPoints || trajCount < 2) return null
+        
+        // Convert flat array to points array
+        const points: Array<{x:number;y:number}> = []
+        const delayPoints = isInFlight ? TRAIL_DELAY_POINTS : 0
+        const effectiveCount = Math.max(0, trajCount - delayPoints)
+        
+        for (let i = 0; i < effectiveCount; i++) {
+            points.push({
+                x: trajPoints[i * 2],
+                y: trajPoints[i * 2 + 1]
+            })
+        }
+        
         if (points.length < 2) return null
 
         // Reuse memoized path instead of creating new one
@@ -433,17 +522,8 @@ const TrackingOverlay = React.memo(({
                 p.cubicTo(cp1x, cp1y, cp2x, cp2y, px(p2.x), py(p2.y))
             }
         }
-        // recordPathBuildTime(t1 - t0) - rimosso per evitare operazione sincrona
         return p
-    }, [(trackingState as any)?.showShotTrail, (trackingState as any)?.shotTrajectory,
-        trackingState?.inFlight, trackingState?.trajectory])
-
-    // Posizione palla in pixel schermo
-    const ballSX = trackingState?.ballPosition != null ? px(trackingState.ballPosition.x) : null
-    const ballSY = trackingState?.ballPosition != null ? py(trackingState.ballPosition.y) : null
-
-    const t1 = performance.now()
-    console.log(`[OVERLAY PERF] total:${(t1-t0).toFixed(1)}ms`)
+    }, [showShotTrail, inFlight, sharedValues?.trajectoryPoints.value, sharedValues?.trajectoryPointCount.value, shouldUpdateTrajectory])
 
     return (
         <>
@@ -483,21 +563,23 @@ const TrackingOverlay = React.memo(({
 
                 {/* ── Enhanced Ball Trail (game-style with glow) ── */}
                 {shotTrailPath && (() => {
-                    const ts = trackingState as any
-                    const color = ts?.inFlight
-                        ? 'rgba(255,140,0,0.90)'
-                        : ts?.shotResult === 'MADE'
-                            ? 'rgba(34,197,94,0.90)'
-                            : ts?.shotResult
-                                ? 'rgba(239,68,68,0.90)'
-                                : 'rgba(255,140,0,0.70)'
-                    const glowColor = ts?.inFlight
-                        ? 'rgba(255,140,0,0.30)'
-                        : ts?.shotResult === 'MADE'
-                            ? 'rgba(34,197,94,0.30)'
-                            : ts?.shotResult
-                                ? 'rgba(239,68,68,0.30)'
-                                : 'rgba(255,140,0,0.20)'
+                    const color = useDerivedValue(() => {
+                        const inFlight = sharedValues?.inFlight.value ?? false
+                        const shotResult = sharedValues?.shotResult.value ?? null
+                        if (inFlight) return 'rgba(255,140,0,0.90)'
+                        if (shotResult === 'MADE') return 'rgba(34,197,94,0.90)'
+                        if (shotResult) return 'rgba(239,68,68,0.90)'
+                        return 'rgba(255,140,0,0.70)'
+                    }, [sharedValues])
+                    const glowColor = useDerivedValue(() => {
+                        const inFlight = sharedValues?.inFlight.value ?? false
+                        const shotResult = sharedValues?.shotResult.value ?? null
+                        if (inFlight) return 'rgba(255,140,0,0.30)'
+                        if (shotResult === 'MADE') return 'rgba(34,197,94,0.30)'
+                        if (shotResult) return 'rgba(239,68,68,0.30)'
+                        return 'rgba(255,140,0,0.20)'
+                    }, [sharedValues])
+
                     return (
                         <Group>
                             {/* Glow effect */}
@@ -522,96 +604,80 @@ const TrackingOverlay = React.memo(({
                     )
                 })()}
 
-                {/* Cerchio palla YOLO raw (reale) - arancione */}
-                {trackingState?.ballPositionRaw && (() => {
-                    const ballW = trackingState.ballWidth ?? 0
-                    const ballH = trackingState.ballHeight ?? 0
-                    const avgSize = (ballW + ballH) / 2
-                    const radius = Math.max(8, (avgSize * SCREEN_W) / 2) // Minimum 8px radius
+                {/* Cerchio palla YOLO raw (reale) - arancione - usa SharedValues */}
+                <Group opacity={showBallRaw.value ? 1 : 0}>
+                    <SkiaCircle
+                        cx={ballXPxRaw}
+                        cy={ballYPxRaw}
+                        r={ballRadius}
+                        color="rgba(255,140,0,0.22)"
+                    />
+                    <SkiaCircle
+                        cx={ballXPxRaw}
+                        cy={ballYPxRaw}
+                        r={ballRadius}
+                        color="#ff8c00" style="stroke" strokeWidth={2.5}
+                    />
+                </Group>
+
+                {/* Punto Kalman smoothed - rosso per debug - usa SharedValues */}
+                <Group opacity={showBallKalman.value ? 1 : 0}>
+                    <SkiaCircle
+                        cx={ballXPx}
+                        cy={ballYPx}
+                        r={8}
+                        color="#ff0000"
+                    />
+                </Group>
+
+                {/* ── Hoop with Illumination Effect (game-style) ── */}
+                <Group opacity={isMade.value ? 1 : 0}>
+                    <SkiaCircle
+                        cx={hoopXPx}
+                        cy={hoopYPx}
+                        r={45}
+                        color="rgba(34,197,94,0.4)"
+                    />
+                    <SkiaCircle
+                        cx={hoopXPx}
+                        cy={hoopYPx}
+                        r={35}
+                        color="rgba(34,197,94,0.25)"
+                    />
+                </Group>
+
+                {/* Dynamic hoop oval based on detected dimensions (width and height) */}
+                {(() => {
+                    const hoopOvalPath = useDerivedValue(() => {
+                        const w = (sharedValues?.hoopWidth.value ?? 0) > 0 ? (sharedValues?.hoopWidth.value ?? 0) * SCREEN_W : 40
+                        const h = (sharedValues?.hoopHeight.value ?? 0) > 0 ? (sharedValues?.hoopHeight.value ?? 0) * CAMERA_H : 40
+                        // Flatten the hoop: make it wider and shorter
+                        const flattenedW = w * 1.3  // 30% wider
+                        const flattenedH = h * 0.6  // 40% shorter (flattened)
+                        const hoopXPxVal = (sharedValues?.hoopX.value ?? 0) * SCREEN_W
+                        const hoopYPxVal = (sharedValues?.hoopY.value ?? 0) * CAMERA_H
+                        const rect = Skia.XYWHRect(
+                            hoopXPxVal - flattenedW / 2,
+                            hoopYPxVal - flattenedH / 2,
+                            flattenedW,
+                            flattenedH
+                        )
+                        return Skia.Path.Oval(rect)
+                    }, [sharedValues])
+                    
                     return (
                         <Group>
-                            <SkiaCircle
-                                cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                                cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                                r={radius}
-                                color="rgba(255,140,0,0.22)"
+                            <SkiaPath
+                                path={hoopOvalPath}
+                                color="rgba(74,222,128,0.18)"
                             />
-                            <SkiaCircle
-                                cx={pxCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                                cy={pyCam(trackingState.ballPositionRaw.x, trackingState.ballPositionRaw.y)}
-                                r={radius}
-                                color="#ff8c00" style="stroke" strokeWidth={2.5}
+                            <SkiaPath
+                                path={hoopOvalPath}
+                                color="#4ade80" style="stroke" strokeWidth={2.5}
                             />
                         </Group>
                     )
                 })()}
-
-                {/* Punto Kalman smoothed - rosso per debug */}
-                {trackingState?.ballPosition && (
-                    <SkiaCircle
-                        cx={pxCam(trackingState.ballPosition.x, trackingState.ballPosition.y)}
-                        cy={pyCam(trackingState.ballPosition.x, trackingState.ballPosition.y)}
-                        r={8}
-                        color="#ff0000"
-                    />
-                )}
-
-                {/* ── Hoop with Illumination Effect (game-style) ── */}
-                {sharedValues && (
-                    <Group>
-                        {/* Illumination effect when basket is made */}
-                        {(trackingState as any)?.shotResult === 'MADE' && (
-                            <Group>
-                                <SkiaCircle
-                                    cx={hoopXPx}
-                                    cy={hoopYPx}
-                                    r={45}
-                                    color="rgba(34,197,94,0.4)"
-                                />
-                                <SkiaCircle
-                                    cx={hoopXPx}
-                                    cy={hoopYPx}
-                                    r={35}
-                                    color="rgba(34,197,94,0.25)"
-                                />
-                            </Group>
-                        )}
-                        {/* Dynamic hoop oval based on detected dimensions (width and height) */}
-                        {(() => {
-                            const hoopRect = useDerivedValue(() => {
-                                const w = hoopWidth.value > 0 ? hoopWidth.value * SCREEN_W : 40
-                                const h = hoopHeight.value > 0 ? hoopHeight.value * CAMERA_H : 40
-                                // Flatten the hoop: make it wider and shorter
-                                const flattenedW = w * 1.3  // 30% wider
-                                const flattenedH = h * 0.6  // 40% shorter (flattened)
-                                return {
-                                    x: hoopXPx.value - flattenedW / 2,
-                                    y: hoopYPx.value - flattenedH / 2,
-                                    w: flattenedW,
-                                    h: flattenedH
-                                }
-                            }, [hoopXPx, hoopYPx, hoopWidth, hoopHeight])
-
-                            const hoopOvalPath = useDerivedValue(() => {
-                                const rect = hoopRect.value
-                                return Skia.Path.Oval(Skia.XYWHRect(rect.x, rect.y, rect.w, rect.h))
-                            }, [hoopRect])
-                            
-                            return (
-                                <Group>
-                                    <SkiaPath
-                                        path={hoopOvalPath}
-                                        color="rgba(74,222,128,0.18)"
-                                    />
-                                    <SkiaPath
-                                        path={hoopOvalPath}
-                                        color="#4ade80" style="stroke" strokeWidth={2.5}
-                                    />
-                                </Group>
-                            )
-                        })()}
-                    </Group>
-                )}
 
                 {/* Righe del campo dalla calibrazione */}
                 {calibration?.courtLines && calibration.courtLines.length > 0 && (
@@ -637,13 +703,13 @@ const TrackingOverlay = React.memo(({
                 {trackingState?.releasePoint && (
                     <Group>
                         <SkiaCircle
-                            cx={px(trackingState.releasePoint.x)}
-                            cy={py(trackingState.releasePoint.y)}
+                            cx={px(trackingState.releasePoint!.x)}
+                            cy={py(trackingState.releasePoint!.y)}
                             r={14} color="rgba(250,204,21,0.22)"
                         />
                         <SkiaCircle
-                            cx={px(trackingState.releasePoint.x)}
-                            cy={py(trackingState.releasePoint.y)}
+                            cx={px(trackingState.releasePoint!.x)}
+                            cy={py(trackingState.releasePoint!.y)}
                             r={14} color="#facc15" style="stroke" strokeWidth={2}
                         />
                     </Group>
@@ -653,8 +719,8 @@ const TrackingOverlay = React.memo(({
                 {trackingState?.apexPoint && (
                     <Group>
                         <SkiaCircle
-                            cx={px(trackingState.apexPoint.x)}
-                            cy={py(trackingState.apexPoint.y)}
+                            cx={px(trackingState.apexPoint!.x)}
+                            cy={py(trackingState.apexPoint!.y)}
                             r={10} color="#22c55e"
                         />
                     </Group>
@@ -708,25 +774,22 @@ const TrackingOverlay = React.memo(({
                 </Group>
             </Canvas>
 
-            {/* ── Label BALL (React Native Text, sopra il canvas) ── */}
-            {trackingState?.ballPosition && ballSX !== null && ballSY !== null && (
+            {/* ── Label BALL (uses React state for badge) */}
+            {ballLabelVisible && (
                 <View
                     pointerEvents="none"
-                    style={[ovStyles.ballLabelWrap, {
-                        left: ballSX - 32,
-                        top:  ballSY - 44,
-                    }]}
+                    style={[ovStyles.ballLabelWrap, ballLabelPos]}
                 >
                     <View style={ovStyles.ballLabelBox}>
                         <Text style={ovStyles.ballLabelText}>
-                            🏀 {Math.round((trackingState.confidence ?? 0) * 100)}%
+                            {ballLabelText}
                         </Text>
                     </View>
                 </View>
             )}
 
             {/* ── Game-style Shot Power Badge ── */}
-            {(trackingState as any)?.inFlight && shotPower > 0 && (
+            {powerBadgeVisible && (
                 <View pointerEvents="none" style={ovStyles.powerBadge}>
                     <Text style={ovStyles.powerText}>
                         ⚡ {shotPower}%
@@ -735,24 +798,22 @@ const TrackingOverlay = React.memo(({
             )}
 
             {/* ── Game-style Parabola Angle Badge ── */}
-            {releaseAngle != null && (trackingState as any)?.inFlight && (
+            {angleBadgeVisible && (
                 <View pointerEvents="none" style={ovStyles.angleBadge}>
                     <Text style={{
-                        color: getReleaseColor(releaseAngle),
+                        color: getReleaseColor(releaseAngle ?? 0),
                         fontWeight: '900',
                         fontSize: 12,
                     }}>
-                        📐 {Math.round(releaseAngle)}°
+                        📐 {Math.round(releaseAngle ?? 0)}°
                     </Text>
                 </View>
             )}
 
-            {/* ── Badge IN VOLO / TIRO RILEVATO ── */}
-            {((trackingState as any)?.showShotTrail) && (
+            {/* ── Badge IN VOLO / TIRO RILEVATO */}
+            {inFlightBadgeVisible && (
                 <View pointerEvents="none" style={ovStyles.inFlightBadge}>
-                    <Text style={ovStyles.inFlightText}>
-                        {(trackingState as any)?.inFlight ? '✈ IN VOLO' : trackingState?.shotResult === 'MADE' ? '🟢 CANESTRO' : '🔴 MANCATO'}
-                    </Text>
+                    <Text style={ovStyles.inFlightText}>{inFlightBadgeText}</Text>
                 </View>
             )}
 
@@ -761,67 +822,57 @@ const TrackingOverlay = React.memo(({
                 <View pointerEvents="none" style={ovStyles.fpsPanel}>
                     <Text style={ovStyles.fpsTitle}>📊 FPS</Text>
                     <Text style={ovStyles.fpsText}>
-                        YOLO: {fpsMetrics.yoloFps}
+                        YOLO: {fpsMetrics?.yoloFps ?? 0}
                     </Text>
                     <Text style={ovStyles.fpsText}>
-                        MoveNet: {fpsMetrics.moveNetFps}
+                        MoveNet: {fpsMetrics?.moveNetFps ?? 0}
                     </Text>
                 </View>
             )}
 
             {/* ── BALL INFO PANEL ── */}
-            {sharedValues && (
-                <View pointerEvents="none" style={ovStyles.ballInfoPanel}>
-                    <Text style={ovStyles.ballInfoTitle}>🏀 Palla</Text>
-                    <Text style={ovStyles.ballInfoText}>
-                        {ballInfo.sizeLabel}
-                    </Text>
-                    <Text style={ovStyles.ballInfoText}>
-                        Raggio: {ballInfo.radius}
-                    </Text>
-                </View>
-            )}
+            {/* FASE 5: Removed - visual data should stay on UI thread, not cross React bridge */}
 
             {/* ── YOLO DEBUG PANEL ── */}
-            {trackingState?.ballPositionRaw && (
+            {sharedValues && (
                 <View pointerEvents="none" style={ovStyles.yoloDebugPanel}>
                     <Text style={ovStyles.yoloDebugTitle}>🔍 YOLO Raw</Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        X: {trackingState.ballPositionRaw.x.toFixed(3)}
+                        X: {(sharedValues.ballXRaw.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        Y: {trackingState.ballPositionRaw.y.toFixed(3)}
+                        Y: {(sharedValues.ballYRaw.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        W: {(trackingState.ballWidth ?? 0).toFixed(3)}
+                        W: {(sharedValues.ballWidth.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        H: {(trackingState.ballHeight ?? 0).toFixed(3)}
+                        H: {(sharedValues.ballHeight.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        Conf: {((trackingState.confidence ?? 0) * 100).toFixed(1)}%
+                        Conf: {((sharedValues.confidence.value ?? 0) * 100).toFixed(1)}%
                     </Text>
                 </View>
             )}
 
             {/* ── HOOP DEBUG PANEL ── */}
-            {trackingState?.hoopPosition && (
+            {sharedValues && (
                 <View pointerEvents="none" style={ovStyles.hoopDebugPanel}>
                     <Text style={ovStyles.hoopDebugTitle}>🏀 Canestro</Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        X: {trackingState.hoopPosition.x.toFixed(3)}
+                        X: {(sharedValues.hoopX.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        Y: {trackingState.hoopPosition.y.toFixed(3)}
+                        Y: {(sharedValues.hoopY.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        W: {(trackingState.hoopPosition.width ?? 0).toFixed(3)}
+                        W: {(sharedValues.hoopWidth.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        H: {(trackingState.hoopPosition.height ?? 0).toFixed(3)}
+                        H: {(sharedValues.hoopHeight.value ?? 0).toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        Conf: {(trackingState.hoopPosition.confidence ?? 0).toFixed(3)}
+                        Conf: {(sharedValues.confidence.value ?? 0).toFixed(3)}
                     </Text>
                 </View>
             )}
@@ -865,10 +916,10 @@ const TrackingOverlay = React.memo(({
             {trackingState?.releaseAngle != null && (
                 <View pointerEvents="none" style={ovStyles.releaseAngleBadge}>
                     <Text style={{
-                        color: getReleaseColor(trackingState.releaseAngle),
+                        color: getReleaseColor(trackingState.releaseAngle!),
                         fontWeight: '900'
                     }}>
-                        ↗ {Math.round(trackingState.releaseAngle)}°
+                        ↗ {Math.round(trackingState.releaseAngle!)}°
                     </Text>
                 </View>
             )}
@@ -877,7 +928,7 @@ const TrackingOverlay = React.memo(({
             {trackingState?.shotQuality != null && (
                 <View pointerEvents="none" style={ovStyles.qualityBadge}>
                     <Text style={ovStyles.qualityText}>
-                        🎯 {Math.round(trackingState.shotQuality)}
+                        🎯 {Math.round(trackingState.shotQuality!)}
                     </Text>
                 </View>
             )}
@@ -926,8 +977,8 @@ const TrackingOverlay = React.memo(({
                 <View
                     pointerEvents="none"
                     style={[ovStyles.hoopLabelWrap, {
-                        left: px(trackingState.hoopPosition.x) - 22,
-                        top:  py(trackingState.hoopPosition.y) + 24,
+                        left: px(trackingState.hoopPosition!.x) - 22,
+                        top:  py(trackingState.hoopPosition!.y) + 24,
                     }]}
                 >
                     <Text style={ovStyles.hoopLabelText}>🏀 CANESTRO</Text>
@@ -941,8 +992,8 @@ const TrackingOverlay = React.memo(({
                     style={[
                         ovStyles.markerLabel,
                         {
-                            left: px(trackingState.releasePoint.x) + 16,
-                            top: py(trackingState.releasePoint.y) - 12,
+                            left: px(trackingState.releasePoint!.x) + 16,
+                            top: py(trackingState.releasePoint!.y) - 12,
                         },
                     ]}
                 >
@@ -957,8 +1008,8 @@ const TrackingOverlay = React.memo(({
                     style={[
                         ovStyles.markerLabel,
                         {
-                            left: px(trackingState.apexPoint.x) + 16,
-                            top: py(trackingState.apexPoint.y) - 12,
+                            left: px(trackingState.apexPoint!.x) + 16,
+                            top: py(trackingState.apexPoint!.y) - 12,
                         },
                     ]}
                 >
@@ -980,11 +1031,11 @@ const TrackingOverlay = React.memo(({
                             }}
                         >
                             <Text style={{
-                                color: getAngleColor(jointAngles.elbowAngle),
+                                color: getAngleColor(jointAngles.elbowAngle!),
                                 fontWeight: '900',
                                 fontSize: 11,
                             }}>
-                                {Math.round(jointAngles.elbowAngle)}°
+                                {Math.round(jointAngles.elbowAngle!)}°
                             </Text>
                         </View>
                     )
@@ -993,7 +1044,7 @@ const TrackingOverlay = React.memo(({
             })()}
 
             {/* ── Label POSE KEYPOINTS ── */}
-            {poseKeypoints && (Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
+            {poseKeypoints && (Object.entries(poseKeypoints!) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
                 .filter(([_, kp]) => kp?.score >= KP_THRESH)
                 .map(([key, kp]) => {
                     const colors = KP_COLORS[key]
@@ -1373,9 +1424,39 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const isActiveRef     = useRef(true)
     const resetShotTrackingRef = useRef<(() => void) | null>(null)
     
-    // Get YOLO model name for loading messages
+    // Get YOLO model name for loading messages (prima dell'uso nei derived values)
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
+    
+    // Derived values per tracking badge (hooks devono essere al livello superiore)
+    const trackingBallX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
+    const trackingConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0, [sharedValues])
+    const trackingIsActive = useDerivedValue(() => (trackingBallX.value > 0), [trackingBallX])
+    
+    // Local state per tracking badge (non critico per performance)
+    const [trackingBadgeText, setTrackingBadgeText] = React.useState('Cerca palla...')
+    const [trackingDotActive, setTrackingDotActive] = React.useState(false)
+    
+    const updateTrackingBadge = React.useCallback((isActive: boolean, confidence: number) => {
+        if (isActive) {
+            setTrackingBadgeText(`🏀 ${Math.round(confidence * 100)}%`)
+            setTrackingDotActive(true)
+        } else {
+            setTrackingBadgeText(modelsReady ? 'Cerca palla...' : `Caricamento ${yoloModelName}...`)
+            setTrackingDotActive(false)
+        }
+    }, [modelsReady, yoloModelName])
+    
+    useAnimatedReaction(
+        () => ({
+            isActive: trackingIsActive.value,
+            confidence: trackingConfidence.value,
+        }),
+        (current) => {
+            runOnJS(updateTrackingBadge)(current.isActive, current.confidence)
+        },
+        [trackingIsActive, trackingConfidence, updateTrackingBadge]
+    )
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
 
@@ -1406,11 +1487,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const secs = seconds % 60
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
     }, [])
-    const rafRef          = useRef<number | null>(null)
     const frameBatch      = useRef<any[]>([])
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
     const cameraRef       = useRef<CameraRef>(null)
-    const lastUiUpdate    = useRef<number>(0)
 
     // Performance monitoring - tracking state updates (for tracking/overlay metrics only)
     // Note: YOLO/MoveNet FPS now come from worker SharedValues, not performance monitor
@@ -1435,6 +1514,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [tracking])
 
     // ── Ball detection callback (new architecture) ────────────────────────
+    // FASE 1+2: trackingState updated ONLY for events/analytics, NOT for visual data
+    // Visual data (ball position, hoop) are 100% SharedValue/Skia - no React bridge
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
         const rim = detection.rim
@@ -1452,6 +1533,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             confidence: 1.0,
         } : null
 
+        const oldState = tracking.getState()
         const newState = tracking.processFrame(
             ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
             rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
@@ -1459,11 +1541,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             poseKeypoints
         )
         incrementTrackingUpdates()
-        const now = Date.now()
-        if (now - lastUiUpdate.current > 66) {
-            lastUiUpdate.current = now
+        
+        // Update trackingState ONLY when analytics/event data changes (not visual data)
+        // This eliminates ~15 React renders/sec during tracking
+        if (
+            oldState.shotDetected !== newState.shotDetected ||
+            oldState.shotResult !== newState.shotResult ||
+            oldState.releasePoint !== newState.releasePoint ||
+            oldState.apexPoint !== newState.apexPoint ||
+            oldState.shotQuality !== newState.shotQuality ||
+            oldState.releaseAngle !== newState.releaseAngle
+        ) {
             setTrackingState({ ...newState })
         }
+        
         if (ball || rimForTracking) {
             frameBatch.current.push({
                 frameTimestamp:   detection.timestamp,
@@ -1700,36 +1791,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         void loadSession()
         batchTimer.current = setInterval(flushFrameBatch, 2000)
-        
-        const rafLoop = () => {
-            if (!isActiveRef.current) return
-            const s = tracking.getState()
-            // Throttle UI updates to 15 FPS (66ms) to reduce React renders
-            const now = Date.now()
-            if (now - lastUiUpdate.current > 66) {
-                lastUiUpdate.current = now
-                setTrackingState(prev => {
-                    if (!prev) return s
-                    // Aggiorna solo se qualcosa è cambiato (evita re-render inutili)
-                    if (
-                        prev.shotDetected !== s.shotDetected ||
-                        prev.inFlight     !== s.inFlight     ||
-                        prev.ballPosition?.x !== s.ballPosition?.x ||
-                        prev.confidence      !== s.confidence ||
-                        prev.trajectory.length !== s.trajectory.length
-                    ) return s
-                    return prev
-                })
-            }
-            rafRef.current = requestAnimationFrame(rafLoop)
-        }
-        rafRef.current = requestAnimationFrame(rafLoop)
 
         return () => {
             isActiveRef.current = false
             setIsActive(false)
             if (batchTimer.current) clearInterval(batchTimer.current)
-            if (rafRef.current)     cancelAnimationFrame(rafRef.current)
         }
     }, [])
 
@@ -1984,12 +2050,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 <View style={styles.guideV} pointerEvents="none" />
 
                 <View style={styles.trackingBadge} pointerEvents="none">
-                    <View style={[styles.trackingDot, trackingState?.ballPosition && styles.trackingDotActive]} />
-                    <Text style={styles.trackingText}>
-                        {trackingState?.ballPosition
-                            ? `🏀 ${Math.round((trackingState.confidence??0)*100)}%`
-                            : modelsReady ? 'Cerca palla...' : `Caricamento ${yoloModelName}...`}
-                    </Text>
+                    <>
+                        <View style={[styles.trackingDot, trackingDotActive && styles.trackingDotActive]} />
+                        <Text style={styles.trackingText}>
+                            {trackingBadgeText}
+                        </Text>
+                    </>
                 </View>
 
                 {lastShotResult && (
@@ -2005,12 +2071,22 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 {isPaused && <Text style={styles.pausedLabel}>⏸ Sessione in pausa</Text>}
                 <View style={styles.autoRow}>
                     <View style={styles.autoStatus}>
-                        <View style={[styles.autoDot, trackingState?.ballPosition ? styles.autoDotActive : styles.autoDotIdle]} />
-                        <Text style={styles.autoLabel}>
-                            {!modelsReady             ? `Caricamento ${yoloModelName}...` :
-                             trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
-                             trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
-                        </Text>
+                        {(() => {
+                            const ballXVal = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
+                            const inFlightVal = useDerivedValue(() => sharedValues?.inFlight.value ?? false, [sharedValues])
+                            const isActive = useDerivedValue(() => (ballXVal.value > 0), [ballXVal])
+
+                            return (
+                                <>
+                                    <View style={[styles.autoDot, isActive.value && styles.autoDotActive]} />
+                                    <Text style={styles.autoLabel}>
+                                        {!modelsReady ? `Caricamento ${yoloModelName}...` :
+                                         inFlightVal.value ? '✈ Tiro rilevato — scia attiva' :
+                                         isActive.value ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
+                                    </Text>
+                                </>
+                            )
+                        })()}
                     </View>
                     <TouchableOpacity
                         style={[

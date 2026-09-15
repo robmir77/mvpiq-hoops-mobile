@@ -845,16 +845,17 @@ export const useShotTracker = (
                         frame.height
 
                     // ────────────────────────────────────────────────────────────────
-                    // Scheduling — YOLO and POSE are mutually exclusive per frame.
+                    // FASE 6: Scheduling chiaro per YOLO e MoveNet
                     //
-                    // Running both models sequentially in the same onFrame call blocks
-                    // the worklet thread for T_yolo + T_pose (~70 ms at 512 px).
-                    // By giving each model its own "slot", the worst-case block per
-                    // frame is max(T_yolo, T_pose) instead of their sum.
-                    // POSE_FRAME_SKIP is intentionally lower than YOLO_FRAME_SKIP so
-                    // the few frames where YOLO preempts POSE are quickly recovered.
+                    // YOLO: ~15-30 FPS (con throttling intelligente basato sulla stabilità della palla)
+                    // MoveNet: ~3 FPS (time-based scheduling)
+                    //
+                    // I due modelli NON sono mutualmente esclusivi - possono girare indipendentemente
                     // ────────────────────────────────────────────────────────────────
 
+                    const timestamp = Date.now()
+
+                    // MoveNet: time-based scheduling per target 3 FPS
                     const nowForMoveNet = Date.now()
                     const lastMoveNet = lastMoveNetInferenceAt.value
                     const timeSinceLastMoveNet = lastMoveNet > 0 ? nowForMoveNet - lastMoveNet : MOVENET_INTERVAL_MS
@@ -864,37 +865,30 @@ export const useShotTracker = (
                         poseEnabledShared.value &&
                         timeSinceLastMoveNet >= MOVENET_INTERVAL_MS
 
-                    // Run YOLO and MoveNet independently - no mutual exclusion
-                    const runPose = moveNetDue
-
-                    // Intelligent YOLO throttling based on ball stability
+                    // YOLO: frame-based scheduling con throttling intelligente
                     const currentSkip = isBallStable.value ? YOLO_FRAME_SKIP_STABLE : YOLO_FRAME_SKIP
-                    const runYolo =
+                    const yoloDue =
                         yoloReady &&
                         ballEnabledShared.value &&
                         currentFrame % currentSkip === 0
 
-                    // Log MoveNet throttling for debugging (only if pose is enabled but not due)
-                    if (poseReady && poseEnabledShared.value && !moveNetDue) {
-                        console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
+                    // Log throttling per debugging
+                    if (__DEV__) {
+                        if (poseReady && poseEnabledShared.value && !moveNetDue) {
+                            console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
+                        }
+                        if (yoloReady && ballEnabledShared.value && !yoloDue) {
+                            console.log(`[YOLO Throttle] Skip: frame=${currentFrame}, skip=${currentSkip}, stable=${isBallStable.value}`)
+                        }
                     }
 
-                    // ────────────────────────────────────────────────────────────────
-                    // Mutually Exclusive Worker Dispatch with Fair Scheduling
-                    // ────────────────────────────────────────────────────────────────
-
-                    const timestamp = Date.now()
-
-                    // YOLO and MoveNet are mutually exclusive per frame to avoid blocking
-                    // Use frame-based alternation to ensure both get execution slots
-                    // MoveNet target: ~3fps (every 10 frames at 30fps camera)
-                    // YOLO runs in remaining slots with its own throttling
-                    const moveNetSlot = currentFrame % 10 === 0
-                    const yoloSlot = !moveNetSlot
-
-                    if (moveNetSlot && poseEnabledShared.value && poseReady) {
+                    // Esegui i modelli indipendentemente (no mutual exclusion)
+                    if (moveNetDue) {
+                        lastMoveNetInferenceAt.value = nowForMoveNet
                         moveNetWorker.processFrame(frame, timestamp)
-                    } else if (yoloSlot && ballEnabledShared.value && yoloReady) {
+                    }
+
+                    if (yoloDue) {
                         yoloWorker.processFrame(frame, timestamp)
                     }
 
