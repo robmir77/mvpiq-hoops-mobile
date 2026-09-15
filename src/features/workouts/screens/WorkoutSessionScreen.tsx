@@ -54,7 +54,7 @@ const CAMERA_RES_W = 1280  // Camera resolution width
 const CAMERA_RES_H = 720   // Camera resolution height
 const DEFAULT_CAMERA_RESOLUTION = { width: 1280, height: 720 }
 const DEFAULT_CAMERA_FPS = 30
-const DEFAULT_POSE_RESOLUTION = 320
+const DEFAULT_POSE_RESOLUTION = 192 // Only 192 is currently available
 const DEFAULT_CAMERA_ZOOM = 1
 const COURT_WIDTH_M  = 15.24
 const COURT_HEIGHT_M = 28.65
@@ -355,19 +355,19 @@ const TrackingOverlay = React.memo(({
     const hoopPathRef = React.useRef(Skia.Path.Make())
 
     // Derived values per Skia (leggono direttamente dai Shared Values - no React bridge)
-    const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
-    const ballY = useDerivedValue(() => sharedValues?.ballY.value ?? 0, [sharedValues])
-    const ballWidth = useDerivedValue(() => sharedValues?.ballWidth.value ?? 0, [sharedValues])
-    const hoopX = useDerivedValue(() => sharedValues?.hoopX.value ?? 0, [sharedValues])
-    const hoopY = useDerivedValue(() => sharedValues?.hoopY.value ?? 0, [sharedValues])
-    const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0, [sharedValues])
-    const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
+    const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
+    const ballY = useDerivedValue(() => sharedValues?.ballY.value ?? 0)
+    const ballWidth = useDerivedValue(() => sharedValues?.ballWidth.value ?? 0)
+    const hoopX = useDerivedValue(() => sharedValues?.hoopX.value ?? 0)
+    const hoopY = useDerivedValue(() => sharedValues?.hoopY.value ?? 0)
+    const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0)
+    const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0)
 
     // Derived values per coordinate pixel - combinati per evitare letture da .value durante render
-    const ballXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.ballX.value ?? 0) * SCREEN_W, [sharedValues])
-    const ballYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.ballY.value ?? 0) * CAMERA_H, [sharedValues])
-    const hoopXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.hoopX.value ?? 0) * SCREEN_W, [sharedValues])
-    const hoopYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.hoopY.value ?? 0) * CAMERA_H, [sharedValues])
+    const ballXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.ballX.value ?? 0) * SCREEN_W)
+    const ballYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.ballY.value ?? 0) * CAMERA_H)
+    const hoopXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.hoopX.value ?? 0) * SCREEN_W)
+    const hoopYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.hoopY.value ?? 0) * CAMERA_H)
 
     // FASE 4: Throttling locale per ridurre la frequenza di ricostrucción della traiettoria
     // La traiettoria viene ricostruita solo ogni 10 frame invece che ad ogni cambio
@@ -379,38 +379,35 @@ const TrackingOverlay = React.memo(({
 
     // FASE 5: Eliminated React state bridges for visual data
     // Now using direct SharedValue reads via useDerivedValue - no runOnJS, no React state updates
-    const showShotTrail = useDerivedValue(() => sharedValues?.showShotTrail.value ?? false, [sharedValues])
-    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false, [sharedValues])
+    const showShotTrail = useDerivedValue(() => sharedValues?.showShotTrail.value ?? false)
+    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false)
     const showBallRaw = useDerivedValue(
-        () => (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0,
-        [sharedValues]
+        () => (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0
     )
     const showBallKalman = useDerivedValue(
-        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0,
-        [sharedValues]
+        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
     )
     const showBallLabel = useDerivedValue(
-        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0,
-        [sharedValues]
+        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
     )
-    const shotResult = useDerivedValue(() => sharedValues?.shotResult.value ?? null, [sharedValues])
-    const isMade = useDerivedValue(() => sharedValues?.shotResult.value === 'MADE', [sharedValues])
-    const ballDataX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
-    const ballDataY = useDerivedValue(() => sharedValues?.ballY.value ?? 0, [sharedValues])
-    const ballDataConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0, [sharedValues])
+    const shotResult = useDerivedValue(() => sharedValues?.shotResult.value ?? null)
+    const isMade = useDerivedValue(() => sharedValues?.shotResult.value === 'MADE')
+    const ballDataX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
+    const ballDataY = useDerivedValue(() => sharedValues?.ballY.value ?? 0)
+    const ballDataConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0)
     
     // Derived values per ball raw (evita accesso a .value durante render)
-    const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0, [sharedValues])
-    const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0, [sharedValues])
+    const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
+    const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
     const ballRadius = useDerivedValue(() => {
         const ballW = sharedValues?.ballWidth.value ?? 0
         const ballH = sharedValues?.ballHeight.value ?? 0
         const avgSize = (ballW + ballH) / 2
         return Math.max(8, (avgSize * SCREEN_W) / 2)
-    }, [sharedValues])
+    })
     
-    const ballXPxRaw = useDerivedValue(() => SCREEN_W - (ballXRawVal.value * SCREEN_W), [ballXRawVal])
-    const ballYPxRaw = useDerivedValue(() => CAMERA_H - (ballYRawVal.value * CAMERA_H), [ballYRawVal])
+    const ballXPxRaw = useDerivedValue(() => SCREEN_W - (ballXRawVal.value * SCREEN_W))
+    const ballYPxRaw = useDerivedValue(() => CAMERA_H - (ballYRawVal.value * CAMERA_H))
     
     // Local state per badge (non critico per performance)
     const [ballLabelVisible, setBallLabelVisible] = React.useState(false)
@@ -460,8 +457,7 @@ const TrackingOverlay = React.memo(({
         }),
         (current) => {
             runOnJS(updateBadgeState)(current)
-        },
-        [showBallLabel, ballDataX, ballDataY, ballDataConfidence, inFlight, shotResult, showShotTrail, updateBadgeState]
+        }
     )
 
     // Scia del tiro:
@@ -469,19 +465,13 @@ const TrackingOverlay = React.memo(({
     //  - dopo il tiro: mostra l'ultima traiettoria completa per 2.5s
     //  - curva Bezier cubica per avere una parabola liscia invece di segmenti
     // Phase 4: Now using trajectory SharedValues directly - no React state dependency
-    const shotTrailPath = React.useMemo(() => {
-        if (!shouldUpdateTrajectory) {
-            // Riutilizza il path precedente se non è il momento di aggiornare
-            return shotTrailPathRef.current
-        }
-
-        // Read from SharedValues (accesso a .value è permesso dentro useMemo per derived values)
+    // Use useDerivedValue to avoid reading .value during render
+    const trajectoryData = useDerivedValue(() => {
         const showTrail = showShotTrail.value ?? false
         const isInFlight = inFlight.value ?? false
         
         if (!showTrail) return null
         
-        // Phase 4: Read trajectory directly from SharedValues (flat array [x1, y1, x2, y2, ...])
         const trajPoints = sharedValues?.trajectoryPoints.value
         const trajCount = sharedValues?.trajectoryPointCount.value ?? 0
         
@@ -500,23 +490,31 @@ const TrackingOverlay = React.memo(({
         }
         
         if (points.length < 2) return null
+        
+        return { points, shouldUpdate: shouldUpdateTrajectory }
+    })
 
-        // Reuse memoized path instead of creating new one
-        const p = shotTrailPathRef.current
-        p.reset()
+    // Build the path in a worklet to avoid render-time .value access
+    const shotTrailPath = useDerivedValue(() => {
+        const data = trajectoryData.value
+        if (!data || !data.shouldUpdate) {
+            return shotTrailPathRef.current
+        }
+        
+        const { points } = data
+        if (points.length < 2) return null
+
+        const p = Skia.Path.Make()
         p.moveTo(px(points[0].x), py(points[0].y))
 
         if (points.length === 2) {
-            // Solo 2 punti: linea retta
             p.lineTo(px(points[1].x), py(points[1].y))
         } else {
-            // 3+ punti: curva smooth con cubic Bezier catmull-rom
             for (let i = 0; i < points.length - 1; i++) {
                 const p0 = points[Math.max(0, i - 1)]
                 const p1 = points[i]
                 const p2 = points[i + 1]
                 const p3 = points[Math.min(points.length - 1, i + 2)]
-                // Tangenti Catmull-Rom → control points Bezier
                 const cp1x = px(p1.x) + (px(p2.x) - px(p0.x)) / 6
                 const cp1y = py(p1.y) + (py(p2.y) - py(p0.y)) / 6
                 const cp2x = px(p2.x) - (px(p3.x) - px(p1.x)) / 6
@@ -524,8 +522,10 @@ const TrackingOverlay = React.memo(({
                 p.cubicTo(cp1x, cp1y, cp2x, cp2y, px(p2.x), py(p2.y))
             }
         }
+        
+        shotTrailPathRef.current = p
         return p
-    }, [showShotTrail, inFlight, sharedValues?.trajectoryPoints.value, sharedValues?.trajectoryPointCount.value, shouldUpdateTrajectory])
+    }, [trajectoryData])
 
     return (
         <>
@@ -564,47 +564,49 @@ const TrackingOverlay = React.memo(({
                 )}
 
                 {/* ── Enhanced Ball Trail (game-style with glow) ── */}
-                {shotTrailPath && (() => {
-                    const color = useDerivedValue(() => {
-                        const inFlight = sharedValues?.inFlight.value ?? false
-                        const shotResult = sharedValues?.shotResult.value ?? null
-                        if (inFlight) return 'rgba(255,140,0,0.90)'
-                        if (shotResult === 'MADE') return 'rgba(34,197,94,0.90)'
-                        if (shotResult) return 'rgba(239,68,68,0.90)'
-                        return 'rgba(255,140,0,0.70)'
-                    }, [sharedValues])
-                    const glowColor = useDerivedValue(() => {
-                        const inFlight = sharedValues?.inFlight.value ?? false
-                        const shotResult = sharedValues?.shotResult.value ?? null
-                        if (inFlight) return 'rgba(255,140,0,0.30)'
-                        if (shotResult === 'MADE') return 'rgba(34,197,94,0.30)'
-                        if (shotResult) return 'rgba(239,68,68,0.30)'
-                        return 'rgba(255,140,0,0.20)'
-                    }, [sharedValues])
+                <Group>
+                    {(() => {
+                        const color = useDerivedValue(() => {
+                            const inFlight = sharedValues?.inFlight.value ?? false
+                            const shotResult = sharedValues?.shotResult.value ?? null
+                            if (inFlight) return 'rgba(255,140,0,0.90)'
+                            if (shotResult === 'MADE') return 'rgba(34,197,94,0.90)'
+                            if (shotResult) return 'rgba(239,68,68,0.90)'
+                            return 'rgba(255,140,0,0.70)'
+                        })
+                        const glowColor = useDerivedValue(() => {
+                            const inFlight = sharedValues?.inFlight.value ?? false
+                            const shotResult = sharedValues?.shotResult.value ?? null
+                            if (inFlight) return 'rgba(255,140,0,0.30)'
+                            if (shotResult === 'MADE') return 'rgba(34,197,94,0.30)'
+                            if (shotResult) return 'rgba(239,68,68,0.30)'
+                            return 'rgba(255,140,0,0.20)'
+                        })
 
-                    return (
-                        <Group>
-                            {/* Glow effect */}
-                            <SkiaPath
-                                path={shotTrailPath}
-                                color={glowColor}
-                                style="stroke"
-                                strokeWidth={8}
-                                strokeJoin="round"
-                                strokeCap="round"
-                            />
-                            {/* Main trail */}
-                            <SkiaPath
-                                path={shotTrailPath}
-                                color={color}
-                                style="stroke"
-                                strokeWidth={3.5}
-                                strokeJoin="round"
-                                strokeCap="round"
-                            />
-                        </Group>
-                    )
-                })()}
+                        return (
+                            <>
+                                {/* Glow effect */}
+                                <SkiaPath
+                                    path={shotTrailPath as any}
+                                    color={glowColor}
+                                    style="stroke"
+                                    strokeWidth={8}
+                                    strokeJoin="round"
+                                    strokeCap="round"
+                                />
+                                {/* Main trail */}
+                                <SkiaPath
+                                    path={shotTrailPath as any}
+                                    color={color}
+                                    style="stroke"
+                                    strokeWidth={3.5}
+                                    strokeJoin="round"
+                                    strokeCap="round"
+                                />
+                            </>
+                        )
+                    })()}
+                </Group>
 
                 {/* Cerchio palla YOLO raw (reale) - arancione - usa SharedValues */}
                 <Group opacity={showBallRaw.value ? 1 : 0}>
@@ -1458,8 +1460,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }),
         (current) => {
             runOnJS(updateTrackingBadge)(current.isActive, current.confidence)
-        },
-        [trackingIsActive, trackingConfidence, updateTrackingBadge]
+        }
     )
     
     // Local state per auto status display
@@ -1487,8 +1488,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }),
         (current) => {
             runOnJS(updateAutoStatus)(current.ballX, current.inFlight)
-        },
-        [sharedValues, updateAutoStatus]
+        }
     )
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])

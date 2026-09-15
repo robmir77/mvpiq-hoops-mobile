@@ -105,103 +105,114 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
       </View>
 
       <View style={styles.content}>
-        {/* Modello */}
-        <View style={styles.row}>
-          <Text style={styles.label}>YOLO FPS:</Text>
-          <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
-        </View>
+        {debugMode ? (
+          // DEBUG MODE: Full diagnostic panel
+          <>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>YOLO {yoloPerf.samples > 0 ? '320' : 'N/A'}</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>FPS:</Text>
+                <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Avg:</Text>
+                <Text style={styles.value}>{yoloPerf.avgMs.toFixed(1)}ms</Text>
+              </View>
+            </View>
 
-        {/* MoveNet FPS */}
-        {debugMode && (
-          <View style={styles.row}>
-            <Text style={styles.label}>MoveNet FPS:</Text>
-            <Text style={styles.value}>{moveNetFps?.toFixed(1) || '0.0'}</Text>
-          </View>
-        )}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>DETECTION</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>Ball:</Text>
+                <Text style={[styles.value, { color: ballMetrics.avgConfidence > 0.5 ? '#4ade80' : '#fbbf24' }]}>
+                  {ballMetrics.avgConfidence > 0 ? '✓' : '✗'} {ballMetrics.avgConfidence.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Player:</Text>
+                <Text style={[styles.value, { color: playerMetrics.avgConfidence > 0.5 ? '#4ade80' : '#fbbf24' }]}>
+                  {playerMetrics.avgConfidence > 0 ? '✓' : '✗'} {playerMetrics.avgConfidence.toFixed(2)}
+                </Text>
+              </View>
+            </View>
 
-        {/* Ball Recall */}
-        <View style={styles.row}>
-          <Text style={styles.label}>Ball Recall:</Text>
-          <Text style={[styles.value, { color: ballMetrics.detectionRate > 50 ? '#4ade80' : '#fbbf24' }]}>
-            {ballMetrics.detectionRate.toFixed(1)}%
-          </Text>
-        </View>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>TRACKING</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>Status:</Text>
+                <Text style={[styles.value, { color: pipelineMetrics.trackingAccepted > 0 ? '#4ade80' : '#ef4444' }]}>
+                  {pipelineMetrics.trackingAccepted > 0 ? '✓' : '✗'}
+                </Text>
+              </View>
+            </View>
 
-        {/* Player Detection Rate */}
-        {debugMode && (
-          <View style={styles.row}>
-            <Text style={styles.label}>Player Recall:</Text>
-            <Text style={[styles.value, { color: playerMetrics.detectionRate > 50 ? '#4ade80' : '#fbbf24' }]}>
-              {playerMetrics.detectionRate.toFixed(1)}%
-            </Text>
-          </View>
-        )}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>MOVENET 192</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>FPS:</Text>
+                <Text style={styles.value}>{moveNetFps?.toFixed(1) || '0.0'}</Text>
+              </View>
+            </View>
 
-        {/* Ball Confidence */}
-        {debugMode && (
-          <View style={styles.row}>
-            <Text style={styles.label}>Ball Conf:</Text>
-            <Text style={styles.value}>{ballMetrics.avgConfidence.toFixed(2)}</Text>
-          </View>
-        )}
-
-        {/* Player Confidence */}
-        {debugMode && (
-          <View style={styles.row}>
-            <Text style={styles.label}>Player Conf:</Text>
-            <Text style={styles.value}>{playerMetrics.avgConfidence.toFixed(2)}</Text>
-          </View>
-        )}
-
-        {/* Falsi Positivi */}
-        <View style={styles.row}>
-          <Text style={styles.label}>FP Rate:</Text>
-          <Text style={[styles.value, { color: fpMetrics.fpRate > 10 ? '#ef4444' : '#4ade80' }]}>
-            {fpMetrics.fpRate.toFixed(1)}%
-          </Text>
-        </View>
-
-        {/* Stabilità Bbox */}
-        <View style={styles.row}>
-          <Text style={styles.label}>Stabilità:</Text>
-          <Text style={[styles.value, { color: bboxMetrics.stability > 80 ? '#4ade80' : '#fbbf24' }]}>
-            {bboxMetrics.stability.toFixed(0)}%
-          </Text>
-        </View>
-
-        {/* Pipeline Metrics */}
-        {debugMode && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>PIPE</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>Total:</Text>
+                <Text style={styles.value}>{pipelineMetrics.processed} / {pipelineMetrics.received}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Ball:</Text>
+                <Text style={styles.value}>{pipelineMetrics.ballDetections}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Player:</Text>
+                <Text style={styles.value}>{pipelineMetrics.playerDetections}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Track:</Text>
+                <Text style={styles.value}>{pipelineMetrics.trackingAccepted}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Pose:</Text>
+                <Text style={styles.value}>{pipelineMetrics.poseUpdates}</Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          // NORMAL MODE: Simplified telemetry
           <>
             <View style={styles.row}>
-              <Text style={styles.label}>Received:</Text>
-              <Text style={styles.value}>{pipelineMetrics.received}</Text>
+              <Text style={styles.label}>YOLO FPS:</Text>
+              <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
             </View>
+
             <View style={styles.row}>
-              <Text style={styles.label}>Processed:</Text>
-              <Text style={styles.value}>{pipelineMetrics.processed}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Dropped:</Text>
-              <Text style={[styles.value, { color: pipelineMetrics.droppedBusy > 0 ? '#ef4444' : '#4ade80' }]}>
-                {pipelineMetrics.droppedBusy}
+              <Text style={styles.label}>Ball Detection:</Text>
+              <Text style={[styles.value, { color: ballMetrics.detectionRate > 50 ? '#4ade80' : '#fbbf24' }]}>
+                {ballMetrics.detectionRate.toFixed(1)}%
               </Text>
             </View>
+
             <View style={styles.row}>
-              <Text style={styles.label}>Tracking:</Text>
-              <Text style={styles.value}>{pipelineMetrics.trackingAccepted}</Text>
+              <Text style={styles.label}>FP Rate:</Text>
+              <Text style={[styles.value, { color: fpMetrics.fpRate > 10 ? '#ef4444' : '#4ade80' }]}>
+                {fpMetrics.fpRate.toFixed(1)}%
+              </Text>
             </View>
+
             <View style={styles.row}>
-              <Text style={styles.label}>Pose:</Text>
-              <Text style={styles.value}>{pipelineMetrics.poseUpdates}</Text>
+              <Text style={styles.label}>Stabilità:</Text>
+              <Text style={[styles.value, { color: bboxMetrics.stability > 80 ? '#4ade80' : '#fbbf24' }]}>
+                {bboxMetrics.stability.toFixed(0)}%
+              </Text>
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.label}>Batteria:</Text>
+              <Text style={styles.value}>N/A</Text>
             </View>
           </>
         )}
-
-        {/* Batteria */}
-        <View style={styles.row}>
-          <Text style={styles.label}>Batteria:</Text>
-          <Text style={styles.value}>N/A</Text>
-        </View>
       </View>
     </View>
   )
@@ -244,6 +255,18 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 2,
+  },
+  section: {
+    marginBottom: 4,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 140, 0, 0.3)',
+  },
+  sectionTitle: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#ff8c00',
+    marginBottom: 2,
   },
   row: {
     flexDirection: 'row',

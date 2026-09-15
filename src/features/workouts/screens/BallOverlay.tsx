@@ -15,6 +15,7 @@ export function BallOverlay({
     const [ballInfo, setBallInfo] = useState({
         confidence: '0.0',
         dimensions: '0x0',
+        size: 'N/A',
     })
 
     useAnimatedReaction(
@@ -22,14 +23,27 @@ export function BallOverlay({
             const confidence = Number(ballConf?.value ?? 0)
             const width = Number(ballW?.value ?? 0)
             const height = Number(ballH?.value ?? 0)
-            return `${(confidence * 100).toFixed(1)}|${width.toFixed(0)}x${height.toFixed(0)}`
+            
+            // Classifica dimensione palla
+            let size = 'N/A'
+            const avgSize = (width + height) / 2
+            if (avgSize < 0.05) {
+                size = '🔴 PICCOLA'
+            } else if (avgSize < 0.15) {
+                size = '🟡 MEDIA'
+            } else {
+                size = '🟢 GRANDE'
+            }
+            
+            return `${(confidence * 100).toFixed(1)}|${width.toFixed(0)}x${height.toFixed(0)}|${size}`
         },
         (current, previous) => {
             if (current !== previous) {
-                const separator = current.indexOf('|')
-                const confidence = separator >= 0 ? current.slice(0, separator) : '0.0'
-                const dimensions = separator >= 0 ? current.slice(separator + 1) : '0x0'
-                runOnJS(setBallInfo)({ confidence, dimensions })
+                const parts = current.split('|')
+                const confidence = parts[0] || '0.0'
+                const dimensions = parts[1] || '0x0'
+                const size = parts[2] || 'N/A'
+                runOnJS(setBallInfo)({ confidence, dimensions, size })
             }
         },
         [ballConf, ballW, ballH]
@@ -63,7 +77,7 @@ export function BallOverlay({
         <>
             <Animated.View style={style} />
             <Animated.Text style={labelStyle}>
-                🏀 {ballInfo.confidence}% ({ballInfo.dimensions})
+                🏀 {ballInfo.confidence}% ({ballInfo.dimensions}) {ballInfo.size}
             </Animated.Text>
         </>
     )

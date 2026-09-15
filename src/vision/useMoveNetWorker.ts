@@ -18,7 +18,7 @@ import { playerCropManager, type PlayerCropResult } from './playerCrop'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
 
-const DEFAULT_POSE_INPUT_SIZE = 192
+const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the registry
 const MOVENET_TARGET_FPS = 3 // Target 3 FPS for MoveNet
 const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
 
@@ -162,7 +162,7 @@ export const useMoveNetWorker = (
       
       // Calculate crop region if player bbox is available
       if (bbox && enabled) {
-        // Calculate crop in pixel coordinates
+        // Inline crop calculation (worklet-safe)
         const frameW = frame.width || 1280
         const frameH = frame.height || 720
         
@@ -200,19 +200,125 @@ export const useMoveNetWorker = (
           isUsingLastBbox: false,
         }
         
-        // Crop the frame (if the frame supports cropping)
-        // Note: react-native-vision-camera-resizer doesn't support direct cropping
-        // We'll use the full frame but log the crop info for now
-        // TODO: Implement actual cropping when resizer supports it
-        if (__DEV__) {
-          console.log('[MoveNetWorker] Using player crop:', {
-            bbox: { x: bbox.x.toFixed(3), y: bbox.y.toFixed(3), width: bbox.width.toFixed(3), height: bbox.height.toFixed(3) },
-            crop: { x: finalCropX.toFixed(0), y: finalCropY.toFixed(0), width: finalCropW.toFixed(0), height: finalCropH.toFixed(0) },
-          })
+        // Implement REAL CPU-based cropping and resizing
+        try {
+          const pixelBuffer = frame.getPixelBuffer()
+          
+          if (pixelBuffer && cropInfo && cropInfo.isValid) {
+            // Calculate crop region in pixel coordinates (round to integers)
+            const cropXInt = Math.floor(cropInfo.cropX)
+            const cropYInt = Math.floor(cropInfo.cropY)
+            const cropWInt = Math.floor(cropInfo.cropWidth)
+            const cropHInt = Math.floor(cropInfo.cropHeight)
+            
+            // Get source data (assuming RGB interleaved format from YUV conversion)
+            const srcData = new Uint8Array(pixelBuffer as ArrayBuffer)
+            const bytesPerPixel = 3
+            const srcStride = Math.floor(frameW * bytesPerPixel)
+            
+            // Create cropped buffer
+            const croppedBuffer = new Uint8Array(cropWInt * cropHInt * bytesPerPixel)
+            
+            // Extract crop region row by row
+            for (let y = 0; y < cropHInt; y++) {
+              const srcOffset = ((cropYInt + y) * srcStride) + (cropXInt * bytesPerPixel)
+              const dstOffset = y * cropWInt * bytesPerPixel
+              croppedBuffer.set(srcData.subarray(srcOffset, srcOffset + cropWInt * bytesPerPixel), dstOffset)
+            }
+            
+            // Resize cropped buffer to target input size (simple nearest-neighbor)
+            const targetSize = poseInputSize
+            const resizedBuffer = new Uint8Array(targetSize * targetSize * bytesPerPixel)
+            
+            const scaleX = cropWInt / targetSize
+            const scaleY = cropHInt / targetSize
+            
+            for (let y = 0; y < targetSize; y++) {
+              for (let x = 0; x < targetSize; x++) {
+                const srcX = Math.floor(x * scaleX)
+                const srcY = Math.floor(y * scaleY)
+                const srcOffset = (srcY * cropWInt + srcX) * bytesPerPixel
+                const dstOffset = (y * targetSize + x) * bytesPerPixel
+                
+                resizedBuffer[dstOffset] = croppedBuffer[srcOffset]
+                resizedBuffer[dstOffset + 1] = croppedBuffer[srcOffset + 1]
+                resizedBuffer[dstOffset + 2] = croppedBuffer[srcOffset + 2]
+              }
+            }
+            
+            if (__DEV__) {
+              console.log('[MoveNetWorker] Using REAL player crop + resize:', {
+                bbox: { x: bbox.x.toFixed(3), y: bbox.y.toFixed(3), width: bbox.width.toFixed(3), height: bbox.height.toFixed(3) },
+                crop: { x: cropInfo.cropX.toFixed(0), y: cropInfo.cropY.toFixed(0), width: cropInfo.cropWidth.toFixed(0), height: cropInfo.cropHeight.toFixed(0) },
+                targetSize,
+                isUsingLastBbox: cropInfo.isUsingLastBbox,
+              })
+            }
+            
+            // Use the resized cropped buffer directly
+            const source = resizedBuffer
+            
+            if (source.length === poseInputElements) {
+              const inputBuffer = source.buffer.slice(
+                source.byteOffset,
+                source.byteOffset + source.byteLength
+              ) as ArrayBuffer
+
+              const outputs = poseModelInstance!.runSync([inputBuffer])
+              const output = new Float32Array(outputs[0] as ArrayBufferLike)
+
+              const keypoints = parseMoveNetOutput(output, poseInputSize)
+              const angles = computeJointAngles(keypoints)
+
+              // Transform keypoints back to original frame space
+              let finalKeypoints = keypoints
+              if (cropInfo && cropInfo.isValid) {
+                finalKeypoints = {}
+                for (const [key, kp] of Object.entries(keypoints)) {
+                  if (kp && typeof kp === 'object') {
+                    (finalKeypoints as any)[key] = {
+                      ...kp,
+                      x: (cropInfo.cropX + kp.x * cropInfo.cropWidth) / frameW,
+                      y: (cropInfo.cropY + kp.y * cropInfo.cropHeight) / frameH,
+                    }
+                  }
+                }
+              }
+
+              const t2 = performance.now()
+
+              latestResultKeypoints.value = finalKeypoints
+              latestResultAngles.value = angles
+              latestResultTimestamp.value = timestamp
+              latestCropInfo.value = cropInfo
+
+              const inferenceTime = t2 - t0
+              const calculatedFps = 1000 / inferenceTime
+
+              if (__DEV__) {
+                console.log(`[MoveNetWorker] Processed CROPPED frame in ${inferenceTime.toFixed(1)}ms, FPS: ${calculatedFps.toFixed(1)}`)
+              }
+
+              if (calculatedFps > 0) {
+                fps.value = calculatedFps
+              }
+
+              scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, cropInfo)
+            }
+            
+            // Skip the rest of the processing since we already did it
+            frame.dispose()
+            isProcessing.value = false
+            lastInferenceAt.value = Date.now()
+            return
+          }
+        } catch (cropError) {
+          console.warn('[MoveNetWorker] Crop failed, falling back to full frame:', cropError)
+          cropInfo = null
         }
       }
       
-      // Resize frame (currently full frame, will be cropped in future)
+      // Fallback: use full frame if crop failed or no bbox
       resized = poseResizer?.resize(frame)
       const t1 = performance.now()
 

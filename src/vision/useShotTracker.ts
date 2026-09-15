@@ -962,14 +962,27 @@ export const useShotTracker = (
                         }
                     }
 
-                    // Esegui i modelli indipendentemente (no mutual exclusion)
+                    // Esegui YOLO prima per ottenere il player bbox corrente
+                    if (yoloDue) {
+                        yoloWorker.processFrame(frame, timestamp, currentFrame)
+                        
+                        // Aggiorna playerBbox immediatamente dopo YOLO
+                        // così MoveNet userà il bbox del frame corrente
+                        const currentPlayer = yoloWorker.latestResultPlayer.value
+                        if (currentPlayer) {
+                            moveNetWorker.playerBbox.value = {
+                                x: currentPlayer.x,
+                                y: currentPlayer.y,
+                                width: currentPlayer.width,
+                                height: currentPlayer.height,
+                            }
+                        }
+                    }
+
+                    // Esegui MoveNet dopo YOLO con il player bbox aggiornato
                     if (moveNetDue) {
                         lastMoveNetInferenceAt.value = nowForMoveNet
                         moveNetWorker.processFrame(frame, timestamp)
-                    }
-
-                    if (yoloDue) {
-                        yoloWorker.processFrame(frame, timestamp)
                     }
 
                     // Process worker results (get latest available from shared values)
@@ -983,16 +996,6 @@ export const useShotTracker = (
                         keypoints: moveNetWorker.latestResultKeypoints.value,
                         angles: moveNetWorker.latestResultAngles.value,
                         timestamp: moveNetWorker.latestResultTimestamp.value
-                    }
-
-                    // Pass player bbox to MoveNet worker for cropping
-                    if (yoloResult.player) {
-                        moveNetWorker.playerBbox.value = {
-                            x: yoloResult.player.x,
-                            y: yoloResult.player.y,
-                            width: yoloResult.player.width,
-                            height: yoloResult.player.height,
-                        }
                     }
 
                     // Process YOLO result if available
@@ -1184,12 +1187,14 @@ export const useShotTracker = (
 
     const exportTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
+        // Read fps from SharedValue at call time (not during render)
         const moveNetFPS = moveNetWorker.fps.value || 0
         return telemetryLogger.exportTestSummary(cameraFPS, moveNetFPS)
     }, [selectedFps, moveNetWorker.fps])
 
     const logTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
+        // Read fps from SharedValue at call time (not during render)
         const moveNetFPS = moveNetWorker.fps.value || 0
         telemetryLogger.logTestSummary(cameraFPS, moveNetFPS)
     }, [selectedFps, moveNetWorker.fps])

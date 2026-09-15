@@ -48,12 +48,12 @@ export const useYoloWorker = (
   const fps = useSharedValue(0)
 
   // JS-side callback for telemetry recording
-  const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any) => {
+  const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number) => {
     telemetryLogger.recordYoloInference(inferenceTime)
     telemetryLogger.incrementYoloDetections()
     
     if (ball) {
-      telemetryLogger.recordBallDetection(ball.confidence)
+      telemetryLogger.recordBallDetection(ball.confidence, frameCounter)
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
       
       // False positive detection
@@ -83,7 +83,7 @@ export const useYoloWorker = (
         y: player.y,
         w: player.width,
         h: player.height
-      })
+      }, frameCounter)
     }
   }, [])
 
@@ -157,7 +157,7 @@ export const useYoloWorker = (
   const { resizer: yoloResizer } = useResizer(yoloResizerConfig)
 
   // Process frame immediately (no buffering)
-  const processFrame = useCallback((frame: any, timestamp: number) => {
+  const processFrame = useCallback((frame: any, timestamp: number, frameCounter?: number) => {
     'worklet'
 
     if (!yoloModelInstance || isProcessing.value || !enabled) {
@@ -217,8 +217,8 @@ export const useYoloWorker = (
             fps.value = calculatedFps
           }
 
-          // Record telemetry via scheduleOnRN (re-enabled with player parameter)
-          scheduleOnRN(recordTelemetry, inferenceTime, ball, player)
+          // Record telemetry via scheduleOnRN with frame counter
+          scheduleOnRN(recordTelemetry, inferenceTime, ball, player, frameCounter)
 
           if (__DEV__) {
             console.log(`[YoloWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)

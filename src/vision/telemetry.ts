@@ -115,7 +115,7 @@ class TelemetryLogger {
   private ballDetections: Array<{ confidence: number; timestamp: number }> = []
   private playerDetections: Array<{ confidence: number; bbox: { x: number; y: number; w: number; h: number }; timestamp: number }> = []
   private moveNetInferenceTimes: number[] = []
-  private moveNetModelInput: number = 320 // Default 320
+  private moveNetModelInput: number = 192 // Default 192 (only 192 is currently available)
   private moveNetKeypoints: Array<{ confidence: number; timestamp: number }> = []
   private falsePositives: Map<string, number> = new Map()
   private bboxHistory: Array<{ x: number; y: number; w: number; h: number; timestamp: number }> = []
@@ -132,6 +132,9 @@ class TelemetryLogger {
     poseUpdates: 0,
     overlayRendered: 0,
   }
+  // Track frames with detection separately for correct detection rate calculation
+  private ballDetectionFrames: Set<number> = new Set()
+  private playerDetectionFrames: Set<number> = new Set()
   private batteryMetrics: BatteryMetrics | null = null
   private deviceMetrics: DeviceMetrics | null = null
   private testStartTime: number | null = null
@@ -181,16 +184,24 @@ class TelemetryLogger {
     console.log('[PERF][YOLO]', `fps=${metrics.fps.toFixed(1)} avgMs=${metrics.avgMs.toFixed(1)} minMs=${metrics.minMs.toFixed(1)} maxMs=${metrics.maxMs.toFixed(1)}`)
   }
 
-  recordBallDetection(confidence: number): void {
+  recordBallDetection(confidence: number, frameCounter?: number): void {
     this.ballDetections.push({ confidence, timestamp: Date.now() })
+    // Track frames with detection separately for correct detection rate
+    if (frameCounter !== undefined) {
+      this.ballDetectionFrames.add(frameCounter)
+    }
     // Keep only last 600 samples (20 seconds at 30fps)
     if (this.ballDetections.length > 600) {
       this.ballDetections.shift()
     }
   }
 
-  recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }): void {
+  recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }, frameCounter?: number): void {
     this.playerDetections.push({ confidence, bbox, timestamp: Date.now() })
+    // Track frames with detection separately for correct detection rate
+    if (frameCounter !== undefined) {
+      this.playerDetectionFrames.add(frameCounter)
+    }
     // Keep only last 600 samples (20 seconds at 30fps)
     if (this.playerDetections.length > 600) {
       this.playerDetections.shift()
@@ -293,8 +304,24 @@ class TelemetryLogger {
     this.pipelineMetrics.yoloDetections++
   }
 
+  incrementBallDetections(): void {
+    this.pipelineMetrics.ballDetections++
+  }
+
+  incrementPlayerDetections(): void {
+    this.pipelineMetrics.playerDetections++
+  }
+
+  incrementTrackingAccepted(): void {
+    this.pipelineMetrics.trackingAccepted++
+  }
+
   incrementPoseUpdates(): void {
     this.pipelineMetrics.poseUpdates++
+  }
+
+  incrementOverlayRendered(): void {
+    this.pipelineMetrics.overlayRendered++
   }
 
   logPipelineMetrics(): void {
@@ -352,11 +379,13 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    const detectionRate = (this.ballDetections.length / framesProcessed) * 100
+    // Use frames with detection for correct detection rate
+    const framesWithDetection = this.ballDetectionFrames.size
+    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
 
     return {
       framesProcessed,
-      framesDetected: this.ballDetections.length,
+      framesDetected: framesWithDetection,
       detectionRate,
       avgConfidence,
       minConfidence,
@@ -403,7 +432,9 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    const detectionRate = (this.playerDetections.length / framesProcessed) * 100
+    // Use frames with detection for correct detection rate
+    const framesWithDetection = this.playerDetectionFrames.size
+    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
 
     // Calculate average bbox size
     const bboxSizes = this.playerDetections.map(d => d.bbox.w * d.bbox.h)
@@ -413,7 +444,7 @@ class TelemetryLogger {
     if (this.playerDetections.length < 2) {
       return {
         framesProcessed,
-        framesDetected: this.playerDetections.length,
+        framesDetected: framesWithDetection,
         detectionRate,
         avgConfidence,
         minConfidence,
@@ -439,7 +470,7 @@ class TelemetryLogger {
 
     return {
       framesProcessed,
-      framesDetected: this.playerDetections.length,
+      framesDetected: framesWithDetection,
       detectionRate,
       avgConfidence,
       minConfidence,
@@ -640,6 +671,8 @@ Current=${summary.battery.endLevel}%
     this.moveNetKeypoints = []
     this.falsePositives.clear()
     this.bboxHistory = []
+    this.ballDetectionFrames.clear()
+    this.playerDetectionFrames.clear()
     this.pipelineMetrics = {
       received: 0,
       processed: 0,
