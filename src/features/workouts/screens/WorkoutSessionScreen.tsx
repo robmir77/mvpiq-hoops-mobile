@@ -409,6 +409,55 @@ const TrackingOverlay = React.memo(({
     const ballXPxRaw = useDerivedValue(() => SCREEN_W - (ballXRawVal.value * SCREEN_W))
     const ballYPxRaw = useDerivedValue(() => CAMERA_H - (ballYRawVal.value * CAMERA_H))
     
+    // Derived values for trail color (moved from IIFE to main body)
+    const trailColor = useDerivedValue(() => {
+        const inFlight = sharedValues?.inFlight.value ?? false
+        const shotResult = sharedValues?.shotResult.value ?? null
+        if (inFlight) return 'rgba(255,140,0,0.90)'
+        if (shotResult === 'MADE') return 'rgba(34,197,94,0.90)'
+        if (shotResult) return 'rgba(239,68,68,0.90)'
+        return 'rgba(255,140,0,0.70)'
+    })
+    const trailGlowColor = useDerivedValue(() => {
+        const inFlight = sharedValues?.inFlight.value ?? false
+        const shotResult = sharedValues?.shotResult.value ?? null
+        if (inFlight) return 'rgba(255,140,0,0.30)'
+        if (shotResult === 'MADE') return 'rgba(34,197,94,0.30)'
+        if (shotResult) return 'rgba(239,68,68,0.30)'
+        return 'rgba(255,140,0,0.20)'
+    })
+    
+    // Derived values for opacity (return 0/1 for Skia Group)
+    const ballRawOpacity = useDerivedValue(() => {
+        const hasRaw = (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0
+        return hasRaw ? 1 : 0
+    })
+    const ballKalmanOpacity = useDerivedValue(() => {
+        const hasKalman = (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
+        return hasKalman ? 1 : 0
+    })
+    const isMadeOpacity = useDerivedValue(() => {
+        return sharedValues?.shotResult.value === 'MADE' ? 1 : 0
+    })
+    
+    // Derived value for hoop oval path (moved from IIFE to main body)
+    const hoopOvalPath = useDerivedValue(() => {
+        const w = (sharedValues?.hoopWidth.value ?? 0) > 0 ? (sharedValues?.hoopWidth.value ?? 0) * SCREEN_W : 40
+        const h = (sharedValues?.hoopHeight.value ?? 0) > 0 ? (sharedValues?.hoopHeight.value ?? 0) * CAMERA_H : 40
+        // Flatten the hoop: make it wider and shorter
+        const flattenedW = w * 1.3  // 30% wider
+        const flattenedH = h * 0.6  // 40% shorter (flattened)
+        const hoopXPxVal = (sharedValues?.hoopX.value ?? 0) * SCREEN_W
+        const hoopYPxVal = (sharedValues?.hoopY.value ?? 0) * CAMERA_H
+        const rect = Skia.XYWHRect(
+            hoopXPxVal - flattenedW / 2,
+            hoopYPxVal - flattenedH / 2,
+            flattenedW,
+            flattenedH
+        )
+        return Skia.Path.Oval(rect)
+    }, [sharedValues])
+    
     // Local state per badge (non critico per performance)
     const [ballLabelVisible, setBallLabelVisible] = React.useState(false)
     const [ballLabelPos, setBallLabelPos] = React.useState({ left: 0, top: 0 })
@@ -417,6 +466,43 @@ const TrackingOverlay = React.memo(({
     const [angleBadgeVisible, setAngleBadgeVisible] = React.useState(false)
     const [inFlightBadgeVisible, setInFlightBadgeVisible] = React.useState(false)
     const [inFlightBadgeText, setInFlightBadgeText] = React.useState('')
+    
+    // Low-frequency debug panel state (updated at 2Hz to avoid render-time .value reads)
+    const [debugYoloData, setDebugYoloData] = React.useState({
+        x: 0, y: 0, w: 0, h: 0, conf: 0
+    })
+    const [debugHoopData, setDebugHoopData] = React.useState({
+        x: 0, y: 0, w: 0, h: 0, conf: 0
+    })
+    const lastDebugUpdate = React.useRef(0)
+    
+    // Debug panel update function (defined on RN Runtime)
+    const updateDebugPanels = React.useCallback((data: {
+        ballXRaw: number
+        ballYRaw: number
+        ballWidth: number
+        ballHeight: number
+        confidence: number
+        hoopX: number
+        hoopY: number
+        hoopWidth: number
+        hoopHeight: number
+    }) => {
+        setDebugYoloData({
+            x: data.ballXRaw,
+            y: data.ballYRaw,
+            w: data.ballWidth,
+            h: data.ballHeight,
+            conf: data.confidence,
+        })
+        setDebugHoopData({
+            x: data.hoopX,
+            y: data.hoopY,
+            w: data.hoopWidth,
+            h: data.hoopHeight,
+            conf: data.confidence,
+        })
+    }, [])
     
     const updateBadgeState = React.useCallback((data: {
         showLabel: boolean
@@ -457,6 +543,29 @@ const TrackingOverlay = React.memo(({
         }),
         (current) => {
             runOnJS(updateBadgeState)(current)
+        }
+    )
+    
+    // Low-frequency debug panel update (2Hz) - avoids render-time .value reads
+    useAnimatedReaction(
+        () => ({
+            ballXRaw: sharedValues?.ballXRaw.value ?? 0,
+            ballYRaw: sharedValues?.ballYRaw.value ?? 0,
+            ballWidth: sharedValues?.ballWidth.value ?? 0,
+            ballHeight: sharedValues?.ballHeight.value ?? 0,
+            confidence: sharedValues?.confidence.value ?? 0,
+            hoopX: sharedValues?.hoopX.value ?? 0,
+            hoopY: sharedValues?.hoopY.value ?? 0,
+            hoopWidth: sharedValues?.hoopWidth.value ?? 0,
+            hoopHeight: sharedValues?.hoopHeight.value ?? 0,
+        }),
+        (current) => {
+            const now = Date.now()
+            // Throttle to 2Hz (500ms)
+            if (now - lastDebugUpdate.current > 500) {
+                lastDebugUpdate.current = now
+                runOnJS(updateDebugPanels)(current)
+            }
         }
     )
 
@@ -565,51 +674,28 @@ const TrackingOverlay = React.memo(({
 
                 {/* ── Enhanced Ball Trail (game-style with glow) ── */}
                 <Group>
-                    {(() => {
-                        const color = useDerivedValue(() => {
-                            const inFlight = sharedValues?.inFlight.value ?? false
-                            const shotResult = sharedValues?.shotResult.value ?? null
-                            if (inFlight) return 'rgba(255,140,0,0.90)'
-                            if (shotResult === 'MADE') return 'rgba(34,197,94,0.90)'
-                            if (shotResult) return 'rgba(239,68,68,0.90)'
-                            return 'rgba(255,140,0,0.70)'
-                        })
-                        const glowColor = useDerivedValue(() => {
-                            const inFlight = sharedValues?.inFlight.value ?? false
-                            const shotResult = sharedValues?.shotResult.value ?? null
-                            if (inFlight) return 'rgba(255,140,0,0.30)'
-                            if (shotResult === 'MADE') return 'rgba(34,197,94,0.30)'
-                            if (shotResult) return 'rgba(239,68,68,0.30)'
-                            return 'rgba(255,140,0,0.20)'
-                        })
-
-                        return (
-                            <>
-                                {/* Glow effect */}
-                                <SkiaPath
-                                    path={shotTrailPath as any}
-                                    color={glowColor}
-                                    style="stroke"
-                                    strokeWidth={8}
-                                    strokeJoin="round"
-                                    strokeCap="round"
-                                />
-                                {/* Main trail */}
-                                <SkiaPath
-                                    path={shotTrailPath as any}
-                                    color={color}
-                                    style="stroke"
-                                    strokeWidth={3.5}
-                                    strokeJoin="round"
-                                    strokeCap="round"
-                                />
-                            </>
-                        )
-                    })()}
+                    {/* Glow effect */}
+                    <SkiaPath
+                        path={shotTrailPath as any}
+                        color={trailGlowColor}
+                        style="stroke"
+                        strokeWidth={8}
+                        strokeJoin="round"
+                        strokeCap="round"
+                    />
+                    {/* Main trail */}
+                    <SkiaPath
+                        path={shotTrailPath as any}
+                        color={trailColor}
+                        style="stroke"
+                        strokeWidth={3.5}
+                        strokeJoin="round"
+                        strokeCap="round"
+                    />
                 </Group>
 
                 {/* Cerchio palla YOLO raw (reale) - arancione - usa SharedValues */}
-                <Group opacity={showBallRaw.value ? 1 : 0}>
+                <Group opacity={ballRawOpacity}>
                     <SkiaCircle
                         cx={ballXPxRaw}
                         cy={ballYPxRaw}
@@ -625,7 +711,7 @@ const TrackingOverlay = React.memo(({
                 </Group>
 
                 {/* Punto Kalman smoothed - rosso per debug - usa SharedValues */}
-                <Group opacity={showBallKalman.value ? 1 : 0}>
+                <Group opacity={ballKalmanOpacity}>
                     <SkiaCircle
                         cx={ballXPx}
                         cy={ballYPx}
@@ -635,7 +721,7 @@ const TrackingOverlay = React.memo(({
                 </Group>
 
                 {/* ── Hoop with Illumination Effect (game-style) ── */}
-                <Group opacity={isMade.value ? 1 : 0}>
+                <Group opacity={isMadeOpacity}>
                     <SkiaCircle
                         cx={hoopXPx}
                         cy={hoopYPx}
@@ -651,37 +737,16 @@ const TrackingOverlay = React.memo(({
                 </Group>
 
                 {/* Dynamic hoop oval based on detected dimensions (width and height) */}
-                {(() => {
-                    const hoopOvalPath = useDerivedValue(() => {
-                        const w = (sharedValues?.hoopWidth.value ?? 0) > 0 ? (sharedValues?.hoopWidth.value ?? 0) * SCREEN_W : 40
-                        const h = (sharedValues?.hoopHeight.value ?? 0) > 0 ? (sharedValues?.hoopHeight.value ?? 0) * CAMERA_H : 40
-                        // Flatten the hoop: make it wider and shorter
-                        const flattenedW = w * 1.3  // 30% wider
-                        const flattenedH = h * 0.6  // 40% shorter (flattened)
-                        const hoopXPxVal = (sharedValues?.hoopX.value ?? 0) * SCREEN_W
-                        const hoopYPxVal = (sharedValues?.hoopY.value ?? 0) * CAMERA_H
-                        const rect = Skia.XYWHRect(
-                            hoopXPxVal - flattenedW / 2,
-                            hoopYPxVal - flattenedH / 2,
-                            flattenedW,
-                            flattenedH
-                        )
-                        return Skia.Path.Oval(rect)
-                    }, [sharedValues])
-                    
-                    return (
-                        <Group>
-                            <SkiaPath
-                                path={hoopOvalPath}
-                                color="rgba(74,222,128,0.18)"
-                            />
-                            <SkiaPath
-                                path={hoopOvalPath}
-                                color="#4ade80" style="stroke" strokeWidth={2.5}
-                            />
-                        </Group>
-                    )
-                })()}
+                <Group>
+                    <SkiaPath
+                        path={hoopOvalPath}
+                        color="rgba(74,222,128,0.18)"
+                    />
+                    <SkiaPath
+                        path={hoopOvalPath}
+                        color="#4ade80" style="stroke" strokeWidth={2.5}
+                    />
+                </Group>
 
                 {/* Righe del campo dalla calibrazione */}
                 {calibration?.courtLines && calibration.courtLines.length > 0 && (
@@ -842,19 +907,19 @@ const TrackingOverlay = React.memo(({
                 <View pointerEvents="none" style={ovStyles.yoloDebugPanel}>
                     <Text style={ovStyles.yoloDebugTitle}>🔍 YOLO Raw</Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        X: {(sharedValues.ballXRaw.value ?? 0).toFixed(3)}
+                        X: {debugYoloData.x.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        Y: {(sharedValues.ballYRaw.value ?? 0).toFixed(3)}
+                        Y: {debugYoloData.y.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        W: {(sharedValues.ballWidth.value ?? 0).toFixed(3)}
+                        W: {debugYoloData.w.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        H: {(sharedValues.ballHeight.value ?? 0).toFixed(3)}
+                        H: {debugYoloData.h.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.yoloDebugText}>
-                        Conf: {((sharedValues.confidence.value ?? 0) * 100).toFixed(1)}%
+                        Conf: {(debugYoloData.conf * 100).toFixed(1)}%
                     </Text>
                 </View>
             )}
@@ -864,19 +929,19 @@ const TrackingOverlay = React.memo(({
                 <View pointerEvents="none" style={ovStyles.hoopDebugPanel}>
                     <Text style={ovStyles.hoopDebugTitle}>🏀 Canestro</Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        X: {(sharedValues.hoopX.value ?? 0).toFixed(3)}
+                        X: {debugHoopData.x.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        Y: {(sharedValues.hoopY.value ?? 0).toFixed(3)}
+                        Y: {debugHoopData.y.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        W: {(sharedValues.hoopWidth.value ?? 0).toFixed(3)}
+                        W: {debugHoopData.w.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        H: {(sharedValues.hoopHeight.value ?? 0).toFixed(3)}
+                        H: {debugHoopData.h.toFixed(3)}
                     </Text>
                     <Text style={ovStyles.hoopDebugText}>
-                        Conf: {(sharedValues.confidence.value ?? 0).toFixed(3)}
+                        Conf: {debugHoopData.conf.toFixed(3)}
                     </Text>
                 </View>
             )}
