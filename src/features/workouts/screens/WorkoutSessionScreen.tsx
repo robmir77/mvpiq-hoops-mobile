@@ -1414,7 +1414,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [ballEnabled, setBallEnabled] = useState(true)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
-    const [showTelemetry, setShowTelemetry] = useState(false)
+    const [showTelemetry, setShowTelemetry] = useState(true)
     const cameraViewRef = useRef<View>(null)
     const shotCounter = useRef(0)
     const pendingScreenshotUri = useRef<string | null>(null)
@@ -2027,7 +2027,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         </TouchableOpacity>
                     )}
                     <TouchableOpacity
-                        onPress={() => setShowTelemetry(v => !v)}
+                        onPress={() => {
+                            console.log('[Telemetry] Button pressed, current state:', showTelemetry)
+                            setShowTelemetry(v => {
+                                const newState = !v
+                                console.log('[Telemetry] Setting new state:', newState)
+                                return newState
+                            })
+                        }}
                         style={[styles.calDebugBtn, showTelemetry && styles.calDebugBtnOn]}
                     >
                         <Text style={[styles.calBadge, showTelemetry && { color: '#fff' }]}>
@@ -2039,7 +2046,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 </View>
             </View>
 
-            <View style={{ height: CAMERA_H }} ref={cameraViewRef} collapsable={false}>
+            <View style={{ height: CAMERA_H, position: 'relative' }} ref={cameraViewRef} collapsable={false}>
                 <Camera
                     ref={cameraRef}
                     style={StyleSheet.absoluteFill}

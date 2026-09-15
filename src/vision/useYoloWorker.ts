@@ -204,8 +204,8 @@ export const useYoloWorker = (
             fps.value = calculatedFps
           }
 
-          // Record telemetry via scheduleOnRN
-          scheduleOnRN(recordTelemetry, inferenceTime, ball)
+          // Temporarily disable telemetry recording to test if it affects detection
+          // scheduleOnRN(recordTelemetry, inferenceTime, ball)
 
           if (__DEV__) {
             console.log(`[YoloWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)
