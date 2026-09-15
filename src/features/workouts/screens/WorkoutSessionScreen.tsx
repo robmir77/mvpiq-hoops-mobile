@@ -45,7 +45,7 @@ import {
 } from '../api/workouts.api'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
-import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel } from '@/vision/yoloModels'
+import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel } from '@/vision'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -363,10 +363,10 @@ const TrackingOverlay = React.memo(({
     const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0, [sharedValues])
 
     // Derived values per coordinate pixel - combinati per evitare letture da .value durante render
-    const ballXPx = useDerivedValue(() => (sharedValues?.ballX.value ?? 0) * SCREEN_W, [sharedValues])
-    const ballYPx = useDerivedValue(() => (sharedValues?.ballY.value ?? 0) * CAMERA_H, [sharedValues])
-    const hoopXPx = useDerivedValue(() => (sharedValues?.hoopX.value ?? 0) * SCREEN_W, [sharedValues])
-    const hoopYPx = useDerivedValue(() => (sharedValues?.hoopY.value ?? 0) * CAMERA_H, [sharedValues])
+    const ballXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.ballX.value ?? 0) * SCREEN_W, [sharedValues])
+    const ballYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.ballY.value ?? 0) * CAMERA_H, [sharedValues])
+    const hoopXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.hoopX.value ?? 0) * SCREEN_W, [sharedValues])
+    const hoopYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.hoopY.value ?? 0) * CAMERA_H, [sharedValues])
 
     // FASE 4: Throttling locale per ridurre la frequenza di ricostrucción della traiettoria
     // La traiettoria viene ricostruita solo ogni 10 frame invece che ad ogni cambio

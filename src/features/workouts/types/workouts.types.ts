@@ -80,7 +80,7 @@ export interface CalibrationData {
 
 // ─── AI Tracking ──────────────────────────────────────────────
 export interface DetectionResult {
-    class: 'basketball' | 'rim'
+    class: 'ball' | 'rim'
     confidence: number
     bbox: { x: number; y: number; width: number; height: number }
     centerX: number

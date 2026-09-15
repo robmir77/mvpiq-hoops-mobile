@@ -5,6 +5,7 @@
 
 export * from './types'
 export * from './yoloParser'
+export * from './yoloModels'
 export * from './poseParser'
 export * from './biomechanics'
 export * from './shotDetector'
