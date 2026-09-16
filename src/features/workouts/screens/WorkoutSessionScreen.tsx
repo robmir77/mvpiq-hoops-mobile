@@ -330,10 +330,18 @@ const TrackingOverlay = React.memo(({
         const cropX = (displayedW - SCREEN_W) / 2
         const cropY = (displayedH - CAMERA_H) / 2
 
+        // Convert camera-normalized coordinates to displayed coordinates
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        
+        // Apply crop offset to get screen coordinates
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+
         // Invert both axes for camera preview mirroring
         return {
-            x: SCREEN_W - (x * SCREEN_W),
-            y: CAMERA_H - (y * CAMERA_H),
+            x: SCREEN_W - screenX,
+            y: CAMERA_H - screenY,
         }
     }
 

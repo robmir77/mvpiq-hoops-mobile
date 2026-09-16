@@ -134,7 +134,7 @@ const MAX_RIM_BOX_SIZE = 0.9
 // Resized image: 512x288
 // Letterboxing: (512-288)/2 = 112px top and bottom
 export function parseYoloOutputInt8(
-    output: Int8Array,
+    output: Float32Array,
     threshold: number = CONF_THRESHOLD,
     frameWidth?: number,
     frameHeight?: number
@@ -166,11 +166,6 @@ export function parseYoloOutputInt8(
     let rejectedGeometry = 0
     let tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }> = []
     const MAX_SAMPLES = 5
-
-    // Dequantization parameters for INT8 models
-    // Standard TFLite INT8 quantization: scale and zero point
-    const DEQUANT_SCALE = 1.0 / 255.0  // Typical scale for [0,255] range
-    const ZERO_POINT = 0
 
     // Channel-major layout:
     // [cx..., cy..., w..., h..., ballScore..., humanScore..., rimScore...]
@@ -226,17 +221,17 @@ export function parseYoloOutputInt8(
       }
     }
 
-    // Simplified decoder - dequantize INT8 values to float
-    // INT8 values are in range [-128, 127], convert to [0,1] using scale
+    // Simplified decoder - read Float32 values directly
+    // Model outputs Float32 tensors despite the 'int8' filename
     for (let i = 0; i < nDetections; i++) {
-      // Dequantize INT8 values to float
-      const cxRaw = (output[i] - ZERO_POINT) * DEQUANT_SCALE
-      const cyRaw = (output[nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
-      const w = (output[2 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
-      const h = (output[3 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
-      const ballScore = (output[4 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
-      const humanScore = (output[5 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
-      const rimScore = (output[6 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
+      // Read Float32 values directly (no dequantization needed)
+      const cxRaw = output[i]
+      const cyRaw = output[nDetections + i]
+      const w = output[2 * nDetections + i]
+      const h = output[3 * nDetections + i]
+      const ballScore = output[4 * nDetections + i]
+      const humanScore = output[5 * nDetections + i]
+      const rimScore = output[6 * nDetections + i]
 
       // New ballRim model outputs coordinates already normalized [0,1]
       // No coordinate inversion needed for this model

@@ -203,9 +203,10 @@ export const useYoloWorker = (
           // Use appropriate parser based on model precision
           let ball, player, rim
           if (selectedYoloModel?.precision === 'int8') {
-            // INT8 model: use Int8Array and dequantization parser
-            const int8Output = new Int8Array(rawOutput)
-            const result = parseYoloOutputInt8(int8Output, 0.012, frame.width, frame.height)
+            // INT8 model: despite the name, the model outputs Float32 tensors
+            // Use Float32Array directly, no dequantization needed
+            const output = new Float32Array(rawOutput)
+            const result = parseYoloOutputInt8(output, 0.012, frame.width, frame.height)
             ball = result.ball
             player = result.player
             rim = result.rim
