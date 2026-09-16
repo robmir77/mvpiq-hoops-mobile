@@ -134,24 +134,36 @@ export const useYoloWorker = (
         ? (yoloDelegate as AndroidDelegateOption) || DEFAULT_ANDROID_DELEGATE
         : (yoloDelegate as IosDelegateOption) || DEFAULT_IOS_DELEGATE
       
+      if (__DEV__) {
+        console.log('[YoloWorker] Model loaded:', selectedYoloModel.fileName, 'inputSize:', selectedYoloModel.inputSize, 'precision:', selectedYoloModel.precision)
+      }
+      
       telemetryLogger.logModelMetadata({
         name: selectedYoloModel.fileName,
         inputSize: selectedYoloModel.inputSize,
         delegate: typeof delegateName === 'string' ? delegateName : 'unknown'
       })
+    } else if (__DEV__) {
+      console.log('[YoloWorker] Model not loaded. State:', yoloModel.state, 'Model:', yoloModel.model ? 'exists' : 'null')
     }
   }, [yoloModel.state, yoloModel.model, isReady, selectedYoloModel, yoloDelegate])
 
   // Resizer config
   const yoloResizerConfig = useMemo(
-    () => ({
-      width: yoloInputSize,
-      height: yoloInputSize,
-      channelOrder: 'rgb' as const,
-      dataType: 'float32' as const,
-      pixelLayout: 'interleaved' as const,
-      scaleMode: 'contain' as const,
-    }),
+    () => {
+      const config = {
+        width: yoloInputSize,
+        height: yoloInputSize,
+        channelOrder: 'rgb' as const,
+        dataType: 'float32' as const,
+        pixelLayout: 'interleaved' as const,
+        scaleMode: 'contain' as const,
+      }
+      if (__DEV__) {
+        console.log('[YoloWorker] Resizer config:', config)
+      }
+      return config
+    },
     [yoloInputSize]
   )
 
@@ -198,6 +210,7 @@ export const useYoloWorker = (
           if (__DEV__) {
             console.log(`[YoloWorker] Model precision: ${selectedYoloModel?.precision}`)
             console.log(`[YoloWorker] Raw buffer length: ${rawOutput.byteLength}`)
+            console.log(`[YoloWorker] Input elements: ${yoloInputElements}`)
           }
 
           // Use appropriate parser based on model precision
@@ -205,8 +218,9 @@ export const useYoloWorker = (
           if (selectedYoloModel?.precision === 'int8') {
             // INT8 model: despite the name, the model outputs Float32 tensors
             // Use Float32Array directly, no dequantization needed
+            // Lower threshold from 0.012 to 0.005 to allow more detections
             const output = new Float32Array(rawOutput)
-            const result = parseYoloOutputInt8(output, 0.012, frame.width, frame.height)
+            const result = parseYoloOutputInt8(output, 0.005, frame.width, frame.height)
             ball = result.ball
             player = result.player
             rim = result.rim

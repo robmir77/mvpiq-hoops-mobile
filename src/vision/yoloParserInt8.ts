@@ -183,6 +183,16 @@ export function parseYoloOutputInt8(
     if (nDetections === 8400) TENSOR_SIZE = 640
     else if (nDetections === 2100) TENSOR_SIZE = 320
     else if (nDetections === 5376) TENSOR_SIZE = 512
+    else {
+      if (__DEV__) {
+        console.log('[YOLO PARSER] Unknown detection count:', nDetections, 'defaulting to 512')
+      }
+      TENSOR_SIZE = 512
+    }
+    
+    if (__DEV__) {
+      console.log('[YOLO PARSER] TENSOR_SIZE:', TENSOR_SIZE, 'nDetections:', nDetections)
+    }
 
     // Calculate letterboxing parameters based on dynamic TENSOR_SIZE
     const SCALE = Math.min(TENSOR_SIZE / 1280, TENSOR_SIZE / 720)
@@ -392,6 +402,19 @@ export function parseYoloOutputInt8(
         width: bestBall.width.toFixed(6),
         height: bestBall.height.toFixed(6),
         confidence: bestBall.confidence.toFixed(6),
+      })
+    }
+    
+    if (__DEV__) {
+      console.log('[YOLO PARSER RESULT]', {
+        ball: bestBall ? `x=${bestBall.x.toFixed(3)} y=${bestBall.y.toFixed(3)} conf=${bestBall.confidence.toFixed(3)}` : 'null',
+        player: bestPlayer ? `x=${bestPlayer.x.toFixed(3)} y=${bestPlayer.y.toFixed(3)} conf=${bestPlayer.confidence.toFixed(3)}` : 'null',
+        rim: bestRim ? `x=${bestRim.x.toFixed(3)} y=${bestRim.y.toFixed(3)} conf=${bestRim.confidence.toFixed(3)}` : 'null',
+        maxRawConfidence: maxRawConfidence.toFixed(3),
+        maxBallScore: maxBallScore.toFixed(3),
+        rejectedTooSmall,
+        rejectedLowConfidence,
+        rejectedGeometry
       })
     }
 
