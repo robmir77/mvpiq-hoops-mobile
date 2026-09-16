@@ -8,7 +8,8 @@ import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
 import { useResizer } from 'react-native-vision-camera-resizer'
 import { useTensorflowModel } from 'react-native-fast-tflite'
-import { parseYoloOutput } from './yoloParser'
+import { parseYoloOutputFloat16 } from './yoloParserFloat16'
+import { parseYoloOutputInt8 } from './yoloParserInt8'
 import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
@@ -191,16 +192,32 @@ export const useYoloWorker = (
           ) as ArrayBuffer
 
           const outputs = yoloModelInstance!.runSync([inputBuffer])
-          const output = new Float32Array(outputs[0] as ArrayBufferLike)
+          const rawOutput = outputs[0] as ArrayBufferLike
 
           // Log output shape for verification
           if (__DEV__) {
-            console.log(`[YoloWorker] Output buffer length: ${output.length}`)
-            console.log(`[YoloWorker] Expected detections (length/7): ${output.length / 7}`)
-            console.log(`[YoloWorker] Frame size: ${frame.width}x${frame.height}`)
+            console.log(`[YoloWorker] Model precision: ${selectedYoloModel?.precision}`)
+            console.log(`[YoloWorker] Raw buffer length: ${rawOutput.byteLength}`)
           }
 
-          const { ball, player, rim } = parseYoloOutput(output, 0.012, frame.width, frame.height)
+          // Use appropriate parser based on model precision
+          let ball, player, rim
+          if (selectedYoloModel?.precision === 'int8') {
+            // INT8 model: use Int8Array and dequantization parser
+            const int8Output = new Int8Array(rawOutput)
+            const result = parseYoloOutputInt8(int8Output, 0.012, frame.width, frame.height)
+            ball = result.ball
+            player = result.player
+            rim = result.rim
+          } else {
+            // Float16 model: use Float32Array and standard parser
+            // Float16 outputs raw logits, so use much lower threshold
+            const output = new Float32Array(rawOutput)
+            const result = parseYoloOutputFloat16(output, 0.0005, frame.width, frame.height)
+            ball = result.ball
+            player = result.player
+            rim = result.rim
+          }
 
           const t2 = performance.now()
           

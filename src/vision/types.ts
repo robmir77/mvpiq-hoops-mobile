@@ -25,6 +25,8 @@ export interface BallDetection {
     height: number
     confidence: number
   }
+  ballSizeCategory?: 'small' | 'medium' | 'large'
+  adaptiveThreshold?: number
   timestamp: number
 }
 

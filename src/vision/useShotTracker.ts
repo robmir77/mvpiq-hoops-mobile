@@ -1001,7 +1001,7 @@ export const useShotTracker = (
                     // Process YOLO result if available
                     if (yoloResult.ball) {
                         perfYoloBallDetected.value += 1
-                        
+
                         const detection: BallDetection = {
                             ball: yoloResult.ball,
                             rim: yoloResult.rim ?? undefined,

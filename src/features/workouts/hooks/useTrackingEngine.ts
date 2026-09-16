@@ -106,6 +106,10 @@ export const useTrackingEngine = () => {
     // Store trajectory as flat array: [x1, y1, x2, y2, ...] for efficient SharedValue transfer
     const trajectoryPoints = useSharedValue(new Float32Array(MAX_POINTS * 2).fill(0))
     const trajectoryPointCount = useSharedValue(0)
+    
+    // Ball size category and adaptive threshold for overlay display
+    const ballSizeCategory = useSharedValue<string | null>(null)
+    const adaptiveThreshold = useSharedValue(0)
 
     const lastFrameTs  = useRef<number>(0)
     const lastShotTs   = useRef<number>(0)
@@ -158,7 +162,9 @@ export const useTrackingEngine = () => {
         ballDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
         hoopDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
         frameTs: number,
-        poseKeypoints?: any
+        poseKeypoints?: any,
+        sizeCategory?: 'small' | 'medium' | 'large' | null,
+        adaptThreshold?: number
     ): TrackingState => {
         const current = state.current
 
@@ -204,7 +210,9 @@ export const useTrackingEngine = () => {
             ballYRaw.value = ballDetection.y
             ballWidth.value = ballDetection.width || 0
             ballHeight.value = ballDetection.height || 0
-            confidence.value = ballDetection.confidence
+            confidence.value = ballDetection.confidence || 0
+            ballSizeCategory.value = sizeCategory ?? null
+            adaptiveThreshold.value = adaptThreshold ?? 0
 
             if (__DEV__) {
               console.log('[TrackingEngine] Shared Values updated:', {
@@ -463,12 +471,14 @@ export const useTrackingEngine = () => {
         ballHeight.value = 0
         ballXRaw.value = 0
         ballYRaw.value = 0
+        confidence.value = 0
+        ballSizeCategory.value = null
+        adaptiveThreshold.value = 0
         // Don't reset hoop values to keep last positive detection
         // hoopX.value = 0
         // hoopY.value = 0
         // hoopWidth.value = 0
         // hoopHeight.value = 0
-        confidence.value = 0
         inFlight.value = false
         showShotTrail.value = false
         shotDetected.value = false
@@ -476,7 +486,7 @@ export const useTrackingEngine = () => {
         // Phase 4: Reset trajectory SharedValues
         trajectoryPoints.value = new Float32Array(MAX_POINTS * 2).fill(0)
         trajectoryPointCount.value = 0
-    }, [resetTrajectoryBuffer, ballX, ballY, ballWidth, ballHeight, ballXRaw, ballYRaw, hoopX, hoopY, hoopWidth, hoopHeight, confidence, inFlight, showShotTrail, shotDetected, shotResult, trajectoryPoints, trajectoryPointCount, MAX_POINTS])
+    }, [resetTrajectoryBuffer, ballX, ballY, ballWidth, ballHeight, ballXRaw, ballYRaw, hoopX, hoopY, hoopWidth, hoopHeight, confidence, ballSizeCategory, adaptiveThreshold, inFlight, showShotTrail, shotDetected, shotResult, trajectoryPoints, trajectoryPointCount, MAX_POINTS])
 
     const setHoopFromCalibration = useCallback((x: number, y: number, width?: number, height?: number) => {
         state.current.hoopPosition = { x, y, width, height }
@@ -563,6 +573,8 @@ export const useTrackingEngine = () => {
             hoopWidth,
             hoopHeight,
             confidence,
+            ballSizeCategory,
+            adaptiveThreshold,
             inFlight,
             shotDetected,
             showShotTrail,

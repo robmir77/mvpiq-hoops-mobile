@@ -290,6 +290,8 @@ const TrackingOverlay = React.memo(({
         hoopWidth: any
         hoopHeight: any
         confidence: any
+        ballSizeCategory: any
+        adaptiveThreshold: any
         inFlight: any
         shotDetected: any
         showShotTrail: any
@@ -512,11 +514,27 @@ const TrackingOverlay = React.memo(({
         inFlight: boolean
         shotResult: string | null
         showTrail: boolean
+        ballSizeCategory?: string | null
+        adaptiveThreshold?: number
     }) => {
         setBallLabelVisible(data.showLabel)
         const mappedPos = mapYoloPointToView(data.ballX, data.ballY)
         setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
-        setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}%`)
+        
+        // Format ball size for display
+        let sizeLabel = ''
+        if (data.ballSizeCategory === 'small') {
+            sizeLabel = '🔴 PICCOLA'
+        } else if (data.ballSizeCategory === 'medium') {
+            sizeLabel = '🟡 MEDIA'
+        } else if (data.ballSizeCategory === 'large') {
+            sizeLabel = '🟢 GRANDE'
+        }
+        
+        // Format adaptive threshold
+        const threshLabel = data.adaptiveThreshold ? `| Thresh: ${data.adaptiveThreshold.toFixed(3)}` : ''
+        
+        setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}% ${sizeLabel} ${threshLabel}`)
         setPowerBadgeVisible(data.inFlight && shotPower > 0)
         setAngleBadgeVisible(releaseAngle != null && data.inFlight)
         setInFlightBadgeVisible(data.showTrail)
@@ -540,6 +558,8 @@ const TrackingOverlay = React.memo(({
             inFlight: inFlight.value,
             shotResult: shotResult.value,
             showTrail: showShotTrail.value,
+            ballSizeCategory: sharedValues?.ballSizeCategory.value,
+            adaptiveThreshold: sharedValues?.adaptiveThreshold.value,
         }),
         (current) => {
             runOnJS(updateBadgeState)(current)
@@ -609,29 +629,29 @@ const TrackingOverlay = React.memo(({
         if (!data || !data.shouldUpdate) {
             return shotTrailPathRef.current
         }
-        
+
         const { points } = data
         if (points.length < 2) return null
 
         const p = Skia.Path.Make()
-        p.moveTo(px(points[0].x), py(points[0].y))
+        p.moveTo(points[0].x * SCREEN_W, points[0].y * CAMERA_H)
 
         if (points.length === 2) {
-            p.lineTo(px(points[1].x), py(points[1].y))
+            p.lineTo(points[1].x * SCREEN_W, points[1].y * CAMERA_H)
         } else {
             for (let i = 0; i < points.length - 1; i++) {
                 const p0 = points[Math.max(0, i - 1)]
                 const p1 = points[i]
                 const p2 = points[i + 1]
                 const p3 = points[Math.min(points.length - 1, i + 2)]
-                const cp1x = px(p1.x) + (px(p2.x) - px(p0.x)) / 6
-                const cp1y = py(p1.y) + (py(p2.y) - py(p0.y)) / 6
-                const cp2x = px(p2.x) - (px(p3.x) - px(p1.x)) / 6
-                const cp2y = py(p2.y) - (py(p3.y) - py(p1.y)) / 6
-                p.cubicTo(cp1x, cp1y, cp2x, cp2y, px(p2.x), py(p2.y))
+                const cp1x = p1.x * SCREEN_W + (p2.x * SCREEN_W - p0.x * SCREEN_W) / 6
+                const cp1y = p1.y * CAMERA_H + (p2.y * CAMERA_H - p0.y * CAMERA_H) / 6
+                const cp2x = p2.x * SCREEN_W - (p3.x * SCREEN_W - p1.x * SCREEN_W) / 6
+                const cp2y = p2.y * CAMERA_H - (p3.y * CAMERA_H - p1.y * CAMERA_H) / 6
+                p.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x * SCREEN_W, p2.y * CAMERA_H)
             }
         }
-        
+
         shotTrailPathRef.current = p
         return p
     }, [trajectoryData])
@@ -1636,7 +1656,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
             rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
             detection.timestamp,
-            poseKeypoints
+            poseKeypoints,
+            detection.ballSizeCategory,
+            detection.adaptiveThreshold
         )
         incrementTrackingUpdates()
         

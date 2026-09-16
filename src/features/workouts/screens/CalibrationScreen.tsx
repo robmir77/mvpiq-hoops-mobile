@@ -38,7 +38,7 @@ const CAM_H = SH * 0.52
 const MIN_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_CAPTURE = { width: 1280, height: 720 }
 const DEFAULT_FPS = 30
-const DEFAULT_POSE_RESOLUTION = 320
+const DEFAULT_POSE_RESOLUTION = 192
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
@@ -746,6 +746,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(DEFAULT_POSE_RESOLUTION)
     const [selectedMoveNetModelId, setSelectedMoveNetModelId] = useState<string>(DEFAULT_MOVENET_MODEL_ID)
     const [selectedYoloModelId, setSelectedYoloModelId] = useState<string>(DEFAULT_YOLO_MODEL_ID)
+    const [selectedPrecision, setSelectedPrecision] = useState<'float16' | 'int8'>('int8')
     const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
         Platform.OS === 'android' ? 'android-gpu' : DEFAULT_IOS_DELEGATE
     )
@@ -827,6 +828,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
             setSelectedMoveNetModelId(DEFAULT_MOVENET_MODEL_ID)
         }
     }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId])
+
+    // Update YOLO model when precision changes
+    useEffect(() => {
+        const filteredModels = YOLO_MODELS.filter(m => m.precision === selectedPrecision)
+        if (filteredModels.length > 0 && !filteredModels.some(m => m.id === selectedYoloModelId)) {
+            setSelectedYoloModelId(filteredModels[0].id)
+        }
+    }, [selectedPrecision])
 
     // Get zoom range from device
     const minZoom = device?.minZoom ?? 1
@@ -1101,6 +1110,23 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <Text style={styles.configHint}>Accelerazione hardware per il modello Pose</Text>
                             </View>
 
+                            {/* Precision selector */}
+                            <View style={styles.configSection}>
+                                <Text style={styles.configLabel}>Precisione modello</Text>
+                                <View style={styles.pickerWrap}>
+                                    <Picker
+                                        selectedValue={selectedPrecision}
+                                        onValueChange={(value: 'float16' | 'int8') => setSelectedPrecision(value)}
+                                        dropdownIconColor="#ff8c00"
+                                        style={styles.picker}
+                                    >
+                                        <Picker.Item label="Float16 (FP16)" value="float16" />
+                                        <Picker.Item label="Int8 (INT8)" value="int8" />
+                                    </Picker>
+                                </View>
+                                <Text style={styles.configHint}>FP16: precisione standard · INT8: quantizzato per CPU</Text>
+                            </View>
+
                             {/* YOLO model selector */}
                             <View style={styles.configSection}>
                                 <Text style={styles.configLabel}>Modello YOLO (palla/ferro)</Text>
@@ -1111,7 +1137,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}
                                     >
-                                        {YOLO_MODELS.map(model => (
+                                        {YOLO_MODELS.filter(m => m.precision === selectedPrecision).map(model => (
                                             <Picker.Item
                                                 key={model.id}
                                                 label={`${model.label} · input ${model.inputSize}×${model.inputSize}`}

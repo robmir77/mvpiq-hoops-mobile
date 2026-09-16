@@ -4,7 +4,8 @@
 // All vision modules follow the rule: NO image data crosses Worklet → JS boundary
 
 export * from './types'
-export * from './yoloParser'
+export * from './yoloParserFloat16'
+export * from './yoloParserInt8'
 export * from './yoloModels'
 export * from './telemetry'
 export * from './poseParser'

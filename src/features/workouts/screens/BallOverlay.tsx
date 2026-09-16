@@ -11,11 +11,14 @@ export function BallOverlay({
     ballW,
     ballH,
     ballConf,
+    ballSizeCategory,
+    adaptiveThreshold,
 }: any) {
     const [ballInfo, setBallInfo] = useState({
         confidence: '0.0',
         dimensions: '0x0',
         size: 'N/A',
+        adaptiveThreshold: '0.000',
     })
 
     useAnimatedReaction(
@@ -23,19 +26,30 @@ export function BallOverlay({
             const confidence = Number(ballConf?.value ?? 0)
             const width = Number(ballW?.value ?? 0)
             const height = Number(ballH?.value ?? 0)
+            const sizeCat = ballSizeCategory?.value ?? null
+            const adaptThresh = Number(adaptiveThreshold?.value ?? 0)
             
-            // Classifica dimensione palla
+            // Classifica dimensione palla usando la categoria dal YOLO parser
             let size = 'N/A'
-            const avgSize = (width + height) / 2
-            if (avgSize < 0.05) {
+            if (sizeCat === 'small') {
                 size = '🔴 PICCOLA'
-            } else if (avgSize < 0.15) {
+            } else if (sizeCat === 'medium') {
                 size = '🟡 MEDIA'
-            } else {
+            } else if (sizeCat === 'large') {
                 size = '🟢 GRANDE'
+            } else {
+                // Fallback: usa la vecchia logica hardcoded
+                const avgSize = (width + height) / 2
+                if (avgSize < 0.05) {
+                    size = '🔴 PICCOLA'
+                } else if (avgSize < 0.15) {
+                    size = '🟡 MEDIA'
+                } else {
+                    size = '🟢 GRANDE'
+                }
             }
             
-            return `${(confidence * 100).toFixed(1)}|${width.toFixed(0)}x${height.toFixed(0)}|${size}`
+            return `${(confidence * 100).toFixed(1)}|${width.toFixed(0)}x${height.toFixed(0)}|${size}|${adaptThresh.toFixed(3)}`
         },
         (current, previous) => {
             if (current !== previous) {
@@ -43,10 +57,11 @@ export function BallOverlay({
                 const confidence = parts[0] || '0.0'
                 const dimensions = parts[1] || '0x0'
                 const size = parts[2] || 'N/A'
-                runOnJS(setBallInfo)({ confidence, dimensions, size })
+                const adaptiveThreshold = parts[3] || '0.000'
+                runOnJS(setBallInfo)({ confidence, dimensions, size, adaptiveThreshold })
             }
         },
-        [ballConf, ballW, ballH]
+        [ballConf, ballW, ballH, ballSizeCategory, adaptiveThreshold]
     )
 
     const style = useAnimatedStyle(() => {
@@ -77,7 +92,7 @@ export function BallOverlay({
         <>
             <Animated.View style={style} />
             <Animated.Text style={labelStyle}>
-                🏀 {ballInfo.confidence}% ({ballInfo.dimensions}) {ballInfo.size}
+                🏀 {ballInfo.confidence}% ({ballInfo.dimensions}) {ballInfo.size} | Thresh: {ballInfo.adaptiveThreshold}
             </Animated.Text>
         </>
     )

@@ -1,7 +1,7 @@
-// src/vision/yoloParser.ts
+// src/vision/yoloParserInt8.ts
 //
-// YOLO output parser - runs in Worklet
-// Converts raw YOLO output to BallDetection interface
+// YOLO output parser for INT8 quantized models - runs in Worklet
+// Converts raw INT8 YOLO output to BallDetection interface
 // NO image data, only coordinates
 // Format: standard YOLOv8 TFLite [x, y, w, h, conf, cls] per detection
 // Requires grid/stride decoding for proper coordinate extraction
@@ -133,8 +133,8 @@ const MAX_RIM_BOX_SIZE = 0.9
 // Scale factor: min(512/1280, 512/720) = 0.4
 // Resized image: 512x288
 // Letterboxing: (512-288)/2 = 112px top and bottom
-export function parseYoloOutput(
-    output: Float32Array | Uint8Array | Int8Array,
+export function parseYoloOutputInt8(
+    output: Int8Array,
     threshold: number = CONF_THRESHOLD,
     frameWidth?: number,
     frameHeight?: number
@@ -167,8 +167,10 @@ export function parseYoloOutput(
     let tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }> = []
     const MAX_SAMPLES = 5
 
-    // Convert to float values if needed (for INT8 quantized output)
-    const isQuantized = output instanceof Uint8Array || output instanceof Int8Array
+    // Dequantization parameters for INT8 models
+    // Standard TFLite INT8 quantization: scale and zero point
+    const DEQUANT_SCALE = 1.0 / 255.0  // Typical scale for [0,255] range
+    const ZERO_POINT = 0
 
     // Channel-major layout:
     // [cx..., cy..., w..., h..., ballScore..., humanScore..., rimScore...]
@@ -224,17 +226,17 @@ export function parseYoloOutput(
       }
     }
 
-    // Simplified decoder - assume model outputs are already normalized [0,1]
-    // This is common for TFLite exports with NMS included
+    // Simplified decoder - dequantize INT8 values to float
+    // INT8 values are in range [-128, 127], convert to [0,1] using scale
     for (let i = 0; i < nDetections; i++) {
-      // Read raw values
-      const cxRaw = isQuantized ? output[i] / 255.0 : output[i]
-      const cyRaw = isQuantized ? output[nDetections + i] / 255.0 : output[nDetections + i]
-      const w  = isQuantized ? output[2 * nDetections + i] / 255.0 : output[2 * nDetections + i]
-      const h  = isQuantized ? output[3 * nDetections + i] / 255.0 : output[3 * nDetections + i]
-      const ballScore = isQuantized ? output[4 * nDetections + i] / 255.0 : output[4 * nDetections + i]
-      const humanScore = isQuantized ? output[5 * nDetections + i] / 255.0 : output[5 * nDetections + i]
-      const rimScore  = isQuantized ? output[6 * nDetections + i] / 255.0 : output[6 * nDetections + i]
+      // Dequantize INT8 values to float
+      const cxRaw = (output[i] - ZERO_POINT) * DEQUANT_SCALE
+      const cyRaw = (output[nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
+      const w = (output[2 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
+      const h = (output[3 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
+      const ballScore = (output[4 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
+      const humanScore = (output[5 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
+      const rimScore = (output[6 * nDetections + i] - ZERO_POINT) * DEQUANT_SCALE
 
       // New ballRim model outputs coordinates already normalized [0,1]
       // No coordinate inversion needed for this model
