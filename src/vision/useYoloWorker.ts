@@ -215,12 +215,14 @@ export const useYoloWorker = (
 
           // Use appropriate parser based on model precision
           let ball, player, rim
+          // High confidence threshold for rim detection to avoid false positives
+          const RIM_CONFIDENCE_THRESHOLD = 0.6
           if (selectedYoloModel?.precision === 'int8') {
             // INT8 model: despite the name, the model outputs Float32 tensors
             // Use Float32Array directly, no dequantization needed
             // Lower threshold from 0.012 to 0.005 to allow more detections
             const output = new Float32Array(rawOutput)
-            const result = parseYoloOutputInt8(output, 0.005, frame.width, frame.height)
+            const result = parseYoloOutputInt8(output, 0.005, frame.width, frame.height, RIM_CONFIDENCE_THRESHOLD)
             ball = result.ball
             player = result.player
             rim = result.rim
@@ -228,7 +230,7 @@ export const useYoloWorker = (
             // Float16 model: use Float32Array and standard parser
             // Float16 outputs raw logits, so use much lower threshold
             const output = new Float32Array(rawOutput)
-            const result = parseYoloOutputFloat16(output, 0.0005, frame.width, frame.height)
+            const result = parseYoloOutputFloat16(output, 0.0005, frame.width, frame.height, RIM_CONFIDENCE_THRESHOLD)
             ball = result.ball
             player = result.player
             rim = result.rim

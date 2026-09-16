@@ -90,7 +90,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
   },
 ]
 
-export const DEFAULT_YOLO_MODEL_ID = 'best_320_int8' // 512 int8 fails to load on Android (TFLite interpreter error)
+export const DEFAULT_YOLO_MODEL_ID = 'best_512_int8'
 
 // MoveNet model registry. Keep the model input size here so the camera
 // resizer and the TFLite input buffer can never drift apart.

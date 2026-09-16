@@ -1027,26 +1027,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     </Text>
                 </View>
                 
-                {/* Zoom controls */}
-                <View style={styles.zoomControls}>
-                    <TouchableOpacity 
-                        style={styles.zoomBtn} 
-                        onPress={handleZoomOut}
-                        disabled={zoom <= minZoom}
-                    >
-                        <Text style={[styles.zoomBtnText, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
-                    </TouchableOpacity>
-                    <View style={styles.zoomIndicator}>
-                        <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
-                    </View>
-                    <TouchableOpacity 
-                        style={styles.zoomBtn} 
-                        onPress={handleZoomIn}
-                        disabled={zoom >= maxZoom}
-                    >
-                        <Text style={[styles.zoomBtnText, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
-                    </TouchableOpacity>
-                </View>
 
                 {/* Camera config button */}
                 <TouchableOpacity
@@ -1152,6 +1132,27 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                     </Picker>
                                 </View>
                                 <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
+                                
+                                {/* Zoom controls */}
+                                <View style={styles.zoomControlsInline}>
+                                    <TouchableOpacity 
+                                        style={styles.zoomBtnSmall} 
+                                        onPress={handleZoomOut}
+                                        disabled={zoom <= minZoom}
+                                    >
+                                        <Text style={[styles.zoomBtnTextSmall, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
+                                    </TouchableOpacity>
+                                    <View style={styles.zoomIndicatorSmall}>
+                                        <Text style={styles.zoomTextSmall}>{Math.round(zoom * 100)}%</Text>
+                                    </View>
+                                    <TouchableOpacity 
+                                        style={styles.zoomBtnSmall} 
+                                        onPress={handleZoomIn}
+                                        disabled={zoom >= maxZoom}
+                                    >
+                                        <Text style={[styles.zoomBtnTextSmall, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
 
                             {/* MoveNet resolution selector */}
@@ -1307,44 +1308,44 @@ const styles = StyleSheet.create({
         fontSize: 12, fontWeight: '600',
         paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
     },
-    zoomControls: {
-        position: 'absolute',
-        right: 16,
-        top: '50%',
-        marginTop: -30,
+    zoomControlsInline: {
+        flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        marginTop: 8,
     },
-    zoomBtn: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.3)',
+    zoomBtnSmall: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    zoomBtnText: {
+    zoomBtnTextSmall: {
         color: '#fff',
-        fontSize: 24,
+        fontSize: 18,
         fontWeight: '700',
-        lineHeight: 28,
+        lineHeight: 22,
     },
     zoomBtnTextDisabled: {
         color: 'rgba(255,255,255,0.3)',
     },
-    zoomIndicator: {
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 12,
+    zoomIndicatorSmall: {
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.2)',
+        minWidth: 50,
+        alignItems: 'center',
     },
-    zoomText: {
+    zoomTextSmall: {
         color: '#fff',
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: '700',
     },
     configBtn: {

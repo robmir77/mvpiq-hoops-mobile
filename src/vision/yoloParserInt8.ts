@@ -137,7 +137,8 @@ export function parseYoloOutputInt8(
     output: Float32Array,
     threshold: number = CONF_THRESHOLD,
     frameWidth?: number,
-    frameHeight?: number
+    frameHeight?: number,
+    rimThreshold?: number
 ): {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   player: { x: number; y: number; width: number; height: number; confidence: number } | null
@@ -331,8 +332,9 @@ export function parseYoloOutputInt8(
         }
       }
 
-      // Add rim detection if score above threshold and box size is acceptable
-      if (rimProb >= threshold && cameraW <= normalizedMaxRimBoxSize && cameraH <= normalizedMaxRimBoxSize) {
+      // Add rim detection if score above rim threshold (or default threshold) and box size is acceptable
+      const effectiveRimThreshold = rimThreshold ?? threshold
+      if (rimProb >= effectiveRimThreshold && cameraW <= normalizedMaxRimBoxSize && cameraH <= normalizedMaxRimBoxSize) {
         const detection = {
           x: cameraCx,
           y: cameraCy,
