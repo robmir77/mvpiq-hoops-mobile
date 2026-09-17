@@ -52,32 +52,28 @@ export const useYoloWorker = (
   const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number) => {
     telemetryLogger.recordYoloInference(inferenceTime)
     telemetryLogger.incrementYoloDetections()
-    
+
     if (ball) {
       telemetryLogger.recordBallDetection(ball.confidence, frameCounter)
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
-      
-      // False positive detection
-      // Convert normalized bbox to pixel space for threshold comparison
+
+      // False positive detection - use normalized thresholds for consistency
       const bboxSizeNormalized = ball.width * ball.height
-      const CAMERA_WIDTH = 1280
-      const CAMERA_HEIGHT = 720
-      const bboxSizePixels = bboxSizeNormalized * CAMERA_WIDTH * CAMERA_HEIGHT
-      const MIN_BBOX_SIZE = 100
-      const MAX_BBOX_SIZE = 50000
-      
-      if (bboxSizePixels < MIN_BBOX_SIZE) {
+      const MIN_BBOX_SIZE_NORMALIZED = 0.0001
+      const MAX_BBOX_SIZE_NORMALIZED = 0.06
+
+      if (bboxSizeNormalized < MIN_BBOX_SIZE_NORMALIZED) {
         telemetryLogger.recordFalsePositive('small_bbox', ball.confidence)
-      } else if (bboxSizePixels > MAX_BBOX_SIZE) {
+      } else if (bboxSizeNormalized > MAX_BBOX_SIZE_NORMALIZED) {
         telemetryLogger.recordFalsePositive('large_bbox', ball.confidence)
       }
-      
+
       const COURT_MARGIN = 0.1
       if (ball.x < COURT_MARGIN || ball.x > 1 - COURT_MARGIN ||
           ball.y < COURT_MARGIN || ball.y > 1 - COURT_MARGIN) {
         telemetryLogger.recordFalsePositive('outside_court', ball.confidence)
       }
-      
+
       if (ball.confidence < 0.3) {
         telemetryLogger.recordFalsePositive('low_confidence', ball.confidence)
       }
@@ -242,8 +238,45 @@ export const useYoloWorker = (
 
           const t2 = performance.now()
           
-          // Update latest result
-          latestResultBall.value = ball
+          // Validate ball detection before updating tracking
+          let validBall = null
+          if (ball) {
+            const bboxSizeNormalized = ball.width * ball.height
+            const frameW = frame.width || 1280
+            const frameH = frame.height || 720
+            const frameArea = frameW * frameH
+            const bboxSizePixels = bboxSizeNormalized * frameArea
+
+            // Calculate thresholds based on actual frame resolution
+            // Normalized thresholds: 100px / (1280*720) ≈ 0.000108, 50000px / (1280*720) ≈ 0.054
+            const MIN_BBOX_SIZE_NORMALIZED = 0.0001
+            const MAX_BBOX_SIZE_NORMALIZED = 0.06
+            const COURT_MARGIN = 0.1
+            const MIN_CONFIDENCE = 0.3
+
+            const isValidSize = bboxSizeNormalized >= MIN_BBOX_SIZE_NORMALIZED && bboxSizeNormalized <= MAX_BBOX_SIZE_NORMALIZED
+            const isInCourt = ball.x >= COURT_MARGIN && ball.x <= 1 - COURT_MARGIN &&
+                            ball.y >= COURT_MARGIN && ball.y <= 1 - COURT_MARGIN
+            const hasMinConfidence = ball.confidence >= MIN_CONFIDENCE
+
+            if (isValidSize && isInCourt && hasMinConfidence) {
+              validBall = ball
+            } else if (__DEV__) {
+              console.log('[YoloWorker] Ball detection rejected:', {
+                reason: !isValidSize ? (bboxSizeNormalized < MIN_BBOX_SIZE_NORMALIZED ? 'small_bbox' : 'large_bbox') :
+                        !isInCourt ? 'outside_court' : 'low_confidence',
+                confidence: ball.confidence.toFixed(3),
+                bboxSizeNormalized: bboxSizeNormalized.toFixed(6),
+                bboxSizePixels: bboxSizePixels.toFixed(0),
+                frameResolution: `${frameW}x${frameH}`,
+                x: ball.x.toFixed(3),
+                y: ball.y.toFixed(3)
+              })
+            }
+          }
+          
+          // Update latest result (only valid ball detection)
+          latestResultBall.value = validBall
           latestResultPlayer.value = player
           latestResultRim.value = rim
           latestResultTimestamp.value = timestamp
@@ -255,8 +288,8 @@ export const useYoloWorker = (
             fps.value = calculatedFps
           }
 
-          // Record telemetry via scheduleOnRN with frame counter
-          scheduleOnRN(recordTelemetry, inferenceTime, ball, player, frameCounter)
+          // Record telemetry via scheduleOnRN with frame counter (only valid ball detection)
+          scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, frameCounter)
 
           if (__DEV__) {
             console.log(`[YoloWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)

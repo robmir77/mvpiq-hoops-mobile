@@ -140,6 +140,12 @@ export const saveCourtCalibration = async (
             : null,
     }
 
+    // Camera resolution configurabile
+    if (data.cameraResolution) {
+        body.cameraResolutionWidth = data.cameraResolution.width
+        body.cameraResolutionHeight = data.cameraResolution.height
+    }
+
     // Angoli campo opzionali
     if (data.courtCorners) {
         const { topLeft, topRight, bottomRight, bottomLeft } = data.courtCorners

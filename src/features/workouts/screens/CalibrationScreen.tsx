@@ -915,6 +915,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             const cal: CalibrationData = {
                 homographyMatrix,
                 hoopCenter: normHoop,
+                cameraResolution: selectedResolution ?? undefined,
                 courtCorners,
             }
             await saveCourtCalibration(sessionId, user.id, cal)

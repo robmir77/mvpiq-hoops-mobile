@@ -50,8 +50,6 @@ import { telemetryLogger } from '@/vision'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
-const CAMERA_RES_W = 1280  // Camera resolution width
-const CAMERA_RES_H = 720   // Camera resolution height
 const DEFAULT_CAMERA_RESOLUTION = { width: 1280, height: 720 }
 const DEFAULT_CAMERA_FPS = 30
 const DEFAULT_POSE_RESOLUTION = 192 // Only 192 is currently available
@@ -270,7 +268,7 @@ const getReleaseColor = (angle: number): string => {
 }
 
 const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, yoloInputSize,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, yoloInputSize, effectiveResolution,
 }: {
     trackingState: TrackingState | null  // Used only for events/analytics, not realtime visual data
     poseKeypoints: PoseKeypoints | null
@@ -301,6 +299,7 @@ const TrackingOverlay = React.memo(({
     }
     fpsMetrics?: { yoloFps: number; moveNetFps: number }
     yoloInputSize?: number
+    effectiveResolution: { width: number; height: number }
 }) => {
     // incrementOverlayRenders() - eseguito asincrono per evitare blocco sincrono
     setTimeout(() => incrementOverlayRenders(), 0)
@@ -316,17 +315,17 @@ const TrackingOverlay = React.memo(({
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
-    const mapYoloPointToView = (x: number, y: number) => {
-        // Coordinates from yoloParser are already in camera-normalized space (0..1 relative to 1280x720)
+    const mapYoloPointToView = (x: number, y: number, cameraResW: number, cameraResH: number) => {
+        // Coordinates from yoloParser are already in camera-normalized space (0..1 relative to camera resolution)
         // yoloParser already handles the YOLO contain conversion, so we skip that step
         
         // Reproduce Camera `resizeMode="cover"`: landscape frame -> portrait view.
         const coverScale = Math.max(
-            SCREEN_W / CAMERA_RES_W,
-            CAMERA_H / CAMERA_RES_H
+            SCREEN_W / cameraResW,
+            CAMERA_H / cameraResH
         )
-        const displayedW = CAMERA_RES_W * coverScale
-        const displayedH = CAMERA_RES_H * coverScale
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
         const cropX = (displayedW - SCREEN_W) / 2
         const cropY = (displayedH - CAMERA_H) / 2
 
@@ -345,8 +344,8 @@ const TrackingOverlay = React.memo(({
         }
     }
 
-    const pxCam = (x: number, y: number = 0) => mapYoloPointToView(x, y).x
-    const pyCam = (x: number, y: number) => mapYoloPointToView(x, y).y
+    const pxCam = (x: number, y: number = 0) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).x
+    const pyCam = (x: number, y: number) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).y
 
     // Calculate dynamic player size
     const playerSize = calculatePlayerSize(poseKeypoints)
@@ -526,7 +525,7 @@ const TrackingOverlay = React.memo(({
         adaptiveThreshold?: number
     }) => {
         setBallLabelVisible(data.showLabel)
-        const mappedPos = mapYoloPointToView(data.ballX, data.ballY)
+        const mappedPos = mapYoloPointToView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
         setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
         
         // Format ball size for display
@@ -642,9 +641,11 @@ const TrackingOverlay = React.memo(({
         if (points.length < 2) return null
 
         // Apply same coordinate transformation as ball and hoop (mapYoloPointToView)
-        const coverScale = Math.max(SCREEN_W / CAMERA_RES_W, CAMERA_H / CAMERA_RES_H)
-        const displayedW = CAMERA_RES_W * coverScale
-        const displayedH = CAMERA_RES_H * coverScale
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
         const cropX = (displayedW - SCREEN_W) / 2
         const cropY = (displayedH - CAMERA_H) / 2
 
@@ -1496,10 +1497,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
     const { user } = useContext(AuthContext) || {}
 
+    const [session, setSession]             = useState<WorkoutSession | null>(null)
+    const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
+
     // Resume-safe camera/model defaults. The WorkoutHome "Riprendi" route
     // intentionally passes only sessionId, so the session screen must never
     // forward undefined camera parameters to VisionCamera/the pipeline.
-    const effectiveResolution = selectedResolution ?? DEFAULT_CAMERA_RESOLUTION
+    // Priority: route.params > calibration > default
+    const effectiveResolution = React.useMemo(
+        () => selectedResolution ?? calibration?.cameraResolution ?? DEFAULT_CAMERA_RESOLUTION,
+        [selectedResolution, calibration?.cameraResolution]
+    )
     const effectiveFps = selectedFps ?? DEFAULT_CAMERA_FPS
     const effectivePoseResolution = selectedPoseResolution ?? DEFAULT_POSE_RESOLUTION
     const effectiveYoloModelId = yoloModelId ?? DEFAULT_YOLO_MODEL_ID
@@ -1512,8 +1520,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         [effectiveFps]
     )
 
-    const [session, setSession]             = useState<WorkoutSession | null>(null)
-    const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
     const [isEnding, setIsEnding]           = useState(false)
     const [isRecording, setIsRecording]     = useState(false)
     const isRecordingRef = useRef(false)
@@ -1969,6 +1975,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 const cal: CalibrationData = {
                     homographyMatrix: r.data.homographyMatrix ?? [],
                     hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
+                    cameraResolution: r.data.cameraResolutionWidth && r.data.cameraResolutionHeight
+                        ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
+                        : undefined,
                     courtCorners:     r.data.courtCorners,
                 }
                 console.log('[WorkoutSession] Calibration loaded', cal.hoopCenter)
@@ -2210,6 +2219,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     sharedValues={sharedValues}
                     fpsMetrics={fpsMetrics}
                     yoloInputSize={selectedYoloModel?.inputSize}
+                    effectiveResolution={effectiveResolution}
                 />
 
                 {/* Debug overlay calibrazione */}

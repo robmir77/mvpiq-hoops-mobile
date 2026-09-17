@@ -68,6 +68,7 @@ export interface AddShotEventPayload {
 export interface CalibrationData {
     homographyMatrix: number[]
     hoopCenter: { x: number; y: number }
+    cameraResolution?: { width: number; height: number }
     freeThrowLine?: { x: number; y: number }
     courtCorners?: {
         topLeft: { x: number; y: number }
