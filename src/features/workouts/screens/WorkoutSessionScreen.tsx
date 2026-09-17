@@ -633,7 +633,7 @@ const getReleaseColor = (angle: number): string => {
 // This component renders only React-based UI elements that don't need realtime updates
 // Badges, labels, debug panels, and pose skeleton update at 2-5 Hz
 const ReactOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution, showDebug, rimFromDetection,
 }: {
     trackingState: TrackingState | null
     poseKeypoints: PoseKeypoints | null
@@ -661,6 +661,8 @@ const ReactOverlay = React.memo(({
     }
     fpsMetrics?: { yoloFps: number; moveNetFps: number }
     effectiveResolution: { width: number; height: number }
+    showDebug?: boolean
+    rimFromDetection?: { x: number; y: number; width: number; height: number; confidence: number } | null
 }) => {
     // Track overlay renders for telemetry
     setTimeout(() => {
@@ -809,18 +811,37 @@ const ReactOverlay = React.memo(({
             h: data.ballHeight,
             conf: data.confidence,
         })
+        // Use rimFromDetection as fallback if sharedValues hoop data is not available
+        const hoopX = data.hoopX > 0 ? data.hoopX : (rimFromDetection?.x ?? 0)
+        const hoopY = data.hoopY > 0 ? data.hoopY : (rimFromDetection?.y ?? 0)
+        const hoopW = data.hoopWidth > 0 ? data.hoopWidth : (rimFromDetection?.width ?? 0)
+        const hoopH = data.hoopHeight > 0 ? data.hoopHeight : (rimFromDetection?.height ?? 0)
+        const hoopConf = data.hoopX > 0 ? data.confidence : (rimFromDetection?.confidence ?? 0)
         setDebugHoopData({
-            x: data.hoopX,
-            y: data.hoopY,
-            w: data.hoopWidth,
-            h: data.hoopHeight,
-            conf: data.confidence,
+            x: hoopX,
+            y: hoopY,
+            w: hoopW,
+            h: hoopH,
+            conf: hoopConf,
         })
-    }, [])
+    }, [rimFromDetection])
 
     // Low-frequency debug panel update (2Hz)
     const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
     const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
+
+    // Initialize debug data from rimFromDetection when sharedValues is not available
+    React.useEffect(() => {
+        if (!sharedValues && rimFromDetection) {
+            setDebugHoopData({
+                x: rimFromDetection.x,
+                y: rimFromDetection.y,
+                w: rimFromDetection.width,
+                h: rimFromDetection.height,
+                conf: rimFromDetection.confidence,
+            })
+        }
+    }, [sharedValues, rimFromDetection])
 
     useAnimatedReaction(
         () => ({
@@ -891,47 +912,59 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* YOLO Debug Panel */}
-            {sharedValues && (
+            {/* YOLO Debug Panel - shown when debug is enabled */}
+            {showDebug && (
                 <View pointerEvents="none" style={ovStyles.yoloDebugPanel}>
                     <Text style={ovStyles.yoloDebugTitle}>🔍 YOLO Raw</Text>
-                    <Text style={ovStyles.yoloDebugText}>
-                        X: {debugYoloData.x.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.yoloDebugText}>
-                        Y: {debugYoloData.y.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.yoloDebugText}>
-                        W: {debugYoloData.w.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.yoloDebugText}>
-                        H: {debugYoloData.h.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.yoloDebugText}>
-                        Conf: {(debugYoloData.conf * 100).toFixed(1)}%
-                    </Text>
+                    {debugYoloData.x === 0 && debugYoloData.y === 0 ? (
+                        <Text style={ovStyles.yoloDebugText}>Nessun dato</Text>
+                    ) : (
+                        <>
+                            <Text style={ovStyles.yoloDebugText}>
+                                X: {debugYoloData.x.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.yoloDebugText}>
+                                Y: {debugYoloData.y.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.yoloDebugText}>
+                                W: {debugYoloData.w.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.yoloDebugText}>
+                                H: {debugYoloData.h.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.yoloDebugText}>
+                                Conf: {(debugYoloData.conf * 100).toFixed(1)}%
+                            </Text>
+                        </>
+                    )}
                 </View>
             )}
 
-            {/* Hoop Debug Panel */}
-            {sharedValues && (
+            {/* Hoop Debug Panel - shown when debug is enabled */}
+            {showDebug && (
                 <View pointerEvents="none" style={ovStyles.hoopDebugPanel}>
                     <Text style={ovStyles.hoopDebugTitle}>🏀 Canestro</Text>
-                    <Text style={ovStyles.hoopDebugText}>
-                        X: {debugHoopData.x.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.hoopDebugText}>
-                        Y: {debugHoopData.y.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.hoopDebugText}>
-                        W: {debugHoopData.w.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.hoopDebugText}>
-                        H: {debugHoopData.h.toFixed(3)}
-                    </Text>
-                    <Text style={ovStyles.hoopDebugText}>
-                        Conf: {debugHoopData.conf.toFixed(3)}
-                    </Text>
+                    {debugHoopData.x === 0 && debugHoopData.y === 0 ? (
+                        <Text style={ovStyles.hoopDebugText}>Nessun dato</Text>
+                    ) : (
+                        <>
+                            <Text style={ovStyles.hoopDebugText}>
+                                X: {debugHoopData.x.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.hoopDebugText}>
+                                Y: {debugHoopData.y.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.hoopDebugText}>
+                                W: {debugHoopData.w.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.hoopDebugText}>
+                                H: {debugHoopData.h.toFixed(3)}
+                            </Text>
+                            <Text style={ovStyles.hoopDebugText}>
+                                Conf: {debugHoopData.conf.toFixed(3)}
+                            </Text>
+                        </>
+                    )}
                 </View>
             )}
 
@@ -970,12 +1003,12 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* Calibration Debug Panel */}
-            {calibration && (
+            {/* Calibration Debug Panel - only shown when debug is enabled */}
+            {showDebug && calibration && (
                 <SessionCalibDebug
                     calibration={calibration}
                     cameraMode={undefined}
-                    hoopPosition={null}
+                    hoopPosition={debugHoopData.x > 0 && debugHoopData.y > 0 ? { x: debugHoopData.x, y: debugHoopData.y } : null}
                 />
             )}
         </>
@@ -1176,7 +1209,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [jointAngles, setJointAngles]     = useState<Partial<JointAngles>>({})
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
-    const [showCalibDebug, setShowCalibDebug] = useState(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const [poseEnabled, setPoseEnabled] = useState(true)
     const [ballEnabled, setBallEnabled] = useState(true)
@@ -1792,16 +1824,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 <View style={styles.wsRow}>
                     <View style={[styles.wsDot, wsStatus==='connected' ? styles.wsDotOn : styles.wsDotOff]} />
                     <Text style={styles.wsText}>{wsStatus==='connected' ? 'Live' : 'Offline'}</Text>
-                    {calibration && (
-                        <TouchableOpacity
-                            onPress={() => setShowCalibDebug(v => !v)}
-                            style={[styles.calDebugBtn, showCalibDebug && styles.calDebugBtnOn]}
-                        >
-                            <Text style={[styles.calBadge, showCalibDebug && { color: '#fff' }]}>
-                                🔍 Cal {showCalibDebug ? 'ON' : 'OFF'}
-                            </Text>
-                        </TouchableOpacity>
-                    )}
                     <TouchableOpacity
                         onPress={() => {
                             console.log('[Telemetry] Button pressed, current state:', showTelemetry)
@@ -1868,16 +1890,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     sharedValues={sharedValues}
                     fpsMetrics={fpsMetrics}
                     effectiveResolution={effectiveResolution}
+                    showDebug={debugMode}
+                    rimFromDetection={rimFromDetection}
                 />
-
-                {/* Debug overlay calibrazione */}
-                {showCalibDebug && calibration && (
-                    <SessionCalibDebug
-                        calibration={calibration}
-                        cameraMode={cameraMode}
-                        hoopPosition={trackingState?.hoopPosition ?? null}
-                    />
-                )}
 
                 {/* Telemetry overlay */}
                 <TelemetryOverlay
