@@ -97,16 +97,24 @@ export const DEFAULT_YOLO_MODEL_ID = 'best_512_int8'
 // resizer and the TFLite input buffer can never drift apart.
 export const MOVENET_MODELS: MoveNetModelConfig[] = [
   {
-    id: 'movenet_lightning_int8_192',
-    fileName: 'movenet_lightning_int8.tflite',
+    id: 'movenet_lightning_192_int8',
+    fileName: 'movenet_lightning_192_int8.tflite',
     label: 'MoveNet Lightning · INT8 · 192',
     inputSize: 192,
     outputKeypoints: 17,
-    asset: require('../../assets/models/movenet_lightning_int8.tflite'),
+    asset: require('../../assets/models/movenet_lightning_192_int8.tflite'),
+  },
+  {
+    id: 'movenet_lightning_320_int8',
+    fileName: 'movenet_lightning_320_int8.tflite',
+    label: 'MoveNet Lightning · INT8 · 320',
+    inputSize: 320,
+    outputKeypoints: 17,
+    asset: require('../../assets/models/movenet_lightning_320_int8.tflite'),
   },
 ]
 
-export const DEFAULT_MOVENET_MODEL_ID = 'movenet_lightning_int8_192'
+export const DEFAULT_MOVENET_MODEL_ID = 'movenet_lightning_192_int8'
 
 // MoveNet model URI - loaded separately
 let moveNetModelUri: string | null = null

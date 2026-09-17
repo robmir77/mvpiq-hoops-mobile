@@ -1162,17 +1162,25 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <View style={styles.pickerWrap}>
                                     <Picker
                                         selectedValue={selectedPoseResolution}
-                                        onValueChange={value => setSelectedPoseResolution(Number(value))}
+                                        onValueChange={value => {
+                                            const resolution = Number(value)
+                                            setSelectedPoseResolution(resolution)
+                                            // Auto-select matching MoveNet model
+                                            const matchingModel = MOVENET_MODELS.find(m => m.inputSize === resolution)
+                                            if (matchingModel) {
+                                                setSelectedMoveNetModelId(matchingModel.id)
+                                            }
+                                        }}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}
                                     >
                                         <Picker.Item label="192 × 192" value={192} />
-                                        <Picker.Item label="320 × 320 · default" value={320} />
+                                        <Picker.Item label="320 × 320" value={320} />
                                     </Picker>
                                 </View>
                                 <Text style={styles.configHint}>
-                                    Elaborazione selezionata: {selectedPoseResolution}×{selectedPoseResolution}
-                                    {' · '}tensor TFLite Lightning: {MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}×{MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}
+                                    Elaborazione: {selectedPoseResolution}×{selectedPoseResolution}
+                                    {' · '}Modello TFLite: {MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}×{MOVENET_MODELS.find(m => m.id === selectedMoveNetModelId)?.inputSize ?? 192}
                                 </Text>
                             </View>
 
