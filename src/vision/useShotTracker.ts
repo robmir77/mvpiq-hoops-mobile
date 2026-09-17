@@ -965,7 +965,7 @@ export const useShotTracker = (
 
                     // Esegui YOLO prima per ottenere il player bbox corrente
                     if (yoloDue) {
-                        yoloWorker.processFrame(frame, timestamp, perfFramesProcessed.value)
+                        yoloWorker.processFrame(frame, timestamp, currentFrame)
                         
                         // Aggiorna playerBbox immediatamente dopo YOLO
                         // così MoveNet userà il bbox del frame corrente

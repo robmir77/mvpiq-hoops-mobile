@@ -375,11 +375,71 @@ const TrackingOverlay = React.memo(({
     const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0)
     const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0)
 
-    // Derived values per coordinate pixel - combinati per evitare letture da .value durante render
-    const ballXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.ballX.value ?? 0) * SCREEN_W)
-    const ballYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.ballY.value ?? 0) * CAMERA_H)
-    const hoopXPx = useDerivedValue(() => SCREEN_W - (sharedValues?.hoopX.value ?? 0) * SCREEN_W)
-    const hoopYPx = useDerivedValue(() => CAMERA_H - (sharedValues?.hoopY.value ?? 0) * CAMERA_H)
+    // Derived values per coordinate pixel - use mapYoloPointToView for proper resolution-aware mapping
+    const ballXPx = useDerivedValue(() => {
+        const x = sharedValues?.ballX.value ?? 0
+        const y = sharedValues?.ballY.value ?? 0
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        return SCREEN_W - screenX
+    })
+    const ballYPx = useDerivedValue(() => {
+        const x = sharedValues?.ballX.value ?? 0
+        const y = sharedValues?.ballY.value ?? 0
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        return CAMERA_H - screenY
+    })
+    const hoopXPx = useDerivedValue(() => {
+        const x = sharedValues?.hoopX.value ?? 0
+        const y = sharedValues?.hoopY.value ?? 0
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        return SCREEN_W - screenX
+    })
+    const hoopYPx = useDerivedValue(() => {
+        const x = sharedValues?.hoopX.value ?? 0
+        const y = sharedValues?.hoopY.value ?? 0
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        return CAMERA_H - screenY
+    })
 
     // FASE 4: Throttling locale per ridurre la frequenza di ricostrucción della traiettoria
     // La traiettoria viene ricostruita solo ogni 10 frame invece che ad ogni cambio
@@ -418,8 +478,38 @@ const TrackingOverlay = React.memo(({
         return Math.max(8, (avgSize * SCREEN_W) / 2)
     })
     
-    const ballXPxRaw = useDerivedValue(() => SCREEN_W - (ballXRawVal.value * SCREEN_W))
-    const ballYPxRaw = useDerivedValue(() => CAMERA_H - (ballYRawVal.value * CAMERA_H))
+    const ballXPxRaw = useDerivedValue(() => {
+        const x = ballXRawVal.value
+        const y = ballYRawVal.value
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        return SCREEN_W - screenX
+    })
+    const ballYPxRaw = useDerivedValue(() => {
+        const x = ballXRawVal.value
+        const y = ballYRawVal.value
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        return CAMERA_H - screenY
+    })
     
     // Derived values for trail color (moved from IIFE to main body)
     const trailColor = useDerivedValue(() => {
@@ -452,15 +542,31 @@ const TrackingOverlay = React.memo(({
         return sharedValues?.shotResult.value === 'MADE' ? 1 : 0
     })
     
-    // Derived value for hoop oval path (moved from IIFE to main body)
+    // Derived value for hoop oval path - use mapYoloPointToView for proper resolution-aware mapping
     const hoopOvalPath = useDerivedValue(() => {
         const w = (sharedValues?.hoopWidth.value ?? 0) > 0 ? (sharedValues?.hoopWidth.value ?? 0) * SCREEN_W : 40
         const h = (sharedValues?.hoopHeight.value ?? 0) > 0 ? (sharedValues?.hoopHeight.value ?? 0) * CAMERA_H : 40
         // Flatten the hoop: make it wider and shorter
         const flattenedW = w * 1.3  // 30% wider
         const flattenedH = h * 0.6  // 40% shorter (flattened)
-        const hoopXPxVal = (sharedValues?.hoopX.value ?? 0) * SCREEN_W
-        const hoopYPxVal = (sharedValues?.hoopY.value ?? 0) * CAMERA_H
+        
+        // Use mapYoloPointToView transformation
+        const x = sharedValues?.hoopX.value ?? 0
+        const y = sharedValues?.hoopY.value ?? 0
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        const hoopXPxVal = SCREEN_W - screenX
+        const hoopYPxVal = CAMERA_H - screenY
+        
         const rect = Skia.XYWHRect(
             hoopXPxVal - flattenedW / 2,
             hoopYPxVal - flattenedH / 2,
@@ -468,7 +574,7 @@ const TrackingOverlay = React.memo(({
             flattenedH
         )
         return Skia.Path.Oval(rect)
-    }, [sharedValues])
+    }, [sharedValues, effectiveResolution])
     
     // Local state per badge (non critico per performance)
     const [ballLabelVisible, setBallLabelVisible] = React.useState(false)

@@ -125,15 +125,15 @@ const MAX_RIM_BOX_SIZE = 0.9
 // Requires grid/stride decoding for proper coordinate extraction
 //
 // IMPORTANT: Coordinate system conversion
-// The resizer uses scaleMode: 'contain' which letterboxes the 1280x720 camera image
+// The resizer uses scaleMode: 'contain' which letterboxes the camera image
 // into the 512x512 YOLO tensor. We need to convert coordinates from the letterboxed
 // tensor space back to the original camera aspect ratio.
 //
-// Camera: 1280x720 (16:9 aspect ratio)
+// Camera: dynamic resolution (e.g., 1280x720, 1920x1080, etc.)
 // YOLO tensor: 512x512 (1:1 aspect ratio)
-// Scale factor: min(512/1280, 512/720) = 0.4
-// Resized image: 512x288
-// Letterboxing: (512-288)/2 = 112px top and bottom
+// Scale factor: calculated dynamically based on frame resolution
+// Resized image: calculated dynamically
+// Letterboxing: calculated dynamically
 export function parseYoloOutputInt8(
     output: Float32Array,
     threshold: number = CONF_THRESHOLD,

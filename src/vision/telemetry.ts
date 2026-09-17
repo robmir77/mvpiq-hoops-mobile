@@ -233,17 +233,17 @@ class TelemetryLogger {
 
     const jumps: number[] = []
     let totalSize = 0
-    const REFERENCE_RESOLUTION = 512
 
     for (let i = 1; i < this.bboxHistory.length; i++) {
       const prev = this.bboxHistory[i - 1]
       const curr = this.bboxHistory[i]
       
-      const dx = (curr.x - prev.x) * REFERENCE_RESOLUTION
-      const dy = (curr.y - prev.y) * REFERENCE_RESOLUTION
+      // Coordinates are already normalized (0-1), so calculate jumps directly in normalized space
+      const dx = curr.x - prev.x
+      const dy = curr.y - prev.y
       const jump = Math.sqrt(dx * dx + dy * dy)
       jumps.push(jump)
-      totalSize += (curr.w + curr.h) * REFERENCE_RESOLUTION
+      totalSize += curr.w + curr.h
     }
 
     const avgSize = totalSize / (2 * this.bboxHistory.length)
@@ -251,7 +251,8 @@ class TelemetryLogger {
     const maxJump = Math.max(...jumps)
     const variance = jumps.reduce((sum, jump) => sum + Math.pow(jump - avgJump, 2), 0) / jumps.length
     const jitter = Math.sqrt(variance)
-    const stableJumps = jumps.filter(j => j < 20).length
+    // Threshold for stable jumps in normalized space (0.02 = 2% of frame width/height)
+    const stableJumps = jumps.filter(j => j < 0.02).length
     const stability = (stableJumps / jumps.length) * 100
 
     return {
@@ -265,7 +266,7 @@ class TelemetryLogger {
 
   logBboxStability(): void {
     const metrics = this.getBboxStabilityMetrics()
-    console.log('[BBOX][STABILITY]', `avgJump=${metrics.avgJump.toFixed(1)}px maxJump=${metrics.maxJump.toFixed(1)}px jitter=${metrics.jitter.toFixed(1)}px stability=${metrics.stability.toFixed(0)}%`)
+    console.log('[BBOX][STABILITY]', `avgJump=${metrics.avgJump.toFixed(4)} maxJump=${metrics.maxJump.toFixed(4)} jitter=${metrics.jitter.toFixed(4)} stability=${metrics.stability.toFixed(0)}%`)
   }
 
   updatePipelineMetrics(received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
