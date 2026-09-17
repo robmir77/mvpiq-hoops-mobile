@@ -1,7 +1,4 @@
-// src/vision/telemetry.ts
-//
-// Structured telemetry system for model comparison
-// Tracks model performance, detection quality, and system metrics
+// Structured telemetry system for model comparison and performance tracking
 
 export interface ModelMetadata {
   name: string
@@ -38,7 +35,7 @@ export interface PlayerDetectionMetrics {
 }
 
 export interface MoveNetMetrics {
-  modelInput: number // 192 or 320
+  modelInput: number
   inferenceTimes: number[]
   fps: number
   avgMs: number
@@ -115,7 +112,7 @@ class TelemetryLogger {
   private ballDetections: Array<{ confidence: number; timestamp: number }> = []
   private playerDetections: Array<{ confidence: number; bbox: { x: number; y: number; w: number; h: number }; timestamp: number }> = []
   private moveNetInferenceTimes: number[] = []
-  private moveNetModelInput: number = 192 // Default 192 (only 192 is currently available)
+  private moveNetModelInput: number = 192
   private moveNetKeypoints: Array<{ confidence: number; timestamp: number }> = []
   private falsePositives: Map<string, number> = new Map()
   private bboxHistory: Array<{ x: number; y: number; w: number; h: number; timestamp: number }> = []
@@ -132,7 +129,6 @@ class TelemetryLogger {
     poseUpdates: 0,
     overlayRendered: 0,
   }
-  // Track frames with detection separately for correct detection rate calculation
   private ballDetectionFrames: Set<number> = new Set()
   private playerDetectionFrames: Set<number> = new Set()
   private batteryMetrics: BatteryMetrics | null = null
@@ -154,7 +150,6 @@ class TelemetryLogger {
 
   recordYoloInference(inferenceTimeMs: number): void {
     this.yoloInferenceTimes.push(inferenceTimeMs)
-    // Keep only last 300 samples (10 seconds at 30fps)
     if (this.yoloInferenceTimes.length > 300) {
       this.yoloInferenceTimes.shift()
     }
@@ -186,12 +181,9 @@ class TelemetryLogger {
 
   recordBallDetection(confidence: number, frameCounter?: number): void {
     this.ballDetections.push({ confidence, timestamp: Date.now() })
-    // Track frames with detection separately for correct detection rate
-    // Only count frames with unique frameCounter to avoid >100% detectionRate
     if (frameCounter !== undefined) {
       this.ballDetectionFrames.add(frameCounter)
     }
-    // Keep only last 600 samples (20 seconds at 30fps)
     if (this.ballDetections.length > 600) {
       this.ballDetections.shift()
     }
@@ -199,11 +191,9 @@ class TelemetryLogger {
 
   recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }, frameCounter?: number): void {
     this.playerDetections.push({ confidence, bbox, timestamp: Date.now() })
-    // Track frames with detection separately for correct detection rate
     if (frameCounter !== undefined) {
       this.playerDetectionFrames.add(frameCounter)
     }
-    // Keep only last 600 samples (20 seconds at 30fps)
     if (this.playerDetections.length > 600) {
       this.playerDetections.shift()
     }
@@ -211,7 +201,6 @@ class TelemetryLogger {
 
   recordMoveNetInference(inferenceTimeMs: number): void {
     this.moveNetInferenceTimes.push(inferenceTimeMs)
-    // Keep only last 300 samples (10 seconds at 30fps)
     if (this.moveNetInferenceTimes.length > 300) {
       this.moveNetInferenceTimes.shift()
     }
@@ -219,7 +208,6 @@ class TelemetryLogger {
 
   recordMoveNetKeypoints(confidence: number): void {
     this.moveNetKeypoints.push({ confidence, timestamp: Date.now() })
-    // Keep only last 300 samples (10 seconds at 30fps)
     if (this.moveNetKeypoints.length > 300) {
       this.moveNetKeypoints.shift()
     }
@@ -233,7 +221,6 @@ class TelemetryLogger {
 
   recordBbox(x: number, y: number, w: number, h: number): void {
     this.bboxHistory.push({ x, y, w, h, timestamp: Date.now() })
-    // Keep only last 300 samples (10 seconds at 30fps)
     if (this.bboxHistory.length > 300) {
       this.bboxHistory.shift()
     }
@@ -246,28 +233,24 @@ class TelemetryLogger {
 
     const jumps: number[] = []
     let totalSize = 0
+    const REFERENCE_RESOLUTION = 512
 
     for (let i = 1; i < this.bboxHistory.length; i++) {
       const prev = this.bboxHistory[i - 1]
       const curr = this.bboxHistory[i]
       
-      const dx = curr.x - prev.x
-      const dy = curr.y - prev.y
+      const dx = (curr.x - prev.x) * REFERENCE_RESOLUTION
+      const dy = (curr.y - prev.y) * REFERENCE_RESOLUTION
       const jump = Math.sqrt(dx * dx + dy * dy)
       jumps.push(jump)
-      
-      totalSize += curr.w + curr.h
+      totalSize += (curr.w + curr.h) * REFERENCE_RESOLUTION
     }
 
     const avgSize = totalSize / (2 * this.bboxHistory.length)
     const avgJump = jumps.reduce((a, b) => a + b, 0) / jumps.length
     const maxJump = Math.max(...jumps)
-    
-    // Jitter = standard deviation of jumps
     const variance = jumps.reduce((sum, jump) => sum + Math.pow(jump - avgJump, 2), 0) / jumps.length
     const jitter = Math.sqrt(variance)
-    
-    // Stability = percentage of jumps under threshold (20px)
     const stableJumps = jumps.filter(j => j < 20).length
     const stability = (stableJumps / jumps.length) * 100
 
@@ -353,7 +336,7 @@ class TelemetryLogger {
       this.batteryMetrics.endLevel = endLevel
       this.batteryMetrics.drain = this.batteryMetrics.startLevel - endLevel
       this.batteryMetrics.temperatureEnd = temperature
-      this.batteryMetrics.duration = (Date.now() - this.testStartTime) / 1000 // seconds
+      this.batteryMetrics.duration = (Date.now() - this.testStartTime) / 1000
       
       if (this.deviceMetrics) {
         this.deviceMetrics.temperature = temperature
@@ -380,8 +363,6 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    // Use frames with detection for correct detection rate
-    // ballDetectionFrames tracks unique frameCounter values, ensuring detectionRate never exceeds 100%
     const framesWithDetection = this.ballDetectionFrames.size
     const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
 
@@ -434,15 +415,10 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    // Use frames with detection for correct detection rate
     const framesWithDetection = this.playerDetectionFrames.size
     const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
-
-    // Calculate average bbox size
     const bboxSizes = this.playerDetections.map(d => d.bbox.w * d.bbox.h)
     const avgBboxSize = bboxSizes.reduce((a, b) => a + b, 0) / bboxSizes.length
-
-    // Calculate bbox stability
     if (this.playerDetections.length < 2) {
       return {
         framesProcessed,
@@ -467,7 +443,7 @@ class TelemetryLogger {
     }
 
     const avgJump = jumps.reduce((a, b) => a + b, 0) / jumps.length
-    const stableJumps = jumps.filter(j => j < 30).length // 30px threshold for player
+    const stableJumps = jumps.filter(j => j < 30).length
     const bboxStability = (stableJumps / jumps.length) * 100
 
     return {
@@ -507,19 +483,16 @@ class TelemetryLogger {
     const maxMs = Math.max(...this.moveNetInferenceTimes)
     const fps = 1000 / avgMs
 
-    // Calculate keypoint metrics
     const validKeypoints = this.moveNetKeypoints.length
     const avgConfidence = validKeypoints > 0 
       ? this.moveNetKeypoints.map(k => k.confidence).reduce((a, b) => a + b, 0) / validKeypoints 
       : 0
-
-    // Calculate keypoint stability
     let keypointStability = 100
     if (this.moveNetKeypoints.length > 1) {
       const confidences = this.moveNetKeypoints.map(k => k.confidence)
       const variance = confidences.reduce((sum, conf) => sum + Math.pow(conf - avgConfidence, 2), 0) / confidences.length
       const stdDev = Math.sqrt(variance)
-      keypointStability = Math.max(0, 100 - (stdDev * 100)) // Lower stdDev = higher stability
+      keypointStability = Math.max(0, 100 - (stdDev * 100))
     }
 
     return {
@@ -542,7 +515,6 @@ class TelemetryLogger {
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
     if (!this.modelMetadata || !this.batteryMetrics) {
-      console.warn('[TELEMETRY] Cannot generate summary: missing model or battery data')
       return null
     }
 
@@ -620,7 +592,7 @@ class TelemetryLogger {
 
   exportTestSummary(cameraFPS: number, moveNetFPS: number): string {
     const summary = this.generateTestSummary(cameraFPS, moveNetFPS)
-    if (!summary) return 'Error: Cannot generate summary - missing model or battery data'
+    if (!summary) return 'Error: Cannot generate summary'
 
     return `========== MVPiQ VISION SUMMARY ==========
 
@@ -695,5 +667,4 @@ Current=${summary.battery.endLevel}%
   }
 }
 
-// Singleton instance
 export const telemetryLogger = new TelemetryLogger()

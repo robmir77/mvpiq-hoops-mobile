@@ -107,10 +107,10 @@ const MAX_BALL_BOX_SIZE = 0.8
 // for the current detector and is treated as noise. This is deliberately
 // a radius threshold, not a minimum accepted ball size: above it, smaller
 // balls are made progressively easier to accept via the adaptive threshold.
-// 0.025 radius = 0.05 normalized diameter (~25 px at 512x512).
-// Decreased from 0.03 to 0.025 to accept smaller balls
+// 0.02 radius = 0.04 normalized diameter (~20 px at 512x512).
+// Decreased from 0.03 to 0.025 to 0.02 to accept smaller balls
 // Normalized to reference resolution 512
-const MIN_BALL_RADIUS = 0.025
+const MIN_BALL_RADIUS = 0.02
 // For rim, keep a more conservative filter.
 // Increased from 0.8 to 0.9 to accommodate larger rim detections
 // Normalized to reference resolution 512
