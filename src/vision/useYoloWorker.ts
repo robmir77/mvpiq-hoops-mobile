@@ -54,6 +54,7 @@ export const useYoloWorker = (
     telemetryLogger.incrementYoloDetections()
 
     if (ball) {
+      // Only record frame-level detection once per frame, not per candidate
       telemetryLogger.recordBallDetection(ball.confidence, frameCounter)
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
 
