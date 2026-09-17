@@ -135,6 +135,7 @@ class TelemetryLogger {
   // Track frames with detection separately for correct detection rate calculation
   private ballDetectionFrames: Set<number> = new Set()
   private playerDetectionFrames: Set<number> = new Set()
+  private ballDetectionCounter: number = 0
   private batteryMetrics: BatteryMetrics | null = null
   private deviceMetrics: DeviceMetrics | null = null
   private testStartTime: number | null = null
@@ -189,6 +190,9 @@ class TelemetryLogger {
     // Track frames with detection separately for correct detection rate
     if (frameCounter !== undefined) {
       this.ballDetectionFrames.add(frameCounter)
+    } else {
+      // If no frameCounter provided, increment a counter for JS-side detections
+      this.ballDetectionCounter++
     }
     // Keep only last 600 samples (20 seconds at 30fps)
     if (this.ballDetections.length > 600) {
@@ -380,7 +384,10 @@ class TelemetryLogger {
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
     // Use frames with detection for correct detection rate
-    const framesWithDetection = this.ballDetectionFrames.size
+    // If frameCounter tracking is not used (ballDetectionFrames empty), use ballDetectionCounter
+    const framesWithDetection = this.ballDetectionFrames.size > 0
+      ? this.ballDetectionFrames.size
+      : Math.min(this.ballDetectionCounter, framesProcessed)
     const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
 
     return {
@@ -673,6 +680,7 @@ Current=${summary.battery.endLevel}%
     this.bboxHistory = []
     this.ballDetectionFrames.clear()
     this.playerDetectionFrames.clear()
+    this.ballDetectionCounter = 0
     this.pipelineMetrics = {
       received: 0,
       processed: 0,

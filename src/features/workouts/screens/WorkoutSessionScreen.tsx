@@ -34,6 +34,7 @@ import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useCameraPipeline } from '@/vision'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
+import { telemetryLogger } from '@/vision/telemetry'
 import {
     WorkoutSession, ShotResult,
     TrackingState, PoseKeypoints, CalibrationData, CameraMode,
@@ -46,7 +47,6 @@ import {
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
-import { telemetryLogger } from '@/vision'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -302,7 +302,10 @@ const TrackingOverlay = React.memo(({
     effectiveResolution: { width: number; height: number }
 }) => {
     // incrementOverlayRenders() - eseguito asincrono per evitare blocco sincrono
-    setTimeout(() => incrementOverlayRenders(), 0)
+    setTimeout(() => {
+        incrementOverlayRenders()
+        telemetryLogger.incrementOverlayRendered()
+    }, 0)
 
     // Conversion functions: normalized coordinates → screen pixels
     //
