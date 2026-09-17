@@ -79,15 +79,16 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_640_float16.tflite"),
   },
-  {
-    id: "best_640_int8",
-    fileName: "best_640_int8.tflite",
-    label: "best · 640 · INT8",
-    inputSize: 640,
-    outputDetections: 8400,
-    precision: 'int8',
-    asset: require("../../assets/models/best_640_int8.tflite"),
-  },
+  // Commented out - model fails to load
+  // {
+  //   id: "best_640_int8",
+  //   fileName: "best_640_int8.tflite",
+  //   label: "best · 640 · INT8",
+  //   inputSize: 640,
+  //   outputDetections: 8400,
+  //   precision: 'int8',
+  //   asset: require("../../assets/models/best_640_int8.tflite"),
+  // },
 ]
 
 export const DEFAULT_YOLO_MODEL_ID = 'best_512_int8'
