@@ -151,7 +151,6 @@ export const useMoveNetWorker = (
     isProcessing.value = true
 
     let resized: any = null
-    let croppedFrame: any = null
     let cropInfo: PlayerCropResult | null = null
     
     try {
@@ -163,11 +162,11 @@ export const useMoveNetWorker = (
       // Calculate crop region if player bbox is available
       if (bbox && enabled) {
         // First convert YUV frame to RGB using resizer, then crop
-        const tempResized = poseResizer?.resize(frame)
+        resized = poseResizer?.resize(frame)
         
-        if (tempResized) {
+        if (resized) {
           try {
-            const pixelBuffer = tempResized.getPixelBuffer()
+            const pixelBuffer = resized.getPixelBuffer()
             
             if (pixelBuffer) {
               // Inline crop calculation (worklet-safe)
@@ -317,9 +316,7 @@ export const useMoveNetWorker = (
 
                 scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, cropInfo)
                 
-                // Dispose temporary resized frame
-                tempResized.dispose()
-                frame.dispose()
+                // resized will be disposed in finally block
                 isProcessing.value = false
                 lastInferenceAt.value = Date.now()
                 return
@@ -328,7 +325,7 @@ export const useMoveNetWorker = (
           } catch (cropError) {
             console.warn('[MoveNetWorker] Crop failed, falling back to full frame:', cropError)
             cropInfo = null
-            if (tempResized) tempResized.dispose()
+            // resized will be disposed in finally block
           }
         }
       }
@@ -407,11 +404,12 @@ export const useMoveNetWorker = (
       console.error('[MoveNetWorker] Error processing frame:', error)
     } finally {
       // Dispose GPUFrame to release GPU resources
-      if (croppedFrame) {
-        croppedFrame.dispose()
-      }
       if (resized) {
-        resized.dispose()
+        try {
+          resized.dispose()
+        } catch (e) {
+          // Ignore if already disposed
+        }
       }
       isProcessing.value = false
       lastInferenceAt.value = Date.now()

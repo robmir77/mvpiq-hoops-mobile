@@ -641,22 +641,46 @@ const TrackingOverlay = React.memo(({
         const { points } = data
         if (points.length < 2) return null
 
+        // Apply same coordinate transformation as ball and hoop (mapYoloPointToView)
+        const coverScale = Math.max(SCREEN_W / CAMERA_RES_W, CAMERA_H / CAMERA_RES_H)
+        const displayedW = CAMERA_RES_W * coverScale
+        const displayedH = CAMERA_RES_H * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+
+        const transformPoint = (x: number, y: number) => {
+            const displayedX = x * displayedW
+            const displayedY = y * displayedH
+            const screenX = displayedX - cropX
+            const screenY = displayedY - cropY
+            // Mirror both axes for camera preview mirroring
+            return { x: SCREEN_W - screenX, y: CAMERA_H - screenY }
+        }
+
+        const p0 = transformPoint(points[0].x, points[0].y)
         const p = Skia.Path.Make()
-        p.moveTo(points[0].x * SCREEN_W, points[0].y * CAMERA_H)
+        p.moveTo(p0.x, p0.y)
 
         if (points.length === 2) {
-            p.lineTo(points[1].x * SCREEN_W, points[1].y * CAMERA_H)
+            const p1 = transformPoint(points[1].x, points[1].y)
+            p.lineTo(p1.x, p1.y)
         } else {
             for (let i = 0; i < points.length - 1; i++) {
-                const p0 = points[Math.max(0, i - 1)]
-                const p1 = points[i]
-                const p2 = points[i + 1]
-                const p3 = points[Math.min(points.length - 1, i + 2)]
-                const cp1x = p1.x * SCREEN_W + (p2.x * SCREEN_W - p0.x * SCREEN_W) / 6
-                const cp1y = p1.y * CAMERA_H + (p2.y * CAMERA_H - p0.y * CAMERA_H) / 6
-                const cp2x = p2.x * SCREEN_W - (p3.x * SCREEN_W - p1.x * SCREEN_W) / 6
-                const cp2y = p2.y * CAMERA_H - (p3.y * CAMERA_H - p1.y * CAMERA_H) / 6
-                p.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x * SCREEN_W, p2.y * CAMERA_H)
+                const pt0 = points[Math.max(0, i - 1)]
+                const pt1 = points[i]
+                const pt2 = points[i + 1]
+                const pt3 = points[Math.min(points.length - 1, i + 2)]
+                
+                const t0 = transformPoint(pt0.x, pt0.y)
+                const t1 = transformPoint(pt1.x, pt1.y)
+                const t2 = transformPoint(pt2.x, pt2.y)
+                const t3 = transformPoint(pt3.x, pt3.y)
+                
+                const cp1x = t1.x + (t2.x - t0.x) / 6
+                const cp1y = t1.y + (t2.y - t0.y) / 6
+                const cp2x = t2.x - (t3.x - t1.x) / 6
+                const cp2y = t2.y - (t3.y - t1.y) / 6
+                p.cubicTo(cp1x, cp1y, cp2x, cp2y, t2.x, t2.y)
             }
         }
 

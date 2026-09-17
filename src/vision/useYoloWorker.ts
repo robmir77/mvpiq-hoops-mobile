@@ -269,7 +269,11 @@ export const useYoloWorker = (
     } finally {
       // Dispose GPUFrame to release GPU resources
       if (resized) {
-        resized.dispose()
+        try {
+          resized.dispose()
+        } catch (e) {
+          // Ignore if already disposed
+        }
       }
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
