@@ -148,8 +148,10 @@ export function parseYoloOutputInt8(
   'worklet'; // eslint-disable-line
 
   // Letterboxing parameters for contain mode
-  // Camera: 1280x720 (16:9), YOLO: dynamic (1:1)
-  const CAMERA_ASPECT = 1280 / 720  // 1.777...
+  // Camera: dynamic resolution, YOLO: dynamic (1:1)
+  const effectiveFrameWidth = frameWidth || 1280
+  const effectiveFrameHeight = frameHeight || 720
+  const CAMERA_ASPECT = effectiveFrameWidth / effectiveFrameHeight
   let TENSOR_SIZE = 512 // Default, will be updated after nDetections is calculated
 
   try {
@@ -195,9 +197,9 @@ export function parseYoloOutputInt8(
       console.log('[YOLO PARSER] TENSOR_SIZE:', TENSOR_SIZE, 'nDetections:', nDetections)
     }
 
-    // Calculate letterboxing parameters based on dynamic TENSOR_SIZE
-    const SCALE = Math.min(TENSOR_SIZE / 1280, TENSOR_SIZE / 720)
-    const RESIZED_HEIGHT = 720 * SCALE
+    // Calculate letterboxing parameters based on dynamic TENSOR_SIZE and frame resolution
+    const SCALE = Math.min(TENSOR_SIZE / effectiveFrameWidth, TENSOR_SIZE / effectiveFrameHeight)
+    const RESIZED_HEIGHT = effectiveFrameHeight * SCALE
     const LETTERBOX_OFFSET = (TENSOR_SIZE - RESIZED_HEIGHT) / 2
 
     // Normalize thresholds to reference resolution 512
@@ -225,10 +227,10 @@ export function parseYoloOutputInt8(
 
       // Normalize to camera space (0..1)
       return {
-        cx: cx_camera / 1280,
-        cy: cy_camera / 720,
-        w: w_camera / 1280,
-        h: h_camera / 720
+        cx: cx_camera / effectiveFrameWidth,
+        cy: cy_camera / effectiveFrameHeight,
+        w: w_camera / effectiveFrameWidth,
+        h: h_camera / effectiveFrameHeight
       }
     }
 

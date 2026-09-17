@@ -461,13 +461,14 @@ export const useShotTracker = (
                     const totalFrames =
                         detectionHistory.current.length
 
-                    const detectedFrames =
+                    // Count entries with detection (each entry represents one frame sample)
+                    const framesWithDetection =
                         detectionHistory.current.filter(
                             d => d.confidence > 0
                         ).length
 
                     const detectionRate =
-                        detectedFrames /
+                        framesWithDetection /
                         totalFrames
 
                     const adjustment =
