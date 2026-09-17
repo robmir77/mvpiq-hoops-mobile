@@ -58,13 +58,17 @@ export const useYoloWorker = (
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
       
       // False positive detection
-      const bboxSize = ball.width * ball.height
+      // Convert normalized bbox to pixel space for threshold comparison
+      const bboxSizeNormalized = ball.width * ball.height
+      const CAMERA_WIDTH = 1280
+      const CAMERA_HEIGHT = 720
+      const bboxSizePixels = bboxSizeNormalized * CAMERA_WIDTH * CAMERA_HEIGHT
       const MIN_BBOX_SIZE = 100
       const MAX_BBOX_SIZE = 50000
       
-      if (bboxSize < MIN_BBOX_SIZE) {
+      if (bboxSizePixels < MIN_BBOX_SIZE) {
         telemetryLogger.recordFalsePositive('small_bbox', ball.confidence)
-      } else if (bboxSize > MAX_BBOX_SIZE) {
+      } else if (bboxSizePixels > MAX_BBOX_SIZE) {
         telemetryLogger.recordFalsePositive('large_bbox', ball.confidence)
       }
       
