@@ -185,97 +185,15 @@ const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = 
     ['rightHip','rightKnee'],       ['rightKnee','rightAnkle'],
 ]
 const KP_THRESH = 0.35
-
-// Color map per differenziare gli arti
-const KP_COLORS: Record<keyof PoseKeypoints, { main: string; glow: string; label: string }> = {
-    leftShoulder:  { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Spalla SX' },
-    rightShoulder: { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Spalla DX' },
-    leftElbow:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Gomito SX' },
-    rightElbow:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Gomito DX' },
-    leftWrist:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Polso SX' },
-    rightWrist:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Polso DX' },
-    leftHip:       { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca SX' },
-    rightHip:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca DX' },
-    leftKnee:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio SX' },
-    rightKnee:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio DX' },
-    leftAnkle:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia SX' },
-    rightAnkle:    { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia DX' },
-}
-
-// Color map per le linee del skeleton
-const CONNECTION_COLORS: Record<string, string> = {
-    'leftShoulder-rightShoulder': '#a855f7',
-    'leftShoulder-leftElbow': '#ef4444',
-    'leftElbow-leftWrist': '#ef4444',
-    'rightShoulder-rightElbow': '#3b82f6',
-    'rightElbow-rightWrist': '#3b82f6',
-    'leftShoulder-leftHip': '#a855f7',
-    'rightShoulder-rightHip': '#a855f7',
-    'leftHip-rightHip': '#a855f7',
-    'leftHip-leftKnee': '#22c55e',
-    'leftKnee-leftAnkle': '#22c55e',
-    'rightHip-rightKnee': '#22c55e',
-    'rightKnee-rightAnkle': '#22c55e',
-}
-// Punti di ritardo scia: salta gli ultimi N punti della traiettoria
-// per creare l'effetto "cometa — la scia segue la palla con un ritardo visivo"
 const TRAIL_DELAY_POINTS = 5
 
-// ── Game-style effects ───────────────────────────────────────────────────────
-// Calculate player size from pose keypoints for dynamic circle
-const calculatePlayerSize = (poseKeypoints: PoseKeypoints | null): number => {
-    if (!poseKeypoints) return 0
-    const leftShoulder = poseKeypoints.leftShoulder
-    const rightShoulder = poseKeypoints.rightShoulder
-    const leftHip = poseKeypoints.leftHip
-    const rightHip = poseKeypoints.rightHip
-    
-    if (leftShoulder && rightShoulder && leftHip && rightHip) {
-        const shoulderWidth = Math.sqrt(
-            Math.pow(leftShoulder.x - rightShoulder.x, 2) +
-            Math.pow(leftShoulder.y - rightShoulder.y, 2)
-        )
-        const hipWidth = Math.sqrt(
-            Math.pow(leftHip.x - rightHip.x, 2) +
-            Math.pow(leftHip.y - rightHip.y, 2)
-        )
-        // Average of shoulder and hip width, scaled for visual effect
-        return ((shoulderWidth + hipWidth) / 2) * SCREEN_W * 0.8
-    }
-    return 0
-}
-
-// Calculate shot power from velocity
-const calculateShotPower = (velocity: { vx: number; vy: number } | null): number => {
-    if (!velocity) return 0
-    const speed = Math.sqrt(velocity.vx * velocity.vx + velocity.vy * velocity.vy)
-    // Normalize to 0-100 range for display
-    return Math.min(100, Math.round(speed * 20))
-}
-
-// Helper function for biomechanical angle coloring
-const getAngleColor = (angle: number): string => {
-    if (angle >= 80 && angle <= 110) return '#22c55e' // Green: optimal
-    if (angle >= 60 && angle <= 130) return '#f59e0b' // Yellow: acceptable
-    return '#ef4444' // Red: poor
-}
-
-// Helper function for release angle color coding
-const getReleaseColor = (angle: number): string => {
-    if (angle >= 45 && angle <= 55) return '#22c55e' // Green: optimal
-    if (angle >= 35 && angle <= 65) return '#f59e0b' // Yellow: acceptable
-    return '#ef4444' // Red: poor
-}
-
-const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, yoloInputSize, effectiveResolution,
+// ─── Realtime Ball Overlay (Pure Skia, no React state) ───────────────────────
+// This component renders only the realtime ball/hoop/trail using SharedValues
+// It is completely independent of React render cycle - updates at 30/60 FPS via Skia
+const RealtimeBallOverlay = React.memo(({
+    sharedValues,
+    effectiveResolution,
 }: {
-    trackingState: TrackingState | null  // Used only for events/analytics, not realtime visual data
-    poseKeypoints: PoseKeypoints | null
-    jointAngles?: Partial<JointAngles>
-    releaseAngle?: number
-    arcHeight?: number
-    calibration: CalibrationData | null
     sharedValues?: {
         ballX: any
         ballY: any
@@ -287,95 +205,18 @@ const TrackingOverlay = React.memo(({
         hoopY: any
         hoopWidth: any
         hoopHeight: any
-        confidence: any
-        ballSizeCategory: any
-        adaptiveThreshold: any
         inFlight: any
-        shotDetected: any
-        showShotTrail: any
         shotResult: any
+        showShotTrail: any
         trajectoryPoints: any
         trajectoryPointCount: any
     }
-    fpsMetrics?: { yoloFps: number; moveNetFps: number }
-    yoloInputSize?: number
     effectiveResolution: { width: number; height: number }
 }) => {
-    // incrementOverlayRenders() - eseguito asincrono per evitare blocco sincrono
-    setTimeout(() => {
-        incrementOverlayRenders()
-        telemetryLogger.incrementOverlayRendered()
-    }, 0)
-
-    // Conversion functions: normalized coordinates → screen pixels
-    //
-    // IMPORTANT — YOLO and the preview do NOT share the same coordinate space:
-    // 1) YOLO input is a square with `contain` (1280x720 -> 512x288 + 112px top/bottom padding).
-    // 2) The Camera preview is portrait with `cover`, so the landscape frame is cropped left/right.
-    //
-    // The old overlay mapped YOLO's square-normalized coordinates directly to the portrait view.
-    // That produced the visible vertical/horizontal offset of the orange ball circle.
-    const px = (x: number) => x * SCREEN_W
-    const py = (y: number) => y * CAMERA_H
-
-    const mapYoloPointToView = (x: number, y: number, cameraResW: number, cameraResH: number) => {
-        // Coordinates from yoloParser are already in camera-normalized space (0..1 relative to camera resolution)
-        // yoloParser already handles the YOLO contain conversion, so we skip that step
-        
-        // Reproduce Camera `resizeMode="cover"`: landscape frame -> portrait view.
-        const coverScale = Math.max(
-            SCREEN_W / cameraResW,
-            CAMERA_H / cameraResH
-        )
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-
-        // Convert camera-normalized coordinates to displayed coordinates
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        
-        // Apply crop offset to get screen coordinates
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-
-        // Invert both axes for camera preview mirroring
-        return {
-            x: SCREEN_W - screenX,
-            y: CAMERA_H - screenY,
-        }
-    }
-
-    const pxCam = (x: number, y: number = 0) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).x
-    const pyCam = (x: number, y: number) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).y
-
-    // Calculate dynamic player size
-    const playerSize = calculatePlayerSize(poseKeypoints)
-    const shotPower = calculateShotPower(trackingState?.ballVelocity ?? null)
-
-    // Calculate player center position (average of hips)
-    const playerCenterX = poseKeypoints?.leftHip && poseKeypoints?.rightHip
-        ? (poseKeypoints.leftHip.x + poseKeypoints.rightHip.x) / 2
-        : null
-    const playerCenterY = poseKeypoints?.leftHip && poseKeypoints?.rightHip
-        ? (poseKeypoints.leftHip.y + poseKeypoints.rightHip.y) / 2
-        : null
-
     // Memoize Skia path objects to avoid continuous allocations
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
-    const hoopPathRef = React.useRef(Skia.Path.Make())
 
-    // Derived values per Skia (leggono direttamente dai Shared Values - no React bridge)
-    const ballX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
-    const ballY = useDerivedValue(() => sharedValues?.ballY.value ?? 0)
-    const ballWidth = useDerivedValue(() => sharedValues?.ballWidth.value ?? 0)
-    const hoopX = useDerivedValue(() => sharedValues?.hoopX.value ?? 0)
-    const hoopY = useDerivedValue(() => sharedValues?.hoopY.value ?? 0)
-    const hoopWidth = useDerivedValue(() => sharedValues?.hoopWidth.value ?? 0)
-    const hoopHeight = useDerivedValue(() => sharedValues?.hoopHeight.value ?? 0)
-
-    // Derived values per coordinate pixel - use mapYoloPointToView for proper resolution-aware mapping
+    // Derived values for ball position - use mapYoloPointToView for proper resolution-aware mapping
     const ballXPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
         const y = sharedValues?.ballY.value ?? 0
@@ -441,43 +282,9 @@ const TrackingOverlay = React.memo(({
         return CAMERA_H - screenY
     })
 
-    // FASE 4: Throttling locale per ridurre la frequenza di ricostrucción della traiettoria
-    // La traiettoria viene ricostruita solo ogni 10 frame invece che ad ogni cambio
-    const trajectoryUpdateCounter = useRef(0)
-    const shouldUpdateTrajectory = React.useMemo(() => {
-        trajectoryUpdateCounter.current++
-        return trajectoryUpdateCounter.current % 10 === 0
-    }, [(trackingState as any)?.trajectory?.length])
-
-    // FASE 5: Eliminated React state bridges for visual data
-    // Now using direct SharedValue reads via useDerivedValue - no runOnJS, no React state updates
-    const showShotTrail = useDerivedValue(() => sharedValues?.showShotTrail.value ?? false)
-    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false)
-    const showBallRaw = useDerivedValue(
-        () => (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0
-    )
-    const showBallKalman = useDerivedValue(
-        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
-    )
-    const showBallLabel = useDerivedValue(
-        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
-    )
-    const shotResult = useDerivedValue(() => sharedValues?.shotResult.value ?? null)
-    const isMade = useDerivedValue(() => sharedValues?.shotResult.value === 'MADE')
-    const ballDataX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
-    const ballDataY = useDerivedValue(() => sharedValues?.ballY.value ?? 0)
-    const ballDataConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0)
-    
-    // Derived values per ball raw (evita accesso a .value durante render)
+    // Derived values for ball raw
     const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
     const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
-    const ballRadius = useDerivedValue(() => {
-        const ballW = sharedValues?.ballWidth.value ?? 0
-        const ballH = sharedValues?.ballHeight.value ?? 0
-        const avgSize = (ballW + ballH) / 2
-        return Math.max(8, (avgSize * SCREEN_W) / 2)
-    })
-    
     const ballXPxRaw = useDerivedValue(() => {
         const x = ballXRawVal.value
         const y = ballYRawVal.value
@@ -510,8 +317,28 @@ const TrackingOverlay = React.memo(({
         const screenY = displayedY - cropY
         return CAMERA_H - screenY
     })
-    
-    // Derived values for trail color (moved from IIFE to main body)
+
+    const ballRadius = useDerivedValue(() => {
+        const ballW = sharedValues?.ballWidth.value ?? 0
+        const ballH = sharedValues?.ballHeight.value ?? 0
+        const avgSize = (ballW + ballH) / 2
+        return Math.max(8, (avgSize * SCREEN_W) / 2)
+    })
+
+    // Opacity controls
+    const ballRawOpacity = useDerivedValue(() => {
+        const hasRaw = (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0
+        return hasRaw ? 1 : 0
+    })
+    const ballKalmanOpacity = useDerivedValue(() => {
+        const hasKalman = (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
+        return hasKalman ? 1 : 0
+    })
+    const isMadeOpacity = useDerivedValue(() => {
+        return sharedValues?.shotResult.value === 'MADE' ? 1 : 0
+    })
+
+    // Trail colors
     const trailColor = useDerivedValue(() => {
         const inFlight = sharedValues?.inFlight.value ?? false
         const shotResult = sharedValues?.shotResult.value ?? null
@@ -528,29 +355,14 @@ const TrackingOverlay = React.memo(({
         if (shotResult) return 'rgba(239,68,68,0.30)'
         return 'rgba(255,140,0,0.20)'
     })
-    
-    // Derived values for opacity (return 0/1 for Skia Group)
-    const ballRawOpacity = useDerivedValue(() => {
-        const hasRaw = (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0
-        return hasRaw ? 1 : 0
-    })
-    const ballKalmanOpacity = useDerivedValue(() => {
-        const hasKalman = (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
-        return hasKalman ? 1 : 0
-    })
-    const isMadeOpacity = useDerivedValue(() => {
-        return sharedValues?.shotResult.value === 'MADE' ? 1 : 0
-    })
-    
-    // Derived value for hoop oval path - use mapYoloPointToView for proper resolution-aware mapping
+
+    // Hoop oval path
     const hoopOvalPath = useDerivedValue(() => {
         const w = (sharedValues?.hoopWidth.value ?? 0) > 0 ? (sharedValues?.hoopWidth.value ?? 0) * SCREEN_W : 40
         const h = (sharedValues?.hoopHeight.value ?? 0) > 0 ? (sharedValues?.hoopHeight.value ?? 0) * CAMERA_H : 40
-        // Flatten the hoop: make it wider and shorter
-        const flattenedW = w * 1.3  // 30% wider
-        const flattenedH = h * 0.6  // 40% shorter (flattened)
+        const flattenedW = w * 1.3
+        const flattenedH = h * 0.6
         
-        // Use mapYoloPointToView transformation
         const x = sharedValues?.hoopX.value ?? 0
         const y = sharedValues?.hoopY.value ?? 0
         const cameraResW = effectiveResolution.width
@@ -575,145 +387,11 @@ const TrackingOverlay = React.memo(({
         )
         return Skia.Path.Oval(rect)
     }, [sharedValues, effectiveResolution])
-    
-    // Local state per badge (non critico per performance)
-    const [ballLabelVisible, setBallLabelVisible] = React.useState(false)
-    const [ballLabelPos, setBallLabelPos] = React.useState({ left: 0, top: 0 })
-    const [ballLabelText, setBallLabelText] = React.useState('')
-    const [powerBadgeVisible, setPowerBadgeVisible] = React.useState(false)
-    const [angleBadgeVisible, setAngleBadgeVisible] = React.useState(false)
-    const [inFlightBadgeVisible, setInFlightBadgeVisible] = React.useState(false)
-    const [inFlightBadgeText, setInFlightBadgeText] = React.useState('')
-    
-    // Low-frequency debug panel state (updated at 2Hz to avoid render-time .value reads)
-    const [debugYoloData, setDebugYoloData] = React.useState({
-        x: 0, y: 0, w: 0, h: 0, conf: 0
-    })
-    const [debugHoopData, setDebugHoopData] = React.useState({
-        x: 0, y: 0, w: 0, h: 0, conf: 0
-    })
-    const lastDebugUpdate = React.useRef(0)
-    
-    // Debug panel update function (defined on RN Runtime)
-    const updateDebugPanels = React.useCallback((data: {
-        ballXRaw: number
-        ballYRaw: number
-        ballWidth: number
-        ballHeight: number
-        confidence: number
-        hoopX: number
-        hoopY: number
-        hoopWidth: number
-        hoopHeight: number
-    }) => {
-        setDebugYoloData({
-            x: data.ballXRaw,
-            y: data.ballYRaw,
-            w: data.ballWidth,
-            h: data.ballHeight,
-            conf: data.confidence,
-        })
-        setDebugHoopData({
-            x: data.hoopX,
-            y: data.hoopY,
-            w: data.hoopWidth,
-            h: data.hoopHeight,
-            conf: data.confidence,
-        })
-    }, [])
-    
-    const updateBadgeState = React.useCallback((data: {
-        showLabel: boolean
-        ballX: number
-        ballY: number
-        confidence: number
-        inFlight: boolean
-        shotResult: string | null
-        showTrail: boolean
-        ballSizeCategory?: string | null
-        adaptiveThreshold?: number
-    }) => {
-        setBallLabelVisible(data.showLabel)
-        const mappedPos = mapYoloPointToView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
-        setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
-        
-        // Format ball size for display
-        let sizeLabel = ''
-        if (data.ballSizeCategory === 'small') {
-            sizeLabel = '🔴 PICCOLA'
-        } else if (data.ballSizeCategory === 'medium') {
-            sizeLabel = '🟡 MEDIA'
-        } else if (data.ballSizeCategory === 'large') {
-            sizeLabel = '🟢 GRANDE'
-        }
-        
-        // Format adaptive threshold
-        const threshLabel = data.adaptiveThreshold ? `| Thresh: ${data.adaptiveThreshold.toFixed(3)}` : ''
-        
-        setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}% ${sizeLabel} ${threshLabel}`)
-        setPowerBadgeVisible(data.inFlight && shotPower > 0)
-        setAngleBadgeVisible(releaseAngle != null && data.inFlight)
-        setInFlightBadgeVisible(data.showTrail)
-        if (data.inFlight) {
-            setInFlightBadgeText('✈ IN VOLO')
-        } else if (data.shotResult === 'MADE') {
-            setInFlightBadgeText('🟢 CANESTRO')
-        } else if (data.shotResult) {
-            setInFlightBadgeText('🔴 MANCATO')
-        } else {
-            setInFlightBadgeText('')
-        }
-    }, [shotPower, releaseAngle])
-    
-    useAnimatedReaction(
-        () => ({
-            showLabel: showBallLabel.value,
-            ballX: ballDataX.value,
-            ballY: ballDataY.value,
-            confidence: ballDataConfidence.value,
-            inFlight: inFlight.value,
-            shotResult: shotResult.value,
-            showTrail: showShotTrail.value,
-            ballSizeCategory: sharedValues?.ballSizeCategory.value,
-            adaptiveThreshold: sharedValues?.adaptiveThreshold.value,
-        }),
-        (current) => {
-            runOnJS(updateBadgeState)(current)
-        }
-    )
-    
-    // Low-frequency debug panel update (2Hz) - avoids render-time .value reads
-    useAnimatedReaction(
-        () => ({
-            ballXRaw: sharedValues?.ballXRaw.value ?? 0,
-            ballYRaw: sharedValues?.ballYRaw.value ?? 0,
-            ballWidth: sharedValues?.ballWidth.value ?? 0,
-            ballHeight: sharedValues?.ballHeight.value ?? 0,
-            confidence: sharedValues?.confidence.value ?? 0,
-            hoopX: sharedValues?.hoopX.value ?? 0,
-            hoopY: sharedValues?.hoopY.value ?? 0,
-            hoopWidth: sharedValues?.hoopWidth.value ?? 0,
-            hoopHeight: sharedValues?.hoopHeight.value ?? 0,
-        }),
-        (current) => {
-            const now = Date.now()
-            // Throttle to 2Hz (500ms)
-            if (now - lastDebugUpdate.current > 500) {
-                lastDebugUpdate.current = now
-                runOnJS(updateDebugPanels)(current)
-            }
-        }
-    )
 
-    // Scia del tiro:
-    //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
-    //  - dopo il tiro: mostra l'ultima traiettoria completa per 2.5s
-    //  - curva Bezier cubica per avere una parabola liscia invece di segmenti
-    // Phase 4: Now using trajectory SharedValues directly - no React state dependency
-    // Use useDerivedValue to avoid reading .value during render
+    // Trail path
     const trajectoryData = useDerivedValue(() => {
-        const showTrail = showShotTrail.value ?? false
-        const isInFlight = inFlight.value ?? false
+        const showTrail = sharedValues?.showShotTrail.value ?? false
+        const isInFlight = sharedValues?.inFlight.value ?? false
         
         if (!showTrail) return null
         
@@ -722,7 +400,6 @@ const TrackingOverlay = React.memo(({
         
         if (!trajPoints || trajCount < 2) return null
         
-        // Convert flat array to points array
         const points: Array<{x:number;y:number}> = []
         const delayPoints = isInFlight ? TRAIL_DELAY_POINTS : 0
         const effectiveCount = Math.max(0, trajCount - delayPoints)
@@ -736,20 +413,16 @@ const TrackingOverlay = React.memo(({
         
         if (points.length < 2) return null
         
-        return { points, shouldUpdate: shouldUpdateTrajectory }
+        return { points }
     })
 
-    // Build the path in a worklet to avoid render-time .value access
     const shotTrailPath = useDerivedValue(() => {
         const data = trajectoryData.value
-        if (!data || !data.shouldUpdate) {
-            return shotTrailPathRef.current
-        }
+        if (!data) return shotTrailPathRef.current
 
         const { points } = data
         if (points.length < 2) return null
 
-        // Apply same coordinate transformation as ball and hoop (mapYoloPointToView)
         const cameraResW = effectiveResolution.width
         const cameraResH = effectiveResolution.height
         const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
@@ -763,7 +436,6 @@ const TrackingOverlay = React.memo(({
             const displayedY = y * displayedH
             const screenX = displayedX - cropX
             const screenY = displayedY - cropY
-            // Mirror both axes for camera preview mirroring
             return { x: SCREEN_W - screenX, y: CAMERA_H - screenY }
         }
 
@@ -799,44 +471,10 @@ const TrackingOverlay = React.memo(({
     }, [trajectoryData])
 
     return (
-        <>
-            {/* ── Canvas Skia: forme GPU (scia, cerchi, skeleton) ── */}
-            <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
-                {/* Clip all rendering to canvas bounds to prevent overflow */}
-                <Group clip={Skia.Path.Make().addRect(Skia.XYWHRect(0, 0, SCREEN_W, CAMERA_H))}>
-
-                {/* ── Dynamic Player Circle (game-style, scales with pose) ── */}
-                {playerCenterX !== null && playerCenterY !== null && playerSize > 0 && (
-                    <Group>
-                        {/* Outer glow ring */}
-                        <SkiaCircle
-                            cx={px(playerCenterX)}
-                            cy={py(playerCenterY) + playerSize * 0.6}
-                            r={playerSize * 0.4}
-                            color="rgba(59,130,246,0.15)"
-                        />
-                        {/* Main circle */}
-                        <SkiaCircle
-                            cx={px(playerCenterX)}
-                            cy={py(playerCenterY) + playerSize * 0.6}
-                            r={playerSize * 0.3}
-                            color="rgba(59,130,246,0.3)"
-                        />
-                        {/* Inner ring */}
-                        <SkiaCircle
-                            cx={px(playerCenterX)}
-                            cy={py(playerCenterY) + playerSize * 0.6}
-                            r={playerSize * 0.3}
-                            color="#3b82f6"
-                            style="stroke"
-                            strokeWidth={2}
-                        />
-                    </Group>
-                )}
-
-                {/* ── Enhanced Ball Trail (game-style with glow) ── */}
+        <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
+            <Group clip={Skia.Path.Make().addRect(Skia.XYWHRect(0, 0, SCREEN_W, CAMERA_H))}>
+                {/* Ball Trail */}
                 <Group>
-                    {/* Glow effect */}
                     <SkiaPath
                         path={shotTrailPath as any}
                         color={trailGlowColor}
@@ -845,7 +483,6 @@ const TrackingOverlay = React.memo(({
                         strokeJoin="round"
                         strokeCap="round"
                     />
-                    {/* Main trail */}
                     <SkiaPath
                         path={shotTrailPath as any}
                         color={trailColor}
@@ -856,7 +493,7 @@ const TrackingOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* Cerchio palla YOLO raw (reale) - arancione - usa SharedValues */}
+                {/* Ball Raw (YOLO detection) */}
                 <Group opacity={ballRawOpacity}>
                     <SkiaCircle
                         cx={ballXPxRaw}
@@ -872,7 +509,7 @@ const TrackingOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* Punto Kalman smoothed - rosso per debug - usa SharedValues */}
+                {/* Ball Kalman (smoothed) */}
                 <Group opacity={ballKalmanOpacity}>
                     <SkiaCircle
                         cx={ballXPx}
@@ -882,7 +519,7 @@ const TrackingOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* ── Hoop with Illumination Effect (game-style) ── */}
+                {/* Hoop illumination effect */}
                 <Group opacity={isMadeOpacity}>
                     <SkiaCircle
                         cx={hoopXPx}
@@ -898,7 +535,7 @@ const TrackingOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* Dynamic hoop oval based on detected dimensions (width and height) */}
+                {/* Hoop oval */}
                 <Group>
                     <SkiaPath
                         path={hoopOvalPath}
@@ -909,103 +546,307 @@ const TrackingOverlay = React.memo(({
                         color="#4ade80" style="stroke" strokeWidth={2.5}
                     />
                 </Group>
+            </Group>
+        </Canvas>
+    )
+})
 
-                {/* Righe del campo dalla calibrazione */}
-                {calibration?.courtLines && calibration.courtLines.length > 0 && (
-                    <Group>
-                        {calibration.courtLines.map((line: { start: { x: number; y: number }; end: { x: number; y: number } }, i: number) => {
-                            const start = line.start
-                            const end = line.end
-                            return (
-                                <SkiaLine
-                                    key={i}
-                                    p1={vec(px(start.x), py(start.y))}
-                                    p2={vec(px(end.x), py(end.y))}
-                                    color="rgba(255,255,255,0.4)"
-                                    strokeWidth={2}
-                                    strokeCap="round"
-                                />
-                            )
-                        })}
-                    </Group>
-                )}
+// Color map per differenziare gli arti
+const KP_COLORS: Record<keyof PoseKeypoints, { main: string; glow: string; label: string }> = {
+    leftShoulder:  { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Spalla SX' },
+    rightShoulder: { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Spalla DX' },
+    leftElbow:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Gomito SX' },
+    rightElbow:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Gomito DX' },
+    leftWrist:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Polso SX' },
+    rightWrist:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Polso DX' },
+    leftHip:       { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca SX' },
+    rightHip:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca DX' },
+    leftKnee:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio SX' },
+    rightKnee:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio DX' },
+    leftAnkle:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia SX' },
+    rightAnkle:    { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia DX' },
+}
 
-                {/* Release Point */}
-                {trackingState?.releasePoint && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(trackingState.releasePoint!.x)}
-                            cy={py(trackingState.releasePoint!.y)}
-                            r={14} color="rgba(250,204,21,0.22)"
-                        />
-                        <SkiaCircle
-                            cx={px(trackingState.releasePoint!.x)}
-                            cy={py(trackingState.releasePoint!.y)}
-                            r={14} color="#facc15" style="stroke" strokeWidth={2}
-                        />
-                    </Group>
-                )}
+// Color map per le linee del skeleton
+const CONNECTION_COLORS: Record<string, string> = {
+    'leftShoulder-rightShoulder': '#a855f7',
+    'leftShoulder-leftElbow': '#ef4444',
+    'leftElbow-leftWrist': '#ef4444',
+    'rightShoulder-rightElbow': '#3b82f6',
+    'rightElbow-rightWrist': '#3b82f6',
+    'leftShoulder-leftHip': '#a855f7',
+    'rightShoulder-rightHip': '#a855f7',
+    'leftHip-rightHip': '#a855f7',
+    'leftHip-leftKnee': '#22c55e',
+    'leftKnee-leftAnkle': '#22c55e',
+    'rightHip-rightKnee': '#22c55e',
+    'rightKnee-rightAnkle': '#22c55e',
+}
 
-                {/* Apex Point */}
-                {trackingState?.apexPoint && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(trackingState.apexPoint!.x)}
-                            cy={py(trackingState.apexPoint!.y)}
-                            r={10} color="#22c55e"
-                        />
-                    </Group>
-                )}
+// ── Game-style effects ───────────────────────────────────────────────────────
+// Calculate player size from pose keypoints for dynamic circle
+const calculatePlayerSize = (poseKeypoints: PoseKeypoints | null): number => {
+    if (!poseKeypoints) return 0
+    const leftShoulder = poseKeypoints.leftShoulder
+    const rightShoulder = poseKeypoints.rightShoulder
+    const leftHip = poseKeypoints.leftHip
+    const rightHip = poseKeypoints.rightHip
+    
+    if (leftShoulder && rightShoulder && leftHip && rightHip) {
+        const shoulderWidth = Math.sqrt(
+            Math.pow(leftShoulder.x - rightShoulder.x, 2) +
+            Math.pow(leftShoulder.y - rightShoulder.y, 2)
+        )
+        const hipWidth = Math.sqrt(
+            Math.pow(leftHip.x - rightHip.x, 2) +
+            Math.pow(leftHip.y - rightHip.y, 2)
+        )
+        // Average of shoulder and hip width, scaled for visual effect
+        return ((shoulderWidth + hipWidth) / 2) * SCREEN_W * 0.8
+    }
+    return 0
+}
 
-                {/* Skeleton pose + punti keypoints */}
-                {poseKeypoints && (
-                    <Group>
-                        {SKELETON_CONNECTIONS.map(([a, b], i) => {
-                            const kpA = poseKeypoints[a]
-                            const kpB = poseKeypoints[b]
-                            if (!kpA || !kpB || kpA.score < KP_THRESH || kpB.score < KP_THRESH) return null
-                            const connectionKey = `${a}-${b}`
-                            const lineColor = CONNECTION_COLORS[connectionKey] || 'rgba(96,165,250,0.80)'
-                            return (
-                                <SkiaLine
-                                    key={i}
-                                    p1={vec(px(kpA.x), py(kpA.y))}
-                                    p2={vec(px(kpB.x), py(kpB.y))}
-                                    color={lineColor}
-                                    strokeWidth={2.5}
-                                />
-                            )
-                        })}
-                        {(Object.entries(poseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
-                            .filter(([_, kp]) => kp?.score >= KP_THRESH)
-                            .map(([key, kp]) => {
-                                const colors = KP_COLORS[key]
-                                if (!colors) return null
-                                return (
-                                    <Group key={key}>
-                                        <SkiaCircle
-                                            cx={px(kp.x)} cy={py(kp.y)}
-                                            r={7} color={colors.glow}
-                                        />
-                                        <SkiaCircle
-                                            cx={px(kp.x)} cy={py(kp.y)}
-                                            r={4.5} color={colors.main}
-                                        />
-                                        <SkiaCircle
-                                            cx={px(kp.x)} cy={py(kp.y)}
-                                            r={4.5} color="rgba(255,255,255,0.6)"
-                                            style="stroke" strokeWidth={1.2}
-                                        />
-                                    </Group>
-                                )
-                            })
-                        }
-                    </Group>
-                )}
-                </Group>
-            </Canvas>
+// Calculate shot power from velocity
+const calculateShotPower = (velocity: { vx: number; vy: number } | null): number => {
+    if (!velocity) return 0
+    const speed = Math.sqrt(velocity.vx * velocity.vx + velocity.vy * velocity.vy)
+    // Normalize to 0-100 range for display
+    return Math.min(100, Math.round(speed * 20))
+}
 
-            {/* ── Label BALL (uses React state for badge) */}
+// Helper function for biomechanical angle coloring
+const getAngleColor = (angle: number): string => {
+    if (angle >= 80 && angle <= 110) return '#22c55e' // Green: optimal
+    if (angle >= 60 && angle <= 130) return '#f59e0b' // Yellow: acceptable
+    return '#ef4444' // Red: poor
+}
+
+// Helper function for release angle color coding
+const getReleaseColor = (angle: number): string => {
+    if (angle >= 45 && angle <= 55) return '#22c55e' // Green: optimal
+    if (angle >= 35 && angle <= 65) return '#f59e0b' // Yellow: acceptable
+    return '#ef4444' // Red: poor
+}
+
+// ─── React Overlay (Badges, Debug, Pose Skeleton) ─────────────────────────────
+// This component renders only React-based UI elements that don't need realtime updates
+// Badges, labels, debug panels, and pose skeleton update at 2-5 Hz
+const ReactOverlay = React.memo(({
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution,
+}: {
+    trackingState: TrackingState | null
+    poseKeypoints: PoseKeypoints | null
+    jointAngles?: Partial<JointAngles>
+    releaseAngle?: number
+    arcHeight?: number
+    calibration: CalibrationData | null
+    sharedValues?: {
+        confidence: any
+        ballSizeCategory: any
+        adaptiveThreshold: any
+        inFlight: any
+        shotResult: any
+        ballX: any
+        ballY: any
+        ballXRaw: any
+        ballYRaw: any
+        ballWidth: any
+        ballHeight: any
+        hoopX: any
+        hoopY: any
+        hoopWidth: any
+        hoopHeight: any
+        showShotTrail: any
+    }
+    fpsMetrics?: { yoloFps: number; moveNetFps: number }
+    effectiveResolution: { width: number; height: number }
+}) => {
+    // Track overlay renders for telemetry
+    setTimeout(() => {
+        incrementOverlayRenders()
+        telemetryLogger.incrementOverlayRendered()
+    }, 0)
+
+    // Conversion functions for pose skeleton (still needed for pose overlay)
+    const px = (x: number) => x * SCREEN_W
+    const py = (y: number) => y * CAMERA_H
+
+    const mapYoloPointToView = (x: number, y: number, cameraResW: number, cameraResH: number) => {
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const displayedW = cameraResW * coverScale
+        const displayedH = cameraResH * coverScale
+        const cropX = (displayedW - SCREEN_W) / 2
+        const cropY = (displayedH - CAMERA_H) / 2
+        const displayedX = x * displayedW
+        const displayedY = y * displayedH
+        const screenX = displayedX - cropX
+        const screenY = displayedY - cropY
+        return {
+            x: SCREEN_W - screenX,
+            y: CAMERA_H - screenY,
+        }
+    }
+
+    const pxCam = (x: number, y: number = 0) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).x
+    const pyCam = (x: number, y: number) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).y
+
+    // Calculate dynamic player size
+    const playerSize = calculatePlayerSize(poseKeypoints)
+    const shotPower = calculateShotPower(trackingState?.ballVelocity ?? null)
+
+    // Calculate player center position (average of hips)
+    const playerCenterX = poseKeypoints?.leftHip && poseKeypoints?.rightHip
+        ? (poseKeypoints.leftHip.x + poseKeypoints.rightHip.x) / 2
+        : null
+    const playerCenterY = poseKeypoints?.leftHip && poseKeypoints?.rightHip
+        ? (poseKeypoints.leftHip.y + poseKeypoints.rightHip.y) / 2
+        : null
+
+    // React state for badges (updated at low frequency via useAnimatedReaction)
+    const [ballLabelVisible, setBallLabelVisible] = React.useState(false)
+    const [ballLabelPos, setBallLabelPos] = React.useState({ left: 0, top: 0 })
+    const [ballLabelText, setBallLabelText] = React.useState('')
+    const [powerBadgeVisible, setPowerBadgeVisible] = React.useState(false)
+    const [angleBadgeVisible, setAngleBadgeVisible] = React.useState(false)
+    const [inFlightBadgeVisible, setInFlightBadgeVisible] = React.useState(false)
+    const [inFlightBadgeText, setInFlightBadgeText] = React.useState('')
+
+    // Low-frequency debug panel state (updated at 2Hz)
+    const [debugYoloData, setDebugYoloData] = React.useState({
+        x: 0, y: 0, w: 0, h: 0, conf: 0
+    })
+    const [debugHoopData, setDebugHoopData] = React.useState({
+        x: 0, y: 0, w: 0, h: 0, conf: 0
+    })
+    const lastDebugUpdate = React.useRef(0)
+
+    // Update badge state (throttled to 2-5 Hz)
+    const updateBadgeState = React.useCallback((data: {
+        showLabel: boolean
+        ballX: number
+        ballY: number
+        confidence: number
+        inFlight: boolean
+        shotResult: string | null
+        showTrail: boolean
+        ballSizeCategory?: string | null
+        adaptiveThreshold?: number
+    }) => {
+        setBallLabelVisible(data.showLabel)
+        const mappedPos = mapYoloPointToView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
+        setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
+        
+        let sizeLabel = ''
+        if (data.ballSizeCategory === 'small') {
+            sizeLabel = '🔴 PICCOLA'
+        } else if (data.ballSizeCategory === 'medium') {
+            sizeLabel = '🟡 MEDIA'
+        } else if (data.ballSizeCategory === 'large') {
+            sizeLabel = '🟢 GRANDE'
+        }
+        
+        const threshLabel = data.adaptiveThreshold ? `| Thresh: ${data.adaptiveThreshold.toFixed(3)}` : ''
+        setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}% ${sizeLabel} ${threshLabel}`)
+        setPowerBadgeVisible(data.inFlight && shotPower > 0)
+        setAngleBadgeVisible(releaseAngle != null && data.inFlight)
+        setInFlightBadgeVisible(data.showTrail)
+        if (data.inFlight) {
+            setInFlightBadgeText('✈ IN VOLO')
+        } else if (data.shotResult === 'MADE') {
+            setInFlightBadgeText('🟢 CANESTRO')
+        } else if (data.shotResult) {
+            setInFlightBadgeText('🔴 MANCATO')
+        } else {
+            setInFlightBadgeText('')
+        }
+    }, [shotPower, releaseAngle, effectiveResolution])
+
+    // Derived values for badge updates
+    const showBallLabel = useDerivedValue(
+        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
+    )
+    const ballDataX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
+    const ballDataY = useDerivedValue(() => sharedValues?.ballY.value ?? 0)
+    const ballDataConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0)
+    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false)
+    const shotResult = useDerivedValue(() => sharedValues?.shotResult.value ?? null)
+    const showShotTrail = useDerivedValue(() => sharedValues?.showShotTrail.value ?? false)
+
+    useAnimatedReaction(
+        () => ({
+            showLabel: showBallLabel.value,
+            ballX: ballDataX.value,
+            ballY: ballDataY.value,
+            confidence: ballDataConfidence.value,
+            inFlight: inFlight.value,
+            shotResult: shotResult.value,
+            showTrail: showShotTrail.value,
+            ballSizeCategory: sharedValues?.ballSizeCategory.value,
+            adaptiveThreshold: sharedValues?.adaptiveThreshold.value,
+        }),
+        (current) => {
+            runOnJS(updateBadgeState)(current)
+        }
+    )
+
+    // Debug panel update function (throttled to 2Hz)
+    const updateDebugPanels = React.useCallback((data: {
+        ballXRaw: number
+        ballYRaw: number
+        ballWidth: number
+        ballHeight: number
+        confidence: number
+        hoopX: number
+        hoopY: number
+        hoopWidth: number
+        hoopHeight: number
+    }) => {
+        setDebugYoloData({
+            x: data.ballXRaw,
+            y: data.ballYRaw,
+            w: data.ballWidth,
+            h: data.ballHeight,
+            conf: data.confidence,
+        })
+        setDebugHoopData({
+            x: data.hoopX,
+            y: data.hoopY,
+            w: data.hoopWidth,
+            h: data.hoopHeight,
+            conf: data.confidence,
+        })
+    }, [])
+
+    // Low-frequency debug panel update (2Hz)
+    const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
+    const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
+
+    useAnimatedReaction(
+        () => ({
+            ballXRaw: sharedValues?.ballXRaw.value ?? 0,
+            ballYRaw: sharedValues?.ballYRaw.value ?? 0,
+            ballWidth: sharedValues?.ballWidth.value ?? 0,
+            ballHeight: sharedValues?.ballHeight.value ?? 0,
+            confidence: sharedValues?.confidence.value ?? 0,
+            hoopX: sharedValues?.hoopX.value ?? 0,
+            hoopY: sharedValues?.hoopY.value ?? 0,
+            hoopWidth: sharedValues?.hoopWidth.value ?? 0,
+            hoopHeight: sharedValues?.hoopHeight.value ?? 0,
+        }),
+        (current) => {
+            const now = Date.now()
+            if (now - lastDebugUpdate.current > 500) {
+                lastDebugUpdate.current = now
+                runOnJS(updateDebugPanels)(current)
+            }
+        }
+    )
+
+    // Return React-based UI elements (badges, debug panels, pose skeleton)
+    return (
+        <>
+            {/* Ball Label Badge */}
             {ballLabelVisible && (
                 <View
                     pointerEvents="none"
@@ -1019,7 +860,7 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
-            {/* ── Game-style Shot Power Badge ── */}
+            {/* Shot Power Badge */}
             {powerBadgeVisible && (
                 <View pointerEvents="none" style={ovStyles.powerBadge}>
                     <Text style={ovStyles.powerText}>
@@ -1028,27 +869,16 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
-            {/* ── Game-style Parabola Angle Badge ── */}
-            {angleBadgeVisible && (
-                <View pointerEvents="none" style={ovStyles.angleBadge}>
-                    <Text style={{
-                        color: getReleaseColor(releaseAngle ?? 0),
-                        fontWeight: '900',
-                        fontSize: 12,
-                    }}>
-                        📐 {Math.round(releaseAngle ?? 0)}°
+            {/* In Flight Badge */}
+            {inFlightBadgeVisible && (
+                <View pointerEvents="none" style={ovStyles.inFlightBadge}>
+                    <Text style={ovStyles.inFlightText}>
+                        {inFlightBadgeText}
                     </Text>
                 </View>
             )}
 
-            {/* ── Badge IN VOLO / TIRO RILEVATO */}
-            {inFlightBadgeVisible && (
-                <View pointerEvents="none" style={ovStyles.inFlightBadge}>
-                    <Text style={ovStyles.inFlightText}>{inFlightBadgeText}</Text>
-                </View>
-            )}
-
-            {/* ── FPS PANEL ── */}
+            {/* FPS Panel */}
             {fpsMetrics && (
                 <View pointerEvents="none" style={ovStyles.fpsPanel}>
                     <Text style={ovStyles.fpsTitle}>📊 FPS</Text>
@@ -1061,10 +891,7 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
-            {/* ── BALL INFO PANEL ── */}
-            {/* FASE 5: Removed - visual data should stay on UI thread, not cross React bridge */}
-
-            {/* ── YOLO DEBUG PANEL ── */}
+            {/* YOLO Debug Panel */}
             {sharedValues && (
                 <View pointerEvents="none" style={ovStyles.yoloDebugPanel}>
                     <Text style={ovStyles.yoloDebugTitle}>🔍 YOLO Raw</Text>
@@ -1086,7 +913,7 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
-            {/* ── HOOP DEBUG PANEL ── */}
+            {/* Hoop Debug Panel */}
             {sharedValues && (
                 <View pointerEvents="none" style={ovStyles.hoopDebugPanel}>
                     <Text style={ovStyles.hoopDebugTitle}>🏀 Canestro</Text>
@@ -1108,7 +935,7 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
-            {/* ── BIOMECHANICS PANEL ── */}
+            {/* Biomechanics Panel */}
             {jointAngles && (
                 <View pointerEvents="none" style={ovStyles.bioPanel}>
                     {releaseAngle != null && (
@@ -1143,231 +970,70 @@ const TrackingOverlay = React.memo(({
                 </View>
             )}
 
-            {/* ── Release Angle Badge ── */}
-            {trackingState?.releaseAngle != null && (
-                <View pointerEvents="none" style={ovStyles.releaseAngleBadge}>
-                    <Text style={{
-                        color: getReleaseColor(trackingState.releaseAngle!),
-                        fontWeight: '900'
-                    }}>
-                        ↗ {Math.round(trackingState.releaseAngle!)}°
-                    </Text>
-                </View>
+            {/* Calibration Debug Panel */}
+            {calibration && (
+                <SessionCalibDebug
+                    calibration={calibration}
+                    cameraMode={undefined}
+                    hoopPosition={null}
+                />
             )}
-
-            {/* ── Shot Quality Score ── */}
-            {trackingState?.shotQuality != null && (
-                <View pointerEvents="none" style={ovStyles.qualityBadge}>
-                    <Text style={ovStyles.qualityText}>
-                        🎯 {Math.round(trackingState.shotQuality!)}
-                    </Text>
-                </View>
-            )}
-
-            {/* ── Shot Analytics Card ── */}
-            {trackingState?.shotResult && (
-                <View pointerEvents="none" style={ovStyles.analyticsCard}>
-                    <Text style={ovStyles.analyticsTitle}>🏀 SHOT ANALYSIS</Text>
-
-                    {releaseAngle != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Release Angle</Text>
-                            <Text style={ovStyles.analyticsValue}>{releaseAngle.toFixed(0)}°</Text>
-                        </View>
-                    )}
-
-                    {arcHeight != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Arc Height</Text>
-                            <Text style={ovStyles.analyticsValue}>{arcHeight.toFixed(2)}m</Text>
-                        </View>
-                    )}
-
-                    {jointAngles?.elbowAngle != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Elbow</Text>
-                            <Text style={ovStyles.analyticsValue}>{jointAngles.elbowAngle.toFixed(0)}°</Text>
-                        </View>
-                    )}
-
-                    {jointAngles?.kneeAngle != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Knee</Text>
-                            <Text style={ovStyles.analyticsValue}>{jointAngles.kneeAngle.toFixed(0)}°</Text>
-                        </View>
-                    )}
-
-                    {releaseAngle != null && releaseAngle >= 45 && releaseAngle <= 55 && (
-                        <Text style={ovStyles.analyticsFeedback}>✓ Ottimo rilascio</Text>
-                    )}
-                </View>
-            )}
-
-            {/* ── Label HOOP ── */}
-            {trackingState?.hoopPosition && (
-                <View
-                    pointerEvents="none"
-                    style={[ovStyles.hoopLabelWrap, {
-                        left: px(trackingState.hoopPosition!.x) - 22,
-                        top:  py(trackingState.hoopPosition!.y) + 24,
-                    }]}
-                >
-                    <Text style={ovStyles.hoopLabelText}>🏀 CANESTRO</Text>
-                </View>
-            )}
-
-            {/* ── Label RELEASE POINT ── */}
-            {trackingState?.releasePoint && (
-                <View
-                    pointerEvents="none"
-                    style={[
-                        ovStyles.markerLabel,
-                        {
-                            left: px(trackingState.releasePoint!.x) + 16,
-                            top: py(trackingState.releasePoint!.y) - 12,
-                        },
-                    ]}
-                >
-                    <Text style={ovStyles.releaseLabel}>🚀 RELEASE</Text>
-                </View>
-            )}
-
-            {/* ── Label APEX POINT ── */}
-            {trackingState?.apexPoint && (
-                <View
-                    pointerEvents="none"
-                    style={[
-                        ovStyles.markerLabel,
-                        {
-                            left: px(trackingState.apexPoint!.x) + 16,
-                            top: py(trackingState.apexPoint!.y) - 12,
-                        },
-                    ]}
-                >
-                    <Text style={ovStyles.apexLabel}>⬆ APEX</Text>
-                </View>
-            )}
-
-            {/* ── Elbow Angle Live ── */}
-            {(() => {
-                const elbow = poseKeypoints?.rightElbow ?? poseKeypoints?.leftElbow
-                if (elbow && jointAngles?.elbowAngle != null) {
-                    return (
-                        <View
-                            pointerEvents="none"
-                            style={{
-                                position: 'absolute',
-                                left: px(elbow.x) + 10,
-                                top: py(elbow.y) - 10,
-                            }}
-                        >
-                            <Text style={{
-                                color: getAngleColor(jointAngles.elbowAngle!),
-                                fontWeight: '900',
-                                fontSize: 11,
-                            }}>
-                                {Math.round(jointAngles.elbowAngle!)}°
-                            </Text>
-                        </View>
-                    )
-                }
-                return null
-            })()}
-
-            {/* ── Label POSE KEYPOINTS ── */}
-            {poseKeypoints && (Object.entries(poseKeypoints!) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
-                .filter(([_, kp]) => kp?.score >= KP_THRESH)
-                .map(([key, kp]) => {
-                    const colors = KP_COLORS[key]
-                    if (!colors) return null
-                    return (
-                        <View
-                            key={key}
-                            pointerEvents="none"
-                            style={[ovStyles.kpLabelWrap, {
-                                left: px(kp.x) + 12,
-                                top:  py(kp.y) - 8,
-                            }]}
-                        >
-                            <Text style={[ovStyles.kpLabelText, { color: colors.main }]}>
-                                {colors.label}
-                            </Text>
-                        </View>
-                    )
-                })
-            }
         </>
     )
 })
 
+// ─── Overlay Styles ─────────────────────────────────────────────────────────────
 const ovStyles = StyleSheet.create({
-    // Label BALL
     ballLabelWrap: {
         position: 'absolute',
         alignItems: 'center',
-        minWidth: 64,
+        justifyContent: 'center',
     },
     ballLabelBox: {
-        backgroundColor: 'rgba(0,0,0,0.72)',
+        backgroundColor: 'rgba(0,0,0,0.75)',
         paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 10,
-        borderWidth: 1.5,
-        borderColor: '#ff8c00',
+        paddingVertical: 4,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(255,140,0,0.6)',
     },
     ballLabelText: {
-        color: '#ff8c00',
+        color: '#fff',
         fontSize: 11,
-        fontWeight: '800',
+        fontWeight: '700',
         letterSpacing: 0.3,
     },
-    // Badge IN VOLO
-    inFlightBadge: {
-        position: 'absolute',
-        bottom: 14,
-        left: 14,
-        backgroundColor: 'rgba(255,140,0,0.12)',
-        paddingHorizontal: 12,
-        paddingVertical: 5,
-        borderRadius: 12,
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,140,0,0.70)',
-    },
-    inFlightText: {
-        color: '#ff8c00',
-        fontSize: 11,
-        fontWeight: '900',
-        letterSpacing: 1,
-    },
-    // Shot Power Badge
     powerBadge: {
         position: 'absolute',
-        bottom: 60,
-        left: 14,
-        backgroundColor: 'rgba(0,0,0,0.75)',
+        top: 120,
+        right: 15,
+        backgroundColor: 'rgba(234,179,8,0.85)',
         paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 10,
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,165,0,0.8)',
+        paddingVertical: 5,
+        borderRadius: 8,
+        borderWidth: 2,
+        borderColor: '#fbbf24',
     },
     powerText: {
-        color: '#ffa500',
-        fontSize: 12,
-        fontWeight: '900',
-        letterSpacing: 0.5,
+        color: '#000',
+        fontSize: 13,
+        fontWeight: '800',
     },
-    // Parabola Angle Badge
-    angleBadge: {
+    inFlightBadge: {
         position: 'absolute',
-        bottom: 60,
-        left: 80,
-        backgroundColor: 'rgba(0,0,0,0.75)',
+        top: 160,
+        right: 15,
+        backgroundColor: 'rgba(34,197,94,0.85)',
         paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 10,
-        borderWidth: 1.5,
-        borderColor: 'rgba(147,51,234,0.8)',
+        paddingVertical: 5,
+        borderRadius: 8,
+        borderWidth: 2,
+        borderColor: '#4ade80',
+    },
+    inFlightText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '700',
     },
     // FPS Panel
     fpsPanel: {
@@ -1388,30 +1054,6 @@ const ovStyles = StyleSheet.create({
         marginBottom: 4,
     },
     fpsText: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: '600',
-        marginVertical: 1,
-    },
-    // Ball Info Panel
-    ballInfoPanel: {
-        position: 'absolute',
-        top: 14,
-        right: 14,
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        borderRadius: 10,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderWidth: 1,
-        borderColor: 'rgba(234,179,8,0.5)',
-    },
-    ballInfoTitle: {
-        color: '#eab308',
-        fontSize: 10,
-        fontWeight: '800',
-        marginBottom: 4,
-    },
-    ballInfoText: {
         color: '#fff',
         fontSize: 10,
         fontWeight: '600',
@@ -1482,114 +1124,6 @@ const ovStyles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '700',
         marginVertical: 1,
-    },
-    // Release Angle Badge
-    releaseAngleBadge: {
-        position: 'absolute',
-        bottom: 14,
-        left: 14,
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 10,
-    },
-    // Shot Quality Badge
-    qualityBadge: {
-        position: 'absolute',
-        top: 14,
-        left: 14,
-        backgroundColor: 'rgba(0,0,0,0.80)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 10,
-    },
-    qualityText: {
-        color: '#22c55e',
-        fontSize: 13,
-        fontWeight: '800',
-    },
-    // Shot Analytics Card
-    analyticsCard: {
-        position: 'absolute',
-        top: 80,
-        left: 14,
-        backgroundColor: 'rgba(0,0,0,0.85)',
-        borderRadius: 16,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.15)',
-        minWidth: 180,
-    },
-    analyticsTitle: {
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: '800',
-        marginBottom: 8,
-    },
-    analyticsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginVertical: 2,
-    },
-    analyticsLabel: {
-        color: 'rgba(255,255,255,0.7)',
-        fontSize: 10,
-        fontWeight: '600',
-    },
-    analyticsValue: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: '700',
-    },
-    analyticsFeedback: {
-        color: '#22c55e',
-        fontSize: 10,
-        fontWeight: '700',
-        marginTop: 6,
-    },
-    // Label HOOP
-    hoopLabelWrap: {
-        position: 'absolute',
-    },
-    hoopLabelText: {
-        color: '#4ade80',
-        fontSize: 9,
-        fontWeight: '700',
-        letterSpacing: 0.4,
-        backgroundColor: 'rgba(0,0,0,0.55)',
-        paddingHorizontal: 5,
-        paddingVertical: 2,
-        borderRadius: 6,
-    },
-    // Marker Label
-    markerLabel: {
-        position: 'absolute',
-    },
-    // Label RELEASE POINT
-    releaseLabel: {
-        color: '#facc15',
-        fontSize: 10,
-        fontWeight: '900',
-    },
-    // Label APEX POINT
-    apexLabel: {
-        color: '#22c55e',
-        fontSize: 10,
-        fontWeight: '900',
-    },
-    // Label POSE KEYPOINTS
-    kpLabelWrap: {
-        position: 'absolute',
-    },
-    kpLabelText: {
-        fontSize: 8,
-        fontWeight: '700',
-        letterSpacing: 0.2,
-        backgroundColor: 'rgba(0,0,0,0.65)',
-        paddingHorizontal: 4,
-        paddingVertical: 2,
-        borderRadius: 4,
     },
 })
 
@@ -2315,8 +1849,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     </View>
                 )}
 
-                {/* Overlay completo: scia + palla + canestro + pose */}
-                <TrackingOverlay
+                {/* Realtime Ball Overlay (pure Skia, 30/60 FPS) */}
+                <RealtimeBallOverlay
+                    sharedValues={sharedValues}
+                    effectiveResolution={effectiveResolution}
+                />
+
+                {/* React Overlay (badges, debug, 2-5 Hz) */}
+                <ReactOverlay
                     trackingState={trackingState}
                     poseKeypoints={poseKeypoints}
                     jointAngles={jointAngles}
@@ -2327,7 +1867,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     calibration={calibration}
                     sharedValues={sharedValues}
                     fpsMetrics={fpsMetrics}
-                    yoloInputSize={selectedYoloModel?.inputSize}
                     effectiveResolution={effectiveResolution}
                 />
 
