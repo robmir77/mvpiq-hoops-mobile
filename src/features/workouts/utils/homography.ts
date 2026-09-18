@@ -1,5 +1,3 @@
-// src/features/workouts/utils/homography.ts
-//
 // Homography matrix calculation using DLT (Direct Linear Transform)
 // Maps image coordinates (normalized 0-1) to court coordinates (meters)
 
@@ -24,16 +22,10 @@ export function calculateHomography(
     throw new Error('Homography requires exactly 4 point correspondences')
   }
 
-  // Build the 8x8 matrix A for the DLT algorithm
-  // For each point correspondence (x, y) -> (x', y'), we get 2 equations:
+  // Build 8x8 matrix A for DLT: 2 equations per point correspondence
   // x' = (h11*x + h12*y + h13) / (h31*x + h32*y + h33)
   // y' = (h21*x + h22*y + h23) / (h31*x + h32*y + h33)
-  //
-  // Rearranged to linear form:
-  // h11*x + h12*y + h13 - h31*x*x' - h32*y*x' - h33*x' = 0
-  // h21*x + h22*y + h23 - h31*x*y' - h32*y*y' - h33*y' = 0
-  //
-  // We set h33 = 1 (scale normalization), leaving 8 unknowns
+  // Rearranged to linear form with h33 = 1 (scale normalization)
 
   const A: number[][] = []
   const b: number[] = []
@@ -44,19 +36,19 @@ export function calculateHomography(
     const xp = dstPoints[i].x
     const yp = dstPoints[i].y
 
-    // First equation for this point
+    // First equation
     A.push([x, y, 1, 0, 0, 0, -x * xp, -y * xp])
     b.push(xp)
 
-    // Second equation for this point
+    // Second equation
     A.push([0, 0, 0, x, y, 1, -x * yp, -y * yp])
     b.push(yp)
   }
 
-  // Solve the linear system A * h = b Gaussian elimination
+  // Solve linear system A * h = b using Gaussian elimination
   const h = solveLinearSystem(A, b)
 
-  // Return the 3x3 homography matrix with h33 = 1
+  // Return 3x3 homography matrix with h33 = 1
   return [
     h[0], h[1], h[2],  // h11, h12, h13
     h[3], h[4], h[5],  // h21, h22, h23
@@ -130,8 +122,8 @@ export function getCourtCornersMeters(
   courtHeightM: number = 28.65
 ): Point[] {
   return [
-    { x: 0, y: 0 },                    // Top-left (near hoop baseline)
-    { x: courtWidthM, y: 0 },          // Top-right (near hoop baseline)
+    { x: 0, y: 0 },                    // Top-left (near hoop)
+    { x: courtWidthM, y: 0 },          // Top-right (near hoop)
     { x: courtWidthM, y: courtHeightM }, // Bottom-right (far baseline)
     { x: 0, y: courtHeightM },        // Bottom-left (far baseline)
   ]

@@ -1,12 +1,10 @@
-// src/features/workouts/types/workouts.types.ts
-
 export type CameraMode = 'LATERAL' | 'FRONTAL' | 'ANGLE_45'
 export type CourtType = 'HALF_COURT' | 'FULL_COURT'
 export type SessionStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED'
 export type ShotResult = 'MADE' | 'MISS' | 'BLOCKED' | 'AIRBALL'
 export type CourtZone = 'PAINT' | 'MID_RANGE' | 'THREE_POINT' | 'CORNER'
 
-// ─── Sessione ─────────────────────────────────────────────────
+// Session
 export interface WorkoutSession {
     id: string
     userId?: string
@@ -18,7 +16,7 @@ export interface WorkoutSession {
     endTime?: string
     totalShots: number
     madeShots: number
-    missedShots?: number      // non nel BE response — usa getMissedShots()
+    missedShots?: number  // not in BE response — use getMissedShots()
     shootingPercentage: number
     notes?: string
     averageShotDistance?: number
@@ -34,7 +32,7 @@ export interface CreateWorkoutSessionPayload {
     calibrationData?: string
 }
 
-// ─── Tiri ─────────────────────────────────────────────────────
+// Shots
 export interface ShotEvent {
     id: string
     sessionId: string
@@ -64,7 +62,7 @@ export interface AddShotEventPayload {
     trackingData?: string
 }
 
-// ─── Calibrazione ─────────────────────────────────────────────
+// Calibration
 export interface CalibrationData {
     homographyMatrix: number[]
     hoopCenter: { x: number; y: number }
@@ -79,7 +77,7 @@ export interface CalibrationData {
     courtLines?: Array<{ start: { x: number; y: number }; end: { x: number; y: number } }>
 }
 
-// ─── AI Tracking ──────────────────────────────────────────────
+// AI Tracking
 export interface DetectionResult {
     class: 'ball' | 'rim'
     confidence: number
@@ -99,11 +97,9 @@ export interface TrackingState {
     shotResult: ShotResult | null
     trajectory: Array<{ x: number; y: number; t: number }>
     confidence: number
-    // ─── Shot flight state ──────────────────────────────────────
-    /** true dal momento in cui la palla inizia la parabola (sale + arco minimo),
-     *  false dopo resetShot() — guida l'overlay scia */
+    // Shot flight state: true when ball starts parabola (rising + min arc), false after resetShot()
     inFlight: boolean
-    // ─── Biomechanical analysis ─────────────────────────────────
+    // Biomechanical analysis
     releasePoint?: { x: number; y: number }
     apexPoint?: { x: number; y: number }
     releaseAngle?: number
@@ -154,7 +150,7 @@ export interface PoseAnalysisPayload {
     balanceScore?: number
 }
 
-// ─── Realtime Stats (WebSocket) ───────────────────────────────
+// Realtime Stats (WebSocket)
 export interface RealtimeStats {
     sessionId: string
     shotCount: number
@@ -172,7 +168,7 @@ export interface RealtimeStats {
     sessionDuration: number
 }
 
-// ─── Analytics ────────────────────────────────────────────────
+// Analytics
 export interface ZoneStats {
     attempts: number
     made: number

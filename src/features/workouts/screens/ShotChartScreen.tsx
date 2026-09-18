@@ -15,9 +15,9 @@ import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 
 const { width: SW } = Dimensions.get('window')
 
-// ─── Campo da basket SVG (half-court) ────────────────────────────────────────
-// Coordinate normalizzate: x ∈ [0,15.24], y ∈ [0,14] (metà campo NBA)
-// Il rendering SVG mappa questi valori su courtW × courtH pixel
+// Basketball court SVG (half-court)
+// Normalized coordinates: x ∈ [0,15.24], y ∈ [0,14] (NBA half-court)
+// SVG rendering maps these to courtW × courtH pixels
 const COURT_W_M  = 15.24
 const COURT_H_M  = 14.0
 const HOOP_X_M   = COURT_W_M / 2
@@ -35,7 +35,7 @@ const CourtSVG = ({
     courtH: number
 }) => {
     const mx = (v: number) => (v / COURT_W_M) * courtW
-    const my = (v: number) => courtH - (v / COURT_H_M) * courtH  // y=0 = baseline (basso)
+    const my = (v: number) => courtH - (v / COURT_H_M) * courtH  // y=0 = baseline
 
     const hoopPx = mx(HOOP_X_M)
     const hoopPy = my(HOOP_Y_M)

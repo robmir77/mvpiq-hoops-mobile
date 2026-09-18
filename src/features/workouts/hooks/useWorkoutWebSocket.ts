@@ -1,4 +1,3 @@
-// src/features/workouts/hooks/useWorkoutWebSocket.ts
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { RealtimeStats } from '../types/workouts.types'
@@ -17,10 +16,10 @@ export const useWorkoutWebSocket = (sessionId: string | null, userId: string | n
     const connect = useCallback(() => {
         if (!sessionId || !userId) return
 
-        // Reset reconnect attempts for new connection attempt
+        // Reset reconnect attempts
         reconnectAttempts.current = 0
 
-        // Sostituisci http/https con ws/wss per il WebSocket
+        // Replace http/https with ws/wss
         const wsBase = API_BASE_URL.replace(/^http/, 'ws')
         const url = `${wsBase}/api/workouts/live/${sessionId}?userId=${userId}`
 
@@ -36,7 +35,7 @@ export const useWorkoutWebSocket = (sessionId: string | null, userId: string | n
         socket.onmessage = (event) => {
             try {
                 const data: RealtimeStats = JSON.parse(event.data)
-                // Only update stats if key values changed (reduces React renders)
+                // Only update if key values changed (reduces renders)
                 setStats(prev => {
                     if (
                         prev?.shotCount === data.shotCount &&
@@ -50,13 +49,13 @@ export const useWorkoutWebSocket = (sessionId: string | null, userId: string | n
                     return data
                 })
             } catch {
-                // ignora messaggi non JSON
+                // Ignore non-JSON messages
             }
         }
 
         socket.onclose = () => {
             setStatus('disconnected')
-            // Riconnessione automatica con backoff
+            // Auto-reconnect with backoff
             if (reconnectAttempts.current < MAX_RECONNECT) {
                 const delay = 1000 * Math.pow(2, reconnectAttempts.current)
                 reconnectAttempts.current++
@@ -71,7 +70,7 @@ export const useWorkoutWebSocket = (sessionId: string | null, userId: string | n
 
     const disconnect = useCallback(() => {
         if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
-        reconnectAttempts.current = MAX_RECONNECT // previene riconnessione
+        reconnectAttempts.current = MAX_RECONNECT // prevent reconnect
         ws.current?.close()
         ws.current = null
         setStatus('disconnected')

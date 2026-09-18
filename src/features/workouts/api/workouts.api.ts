@@ -1,6 +1,4 @@
-// src/features/workouts/api/workouts.api.ts
-// Aggiornamento: saveCourtCalibration ora invia campi flat
-// allineati al CalibrationRequest BE (hoopCenterX/Y, non hoopCenter.x/y)
+// saveCourtCalibration sends flat fields (hoopCenterX/Y) aligned with BE CalibrationRequest
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import apiClient from '@/shared/api/apiClient'
@@ -13,7 +11,7 @@ import {
     FrameDataPayload, PoseAnalysisPayload,
 } from '../types/workouts.types'
 
-// ─── Sessioni ─────────────────────────────────────────────────
+// Sessions
 
 export const createWorkoutSession = async (
     userId: string, payload: CreateWorkoutSessionPayload
@@ -44,7 +42,7 @@ export const getPlayerWorkoutSessions = async (
 export const deleteWorkoutSession = async (
     sessionId: string, userId: string
 ): Promise<void> => {
-    // Usa fetch nativo per DELETE per evitare problemi con axios headers
+    // Use native fetch for DELETE to avoid axios header issues
     const token = await AsyncStorage.getItem('token')
 
     const headers: Record<string, string> = {}
@@ -102,7 +100,7 @@ export const getActiveWorkoutSession = async (
     }
 }
 
-// ─── Tiri ─────────────────────────────────────────────────────
+// Shots
 
 export const getSessionShots = async (
     sessionId: string, userId: string
@@ -120,11 +118,8 @@ export const addShotEvent = async (
     return r.data
 }
 
-// ─── Calibrazione ─────────────────────────────────────────────
-// Il BE CalibrationRequest usa campi FLAT (hoopCenterX, hoopCenterY)
-// con @NotNull su hoopCenterX e hoopCenterY.
-// Il FE CalibrationData usa struttura nested (hoopCenter: {x, y}).
-// Qui facciamo il mapping prima di inviare.
+// Calibration
+// BE uses flat fields (hoopCenterX/Y), FE uses nested (hoopCenter: {x, y})
 
 export const saveCourtCalibration = async (
     sessionId: string,
@@ -132,7 +127,7 @@ export const saveCourtCalibration = async (
     data: CalibrationData
 ): Promise<void> => {
     const body: Record<string, any> = {
-        // ✅ Flatten: hoopCenter.x/y → hoopCenterX/Y
+        // Flatten: hoopCenter.x/y → hoopCenterX/Y
         hoopCenterX: data.hoopCenter.x,
         hoopCenterY: data.hoopCenter.y,
         homographyMatrix: data.homographyMatrix.length > 0
@@ -140,13 +135,13 @@ export const saveCourtCalibration = async (
             : null,
     }
 
-    // Camera resolution configurabile
+    // Configurable camera resolution
     if (data.cameraResolution) {
         body.cameraResolutionWidth = data.cameraResolution.width
         body.cameraResolutionHeight = data.cameraResolution.height
     }
 
-    // Angoli campo opzionali
+    // Optional court corners
     if (data.courtCorners) {
         const { topLeft, topRight, bottomRight, bottomLeft } = data.courtCorners
         body.threePointLineTopX    = topLeft.x
@@ -165,7 +160,7 @@ export const saveCourtCalibration = async (
     )
 }
 
-// ─── AI Tracking — Frame Data ─────────────────────────────────
+// AI Tracking - Frame Data
 
 export const saveFrameData = async (
     sessionId: string, userId: string, payload: FrameDataPayload
@@ -174,11 +169,11 @@ export const saveFrameData = async (
         await apiClient.post(
             `/workouts/sessions/${sessionId}/frames?userId=${userId}`, payload)
     } catch {
-        // best-effort — non blocca la sessione
+        // Best-effort - don't block session
     }
 }
 
-// ─── AI Tracking — Pose Analysis ─────────────────────────────
+// AI Tracking - Pose Analysis
 
 export const savePoseAnalysis = async (
     sessionId: string, userId: string, payload: PoseAnalysisPayload
@@ -187,11 +182,11 @@ export const savePoseAnalysis = async (
         await apiClient.post(
             `/workouts/sessions/${sessionId}/pose-analysis?userId=${userId}`, payload)
     } catch {
-        // best-effort
+        // Best-effort
     }
 }
 
-// ─── Analytics ────────────────────────────────────────────────
+// Analytics
 
 export const getShotChart = async (
     sessionId: string, userId: string

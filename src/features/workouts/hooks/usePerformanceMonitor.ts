@@ -1,6 +1,4 @@
-// src/features/workouts/hooks/usePerformanceMonitor.ts
-//
-// Shared performance monitoring for all inference and rendering operations
+// Shared performance monitoring for inference and rendering
 
 const perfMetrics = {
     yoloFps: 0,
@@ -41,18 +39,7 @@ export function startPerfMonitor() {
     if (perfTimer) return
     perfTimer = setInterval(() => {
         if (__DEV__) {
-            // Single consolidated log to reduce JS bridge serialization overhead
-            // Note: YOLO/MoveNet FPS now come from worker SharedValues, not this monitor
             console.log(`[PERF] YOLO: ${perfMetrics.yoloFps}fps | Tracking: ${perfMetrics.trackingUpdates}/s | Overlay: ${perfMetrics.overlayRenders}/s (JS FPS)`)
-            
-            // Multi-line detailed logs (commented out for high-frequency performance)
-            // console.log('[PERF]')
-            // console.log('YOLO.............', perfMetrics.yoloFps, 'fps')
-            // console.log('Tracking Updates.', perfMetrics.trackingUpdates, '/sec')
-            // console.log('Overlay Renders..', perfMetrics.overlayRenders, '/sec')
-            // console.log('Path Build.......', perfMetrics.pathBuildTime.toFixed(2), 'ms')
-            // console.log('Overlay Render...', perfMetrics.overlayRenderTime.toFixed(2), 'ms')
-            // console.log('JS FPS...........', perfMetrics.overlayRenders)
         }
         // Reset counters
         perfMetrics.yoloFps = 0
@@ -71,8 +58,8 @@ export function stopPerfMonitor() {
 
 export function getPerfMetrics() {
     return {
-        yoloFps: 0, // Deprecated: now read from worker SharedValues
-        moveNetFps: 0, // Deprecated: now read from worker SharedValues
+        yoloFps: 0,  // Deprecated: read from worker SharedValues
+        moveNetFps: 0,  // Deprecated: read from worker SharedValues
         trackingUpdates: perfMetrics.trackingUpdates,
         overlayRenders: perfMetrics.overlayRenders,
     }

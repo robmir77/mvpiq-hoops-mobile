@@ -32,7 +32,7 @@ export default function WorkoutHomeScreen({ navigation }: any) {
 
     const { data: sessions, isLoading, error } = useWorkoutSessions(user?.id || '')
 
-    // ── Auto-refresh quando si ritorna su questa schermata ────────────────────
+    // Auto-refresh when returning to this screen
     useFocusEffect(
         useCallback(() => {
             if (user?.id) {
@@ -47,7 +47,7 @@ export default function WorkoutHomeScreen({ navigation }: any) {
         setRefreshing(false)
     }
 
-    // ── Delete ────────────────────────────────────────────────────────────────
+    // Delete
     const handleDeleteSession = (session: WorkoutSession) => {
         const label = new Date(session.startTime).toLocaleDateString('it-IT', {
             day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
@@ -71,14 +71,14 @@ export default function WorkoutHomeScreen({ navigation }: any) {
         )
     }
 
-    // ── Filtro ────────────────────────────────────────────────────────────────
+    // Filter
     const filteredSessions = (sessions ?? []).filter((s: WorkoutSession) => {
         if (filter === 'ACTIVE')    return s.status === 'ACTIVE' || s.status === 'PAUSED'
         if (filter === 'COMPLETED') return s.status === 'COMPLETED'
         return true
     })
 
-    // ── Render ────────────────────────────────────────────────────────────────
+    // Render
     const renderSessionCard = ({ item }: { item: WorkoutSession }) => {
         const isActive  = item.status === 'ACTIVE' || item.status === 'PAUSED'
         const isPaused  = item.status === 'PAUSED'

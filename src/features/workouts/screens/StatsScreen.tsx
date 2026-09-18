@@ -59,8 +59,7 @@ export default function StatsScreen({ navigation, route }: any) {
         navigation.navigate('WorkoutHome')
     }
 
-    // ── Render helpers ────────────────────────────────────────────────────────
-
+    // Render helpers
     const renderSessionStats = () => {
         if (!sessionStats) return null
         const pct = sessionStats.shootingPercentage?.toFixed(0) ?? 0
@@ -218,7 +217,7 @@ export default function StatsScreen({ navigation, route }: any) {
     )
 }
 
-// ─── Micro-componenti ─────────────────────────────────────────────────────────
+// Micro-components
 const StatItem = ({ label, value, color }: { label: string; value: any; color?: string }) => (
     <View style={styles.statItem}>
         <Text style={[styles.statValue, color ? { color } : {}]}>{value}</Text>
@@ -243,7 +242,7 @@ function formatZoneName(zone: string): string {
         .replace(/\b\w/g, c => c.toUpperCase())
 }
 
-// ─── Stili ────────────────────────────────────────────────────────────────────
+// Styles
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#0b0f1a' },
     header: {

@@ -1,16 +1,5 @@
-// src/features/workouts/hooks/useTrackingEngine.ts
-//
-// FIX #7 — Shot detection migliorata:
-//   - MADE richiede palla in discesa (vy > 0) + vicinanza al canestro
-//   - MISS richiede traiettoria che ha superato il picco e si allontana
-//   - shotConfirmedAt: debounce per evitare doppi rilevamenti
-//
-// FIX #8 — getState() esposto correttamente per il loop esterno
-//
-// FIX #9 — Filtro palleggio migliorato:
-//   - risingFrames: la palla deve salire per almeno N frame consecutivi
-//   - MIN_ARC_HEIGHT: l'arco deve essere abbastanza alto da escludere balzi a terra
-//   - inFlight esposto nello state per l'overlay scia
+// Shot detection: MADE requires descending ball + hoop proximity, MISS requires trajectory past peak
+// Dribble filter: risingFrames + MIN_ARC_HEIGHT to exclude ground bounces
 
 import { useRef, useCallback } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
@@ -25,41 +14,30 @@ interface KalmanState {
 
 const INITIAL_KALMAN: KalmanState = {
     x: 0, y: 0, vx: 0, vy: 0,
-    px: 1.5, py: 1.5,  // Aumentato per fidarsi meno del modello predittivo
-    mx: 0.3, my: 0.3,  // Ridotto per fidarsi di più delle misurazioni attuali
+    px: 1.5, py: 1.5,  // Increased to trust predictive model less
+    mx: 0.3, my: 0.3,  // Reduced to trust current measurements more
 }
 
-// ── Soglie shot detection ──────────────────────────────────────────────────
-// Velocità verticale minima (unità normalizzate/s) per considerare un tiro
-const SHOT_LAUNCH_THRESHOLD  = 1.5
-// Raggio normalizzato entro cui la palla deve passare per MADE (calcolato dinamicamente)
-const HOOP_RADIUS_MADE       = 0.10
-// Soglia discesa (vy > 0 = scende a schermo)
-const DESCENDING_VY_THRESHOLD = 0.3
-// Frame minimi prima di poter rilevare un tiro
-const MIN_TRAJECTORY_FRAMES  = 4
-// ms di cooldown tra un tiro e l'altro
-const SHOT_COOLDOWN_MS       = 600
+// Shot detection thresholds
+const SHOT_LAUNCH_THRESHOLD  = 1.5  // Min vertical velocity (normalized/s)
+const HOOP_RADIUS_MADE       = 0.10  // Dynamic radius for MADE detection
+const DESCENDING_VY_THRESHOLD = 0.3  // Descending threshold (vy > 0 = falling)
+const MIN_TRAJECTORY_FRAMES  = 4  // Min frames before shot detection
+const SHOT_COOLDOWN_MS       = 600  // Cooldown between shots
 
-// ── Helper: calcola raggio dinamico del canestro dalle dimensioni rilevate ──
+// Dynamic hoop radius from detected dimensions
 const getDynamicHoopRadius = (hoop: { width?: number; height?: number } | null): number => {
     if (!hoop || !hoop.width || !hoop.height) return HOOP_RADIUS_MADE
-    // Usa la dimensione massima tra width e height, divisa per 2
-    // Aggiungi un piccolo margine (1.2x) per essere più permissivi
-    return Math.max(hoop.width, hoop.height) / 2 * 1.2
+    return Math.max(hoop.width, hoop.height) / 2 * 1.2  // Max dimension / 2 with margin
 }
 
-// ── Filtro palleggio ───────────────────────────────────────────────────────
-// Frame consecutivi in salita richiesti prima di impostare inFlight = true
-const MIN_RISING_FRAMES = 3
-// Altezza minima dell'arco (coordinate normalizzate) per escludere palleggio
-// Un dribble tipico fa rimbalzare la palla di ~5-8% dello schermo,
-// un tiro reale sale di almeno il 12-15%
-const MIN_ARC_HEIGHT = 0.08
+// Dribble filter thresholds
+const MIN_RISING_FRAMES = 3  // Consecutive rising frames required
+const MIN_ARC_HEIGHT = 0.08  // Min arc height (dribbles bounce ~5-8%, shots rise 12-15%)
 
 export const useTrackingEngine = () => {
     const kalman     = useRef<KalmanState>({ ...INITIAL_KALMAN })
-    // Ring buffer for trajectory - O(1) insert, no reallocation
+    // Ring buffer for trajectory (O(1) insert, no reallocation)
     const MAX_POINTS = 90
     const trajectoryBuffer = useRef<Array<{ x: number; y: number; t: number } | null>>(new Array(MAX_POINTS).fill(null))
     const trajectoryHead = useRef<number>(0)
@@ -81,7 +59,7 @@ export const useTrackingEngine = () => {
         shotQuality: undefined,
     })
 
-    // ── Shared Values per Skia overlay (no React bridge) ─────────────
+    // Shared Values for Skia overlay (no React bridge)
     const ballX = useSharedValue(0)
     const ballY = useSharedValue(0)
     const ballWidth = useSharedValue(0)
@@ -102,28 +80,25 @@ export const useTrackingEngine = () => {
     const apexPointX = useSharedValue(0)
     const apexPointY = useSharedValue(0)
     
-    // Phase 4: Trajectory SharedValues for direct overlay access (no React bridge)
-    // Store trajectory as flat array: [x1, y1, x2, y2, ...] for efficient SharedValue transfer
+    // Trajectory SharedValues (flat array: [x1, y1, x2, y2, ...])
     const trajectoryPoints = useSharedValue(new Float32Array(MAX_POINTS * 2).fill(0))
     const trajectoryPointCount = useSharedValue(0)
     
-    // Ball size category and adaptive threshold for overlay display
+    // Ball size category and adaptive threshold
     const ballSizeCategory = useSharedValue<string | null>(null)
     const adaptiveThreshold = useSharedValue(0)
 
     const lastFrameTs  = useRef<number>(0)
     const lastShotTs   = useRef<number>(0)
-    const peakY        = useRef<number>(Infinity)   // min y = punto più alto
-    const apexPoint    = useRef<{ x: number; y: number } | null>(null)  // memorizza apex point
+    const peakY        = useRef<number>(Infinity)   // min y = highest point
+    const apexPoint    = useRef<{ x: number; y: number } | null>(null)
     const inFlightRef  = useRef<boolean>(false)
 
-    // ── Filtro palleggio ──────────────────────────────────────
-    /** Numero di frame consecutivi in cui la palla è risultata in salita */
-    const risingFrames  = useRef<number>(0)
-    /** Y al primo frame di salita — per misurare l'arco */
-    const flightStartY  = useRef<number>(1.0)
+    // Dribble filter state
+    const risingFrames  = useRef<number>(0)  // Consecutive rising frames
+    const flightStartY  = useRef<number>(1.0)  // Y at first rising frame
 
-    // Helper to get trajectory as ordered array from ring buffer
+    // Get trajectory as ordered array from ring buffer
     const getTrajectory = useCallback((): Array<{ x: number; y: number; t: number }> => {
         const result: Array<{ x: number; y: number; t: number }> = []
         const count = trajectoryCount.current
@@ -168,7 +143,7 @@ export const useTrackingEngine = () => {
     ): TrackingState => {
         const current = state.current
 
-        // Calculate player center position from pose keypoints
+        // Calculate player center from pose keypoints
         let playerCenter: { x: number; y: number } | null = null
         if (poseKeypoints) {
             const leftHip = poseKeypoints.leftHip
@@ -181,15 +156,14 @@ export const useTrackingEngine = () => {
             }
         }
 
-        // Spatial constraint: when not shooting, ball should be near player
-        const MAX_PLAYER_BALL_DISTANCE = 0.35 // 35% of screen
+        // Spatial constraint: ball should be near player when not shooting
+        const MAX_PLAYER_BALL_DISTANCE = 0.35
         if (ballDetection && playerCenter && !current.inFlight) {
             const dx = ballDetection.x - playerCenter.x
             const dy = ballDetection.y - playerCenter.y
             const distance = Math.sqrt(dx * dx + dy * dy)
             if (distance > MAX_PLAYER_BALL_DISTANCE) {
-                // Ball too far from player when not shooting - ignore detection
-                ballDetection = null
+                ballDetection = null  // Too far from player when not shooting
             }
         }
 
@@ -202,8 +176,7 @@ export const useTrackingEngine = () => {
             current.ballWidth    = ballDetection.width
             current.ballHeight   = ballDetection.height
 
-            // Aggiorna Shared Values per Skia (no React bridge)
-            // Use raw coordinates for the orange circle to match the red debug point
+            // Update Shared Values for Skia
             ballX.value = ballDetection.x
             ballY.value = ballDetection.y
             ballXRaw.value = ballDetection.x
@@ -224,13 +197,12 @@ export const useTrackingEngine = () => {
               })
             }
 
-            // Ring buffer: O(1) insert, no shift()
+            // Ring buffer insert (O(1))
             trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }
             trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
             if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
 
-            // Phase 4: Update trajectory SharedValues for direct overlay access
-            // Update every frame for smooth trajectory, but only when inFlight
+            // Update trajectory SharedValues when inFlight
             if (inFlightRef.current) {
                 const traj = getTrajectory()
                 const points = trajectoryPoints.value
@@ -242,29 +214,29 @@ export const useTrackingEngine = () => {
                 trajectoryPointCount.value = traj.length
             }
 
-            // Only copy trajectory for UI every 5 frames when inFlight (reduces copies by ~95%)
+            // Copy trajectory for UI every 5 frames when inFlight (reduces copies ~95%)
             if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
                 current.trajectory = getTrajectory()
             }
 
-            // Aggiorna picco (y minima = punto più alto dell'immagine)
+            // Update peak (min y = highest point)
             if (smoothed.y < peakY.current) {
                 peakY.current = smoothed.y
                 apexPoint.current = { x: smoothed.x, y: smoothed.y }
             }
         } else if (current.ballPosition && lastFrameTs.current > 0) {
-            // Prediction step when ball not detected - continue trajectory with last known velocity
+            // Prediction step when ball not detected
             const k = kalman.current
             const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
             
-            // Predict position based on last velocity
+            // Predict position from last velocity
             const predX = k.x + k.vx * dt
             const predY = k.y + k.vy * dt
             
             current.ballPosition = { x: predX, y: predY }
             current.ballVelocity = { vx: k.vx, vy: k.vy }
             
-            // Update Shared Values with predicted position
+            // Update Shared Values with prediction
             ballX.value = predX
             ballY.value = predY
             
@@ -273,7 +245,7 @@ export const useTrackingEngine = () => {
             trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
             if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
             
-            // Phase 4: Update trajectory SharedValues for direct overlay access
+            // Update trajectory SharedValues
             if (inFlightRef.current) {
                 const traj = getTrajectory()
                 const points = trajectoryPoints.value
@@ -285,12 +257,12 @@ export const useTrackingEngine = () => {
                 trajectoryPointCount.value = traj.length
             }
             
-            // Only copy trajectory for UI every 5 frames when inFlight
+            // Copy trajectory for UI every 5 frames when inFlight
             if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
                 current.trajectory = getTrajectory()
             }
             
-            // Update peak with predicted position
+            // Update peak with prediction
             if (predY < peakY.current) {
                 peakY.current = predY
                 apexPoint.current = { x: predX, y: predY }
@@ -306,14 +278,14 @@ export const useTrackingEngine = () => {
                 confidence: hoopDetection.confidence,
             }
 
-            // Aggiorna Shared Values per Skia
+            // Update Shared Values for Skia
             hoopX.value = hoopDetection.x
             hoopY.value = hoopDetection.y
             hoopWidth.value = hoopDetection.width || 0
             hoopHeight.value = hoopDetection.height || 0
         }
 
-        // ── Filtro palleggio: contatore frame in salita ───────────────────
+        // Dribble filter: count rising frames
         const vel  = current.ballVelocity
         const ball = current.ballPosition
 
@@ -322,26 +294,23 @@ export const useTrackingEngine = () => {
 
             if (isRising) {
                 risingFrames.current++
-                // Registra Y di partenza al primo frame in salita
+                // Record Y at first rising frame
                 if (risingFrames.current === 1) {
                     flightStartY.current = ball.y
                 }
             } else {
-                // Non più in salita → azzera contatore
+                // Not rising anymore → reset counter
                 risingFrames.current = 0
             }
 
-            // Imposta inFlight solo se:
-            //   • la palla è in salita da almeno MIN_RISING_FRAMES frame (esclude spike singoli del palleggio)
-            //   • l'arco è già abbastanza alto (esclude rimbalzi a terra)
-            //   • abbastanza frame nella traiettoria
+            // Set inFlight if: rising for MIN_RISING_FRAMES + arc high enough + enough trajectory frames
             if (!inFlightRef.current && risingFrames.current >= MIN_RISING_FRAMES) {
                 const arcSoFar = flightStartY.current - ball.y  // positivo = salita
                 if (arcSoFar >= MIN_ARC_HEIGHT && trajectoryCount.current >= MIN_TRAJECTORY_FRAMES) {
                     inFlightRef.current = true
                     inFlight.value = true
                     showShotTrail.value = true
-                    // Save release point when shot starts
+                    // Save release point
                     current.releasePoint = { x: ball.x, y: ball.y }
                     releasePointX.value = ball.x
                     releasePointY.value = ball.y
@@ -351,19 +320,19 @@ export const useTrackingEngine = () => {
 
         current.inFlight = inFlightRef.current
 
-        // ── Calculate trajectory metrics every 5 frames when inFlight ─────────
+        // Calculate trajectory metrics every 5 frames when inFlight
         let trajectoryMetrics = null
         if (inFlightRef.current && trajectoryCount.current >= MIN_TRAJECTORY_FRAMES && trajectoryCount.current % 5 === 0) {
             trajectoryMetrics = computeTrajectoryMetrics()
             current.releaseAngle = trajectoryMetrics.releaseAngle
         }
 
-        // ── Use cached apex point instead of recalculating ─────────────────
+        // Use cached apex point
         if (inFlightRef.current && apexPoint.current) {
             current.apexPoint = apexPoint.current
         }
 
-        // ── Shot detection (MADE / MISS / AIRBALL) ────────────────────────
+        // Shot detection (MADE / MISS / AIRBALL)
         const hoop       = current.hoopPosition
         const cooldownOk = (frameTs - lastShotTs.current) > SHOT_COOLDOWN_MS
 
@@ -384,7 +353,7 @@ export const useTrackingEngine = () => {
                     shotDetected.value = true
                     shotResult.value = 'MADE'
                     lastShotTs.current   = frameTs
-                    // Calculate shot quality score (reuse metrics and function)
+                    // Calculate shot quality
                     const metrics = trajectoryMetrics || computeTrajectoryMetrics()
                     current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
                 } else if (descendingTowardHoop && dist >= dynamicHoopRadius) {
@@ -393,7 +362,7 @@ export const useTrackingEngine = () => {
                     shotDetected.value = true
                     shotResult.value = 'MISS'
                     lastShotTs.current   = frameTs
-                    // Calculate shot quality score (reuse metrics and function)
+                    // Calculate shot quality
                     const metrics = trajectoryMetrics || computeTrajectoryMetrics()
                     current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
                 } else if (descending && vel.vy > SHOT_LAUNCH_THRESHOLD * 2) {
@@ -402,7 +371,7 @@ export const useTrackingEngine = () => {
                     shotDetected.value = true
                     shotResult.value = dist < 0.25 ? 'MISS' : 'AIRBALL'
                     lastShotTs.current   = frameTs
-                    // Calculate shot quality score (reuse metrics and function)
+                    // Calculate shot quality
                     const metrics = trajectoryMetrics || computeTrajectoryMetrics()
                     current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
                 }
@@ -413,7 +382,7 @@ export const useTrackingEngine = () => {
         return { ...current }
     }, [kalmanUpdate])
 
-    // Helper to reset ring buffer
+    // Reset ring buffer
     const resetTrajectoryBuffer = useCallback(() => {
         trajectoryHead.current = 0
         trajectoryCount.current = 0
@@ -464,7 +433,7 @@ export const useTrackingEngine = () => {
             shotQuality: undefined,
         }
 
-        // Reset Shared Values (keep hoop values to maintain last positive detection)
+        // Reset Shared Values (keep hoop values for last positive detection)
         ballX.value = 0
         ballY.value = 0
         ballWidth.value = 0
@@ -474,11 +443,7 @@ export const useTrackingEngine = () => {
         confidence.value = 0
         ballSizeCategory.value = null
         adaptiveThreshold.value = 0
-        // Don't reset hoop values to keep last positive detection
-        // hoopX.value = 0
-        // hoopY.value = 0
-        // hoopWidth.value = 0
-        // hoopHeight.value = 0
+        // Don't reset hoop values (keep last positive detection)
         inFlight.value = false
         showShotTrail.value = false
         shotDetected.value = false
@@ -490,7 +455,7 @@ export const useTrackingEngine = () => {
 
     const setHoopFromCalibration = useCallback((x: number, y: number, width?: number, height?: number) => {
         state.current.hoopPosition = { x, y, width, height }
-        // Aggiorna Shared Values
+        // Update Shared Values
         hoopX.value = x
         hoopY.value = y
         if (width !== undefined) hoopWidth.value = width
@@ -503,7 +468,7 @@ export const useTrackingEngine = () => {
         const traj = getTrajectory()
         if (traj.length < MIN_TRAJECTORY_FRAMES) return { arcHeight: 0, releaseAngle: 0, smoothness: 0 }
 
-        // Replace Math.min(...traj.map()) with loop for better performance
+        // Use loop instead of map() for better performance
         let minY = Infinity
         for (const p of traj) {
             if (p.y < minY) minY = p.y
@@ -532,7 +497,7 @@ export const useTrackingEngine = () => {
         return { arcHeight, releaseAngle, smoothness }
     }, [])
 
-    // Extract reusable shot quality calculation
+    // Shot quality calculation
     const calculateShotQuality = useCallback((
         metrics: { arcHeight: number; releaseAngle: number; smoothness: number },
         releaseAngle: number | undefined
@@ -546,7 +511,7 @@ export const useTrackingEngine = () => {
         return releaseAngleScore * 0.4 + arcScore * 0.3 + smoothnessScore * 0.3
     }, [])
 
-    // Ritorna sempre una copia fresca (include inFlight aggiornato)
+    // Return fresh copy with updated inFlight
     const getState = useCallback((): TrackingState => ({
         ...state.current,
         inFlight: inFlightRef.current,
@@ -560,7 +525,7 @@ export const useTrackingEngine = () => {
         computeTrajectoryMetrics,
         calculateShotQuality,
         getState,
-        // Shared Values per Skia overlay (no React bridge)
+        // Shared Values for Skia overlay
         sharedValues: {
             ballX,
             ballY,
@@ -579,7 +544,7 @@ export const useTrackingEngine = () => {
             shotDetected,
             showShotTrail,
             shotResult,
-            // Phase 4: Trajectory SharedValues for direct overlay access
+            // Trajectory SharedValues
             trajectoryPoints,
             trajectoryPointCount,
         },

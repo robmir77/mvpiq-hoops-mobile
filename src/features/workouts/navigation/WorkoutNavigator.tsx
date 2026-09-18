@@ -1,5 +1,3 @@
-// src/features/workouts/navigation/WorkoutNavigator.tsx
-
 import React from 'react'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import WorkoutHomeScreen from '../screens/WorkoutHomeScreen'
@@ -13,7 +11,7 @@ import { CameraMode } from '../types/workouts.types'
 export type WorkoutStackParamList = {
     WorkoutHome:    undefined
     WorkoutSetup:   undefined
-    // cameraMode passato a Calibration E a WorkoutSession per il debug overlay
+    // cameraMode passed to Calibration and WorkoutSession for debug overlay
     Calibration:    { sessionId: string; cameraMode: CameraMode }
     WorkoutSession: { sessionId: string; cameraMode: CameraMode }
     ShotChart:      { sessionId: string; fromSession?: boolean }

@@ -43,21 +43,19 @@ const DEFAULT_POSE_RESOLUTION = 192
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
 
-// ─── Overlay 45° ─────────────────────────────────────────────────────────────
-// Campo da basket visto a 45° laterale: prospettiva diagonale
-// Il canestro è in alto a destra, il campo si estende verso sinistra/basso
+// 45° overlay: diagonal perspective, hoop top-right, court extends left/down
 const Overlay45 = ({ hoopCenter, corners, step }: {
     hoopCenter: Point | null, corners: Point[], step: CalibStep
 }) => {
     const W = SW, H = CAM_H
     const ghostHoop = { x: W * 0.70, y: H * 0.28 }
 
-    // Punti campo in prospettiva 45°
+    // Court points in 45° perspective
     const courtPts = {
-        // Linea di fondo (vicina)
+        // Near baseline
         bl: { x: W * 0.04, y: H * 0.87 },
         br: { x: W * 0.96, y: H * 0.76 },
-        // Linea di fondo (lontana / tiro libero)
+        // Far baseline / free throw
         tl: { x: W * 0.20, y: H * 0.38 },
         tr: { x: W * 0.82, y: H * 0.28 },
         // Paint
@@ -65,10 +63,10 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
         pl2: { x: W * 0.42, y: H * 0.50 },
         pr1: { x: W * 0.55, y: H * 0.83 },
         pr2: { x: W * 0.62, y: H * 0.48 },
-        // Tiro libero
+        // Free throw
         ftl: { x: W * 0.42, y: H * 0.50 },
         ftr: { x: W * 0.62, y: H * 0.48 },
-        // Tabellone
+        // Backboard
         bbl: { x: W * 0.60, y: H * 0.20 },
         bbr: { x: W * 0.76, y: H * 0.18 },
         bbtl: { x: W * 0.61, y: H * 0.13 },
@@ -80,7 +78,7 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
             stroke={color} strokeWidth={w} strokeDasharray={dash} />
     )
 
-    // Arco 3pt in prospettiva (approssimato con segmenti)
+    // 3pt arc (approximated with segments)
     const arc3pts = [
         { x: W * 0.04, y: H * 0.75 },
         { x: W * 0.08, y: H * 0.60 },
@@ -176,7 +174,7 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
     )
 }
 
-// ─── Overlay 45° Full Court ─────────────────────────────────────────────────────
+// 45° Full Court overlay
 const Overlay45Full = ({ hoopCenter, corners, step }: {
     hoopCenter: Point | null, corners: Point[], step: CalibStep
 }) => {
@@ -271,7 +269,7 @@ const Overlay45Full = ({ hoopCenter, corners, step }: {
     )
 }
 
-// ─── Overlay Laterale Full Court ─────────────────────────────────────────────────
+// Lateral Full Court overlay
 const OverlayLateralFull = ({ hoopCenter, corners, step }: {
     hoopCenter: Point | null, corners: Point[], step: CalibStep
 }) => {
@@ -330,7 +328,7 @@ const OverlayLateralFull = ({ hoopCenter, corners, step }: {
     )
 }
 
-// ─── Overlay Frontale Full Court ─────────────────────────────────────────────────
+// Frontal Full Court overlay
 const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
     hoopCenter: Point | null, corners: Point[], step: CalibStep
 }) => {
@@ -392,8 +390,7 @@ const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
     )
 }
 
-// ─── Overlay Laterale ─────────────────────────────────────────────────────────
-// Vista perfettamente di lato: palo verticale, tabellone, arco traiettoria
+// Lateral overlay: side view, vertical pole, backboard, trajectory arc
 const OverlayLateral = ({ hoopCenter, corners, step }: {
     hoopCenter: Point | null, corners: Point[], step: CalibStep
 }) => {
@@ -507,8 +504,7 @@ const OverlayLateral = ({ hoopCenter, corners, step }: {
     )
 }
 
-// ─── Overlay Frontale ─────────────────────────────────────────────────────────
-// Vista frontale dal fondo campo: paint simmetrico, tabellone centrato in alto
+// Frontal overlay: front view from baseline, symmetric paint, centered backboard
 const OverlayFrontal = ({ hoopCenter, corners, step }: {
     hoopCenter: Point | null, corners: Point[], step: CalibStep
 }) => {
@@ -623,7 +619,7 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
     )
 }
 
-// ─── Componenti condivisi ─────────────────────────────────────────────────────
+// Shared components
 const HoopConfirmed = ({ p }: { p: Point }) => (
     <G>
         <Circle cx={p.x} cy={p.y} r={28}
@@ -692,7 +688,7 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
     )
 }
 
-// ─── Schermata principale ─────────────────────────────────────────────────────
+// Main screen
 const MODE_META: Record<CameraMode, { title: string; icon: string; description: string; tips: string[] }> = {
     ANGLE_45: {
         title: 'Angolo 45°',
