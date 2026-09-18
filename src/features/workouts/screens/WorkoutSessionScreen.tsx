@@ -86,82 +86,6 @@ function toCourtMeters(
 }
 
 // ─── Debug overlay calibrazione ───────────────────────────────────────────────
-const MODE_LABELS: Record<string, string> = {
-    ANGLE_45: '↗ 45°',
-    LATERAL:  '→ Lat.',
-    FRONTAL:  '↑ Front.',
-}
-
-const SessionCalibDebug = ({
-    calibration, cameraMode, hoopPosition,
-}: {
-    calibration: CalibrationData
-    cameraMode: CameraMode | undefined
-    hoopPosition: { x: number; y: number } | null
-}) => (
-    <View style={sdbg.panel} pointerEvents="none">
-        <Text style={sdbg.title}>
-            🔍 CALIBRAZIONE  {cameraMode ? MODE_LABELS[cameraMode] ?? cameraMode : '—'}
-        </Text>
-        <View style={sdbg.row}>
-            <Text style={sdbg.key}>Hoop salvato</Text>
-            <Text style={sdbg.val}>
-                ({calibration.hoopCenter.x.toFixed(3)}, {calibration.hoopCenter.y.toFixed(3)})
-            </Text>
-        </View>
-        {hoopPosition && (
-            <View style={sdbg.row}>
-                <Text style={sdbg.key}>Hoop YOLO</Text>
-                <Text style={[sdbg.val, { color: '#4ade80' }]}>
-                    ({hoopPosition.x.toFixed(3)}, {hoopPosition.y.toFixed(3)})
-                </Text>
-            </View>
-        )}
-        <View style={sdbg.row}>
-            <Text style={sdbg.key}>Homography</Text>
-            <Text style={sdbg.val}>
-                {calibration.homographyMatrix.length > 0
-                    ? `${calibration.homographyMatrix.length} coeff.`
-                    : 'identità'}
-            </Text>
-        </View>
-        {calibration.courtCorners && (
-            <View style={sdbg.row}>
-                <Text style={sdbg.key}>Campo</Text>
-                <Text style={sdbg.val}>4 angoli ✓</Text>
-            </View>
-        )}
-        {hoopPosition && (
-            <View style={sdbg.row}>
-                <Text style={sdbg.key}>Δ hoop</Text>
-                <Text style={[sdbg.val, {
-                    color: Math.abs(hoopPosition.x - calibration.hoopCenter.x) < 0.05
-                        && Math.abs(hoopPosition.y - calibration.hoopCenter.y) < 0.05
-                        ? '#4ade80' : '#fbbf24'
-                }]}>
-                    dx={Math.abs(hoopPosition.x - calibration.hoopCenter.x).toFixed(3)}
-                    {'  '}
-                    dy={Math.abs(hoopPosition.y - calibration.hoopCenter.y).toFixed(3)}
-                </Text>
-            </View>
-        )}
-    </View>
-)
-
-const sdbg = StyleSheet.create({
-    panel: {
-        position: 'absolute', top: 10, right: 10,
-        backgroundColor: 'rgba(0,0,0,0.78)',
-        borderRadius: 10, padding: 10,
-        borderWidth: 1, borderColor: 'rgba(255,140,0,0.45)',
-        minWidth: 180,
-    },
-    title: { fontSize: 9, fontWeight: '800', color: '#ff8c00',
-        letterSpacing: 0.8, marginBottom: 6 },
-    row: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 3, gap: 6 },
-    key: { fontSize: 9, color: '#888', fontWeight: '600', minWidth: 62 },
-    val: { fontSize: 9, color: '#fff', fontWeight: '500', flex: 1 },
-})
 
 // ─── Skia Overlay ─────────────────────────────────────────────────────────────
 const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = [
@@ -862,60 +786,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {showDebug && (
-                <View pointerEvents="none" style={ovStyles.yoloDebugPanel}>
-                    <Text style={ovStyles.yoloDebugTitle}>🔍 YOLO Raw</Text>
-                    {debugYoloData.x === 0 && debugYoloData.y === 0 ? (
-                        <Text style={ovStyles.yoloDebugText}>Nessun dato</Text>
-                    ) : (
-                        <>
-                            <Text style={ovStyles.yoloDebugText}>
-                                X: {debugYoloData.x.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.yoloDebugText}>
-                                Y: {debugYoloData.y.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.yoloDebugText}>
-                                W: {debugYoloData.w.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.yoloDebugText}>
-                                H: {debugYoloData.h.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.yoloDebugText}>
-                                Conf: {(debugYoloData.conf * 100).toFixed(1)}%
-                            </Text>
-                        </>
-                    )}
-                </View>
-            )}
-
-            {showDebug && (
-                <View pointerEvents="none" style={ovStyles.hoopDebugPanel}>
-                    <Text style={ovStyles.hoopDebugTitle}>🏀 Canestro</Text>
-                    {debugHoopData.x === 0 && debugHoopData.y === 0 ? (
-                        <Text style={ovStyles.hoopDebugText}>Nessun dato</Text>
-                    ) : (
-                        <>
-                            <Text style={ovStyles.hoopDebugText}>
-                                X: {debugHoopData.x.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.hoopDebugText}>
-                                Y: {debugHoopData.y.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.hoopDebugText}>
-                                W: {debugHoopData.w.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.hoopDebugText}>
-                                H: {debugHoopData.h.toFixed(3)}
-                            </Text>
-                            <Text style={ovStyles.hoopDebugText}>
-                                Conf: {debugHoopData.conf.toFixed(3)}
-                            </Text>
-                        </>
-                    )}
-                </View>
-            )}
-
             {jointAngles && (
                 <View pointerEvents="none" style={ovStyles.bioPanel}>
                     {releaseAngle != null && (
@@ -950,12 +820,50 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {showDebug && calibration && (
-                <SessionCalibDebug
-                    calibration={calibration}
-                    cameraMode={undefined}
-                    hoopPosition={debugHoopData.x > 0 && debugHoopData.y > 0 ? { x: debugHoopData.x, y: debugHoopData.y } : null}
-                />
+            {showDebug && (
+                <View pointerEvents="none" style={ovStyles.combinedDebugPanel}>
+                    {/* YOLO Raw Section */}
+                    <View style={ovStyles.debugSection}>
+                        <Text style={ovStyles.debugSectionTitle}>🔍 YOLO Raw</Text>
+                        {debugYoloData.x === 0 && debugYoloData.y === 0 ? (
+                            <Text style={ovStyles.debugText}>Nessun dato</Text>
+                        ) : (
+                            <>
+                                <Text style={ovStyles.debugText}>X: {debugYoloData.x.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>Y: {debugYoloData.y.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>W: {debugYoloData.w.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>H: {debugYoloData.h.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>Conf: {(debugYoloData.conf * 100).toFixed(1)}%</Text>
+                            </>
+                        )}
+                    </View>
+
+                    {/* Canestro Section */}
+                    <View style={ovStyles.debugSection}>
+                        <Text style={ovStyles.debugSectionTitle}>🏀 Canestro</Text>
+                        {debugHoopData.x === 0 && debugHoopData.y === 0 ? (
+                            <Text style={ovStyles.debugText}>Nessun dato</Text>
+                        ) : (
+                            <>
+                                <Text style={ovStyles.debugText}>X: {debugHoopData.x.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>Y: {debugHoopData.y.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>W: {debugHoopData.w.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>H: {debugHoopData.h.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>Conf: {debugHoopData.conf.toFixed(3)}</Text>
+                            </>
+                        )}
+                    </View>
+
+                    {/* Calibrazione Section */}
+                    {calibration && (
+                        <View style={ovStyles.debugSection}>
+                            <Text style={ovStyles.debugSectionTitle}>🔍 CALIBRAZIONE</Text>
+                            <Text style={ovStyles.debugText}>Hoop: ({calibration.hoopCenter.x.toFixed(3)}, {calibration.hoopCenter.y.toFixed(3)})</Text>
+                            <Text style={ovStyles.debugText}>Homography: {calibration.homographyMatrix.length > 0 ? `${calibration.homographyMatrix.length} coeff.` : 'identità'}</Text>
+                            {calibration.courtCorners && <Text style={ovStyles.debugText}>Campo: 4 angoli ✓</Text>}
+                        </View>
+                    )}
+                </View>
             )}
         </>
     )
@@ -1037,57 +945,40 @@ const ovStyles = StyleSheet.create({
         fontWeight: '600',
         marginVertical: 1,
     },
-    yoloDebugPanel: {
+    combinedDebugPanel: {
         position: 'absolute',
-        top: 100,
-        right: 14,
-        backgroundColor: 'rgba(0,0,0,0.75)',
+        bottom: 80,
+        right: 10,
+        backgroundColor: 'rgba(0,0,0,0.5)',
         borderRadius: 10,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
+        padding: 10,
         borderWidth: 1,
         borderColor: 'rgba(255,140,0,0.5)',
+        minWidth: 180,
     },
-    yoloDebugTitle: {
+    debugSection: {
+        marginBottom: 8,
+        paddingBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255,140,0,0.3)',
+    },
+    debugSectionTitle: {
         color: '#ff8c00',
-        fontSize: 10,
+        fontSize: 9,
         fontWeight: '800',
         marginBottom: 4,
     },
-    yoloDebugText: {
+    debugText: {
         color: '#fff',
-        fontSize: 10,
-        fontWeight: '600',
-        marginVertical: 1,
-    },
-    hoopDebugPanel: {
-        position: 'absolute',
-        top: 240,
-        right: 14,
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        borderRadius: 10,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderWidth: 1,
-        borderColor: 'rgba(74,222,128,0.5)',
-    },
-    hoopDebugTitle: {
-        color: '#4ade80',
-        fontSize: 10,
-        fontWeight: '800',
-        marginBottom: 4,
-    },
-    hoopDebugText: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: '600',
+        fontSize: 9,
+        fontWeight: '500',
         marginVertical: 1,
     },
     bioPanel: {
         position: 'absolute',
         top: 14,
         right: 14,
-        backgroundColor: 'rgba(0,0,0,0.72)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
         borderRadius: 12,
         paddingHorizontal: 10,
         paddingVertical: 8,
@@ -1984,7 +1875,7 @@ const styles = StyleSheet.create({
     guideH:            { position: 'absolute', left: 0, right: 0, top: '50%', height: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
     guideV:            { position: 'absolute', top: 0, bottom: 0, left: '50%', width: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
     trackingBadge:     { position: 'absolute', top: 12, left: 12, flexDirection: 'row', alignItems: 'center',
-                         backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+                         backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
     trackingDot:       { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#555', marginRight: 6 },
     trackingDotActive: { backgroundColor: '#4ade80' },
     trackingText:      { color: '#fff', fontSize: 11, fontWeight: '600' },

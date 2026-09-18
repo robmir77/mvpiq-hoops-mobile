@@ -1,7 +1,8 @@
 // src/vision/TelemetryOverlay.tsx
 //
-// Overlay per visualizzare le metriche di telemetria in tempo reale
-// Mostra FPS, detection rate, stabilità bbox, falsi positivi, pipeline metrics
+// Overlay per visualizzare le metriche di performance in tempo reale
+// Mostra FPS YOLO/MoveNet, detection rate, pipeline metrics
+// NOTA: Dati specifici (palla, canestro, calibrazione) sono in ReactOverlay
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
@@ -14,17 +15,9 @@ interface TelemetryOverlayProps {
   yoloFps?: number
   moveNetFps?: number
   debugMode?: boolean
-  yoloData?: { x: number; y: number; w: number; h: number; conf: number }
-  hoopData?: { x: number; y: number; w: number; h: number; conf: number }
-  calibration?: {
-    hoopCenter: { x: number; y: number }
-    homographyMatrix: number[]
-    courtCorners?: any
-    cameraMode?: string
-  }
 }
 
-export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, debugMode = false, yoloData, hoopData, calibration }) => {
+export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, debugMode = false }) => {
   const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ fps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
   const [ballMetrics, setBallMetrics] = useState<BallDetectionMetrics>({
     framesProcessed: 0,
@@ -166,86 +159,6 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.label}>Parse:</Text>
                 <Text style={styles.value}>{yoloPerf.parseMs.toFixed(1)}ms</Text>
               </View>
-              {yoloData && (
-                <>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>Ball X:</Text>
-                    <Text style={styles.value}>{yoloData.x.toFixed(3)}</Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>Ball Y:</Text>
-                    <Text style={styles.value}>{yoloData.y.toFixed(3)}</Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>W/H:</Text>
-                    <Text style={styles.value}>{yoloData.w.toFixed(3)} / {yoloData.h.toFixed(3)}</Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>Conf:</Text>
-                    <Text style={styles.value}>{(yoloData.conf * 100).toFixed(1)}%</Text>
-                  </View>
-                </>
-              )}
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>CANESTRO</Text>
-              {hoopData ? (
-                <>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>X:</Text>
-                    <Text style={styles.value}>{hoopData.x.toFixed(3)}</Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>Y:</Text>
-                    <Text style={styles.value}>{hoopData.y.toFixed(3)}</Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>W/H:</Text>
-                    <Text style={styles.value}>{hoopData.w.toFixed(3)} / {hoopData.h.toFixed(3)}</Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>Conf:</Text>
-                    <Text style={styles.value}>{hoopData.conf.toFixed(3)}</Text>
-                  </View>
-                </>
-              ) : (
-                <View style={styles.row}>
-                  <Text style={styles.value}>Nessun dato</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>CALIBRAZIONE</Text>
-              {calibration ? (
-                <>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>Hoop salvato:</Text>
-                    <Text style={styles.value}>({calibration.hoopCenter.x.toFixed(3)}, {calibration.hoopCenter.y.toFixed(3)})</Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.label}>Homography:</Text>
-                    <Text style={styles.value}>{calibration.homographyMatrix.length > 0 ? `${calibration.homographyMatrix.length} coeff.` : 'identità'}</Text>
-                  </View>
-                  {calibration.cameraMode && (
-                    <View style={styles.row}>
-                      <Text style={styles.label}>Mode:</Text>
-                      <Text style={styles.value}>{calibration.cameraMode}</Text>
-                    </View>
-                  )}
-                  {calibration.courtCorners && (
-                    <View style={styles.row}>
-                      <Text style={styles.label}>Campo:</Text>
-                      <Text style={styles.value}>4 angoli ✓</Text>
-                    </View>
-                  )}
-                </>
-              ) : (
-                <View style={styles.row}>
-                  <Text style={styles.value}>Non calibrato</Text>
-                </View>
-              )}
             </View>
 
             <View style={styles.section}>
@@ -384,7 +297,7 @@ const styles = StyleSheet.create({
     bottom: 10,
     left: 10,
     width: 160,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ff8c00',
