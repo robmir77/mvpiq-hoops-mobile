@@ -144,6 +144,7 @@ class TelemetryLogger {
   }
   private ballDetectionFrames: Set<number> = new Set()
   private playerDetectionFrames: Set<number> = new Set()
+  private yoloProcessedFrames: Set<number> = new Set()
   private batteryMetrics: BatteryMetrics | null = null
   private deviceMetrics: DeviceMetrics | null = null
   private testStartTime: number | null = null
@@ -189,6 +190,10 @@ class TelemetryLogger {
 
   recordYoloExecuted(): void {
     this.yoloExecuted++
+  }
+
+  recordYoloProcessedFrame(frameCounter: number): void {
+    this.yoloProcessedFrames.add(frameCounter)
   }
 
   recordYoloResize(resizeMs: number): void {
@@ -464,7 +469,8 @@ class TelemetryLogger {
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
     const framesWithDetection = this.ballDetectionFrames.size
-    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
+    const yoloFramesProcessed = this.yoloProcessedFrames.size
+    const detectionRate = yoloFramesProcessed > 0 ? (framesWithDetection / yoloFramesProcessed) * 100 : 0
 
     return {
       framesProcessed,
@@ -516,7 +522,8 @@ class TelemetryLogger {
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
     const framesWithDetection = this.playerDetectionFrames.size
-    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
+    const yoloFramesProcessed = this.yoloProcessedFrames.size
+    const detectionRate = yoloFramesProcessed > 0 ? (framesWithDetection / yoloFramesProcessed) * 100 : 0
     const bboxSizes = this.playerDetections.map(d => d.bbox.w * d.bbox.h)
     const avgBboxSize = bboxSizes.reduce((a, b) => a + b, 0) / bboxSizes.length
     if (this.playerDetections.length < 2) {
@@ -764,6 +771,7 @@ Current=${summary.battery.endLevel}%
     this.bboxHistory = []
     this.ballDetectionFrames.clear()
     this.playerDetectionFrames.clear()
+    this.yoloProcessedFrames.clear()
     this.pipelineMetrics = {
       cameraFPS: 0,
       received: 0,

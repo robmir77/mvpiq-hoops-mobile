@@ -44,7 +44,10 @@ export const useYoloWorker = (
 
   const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
     if (requested) telemetryLogger.recordYoloRequested()
-    if (executed) telemetryLogger.recordYoloExecuted()
+    if (executed) {
+      telemetryLogger.recordYoloExecuted()
+      if (frameCounter !== undefined) telemetryLogger.recordYoloProcessedFrame(frameCounter)
+    }
     telemetryLogger.recordYoloInference(inferenceTime)
     telemetryLogger.incrementYoloDetections()
     if (resizeMs !== undefined) telemetryLogger.recordYoloResize(resizeMs)
