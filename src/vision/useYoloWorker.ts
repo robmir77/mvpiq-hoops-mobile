@@ -49,9 +49,14 @@ export const useYoloWorker = (
   const fps = useSharedValue(0)
 
   // JS-side callback for telemetry recording
-  const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number) => {
+  const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
+    if (requested) telemetryLogger.recordYoloRequested()
+    if (executed) telemetryLogger.recordYoloExecuted()
     telemetryLogger.recordYoloInference(inferenceTime)
     telemetryLogger.incrementYoloDetections()
+    if (resizeMs !== undefined) telemetryLogger.recordYoloResize(resizeMs)
+    if (runMs !== undefined) telemetryLogger.recordYoloRun(runMs)
+    if (parseMs !== undefined) telemetryLogger.recordYoloParse(parseMs)
 
     if (ball) {
       // Only record frame-level detection once per frame, not per candidate
@@ -184,6 +189,7 @@ export const useYoloWorker = (
       const t0 = performance.now()
       resized = yoloResizer?.resize(frame)
       const t1 = performance.now()
+      const resizeMs = t1 - t0
 
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
@@ -194,11 +200,15 @@ export const useYoloWorker = (
           // Pass buffer directly without slice() to avoid unnecessary copy
           const inputBuffer = source.buffer as ArrayBuffer
 
+          const tRunStart = performance.now()
           const outputs = yoloModelInstance!.runSync([inputBuffer])
+          const tRunEnd = performance.now()
+          const runMs = tRunEnd - tRunStart
           const rawOutput = outputs[0] as ArrayBufferLike
 
 
           // Use appropriate parser based on model precision
+          const tParseStart = performance.now()
           let ball, player, rim
           // High confidence threshold for rim detection to avoid false positives
           const RIM_CONFIDENCE_THRESHOLD = 0.6
@@ -220,6 +230,8 @@ export const useYoloWorker = (
             player = result.player
             rim = result.rim
           }
+          const tParseEnd = performance.now()
+          const parseMs = tParseEnd - tParseStart
 
           const t2 = performance.now()
           
@@ -263,7 +275,7 @@ export const useYoloWorker = (
           }
 
           // Record telemetry via scheduleOnRN with frame counter (only valid ball detection)
-          scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, frameCounter)
+          scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, frameCounter, resizeMs, runMs, parseMs, true, true)
 
         }
       }

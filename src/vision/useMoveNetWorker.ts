@@ -128,9 +128,15 @@ export const useMoveNetWorker = (
   const { resizer: rgbResizer } = useResizer(rgbResizerConfig)
 
   // JS-side callback for telemetry recording
-  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any) => {
+  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, cropMs?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
+    if (requested) telemetryLogger.recordMoveNetRequested()
+    if (executed) telemetryLogger.recordMoveNetExecuted()
     telemetryLogger.recordMoveNetInference(inferenceTime)
     telemetryLogger.incrementPoseUpdates()
+    if (cropMs !== undefined) telemetryLogger.recordMoveNetCrop(cropMs)
+    if (resizeMs !== undefined) telemetryLogger.recordMoveNetResize(resizeMs)
+    if (runMs !== undefined) telemetryLogger.recordMoveNetRun(runMs)
+    if (parseMs !== undefined) telemetryLogger.recordMoveNetParse(parseMs)
     
     // Calculate average keypoint confidence
     if (keypoints) {
@@ -166,6 +172,7 @@ export const useMoveNetWorker = (
     
     try {
       const t0 = performance.now()
+      const tResizeStart = performance.now()
       
       // Get player bbox from YOLO
       const bbox = playerBbox.value
@@ -174,6 +181,8 @@ export const useMoveNetWorker = (
       if (bbox && enabled) {
         // First convert YUV frame to RGB at ORIGINAL frame size, then crop
         resized = rgbResizer?.resize(frame)
+        const tResizeEnd = performance.now()
+        const resizeMs = tResizeEnd - tResizeStart
         
         if (resized) {
           try {
@@ -219,6 +228,7 @@ export const useMoveNetWorker = (
               }
               
               // CPU-based cropping and resizing on RGB buffer
+              const tCropStart = performance.now()
               const cropXInt = Math.floor(cropInfo.cropX)
               const cropYInt = Math.floor(cropInfo.cropY)
               const cropWInt = Math.floor(cropInfo.cropWidth)
@@ -238,8 +248,11 @@ export const useMoveNetWorker = (
                 const dstOffset = y * cropWInt * bytesPerPixel
                 croppedBuffer.set(srcData.subarray(srcOffset, srcOffset + cropWInt * bytesPerPixel), dstOffset)
               }
+              const tCropEnd = performance.now()
+              const cropMs = tCropEnd - tCropStart
               
               // Resize cropped buffer to target input size (simple nearest-neighbor)
+              const tResizeCropStart = performance.now()
               const targetSize = poseInputSize
               const resizedBufferSize = targetSize * targetSize * bytesPerPixel
               const resizedBuffer = getResizeBuffer(resizedBufferSize)
@@ -259,7 +272,9 @@ export const useMoveNetWorker = (
                   resizedBuffer[dstOffset + 2] = croppedBuffer[srcOffset + 2]
                 }
               }
-              
+              const tResizeCropEnd = performance.now()
+              const resizeCropMs = tResizeCropEnd - tResizeCropStart
+              const totalResizeMs = resizeMs + resizeCropMs
               
               // Use the resized cropped buffer directly
               const source = resizedBuffer
@@ -268,11 +283,17 @@ export const useMoveNetWorker = (
                 // Pass buffer directly without slice() to avoid unnecessary copy
                 const inputBuffer = source.buffer as ArrayBuffer
 
+                const tRunStart = performance.now()
                 const outputs = poseModelInstance!.runSync([inputBuffer])
+                const tRunEnd = performance.now()
+                const runMs = tRunEnd - tRunStart
                 const output = new Float32Array(outputs[0] as ArrayBufferLike)
 
+                const tParseStart = performance.now()
                 const keypoints = parseMoveNetOutput(output, poseInputSize)
                 const angles = computeJointAngles(keypoints)
+                const tParseEnd = performance.now()
+                const parseMs = tParseEnd - tParseStart
 
                 // Transform keypoints back to original frame space
                 let finalKeypoints = keypoints
@@ -304,7 +325,8 @@ export const useMoveNetWorker = (
                   fps.value = calculatedFps
                 }
 
-                scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints)
+                // Record telemetry via scheduleOnRN
+                scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, cropMs, totalResizeMs, runMs, parseMs, true, true)
                 
                 // resized will be disposed in finally block
                 isProcessing.value = false
@@ -338,6 +360,7 @@ export const useMoveNetWorker = (
           const targetSize = poseInputSize
           const resizedBufferSize = targetSize * targetSize * bytesPerPixel
           const resizedBuffer = getResizeBuffer(resizedBufferSize)
+          const tResizeFullStart = performance.now()
           
           const resizeScaleX = frameW / targetSize
           const resizeScaleY = frameH / targetSize
@@ -354,6 +377,8 @@ export const useMoveNetWorker = (
               resizedBuffer[dstOffset + 2] = srcData[srcOffset + 2]
             }
           }
+          const tResizeFullEnd = performance.now()
+          const resizeFullMs = tResizeFullEnd - tResizeFullStart
           
           // MoveNet uses uint8 input
           const source = resizedBuffer
@@ -362,11 +387,17 @@ export const useMoveNetWorker = (
             // Pass buffer directly without slice() to avoid unnecessary copy
             const inputBuffer = source.buffer as ArrayBuffer
 
+            const tRunStart = performance.now()
             const outputs = poseModelInstance!.runSync([inputBuffer])
+            const tRunEnd = performance.now()
+            const runMs = tRunEnd - tRunStart
             const output = new Float32Array(outputs[0] as ArrayBufferLike)
 
+            const tParseStart = performance.now()
             const keypoints = parseMoveNetOutput(output, poseInputSize)
             const angles = computeJointAngles(keypoints)
+            const tParseEnd = performance.now()
+            const parseMs = tParseEnd - tParseStart
 
             // Transform keypoints back to original frame space if crop was used
             let finalKeypoints = keypoints
@@ -402,7 +433,7 @@ export const useMoveNetWorker = (
             }
 
             // Record telemetry via scheduleOnRN
-            scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints)
+            scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, 0, resizeFullMs, runMs, parseMs, true, true)
           }
         }
       }
