@@ -14,7 +14,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 import { ShotDetector } from './shotDetector'
 import { useYoloWorker } from './useYoloWorker'
 import { useMoveNetWorker } from './useMoveNetWorker'
-import { playerCropManager } from './playerCrop'
+import { usePlayerCropManager } from './usePlayerCropManager'
 
 import type {
     BallDetection,
@@ -190,6 +190,9 @@ export const useShotTracker = (
         poseDelegate,
         moveNetModelId
     )
+
+    // Player crop manager (worklet-compatible hook)
+    const playerCrop = usePlayerCropManager()
 
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
@@ -836,10 +839,10 @@ export const useShotTracker = (
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
                         if (__DEV__) {
-                            console.log('[PlayerCrop] manager:', playerCropManager, 'currentPlayer:', currentPlayer)
+                            console.log('[PlayerCrop] currentPlayer:', currentPlayer)
                         }
                         if (currentPlayer) {
-                            playerCropManager.update({
+                            playerCrop.update({
                                 x: currentPlayer.x,
                                 y: currentPlayer.y,
                                 width: currentPlayer.width,
@@ -851,7 +854,7 @@ export const useShotTracker = (
                             }
                             scheduleOnRN(recordPlayerDetected)
                         } else {
-                            playerCropManager.update(null)
+                            playerCrop.update(null)
                             if (lastPlayerDetectedRef.current) {
                                 // Transition: DETECTED → LOST
                                 lastPlayerDetectedRef.current = false
@@ -864,7 +867,7 @@ export const useShotTracker = (
                         lastMoveNetInferenceAt.value = nowForMoveNet
                         
                         // Get effective bbox from PlayerCropManager (time-based tracking)
-                        const trackedBbox = playerCropManager.getEffectiveBbox(nowForMoveNet)
+                        const trackedBbox = playerCrop.getEffectiveBbox(nowForMoveNet)
                         if (trackedBbox) {
                             // Pass effective bbox to MoveNet
                             moveNetWorker.playerBbox.value = {
@@ -1046,7 +1049,7 @@ export const useShotTracker = (
             lastBallRef.current =
                 null
 
-            playerCropManager.reset()
+            playerCrop.reset()
 
         }, [])
 

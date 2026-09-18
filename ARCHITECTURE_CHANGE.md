@@ -207,30 +207,63 @@ YOLO
 
 Il crash avviene prima di poter valutare il nuovo ball tracking.
 
-## Proposed Solution
+## Phase 3: PlayerCropManager Worklet Compatibility
 
-### Fix 2A: Rendere PlayerCropManager worklet-safe
-Convertire PlayerCropManager da singleton JavaScript a stato basato su SharedValues per compatibilità con Worklet Runtime.
+### Obiettivo
+Risolvere il crash causato dall'accesso al singleton JavaScript `playerCropManager` nel Frame Processor Worklet Runtime.
 
-### Fix 2B: Verificare soglia confidence player
-Investigare perché il player ha confidence 0.008 e aggiungere un filtro appropriato prima di passare il BBox al PlayerCropManager.
+### Root Cause
+- `playerCropManager` era un singleton JavaScript (`new PlayerCropManager()`) creato in `playerCrop.ts`
+- Il Worklet Runtime di `react-native-vision-camera` non ha accesso ai singleton JavaScript importati
+- Quindi `playerCropManager` risultava `undefined` nel worklet, causando crash su `playerCropManager.update()`
 
-### Fix 2C: Aggiungere log debug
-Già aggiunto log debug per confermare che `playerCropManager` è `undefined` nel worklet.
+### Soluzione implementata: Hook con SharedValues
 
-## Approcci possibili per Fix 2A
+#### 1. usePlayerCropManager.ts - Nuovo hook worklet-safe
+- Creato nuovo file `usePlayerCropManager.ts` con pattern hook Reanimated
+- Tutto lo stato memorizzato in SharedValues per compatibilità worklet:
+  - `bboxX`, `bboxY`, `bboxWidth`, `bboxHeight` - BBox raw da detection
+  - `smoothedX`, `smoothedY`, `smoothedWidth`, `smoothedHeight` - BBox smoothed (EMA)
+  - `lastSeenAt`, `detectedAt` - Timestamp tracking
+  - `hasBbox` - Flag validità BBox
+- Funzioni pure worklet (nessun binding `this`):
+  - `update(playerBbox)` - Aggiorna stato tracking con filtro confidence minimo 0.3
+  - `getEffectiveBbox(now)` - Restituisce BBox tracciato o null se scaduto
+  - `calculateCrop(trackedBbox, frameWidth, frameHeight)` - Calcola regione crop
+  - `transformKeypointsToFrame()` - Trasforma keypoints da crop a frame space
+  - `reset()` - Reset stato tracking
+  - `getState()` - Get stato corrente (debug/telemetria)
+- Aggiunto filtro confidence minimo 0.3 in `update()` per rifiutare detection spurie
 
-### Opzione 1: Modifica graduale di playerCrop.ts
-Convertire le funzioni esistenti in worklet-safe passo per passo usando il tool `edit`.
+#### 2. useShotTracker.ts - Integrazione nuovo hook
+- Sostituito import `playerCropManager` con `usePlayerCropManager`
+- Aggiunto hook call: `const playerCrop = usePlayerCropManager()`
+- Sostituite tutte le chiamate `playerCropManager.update()` con `playerCrop.update()`
+- Sostituita chiamata `playerCropManager.getEffectiveBbox()` con `playerCrop.getEffectiveBbox()`
+- Sostituita chiamata `playerCropManager.reset()` con `playerCrop.reset()`
+- Rimosso log debug che stampava il singleton (ora non più necessario)
 
-### Opzione 2: Nuovo file playerCropWorklet.ts
-Creare un nuovo file con implementazione worklet-safe e migrare gradualmente.
+#### 3. useMoveNetWorker.ts - Aggiornamento import
+- Aggiornato import `PlayerCropResult` da `./playerCrop` a `./usePlayerCropManager`
 
-### Opzione 3: Gestire stato direttamente in useShotTracker
-Gestire lo stato del player tracking direttamente in useShotTracker usando SharedValues invece di un manager separato.
+### Architettura finale Player (worklet-safe)
+```
+YOLO PLAYER (worklet)
+    ↓
+playerCrop.update() (worklet function su SharedValues)
+    ↓
+SharedValues state (bboxX, smoothedX, lastSeenAt, etc.)
+    ↓
+playerCrop.getEffectiveBbox() (worklet function)
+    ↓
+MoveNet (solo se BBox valido)
+```
 
-## Domanda per l'utente
-Quale approccio preferisci per rendere PlayerCropManager worklet-safe?
-1. Modifica graduale di playerCrop.ts
-2. Nuovo file playerCropWorklet.ts
-3. Gestire stato direttamente in useShotTracker
+### Comportamento
+- Player rilevato con confidence ≥ 0.3 → BBox aggiornato, MoveNet esegue
+- Player rilevato con confidence < 0.3 → Detection ignorata, tracking persiste
+- Player perso → BBox persiste per 750ms, MoveNet continua con ultimo BBox
+- BBox scaduto (>750ms) → MoveNet non esegue (nessun full-frame fallback)
+
+### Fix 2B completato
+Il filtro confidence minimo 0.3 è stato implementato in `usePlayerCropManager.update()`, prevenendo aggiornamenti con detection spurie come quella con confidence 0.008 che mascherava il crash.
