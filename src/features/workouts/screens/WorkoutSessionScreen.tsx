@@ -469,7 +469,7 @@ const getReleaseColor = (angle: number): string => {
 
 // React Overlay (Badges, Debug, Pose Skeleton)
 const ReactOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution, showDebug, rimFromDetection,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution, showDebug, rimFromDetection, cameraMode,
 }: {
     trackingState: TrackingState | null
     poseKeypoints: PoseKeypoints | null
@@ -499,6 +499,7 @@ const ReactOverlay = React.memo(({
     effectiveResolution: { width: number; height: number }
     showDebug?: boolean
     rimFromDetection?: { x: number; y: number; width: number; height: number; confidence: number } | null
+    cameraMode?: string
 }) => {
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
@@ -786,7 +787,7 @@ const ReactOverlay = React.memo(({
                     {/* Calibrazione Section */}
                     {calibration && (
                         <View style={ovStyles.debugSection}>
-                            <Text style={ovStyles.debugSectionTitle}>🔍 CALIBRAZIONE</Text>
+                            <Text style={ovStyles.debugSectionTitle}>🔍 CALIBRAZIONE — {cameraMode || 'Default'}</Text>
                             <Text style={ovStyles.debugText}>Hoop: ({calibration.hoopCenter.x.toFixed(3)}, {calibration.hoopCenter.y.toFixed(3)})</Text>
                             <Text style={ovStyles.debugText}>Homography: {calibration.homographyMatrix.length > 0 ? `${calibration.homographyMatrix.length} coeff.` : 'identità'}</Text>
                             {calibration.courtCorners && <Text style={ovStyles.debugText}>Campo: 4 angoli ✓</Text>}
@@ -1648,6 +1649,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     effectiveResolution={effectiveResolution}
                     showDebug={debugMode}
                     rimFromDetection={rimFromDetection}
+                    cameraMode={cameraMode}
                 />
 
                 {/* Telemetry overlay */}
