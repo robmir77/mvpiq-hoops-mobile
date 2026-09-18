@@ -308,6 +308,56 @@ const RealtimeBallOverlay = React.memo(({
         return validKeypoints >= 5 ? 1 : 0
     })
 
+    // Skeleton segment colors
+    const LIMB_COLORS: Record<string, string> = {
+        'leftShoulder-rightShoulder': '#a855f7', // viola - spalle
+        'leftShoulder-leftElbow': '#ef4444', // rosso - braccio SX
+        'leftElbow-leftWrist': '#ef4444',
+        'rightShoulder-rightElbow': '#3b82f6', // blu - braccio DX
+        'rightElbow-rightWrist': '#3b82f6',
+        'leftShoulder-leftHip': '#22c55e', // verde - torso SX
+        'rightShoulder-rightHip': '#22c55e', // verde - torso DX
+        'leftHip-rightHip': '#eab308', // giallo - bacino
+        'leftHip-leftKnee': '#f97316', // arancione - gamba SX
+        'leftKnee-leftAnkle': '#f97316',
+        'rightHip-rightKnee': '#06b6d4', // ciano - gamba DX
+        'rightKnee-rightAnkle': '#06b6d4',
+    }
+
+    // Create separate paths for each color group
+    const createLimbPath = (connections: Array<[string, string]>) => {
+        return useDerivedValue(() => {
+            if (!poseKeypoints) return Skia.Path.Make()
+            const path = Skia.Path.Make()
+
+            connections.forEach(([kp1Name, kp2Name]) => {
+                const kp1 = poseKeypoints[kp1Name as keyof PoseKeypoints]
+                const kp2 = poseKeypoints[kp2Name as keyof PoseKeypoints]
+
+                if (kp1 && kp2 && kp1.score > 0.15 && kp2.score > 0.15) {
+                    const p1 = mapNormalizedToCameraView(kp1.x, kp1.y, effectiveResolution.width, effectiveResolution.height)
+                    const p2 = mapNormalizedToCameraView(kp2.x, kp2.y, effectiveResolution.width, effectiveResolution.height)
+                    path.moveTo(p1.x, p1.y)
+                    path.lineTo(p2.x, p2.y)
+                }
+            })
+
+            return path
+        })
+    }
+
+    const leftArmPath = createLimbPath([['leftShoulder', 'leftElbow'], ['leftElbow', 'leftWrist']])
+    const rightArmPath = createLimbPath([['rightShoulder', 'rightElbow'], ['rightElbow', 'rightWrist']])
+    const leftLegPath = createLimbPath([['leftHip', 'leftKnee'], ['leftKnee', 'leftAnkle']])
+    const rightLegPath = createLimbPath([['rightHip', 'rightKnee'], ['rightKnee', 'rightAnkle']])
+    const torsoPath = createLimbPath([['leftShoulder', 'rightShoulder'], ['leftShoulder', 'leftHip'], ['rightShoulder', 'rightHip'], ['leftHip', 'rightHip']])
+
+    const skeletonOpacity = useDerivedValue(() => {
+        if (!poseKeypoints) return 0
+        const validKeypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0.15).length
+        return validKeypoints >= 2 ? 1 : 0
+    })
+
     const shotTrailPath = useDerivedValue(() => {
         const showTrail = sharedValues?.showShotTrail.value ?? false
         const isInFlight = sharedValues?.inFlight.value ?? false
@@ -448,6 +498,28 @@ const RealtimeBallOverlay = React.memo(({
                         path={playerBboxPath}
                         color="#22c55e" style="stroke" strokeWidth={2}
                     />
+                </Group>
+
+                <Group opacity={skeletonOpacity}>
+                    {/* Left arm - red */}
+                    <SkiaPath path={leftArmPath} color="rgba(239,68,68,0.3)" style="stroke" strokeWidth={4} strokeJoin="round" strokeCap="round" />
+                    <SkiaPath path={leftArmPath} color="#ef4444" style="stroke" strokeWidth={2} strokeJoin="round" strokeCap="round" />
+
+                    {/* Right arm - blue */}
+                    <SkiaPath path={rightArmPath} color="rgba(59,130,246,0.3)" style="stroke" strokeWidth={4} strokeJoin="round" strokeCap="round" />
+                    <SkiaPath path={rightArmPath} color="#3b82f6" style="stroke" strokeWidth={2} strokeJoin="round" strokeCap="round" />
+
+                    {/* Left leg - orange */}
+                    <SkiaPath path={leftLegPath} color="rgba(249,115,22,0.3)" style="stroke" strokeWidth={4} strokeJoin="round" strokeCap="round" />
+                    <SkiaPath path={leftLegPath} color="#f97316" style="stroke" strokeWidth={2} strokeJoin="round" strokeCap="round" />
+
+                    {/* Right leg - cyan */}
+                    <SkiaPath path={rightLegPath} color="rgba(6,182,212,0.3)" style="stroke" strokeWidth={4} strokeJoin="round" strokeCap="round" />
+                    <SkiaPath path={rightLegPath} color="#06b6d4" style="stroke" strokeWidth={2} strokeJoin="round" strokeCap="round" />
+
+                    {/* Torso - green */}
+                    <SkiaPath path={torsoPath} color="rgba(34,197,94,0.3)" style="stroke" strokeWidth={4} strokeJoin="round" strokeCap="round" />
+                    <SkiaPath path={torsoPath} color="#22c55e" style="stroke" strokeWidth={2} strokeJoin="round" strokeCap="round" />
                 </Group>
             </Group>
         </Canvas>
