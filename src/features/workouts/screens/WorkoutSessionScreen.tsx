@@ -23,7 +23,7 @@ import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useCameraPipeline } from '@/vision'
-import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
+import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
 import { telemetryLogger } from '@/vision/telemetry'
 import {
     WorkoutSession, ShotResult,
@@ -85,9 +85,7 @@ function toCourtMeters(
     }
 }
 
-// ─── Debug overlay calibrazione ───────────────────────────────────────────────
-
-// ─── Skia Overlay ─────────────────────────────────────────────────────────────
+// Skia Overlay
 const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = [
     ['leftShoulder','rightShoulder'],
     ['leftShoulder','leftElbow'],   ['leftElbow','leftWrist'],
@@ -100,7 +98,7 @@ const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = 
 const KP_THRESH = 0.35
 const TRAIL_DELAY_POINTS = 5
 
-// ─── Realtime Ball Overlay (Pure Skia, no React state) ───────────────────────
+// Realtime Ball Overlay (Pure Skia, no React state)
 const RealtimeBallOverlay = React.memo(({
     sharedValues,
     effectiveResolution,
@@ -480,7 +478,7 @@ const CONNECTION_COLORS: Record<string, string> = {
     'rightKnee-rightAnkle': '#22c55e',
 }
 
-// ── Game-style effects ───────────────────────────────────────────────────────
+// Game-style effects
 const calculatePlayerSize = (poseKeypoints: PoseKeypoints | null): number => {
     if (!poseKeypoints) return 0
     const leftShoulder = poseKeypoints.leftShoulder
@@ -522,7 +520,7 @@ const getReleaseColor = (angle: number): string => {
     return '#ef4444' // Red: poor
 }
 
-// ─── React Overlay (Badges, Debug, Pose Skeleton) ─────────────────────────────
+// React Overlay (Badges, Debug, Pose Skeleton)
 const ReactOverlay = React.memo(({
     trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution, showDebug, rimFromDetection,
 }: {
@@ -555,11 +553,6 @@ const ReactOverlay = React.memo(({
     showDebug?: boolean
     rimFromDetection?: { x: number; y: number; width: number; height: number; confidence: number } | null
 }) => {
-    setTimeout(() => {
-        incrementOverlayRenders()
-        telemetryLogger.incrementOverlayRendered()
-    }, 0)
-
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
@@ -869,7 +862,7 @@ const ReactOverlay = React.memo(({
     )
 })
 
-// ─── Overlay Styles ─────────────────────────────────────────────────────────────
+// Overlay Styles
 const ovStyles = StyleSheet.create({
     ballLabelWrap: {
         position: 'absolute',
@@ -1147,31 +1140,27 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
     const cameraRef       = useRef<CameraRef>(null)
 
-    // Performance monitoring - tracking state updates (for tracking/overlay metrics only)
-    // Note: YOLO/MoveNet FPS now come from worker SharedValues, not performance monitor
+    // Performance monitoring (YOLO/MoveNet FPS from worker SharedValues)
     useEffect(() => {
         startPerfMonitor()
         return () => stopPerfMonitor()
     }, [])
 
-    // ── Pose callback (new architecture) ─────────────────────────────────────
+    // Pose callback
     const handlePoseResult = useCallback((result: PoseResult) => {
-        // console.log('[WorkoutSession] Pose keypoints:', Object.keys(result.keypoints).length, 'joints')
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
     }, [])
 
-    // ── Rim detection callback - sostituisce rim calibrato se confidence alta ──
+    // Rim detection callback (replaces calibrated rim if confidence high)
     const handleRimDetection = useCallback((rim: { x: number; y: number; width: number; height: number; confidence: number }) => {
         console.log('[WorkoutSession] Rim detected with high confidence - replacing calibrated rim')
         setRimFromDetection(rim)
-        // Also update tracking engine directly to update overlay shared values
+        // Update tracking engine to update overlay shared values
         tracking.setHoopFromCalibration(rim.x, rim.y, rim.width, rim.height)
     }, [tracking])
 
-    // ── Ball detection callback (new architecture) ────────────────────────
-    // FASE 1+2: trackingState updated ONLY for events/analytics, NOT for visual data
-    // Visual data (ball position, hoop) are 100% SharedValue/Skia - no React bridge
+    // Ball detection callback (trackingState for events only, visual data via SharedValue/Skia)
     const handleBallDetection = useCallback((detection: BallDetection) => {
         const ball = detection.ball
         const rim = detection.rim
@@ -1232,7 +1221,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [tracking, calibration, rimFromDetection])
 
-    // ── Auto shot detection handler (must be defined before handleShotEvent) ─────
+    // Auto shot detection handler
     const handleAutoShotDetected = useCallback(async (result: ShotResult) => {
         if (!user?.id || !sessionId || isRecordingRef.current) return
         isRecordingRef.current = true
@@ -1280,7 +1269,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         finally { isRecordingRef.current = false; setIsRecording(false) }
     }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
-    // ── Screenshot capture function ────────────────────────────────────────
+    // Screenshot capture function
     const captureShotScreenshot = useCallback(async (shotNumber: number) => {
         if (!cameraViewRef.current) return
         try {
@@ -1299,7 +1288,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [])
 
-    // ── Save screenshot with final result name ────────────────────────────────
+    // Save screenshot with final result name
     const saveScreenshotWithResult = useCallback(async (screenshotData: any, result: ShotResult) => {
         try {
             const resultLabel = result === 'MADE' ? `CANESTRO_${screenshotData.shotNumber}` : 'FAIL'
@@ -1316,7 +1305,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [])
 
-    // ── Shot event callback (new architecture) ───────────────────────────
+    // Shot event callback
     const handleShotEvent = useCallback(async (event: ShotEvent) => {
         console.log('[WorkoutSession] Shot event:', event)
         if (event.shotReleased) {
@@ -1342,8 +1331,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [handleAutoShotDetected, captureShotScreenshot, saveScreenshotWithResult])
 
-    // ── Session Video Recording Functions ──────────────────────────────────
-    // NOTE: Video recording API changed in v5 - needs migration
+    // Session Video Recording Functions (v5 API migration needed)
     const startSessionVideoRecording = useCallback(async () => {
         console.warn('[WorkoutSession] Video recording not yet migrated to v5 API')
         showError('Funzione non disponibile', 'La registrazione video richiede migrazione all\'API v5.')
@@ -1363,18 +1351,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [isVideoRecording, startSessionVideoRecording, stopSessionVideoRecording])
 
-    // ── New architecture: useCameraPipeline integrates everything ─────────
+    // useCameraPipeline integration
     const rimFromCalibration = React.useMemo(() =>
         calibration?.hoopCenter
             ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.05, height: 0.05 }
             : null
     , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
-    // Usa il rim rilevato dal modello se disponibile, altrimenti usa quello calibrato
-    // Mantieni l'ultima rilevazione positiva invece di tornare alla calibrazione
+    // Use detected rim if available, otherwise use calibrated rim
     const effectiveRim = rimFromDetection || rimFromCalibration
 
-    // Extract Kalman filtered ball data from tracking state
+    // Kalman filtered ball data from tracking state
     const kalmanFilteredBall = React.useMemo(() => {
         if (trackingState && trackingState.ballPosition && trackingState.ballVelocity) {
             return {
@@ -1387,7 +1374,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return null
     }, [trackingState?.ballPosition, trackingState?.ballVelocity])
 
-    // ── New architecture: useCameraPipeline integrates everything ─────────
+    // useCameraPipeline integration
     const {
         device,
         hasPermission,
@@ -1433,9 +1420,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return () => clearInterval(fpsInterval)
     }, [yoloFps, moveNetFps])
 
-    // Format selection removed in v5 - use Camera defaults
-
-    // ── Request media library permissions for saving screenshots ─────────────
+    // Request media library permissions for screenshots
     useEffect(() => {
         void (async () => {
             const { status } = await MediaLibrary.requestPermissionsAsync()
@@ -1445,7 +1430,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         })()
     }, [])
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────
+    // Lifecycle
     useEffect(() => {
         void loadSession()
         batchTimer.current = setInterval(flushFrameBatch, 2000)

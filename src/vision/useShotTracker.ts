@@ -32,9 +32,7 @@ import {
 import { telemetryLogger } from './telemetry'
 
 
-// ─────────────────────────────────────────────────────────────────────────────
 // AI throttling
-// ─────────────────────────────────────────────────────────────────────────────
 
 const YOLO_FRAME_SKIP = 1
 const YOLO_FRAME_SKIP_STABLE = 3 // Throttle YOLO when ball is stable
@@ -46,15 +44,10 @@ const BALL_STABILITY_FRAMES = 5 // Consecutive frames to consider stable
 const MOVENET_TARGET_FPS = 3
 const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Constants
-// ─────────────────────────────────────────────────────────────────────────────
 
 const RIM_CONFIDENCE_THRESHOLD = 0.15
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hook
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const useShotTracker = (
     onBallDetection: (
@@ -107,19 +100,7 @@ export const useShotTracker = (
     moveNetModelId?: string
 ) => {
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Mount-instance diagnostic
-    //
-    // If this hook is ever mounted twice concurrently (React remount, a
-    // stale navigation stack entry, etc.), each instance gets its own
-    // Worklet Runtime/shared values — which is consistent with the
-    // remaining rare TypedArray/ArrayBuffer crash surviving every JS-level
-    // stabilization fix so far. This has near-zero cost and tells us
-    // directly, from the same Metro log you already share, whether that's
-    // happening: if you ever see two different [instanceId] values alive
-    // at the same time (a MOUNT for id B before an UNMOUNT for id A),
-    // that's the proof — no adb/logcat needed for this specific check.
-    // ─────────────────────────────────────────────────────────────────────────
+    // Mount-instance diagnostic: detect concurrent hook mounts by logging unique IDs
 
     const instanceIdRef =
         useRef(
@@ -142,9 +123,7 @@ export const useShotTracker = (
         }
     }, [])
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Shot detector
-    // ─────────────────────────────────────────────────────────────────────────
 
     const shotDetector =
         useRef(new ShotDetector())
@@ -156,16 +135,12 @@ export const useShotTracker = (
             t: number
         } | null>(null)
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Shared values
-    // ─────────────────────────────────────────────────────────────────────────
 
     const frameCounter =
         useSharedValue(0)
 
-    // Reentrancy guard: prevents a second onFrame invocation from starting
-    // while a previous one is still running (e.g. inside model.runSync()).
-    // Belt-and-suspenders alongside dropFramesWhileBusy below.
+    // Reentrancy guard: prevents concurrent onFrame invocations
     const isProcessingFrame =
         useSharedValue(false)
 
@@ -173,36 +148,33 @@ export const useShotTracker = (
     const hasFatalError =
         useSharedValue(false)
 
-    // Throttle for scheduleOnRN calls - limit bridge crossings to ~16ms
+    // Throttle scheduleOnRN calls to ~16ms (limit bridge crossings)
     const lastRNDispatch =
         useSharedValue(0)
 
-    // Worklet-side throughput instrumentation; sampled once per second.
+    // Throughput instrumentation (sampled once per second)
     const perfLastLogAt = useSharedValue(0)
     const perfFramesReceived = useSharedValue(0)
     const perfFramesProcessed = useSharedValue(0)
     const perfFramesDroppedBusy = useSharedValue(0)
     const lastMoveNetInferenceAt = useSharedValue(0)
 
-    // End-to-end detection tracking
+    // Detection tracking for telemetry (sampled once per second)
     const perfYoloBallDetected = useSharedValue(0)
     const perfTrackingAccepted = useSharedValue(0)
-    const perfOverlayRendered = useSharedValue(0)
 
-    // Ball stability tracking for intelligent YOLO throttling
+    // Ball stability for YOLO throttling
     const lastBallX = useSharedValue(0)
     const lastBallY = useSharedValue(0)
     const stableFrameCount = useSharedValue(0)
     const isBallStable = useSharedValue(false)
 
-    // Size continuity tracking to filter incompatible detections
+    // Size continuity filter for incompatible detections
     const lastBallWidth = useSharedValue(0)
     const lastBallHeight = useSharedValue(0)
     const lastValidBallTime = useSharedValue(0)
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Parallel Workers
-    // ─────────────────────────────────────────────────────────────────────────
 
     const yoloWorker = useYoloWorker(
         ballEnabled,
@@ -216,17 +188,10 @@ export const useShotTracker = (
         moveNetModelId
     )
 
-    // Recovery mechanism: reset the fatal error flag after a delay.
-    // IMPORTANT: this must be scheduled from the JS thread at the moment
-    // the error is actually caught (via scheduleOnRN in the catch block
-    // below) — NOT from a mount-time useEffect. A useEffect with an empty
-    // dependency array only runs once, at mount, when there is no error
-    // yet to react to; mutating a plain useRef from inside the onFrame
-    // worklet doesn't propagate back to the JS thread's ref either way
-    // (worklets get their own copy of captured plain objects — only
-    // shared values are synchronized across runtimes). Net effect of the
-    // old approach: the timeout was never scheduled, and hasFatalError
-    // stayed true forever after the first fatal error.
+    // Fatal error recovery: schedule reset from JS thread when error is caught
+    // Cannot use useEffect (runs once at mount, before error exists)
+    // Cannot mutate plain useRef from worklet (not synchronized)
+    // Must use scheduleOnRN from catch block below
     const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const scheduleFatalErrorRecovery =
@@ -269,14 +234,13 @@ export const useShotTracker = (
     const rimEnabledShared =
         useSharedValue(rimEnabled)
 
-    // JS-side callback for pipeline telemetry recording
+    // Pipeline telemetry callback (runs on JS thread)
     const updatePipelineTelemetry = useCallback((
         cameraFPS: number,
         received: number,
         processed: number,
         droppedBusy: number,
-        trackingAccepted: number,
-        overlayRendered: number
+        trackingAccepted: number
     ) => {
         telemetryLogger.updatePipelineMetrics(
             cameraFPS,
@@ -284,33 +248,19 @@ export const useShotTracker = (
             processed,
             droppedBusy,
             trackingAccepted,
-            overlayRendered
+            0 // overlayRendered deprecated: Skia renders at camera FPS, not tracked separately
         )
         telemetryLogger.logPipelineMetrics()
-        
-        // Log YOLO performance metrics
         telemetryLogger.logYoloPerf()
-        
-        // Log MoveNet performance metrics
         telemetryLogger.logMoveNetMetrics()
-        
-        // Log ball detection metrics
         telemetryLogger.logBallDetectionMetrics(processed)
-        
-        // Log player detection metrics
         telemetryLogger.logPlayerDetectionMetrics(processed)
-        
-        // Log false positive summary
         telemetryLogger.logFalsePositiveSummary()
-        
-        // Log bbox stability
         telemetryLogger.logBboxStability()
     }, [])
 
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Adaptive confidence threshold
-    // ─────────────────────────────────────────────────────────────────────────
 
     const adaptiveThreshold =
         useSharedValue(0.01)
@@ -330,9 +280,7 @@ export const useShotTracker = (
         useRef(0)
 
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Callback refs
-    // ─────────────────────────────────────────────────────────────────────────
 
     const onPoseResultRef =
         useRef(onPoseResult)
@@ -354,9 +302,7 @@ export const useShotTracker = (
 
     }, [onRimDetection])
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Shared flags
-    // ─────────────────────────────────────────────────────────────────────────
 
     useEffect(() => {
 
@@ -386,9 +332,7 @@ export const useShotTracker = (
 
     }, [rimEnabled])
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Adaptive threshold
-    // ─────────────────────────────────────────────────────────────────────────
+    // Adaptive threshold update
 
     const updateAdaptiveThreshold =
         useCallback(
@@ -467,7 +411,7 @@ export const useShotTracker = (
                             )
                     }
 
-                    // DEV ONLY: Log adaptive threshold changes
+                    // Log adaptive threshold changes (DEV only)
                     if (__DEV__) {
                         console.log(
                             '[AdaptiveThreshold] Rate:',
@@ -481,9 +425,7 @@ export const useShotTracker = (
             []
         )
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Shot detection
-    // ─────────────────────────────────────────────────────────────────────────
 
     const handleBallDetectionForShotTracking =
         useCallback(
@@ -519,19 +461,19 @@ export const useShotTracker = (
                     return null
                 }
 
-                // Size continuity filter - only fallback when current detection is invalid (0/null)
+                // Size continuity filter: fallback only when detection is invalid
                 const now = Date.now()
                 const timeSinceLastValid = lastValidBallTime.value > 0 ? now - lastValidBallTime.value : Infinity
-                const MAX_TIME_FOR_FALLBACK = 500 // ms - only fallback for recent gaps
+                const MAX_TIME_FOR_FALLBACK = 500 // ms - fallback only for recent gaps
 
                 let filteredBall: typeof ball | null = ball
                 let filterReason: string | null = null
 
-                // Check if current detection is invalid (zero dimensions)
+                // Check if detection is invalid (zero dimensions)
                 const isInvalid = ball.width === 0 || ball.height === 0 || ball.x === 0 || ball.y === 0
 
                 if (isInvalid && lastBallWidth.value > 0 && lastBallHeight.value > 0) {
-                    // Current detection is invalid, fallback to previous valid detection
+                    // Fallback to previous valid detection
                     if (timeSinceLastValid < MAX_TIME_FOR_FALLBACK) {
                         filterReason = `Current detection invalid (w=${ball.width.toFixed(3)}, h=${ball.height.toFixed(3)}), using previous valid bbox`
                         filteredBall = {
@@ -542,13 +484,13 @@ export const useShotTracker = (
                             y: ball.y === 0 ? lastBallY.value : ball.y
                         }
                     } else {
-                        // Too much time passed, don't fallback
+                        // Too much time passed, skip fallback
                         filterReason = `Current detection invalid but too much time since last valid (${timeSinceLastValid.toFixed(0)}ms), not using fallback`
                         filteredBall = null
                     }
                 }
 
-                // Log filter decisions
+                // Log filter decisions (DEV only)
                 if (__DEV__ && filterReason) {
                     console.log(`[BBOX FILTER] ${filterReason}`)
                     console.log(`[BBOX FILTER] Previous valid bbox: w=${lastBallWidth.value.toFixed(3)}, h=${lastBallHeight.value.toFixed(3)}`)
@@ -556,7 +498,7 @@ export const useShotTracker = (
                     console.log(`[BBOX FILTER] Filtered bbox passed to tracking: w=${filteredBall?.width.toFixed(3) ?? 'null'}, h=${filteredBall?.height.toFixed(3) ?? 'null'}`)
                 }
 
-                // Update continuity tracking only with valid detections
+                // Update continuity tracking with valid detections only
                 if (!isInvalid && !filterReason) {
                     lastBallWidth.value = ball.width
                     lastBallHeight.value = ball.height
@@ -712,7 +654,7 @@ export const useShotTracker = (
                     shotDetector.current.reset()
                 }
 
-                // Return the detection with filtered bbox for TrackingEngine
+                // Return detection with filtered bbox for TrackingEngine
                 if (!filteredBall) {
                     return null
                 }
@@ -730,22 +672,19 @@ export const useShotTracker = (
             ]
         )
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Ball callback
-    // ─────────────────────────────────────────────────────────────────────────
-
+    // Ball callback wrapper
     const wrappedOnBallDetection =
         useCallback(
             (
                 detection: BallDetection
             ) => {
 
-                // Apply filter first to get the filtered bbox
+                // Apply filter to get filtered bbox
                 const filteredDetection = handleBallDetectionForShotTracking(
                     detection
                 )
 
-                // Pass the filtered detection to TrackingEngine
+                // Pass filtered detection to TrackingEngine
                 if (filteredDetection) {
                     perfTrackingAccepted.value += 1
                     onBallDetection(filteredDetection)
@@ -769,10 +708,7 @@ export const useShotTracker = (
 
     }, [wrappedOnBallDetection])
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // JS bridges
-    // ─────────────────────────────────────────────────────────────────────────
-
+    // JS bridge wrappers
     const emitBallDetection =
         useCallback(
             (
@@ -801,26 +737,9 @@ export const useShotTracker = (
             []
         )
 
-    // NOTE: with react-native-worklets, scheduleOnRN(fn, ...args) is called
-    // directly at the worklet call site (see onFrame below) — no need to
-    // pre-wrap emitBallDetection/emitPoseResult with createRunOnJS here.
+    // scheduleOnRN called directly at worklet call site (no createRunOnJS needed)
 
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Frame processor
-    //
-    // IMPORTANT:
-    //
-    // onFrame is stabilized with useCallback.
-    //
-    // DO NOT change this back to:
-    //
-    //   onFrame: (frame) => { ... }
-    //
-    // The Test 3F proved that the stable callback prevents the previous
-    // TypedArray/worklet binding problem.
-    // ─────────────────────────────────────────────────────────────────────────
-
+    // Frame processor: onFrame MUST use useCallback to prevent TypedArray/worklet binding issues
     const onFrame =
         useCallback(
             (frame: Frame) => {
@@ -829,86 +748,40 @@ export const useShotTracker = (
 
                 perfFramesReceived.value += 1
 
-                // ───────────────────────────────────────────────────────────────────
-                // Fatal error guard
-                // ───────────────────────────────────────────────────────────────────
-
                 if (hasFatalError.value) {
-                    // A fatal error occurred (e.g. TypedArray corruption).
-                    // Stop all processing to prevent cascading failures.
+                    // Stop processing after fatal error (TypedArray corruption)
                     frame.dispose()
                     return
                 }
 
-                // NOTE: Removed global isProcessingFrame guard to allow true parallelism
-                // Each worker (YOLO/MoveNet) has its own internal processing guard
-
-                // ───────────────────────────────────────────────────────────────────
-                // Frame counter
-                // ───────────────────────────────────────────────────────────────────
-
+                // Workers have internal processing guards (no global guard needed)
                 frameCounter.value += 1
 
                 const currentFrame =
                     frameCounter.value
 
                 try {
-
-                    // ────────────────────────────────────────────────────────────────
                     // Global enable
-                    // ────────────────────────────────────────────────────────────────
-
-                    if (
-                        !enabledShared.value
-                    ) {
+                    if (!enabledShared.value) {
                         return
                     }
 
-                    // ────────────────────────────────────────────────────────────────
                     // Model readiness
-                    // ────────────────────────────────────────────────────────────────
-
                     const yoloReady = yoloWorker.isReady.value
                     const poseReady = moveNetWorker.isReady.value
 
-                    if (
-                        !yoloReady &&
-                        !poseReady
-                    ) {
+                    if (!yoloReady && !poseReady) {
                         return
                     }
 
-                    const frameWidth =
-                        frame.width
+                    const frameWidth = frame.width
+                    const frameHeight = frame.height
 
-                    const frameHeight =
-                        frame.height
-
-                    // ────────────────────────────────────────────────────────────────
-                    // FASE 6: Scheduling chiaro per YOLO e MoveNet
-                    //
-                    // YOLO: ~10-15 FPS (con throttling intelligente basato sulla stabilità della palla)
-                    // MoveNet: ~3 FPS (time-based scheduling)
-                    //
-                    // IMPORTANTE: I due modelli NON sono realmente concorrenti.
-                    // Entrambi usano runSync() che occupa lo stesso thread nativo TFLite.
-                    // L'architettura attuale è:
-                    //
-                    // Frame Processor
-                    //       │
-                    //       ├── YOLO processFrame()
-                    //       │      └── runSync() (bloccante)
-                    //       │
-                    //       └── MoveNet processFrame()
-                    //              └── runSync() (bloccante)
-                    //
-                    // Quindi anche se chiamati "in parallelo", eseguono sequenzialmente.
-                    // La telemetria granulari (resize/run/parse) ci dirà dove è il bottleneck.
-                    // ────────────────────────────────────────────────────────────────
-
+                    // Model scheduling: YOLO ~10-15 FPS (throttled by ball stability), MoveNet ~3 FPS
+                    // Both use runSync() on same TFLite thread (sequential, not truly parallel)
                     const timestamp = Date.now()
 
-                    // MoveNet: time-based scheduling per target 3 FPS
+                    // MoveNet: time-based scheduling (target 3 FPS)
                     const nowForMoveNet = Date.now()
                     const lastMoveNet = lastMoveNetInferenceAt.value
                     const timeSinceLastMoveNet = lastMoveNet > 0 ? nowForMoveNet - lastMoveNet : MOVENET_INTERVAL_MS
@@ -918,14 +791,14 @@ export const useShotTracker = (
                         poseEnabledShared.value &&
                         timeSinceLastMoveNet >= MOVENET_INTERVAL_MS
 
-                    // YOLO: frame-based scheduling con throttling intelligente
+                    // YOLO: frame-based scheduling with stability-based throttling
                     const currentSkip = isBallStable.value ? YOLO_FRAME_SKIP_STABLE : YOLO_FRAME_SKIP
                     const yoloDue =
                         yoloReady &&
                         ballEnabledShared.value &&
                         currentFrame % currentSkip === 0
 
-                    // Log throttling per debugging
+                    // Log throttling (DEV only)
                     if (__DEV__) {
                         if (poseReady && poseEnabledShared.value && !moveNetDue) {
                             console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
@@ -935,12 +808,11 @@ export const useShotTracker = (
                         }
                     }
 
-                    // Esegui YOLO e MoveNet in parallelo - non sequenzialmente
-                    // Ogni modello ha il proprio throttling indipendente
+                    // Execute YOLO and MoveNet (independent throttling per model)
                     if (yoloDue) {
                         yoloWorker.processFrame(frame, timestamp, currentFrame)
                         
-                        // Aggiorna playerBbox per MoveNet (asincrono, non bloccante)
+                        // Update playerBbox for MoveNet (async, non-blocking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
                         if (currentPlayer) {
                             moveNetWorker.playerBbox.value = {
@@ -1014,7 +886,7 @@ export const useShotTracker = (
                         perfLastLogAt.value === 0 ||
                         perfNow - perfLastLogAt.value >= 1000
                     ) {
-                        // DEV ONLY: Log pipeline performance metrics
+                        // Log pipeline performance (DEV only)
                         if (__DEV__) {
                             console.log(
                                 `[PIPE PERF] received:${perfFramesReceived.value} ` +
@@ -1023,18 +895,17 @@ export const useShotTracker = (
                             )
                         }
 
-                        // Calculate camera FPS from received frames over the 1-second interval
+                        // Calculate camera FPS from received frames (1-second interval)
                         const cameraFPS = perfFramesReceived.value / 1.0
                         
-                        // Update telemetry pipeline metrics via scheduleOnRN
+                        // Update telemetry pipeline metrics
                         scheduleOnRN(
                             updatePipelineTelemetry,
                             cameraFPS,
                             perfFramesReceived.value,
                             perfFramesProcessed.value,
                             perfFramesDroppedBusy.value,
-                            perfTrackingAccepted.value,
-                            perfOverlayRendered.value
+                            perfTrackingAccepted.value
                         )
 
                         perfLastLogAt.value = perfNow
@@ -1043,14 +914,13 @@ export const useShotTracker = (
                         perfFramesDroppedBusy.value = 0
                         perfYoloBallDetected.value = 0
                         perfTrackingAccepted.value = 0
-                        perfOverlayRendered.value = 0
                     }
 
                 } catch (error) {
 
                     const errorMessage = (error as any)?.message || String(error)
 
-                    // Detect fatal errors that indicate TypedArray corruption
+                    // Detect fatal TypedArray corruption errors
                     if (
                         errorMessage.includes('TypedArray can only be updated') ||
                         errorMessage.includes('no ArrayBuffer attached')
@@ -1095,9 +965,7 @@ export const useShotTracker = (
             ]
         )
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Frame Output
-    // ─────────────────────────────────────────────────────────────────────────
 
     const frameOutput =
         useFrameOutput({
@@ -1109,20 +977,12 @@ export const useShotTracker = (
                 height: 720,
             },
 
-            // Inference (YOLO + MoveNet) can take longer than the interval
-            // between camera frames at low fps. Without this, VisionCamera
-            // starts a new onFrame call before the previous one has finished
-            // disposing its Frame/buffer, causing overlapping invocations
-            // and "no ArrayBuffer attached" errors.
-            dropFramesWhileBusy: true,
+            // dropFramesWhileBusy: prevents overlapping onFrame calls when inference takes longer than frame interval
 
             onFrame,
         })
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Reset shot tracking
-    // ─────────────────────────────────────────────────────────────────────────
-
     const resetShotTracking =
         useCallback(() => {
 
@@ -1133,40 +993,31 @@ export const useShotTracker = (
 
         }, [])
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Model ready (synced from worker shared values to avoid render warning)
-    // ─────────────────────────────────────────────────────────────────────────
-
     const [isModelReady, setIsModelReady] = useState(false)
 
     useEffect(() => {
-        // Sync from shared values to state
         const checkReady = () => {
             setIsModelReady(yoloWorker.isReady.value && moveNetWorker.isReady.value)
         }
 
         checkReady()
 
-        // Set up interval to check periodically (shared values don't trigger re-renders)
+        // Poll shared values periodically (they don't trigger re-renders)
         const interval = setInterval(checkReady, 100)
 
         return () => clearInterval(interval)
     }, [yoloWorker.isReady, moveNetWorker.isReady])
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Telemetry control
-    // ─────────────────────────────────────────────────────────────────────────
-
     const exportTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
-        // Read fps from SharedValue at call time (not during render)
         const moveNetFPS = moveNetWorker.fps.value || 0
         return telemetryLogger.exportTestSummary(cameraFPS, moveNetFPS)
     }, [selectedFps, moveNetWorker.fps])
 
     const logTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
-        // Read fps from SharedValue at call time (not during render)
         const moveNetFPS = moveNetWorker.fps.value || 0
         telemetryLogger.logTestSummary(cameraFPS, moveNetFPS)
     }, [selectedFps, moveNetWorker.fps])
@@ -1174,10 +1025,6 @@ export const useShotTracker = (
     const resetTelemetry = useCallback(() => {
         telemetryLogger.reset()
     }, [])
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Return
-    // ─────────────────────────────────────────────────────────────────────────
 
     return {
         frameOutput,

@@ -83,7 +83,7 @@ export interface PipelineMetrics {
   playerDetections: number
   trackingAccepted: number
   poseUpdates: number
-  overlayRendered: number
+  overlayRendered: number // Deprecated: Skia renders at camera FPS, not tracked separately
 }
 
 export interface BatteryMetrics {
@@ -371,6 +371,7 @@ class TelemetryLogger {
   }
 
   updatePipelineMetrics(cameraFPS: number, received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
+    // overlayRendered parameter kept for API compatibility but deprecated (Skia renders at camera FPS)
     this.pipelineMetrics = {
       cameraFPS,
       received,
@@ -405,10 +406,6 @@ class TelemetryLogger {
 
   incrementPoseUpdates(): void {
     this.pipelineMetrics.poseUpdates++
-  }
-
-  incrementOverlayRendered(): void {
-    this.pipelineMetrics.overlayRendered++
   }
 
   logPipelineMetrics(): void {
