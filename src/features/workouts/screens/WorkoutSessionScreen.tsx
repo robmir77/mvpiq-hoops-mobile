@@ -168,17 +168,15 @@ const RealtimeBallOverlay = React.memo(({
         return mapped.y
     })
 
-    const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
-    const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
     const ballXPxRaw = useDerivedValue(() => {
-        const x = ballXRawVal.value
-        const y = ballYRawVal.value
+        const x = sharedValues?.ballXRaw.value ?? 0
+        const y = sharedValues?.ballYRaw.value ?? 0
         const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
         return mapped.x
     })
     const ballYPxRaw = useDerivedValue(() => {
-        const x = ballXRawVal.value
-        const y = ballYRawVal.value
+        const x = sharedValues?.ballXRaw.value ?? 0
+        const y = sharedValues?.ballYRaw.value ?? 0
         const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
         return mapped.y
     })
@@ -248,41 +246,31 @@ const RealtimeBallOverlay = React.memo(({
             flattenedH
         )
         return Skia.Path.Oval(rect)
-    }, [sharedValues, effectiveResolution])
+    })
 
-    const trajectoryData = useDerivedValue(() => {
+    const shotTrailPath = useDerivedValue(() => {
         const showTrail = sharedValues?.showShotTrail.value ?? false
         const isInFlight = sharedValues?.inFlight.value ?? false
-        
-        if (!showTrail) return null
-        
+
+        if (!showTrail) return shotTrailPathRef.current
+
         const trajPoints = sharedValues?.trajectoryPoints.value
         const trajCount = sharedValues?.trajectoryPointCount.value ?? 0
-        
-        if (!trajPoints || trajCount < 2) return null
-        
-        const points: Array<{x:number;y:number}> = []
+
+        if (!trajPoints || trajCount < 2) return shotTrailPathRef.current
+
+        const points: Array<{ x: number; y: number }> = []
         const delayPoints = isInFlight ? TRAIL_DELAY_POINTS : 0
         const effectiveCount = Math.max(0, trajCount - delayPoints)
-        
+
         for (let i = 0; i < effectiveCount; i++) {
             points.push({
                 x: trajPoints[i * 2],
                 y: trajPoints[i * 2 + 1]
             })
         }
-        
-        if (points.length < 2) return null
-        
-        return { points }
-    })
 
-    const shotTrailPath = useDerivedValue(() => {
-        const data = trajectoryData.value
-        if (!data) return shotTrailPathRef.current
-
-        const { points } = data
-        if (points.length < 2) return null
+        if (points.length < 2) return shotTrailPathRef.current
 
         const transformPoint = (x: number, y: number) => {
             return mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
@@ -317,7 +305,7 @@ const RealtimeBallOverlay = React.memo(({
 
         shotTrailPathRef.current = p
         return p
-    }, [trajectoryData])
+    })
 
     return (
         <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
@@ -574,25 +562,15 @@ const ReactOverlay = React.memo(({
         }
     }, [shotPower, releaseAngle, effectiveResolution])
 
-    const showBallLabel = useDerivedValue(
-        () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
-    )
-    const ballDataX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
-    const ballDataY = useDerivedValue(() => sharedValues?.ballY.value ?? 0)
-    const ballDataConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0)
-    const inFlight = useDerivedValue(() => sharedValues?.inFlight.value ?? false)
-    const shotResult = useDerivedValue(() => sharedValues?.shotResult.value ?? null)
-    const showShotTrail = useDerivedValue(() => sharedValues?.showShotTrail.value ?? false)
-
     useAnimatedReaction(
         () => ({
-            showLabel: showBallLabel.value,
-            ballX: ballDataX.value,
-            ballY: ballDataY.value,
-            confidence: ballDataConfidence.value,
-            inFlight: inFlight.value,
-            shotResult: shotResult.value,
-            showTrail: showShotTrail.value,
+            showLabel: (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0,
+            ballX: sharedValues?.ballX.value ?? 0,
+            ballY: sharedValues?.ballY.value ?? 0,
+            confidence: sharedValues?.confidence.value ?? 0,
+            inFlight: sharedValues?.inFlight.value ?? false,
+            shotResult: sharedValues?.shotResult.value ?? null,
+            showTrail: sharedValues?.showShotTrail.value ?? false,
             ballSizeCategory: sharedValues?.ballSizeCategory.value,
             adaptiveThreshold: sharedValues?.adaptiveThreshold.value,
         }),
@@ -636,9 +614,6 @@ const ReactOverlay = React.memo(({
             conf: hoopConf,
         })
     }, [rimFromDetection])
-
-    const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
-    const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
 
     React.useEffect(() => {
         if (!sharedValues && rimFromDetection) {
@@ -937,11 +912,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
 
-    // Resume-safe camera/model defaults. Priority: route.params > calibration > default
-    const effectiveResolution = React.useMemo(
-        () => selectedResolution ?? calibration?.cameraResolution ?? DEFAULT_CAMERA_RESOLUTION,
-        [selectedResolution, calibration?.cameraResolution]
+    // Stabilize effectiveResolution to prevent remount when calibration loads
+    const effectiveResolutionRef = useRef<{ width: number; height: number }>(
+        selectedResolution ?? (calibration?.cameraResolution ?? DEFAULT_CAMERA_RESOLUTION)
     )
+    const effectiveResolution = effectiveResolutionRef.current
     const effectiveFps = selectedFps ?? DEFAULT_CAMERA_FPS
     const effectivePoseResolution = selectedPoseResolution ?? DEFAULT_POSE_RESOLUTION
     const effectiveYoloModelId = yoloModelId ?? DEFAULT_YOLO_MODEL_ID
@@ -974,6 +949,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [showTelemetry, setShowTelemetry] = useState(true)
     const [debugMode, setDebugMode] = useState(false)
     const cameraViewRef = useRef<View>(null)
+
+    // Lifecycle diagnostic: if ShotTracker reports UNMOUNT during an active
+    // session, this tells us whether the whole WorkoutSessionScreen also
+    // unmounted. A real screen unmount should always produce both logs.
+    const screenInstanceIdRef = useRef(Math.random().toString(36).slice(2, 8))
+    useEffect(() => {
+        console.log('[WorkoutSession][INSTANCE] MOUNT', screenInstanceIdRef.current)
+        return () => {
+            console.log('[WorkoutSession][INSTANCE] UNMOUNT', screenInstanceIdRef.current)
+        }
+    }, [])
+
     const shotCounter = useRef(0)
     const pendingScreenshotUri = useRef<string | null>(null)
 
@@ -994,9 +981,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
     
     // Derived values per tracking badge
-    const trackingBallX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
-    const trackingConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0, [sharedValues])
-    const trackingIsActive = useDerivedValue(() => (trackingBallX.value > 0), [trackingBallX])
+    const trackingBallX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
+    const trackingConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0)
+    const trackingIsActive = useDerivedValue(() => (trackingBallX.value > 0))
     
     const [trackingBadgeText, setTrackingBadgeText] = React.useState('Cerca palla...')
     const [trackingDotActive, setTrackingDotActive] = React.useState(false)

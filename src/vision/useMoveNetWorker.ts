@@ -44,6 +44,15 @@ export const useMoveNetWorker = (
 
   const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
 
+  // Telemetry SharedValues (worklet-safe)
+  const telemetryInferenceTime = useSharedValue(0)
+  const telemetryCropMs = useSharedValue(0)
+  const telemetryResizeMs = useSharedValue(0)
+  const telemetryRunMs = useSharedValue(0)
+  const telemetryParseMs = useSharedValue(0)
+  const telemetryKeypointsConfidence = useSharedValue(0)
+  const telemetryHasNewData = useSharedValue(false)
+
   const cropBufferRef = useRef<Uint8Array | null>(null)
   const resizeBufferRef = useRef<Uint8Array | null>(null)
   
@@ -124,7 +133,7 @@ export const useMoveNetWorker = (
     if (resizeMs !== undefined) telemetryLogger.recordMoveNetResize(resizeMs)
     if (runMs !== undefined) telemetryLogger.recordMoveNetRun(runMs)
     if (parseMs !== undefined) telemetryLogger.recordMoveNetParse(parseMs)
-    
+
     if (keypoints) {
       const keypointValues = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0)
       if (keypointValues.length > 0) {
@@ -132,8 +141,33 @@ export const useMoveNetWorker = (
         telemetryLogger.recordMoveNetKeypoints(avgConfidence)
       }
     }
-    
+
   }, [])
+
+  // Read telemetry from SharedValues on the JS thread.
+  // IMPORTANT: do not put SharedValue.value in a React dependency array:
+  // reading .value while React renders triggers Reanimated's strict warning.
+  // SharedValues do not cause React renders, so poll the flag instead.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!telemetryHasNewData.value) return
+
+      recordTelemetry(
+        telemetryInferenceTime.value,
+        null, // keypoints not needed, confidence already calculated
+        telemetryCropMs.value,
+        telemetryResizeMs.value,
+        telemetryRunMs.value,
+        telemetryParseMs.value,
+        true, // requested
+        true  // executed
+      )
+      telemetryLogger.recordMoveNetKeypoints(telemetryKeypointsConfidence.value)
+      telemetryHasNewData.value = false
+    }, 100)
+
+    return () => clearInterval(interval)
+  }, [recordTelemetry])
 
   // Process frame immediately (no buffering)
   const processFrame = useCallback((frame: any, timestamp: number) => {
@@ -324,9 +358,15 @@ export const useMoveNetWorker = (
               fps.value = calculatedFps
             }
 
-            // Record telemetry via scheduleOnRN
-            scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, cropMs, totalResizeMs, runMs, parseMs, true, true)
-            
+            // Write telemetry to SharedValues (worklet-safe)
+            telemetryInferenceTime.value = inferenceTime
+            telemetryCropMs.value = cropMs
+            telemetryResizeMs.value = totalResizeMs
+            telemetryRunMs.value = runMs
+            telemetryParseMs.value = parseMs
+            telemetryKeypointsConfidence.value = finalKeypoints ? Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).length : 0
+            telemetryHasNewData.value = true
+
             // resized will be disposed in finally block
             isProcessing.value = false
             lastInferenceAt.value = Date.now()
@@ -349,7 +389,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, recordTelemetry])
+  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {

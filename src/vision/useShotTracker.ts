@@ -839,7 +839,7 @@ export const useShotTracker = (
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
                         if (__DEV__) {
-                            console.log('[PlayerCrop] currentPlayer:', currentPlayer)
+                            console.log('[PlayerCrop] currentPlayer (raw YOLO):', currentPlayer)
                         }
                         if (currentPlayer) {
                             playerCrop.update({
@@ -847,12 +847,17 @@ export const useShotTracker = (
                                 y: currentPlayer.y,
                                 width: currentPlayer.width,
                                 height: currentPlayer.height,
+                                confidence: currentPlayer.confidence,
                             })
-                            if (!lastPlayerDetectedRef.current) {
-                                // Transition: LOST → DETECTED
-                                lastPlayerDetectedRef.current = true
+                            // Check if the detection was accepted by the confidence filter
+                            const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
+                            if (trackedBbox) {
+                                if (!lastPlayerDetectedRef.current) {
+                                    // Transition: LOST → DETECTED
+                                    lastPlayerDetectedRef.current = true
+                                }
+                                scheduleOnRN(recordPlayerDetected)
                             }
-                            scheduleOnRN(recordPlayerDetected)
                         } else {
                             playerCrop.update(null)
                             if (lastPlayerDetectedRef.current) {

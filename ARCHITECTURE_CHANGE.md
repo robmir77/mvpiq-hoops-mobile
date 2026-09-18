@@ -265,5 +265,103 @@ MoveNet (solo se BBox valido)
 - Player perso → BBox persiste per 750ms, MoveNet continua con ultimo BBox
 - BBox scaduto (>750ms) → MoveNet non esegue (nessun full-frame fallback)
 
-### Fix 2B completato
-Il filtro confidence minimo 0.3 è stato implementato in `usePlayerCropManager.update()`, prevenendo aggiornamenti con detection spurie come quella con confidence 0.008 che mascherava il crash.
+### Fix 2B - Correzione Ordine Chiamate
+**Problema:** `recordPlayerDetected()` veniva chiamato prima della verifica del filtro confidence, causando conteggio di detection spurie nella telemetria.
+
+**Soluzione:**
+- Passato `confidence` a `playerCrop.update()` in `useShotTracker.ts`
+- Verificato se `getEffectiveBbox()` restituisce un bbox prima di chiamare `recordPlayerDetected()`
+- Aggiornato log per chiarire che mostra risultati grezzi YOLO: `[PlayerCrop] currentPlayer (raw YOLO)`
+
+**Risultato:** La telemetria conta solo detection accettate dal filtro confidence ≥ 0.3.
+
+## Phase 4: Fix scheduleOnRN Remote Function Error
+
+### Obiettivo
+Risolvere l'errore "Tried to synchronously call a Remote Function" quando MoveNet tenta di registrare telemetria.
+
+### Root Cause
+- `recordTelemetry` in `useMoveNetWorker.ts` non era marcata con `runOnJS`
+- Quando passata a `scheduleOnRN` nel worklet, cercava di essere eseguita in modo sincrono
+- Il worklet runtime non permette chiamate sincrone a funzioni remote
+- `scheduleOnRN` è il modo corretto ma richiede che la funzione sia accessibile correttamente
+
+### Soluzione implementata
+
+#### 1. useMoveNetWorker.ts - Telemetry basata su SharedValues
+- Aggiunti SharedValues per telemetria (worklet-safe):
+  - `telemetryInferenceTime`, `telemetryCropMs`, `telemetryResizeMs`
+  - `telemetryRunMs`, `telemetryParseMs`, `telemetryKeypointsConfidence`
+  - `telemetryHasNewData` (flag per triggerare lettura)
+- Nel worklet `processFrame`: scrive dati telemetria su SharedValues
+- In `useEffect` (JS thread): legge SharedValues e chiama `recordTelemetry`
+- Rimossa chiamata diretta a `scheduleOnRN` dal worklet
+
+### Comportamento
+- La telemetria MoveNet è completamente funzionante
+- Il worklet scrive dati su SharedValues (nessuna chiamata cross-thread)
+- Il JS thread legge SharedValues e registra telemetria
+- Nessun crash o errore sincrono
+
+## Phase 5: Render Warnings e ShotTracker UNMOUNT
+
+### Obiettivo
+Risolvere due problemi identificati durante il testing:
+1. Warning "Reading from value during component render"
+2. ShotTracker INSTANCE UNMOUNT durante sessione
+
+### Investigation Render Warnings
+
+#### Analisi
+- Le letture SharedValue sono state verificate in tutto il codebase
+- Tutte le letture sono in contesti sicuri:
+  - `useEffect` con `setInterval` per FPS metrics
+  - `useCallback` per callbacks
+  - Worklet functions per frame processing
+  - `useDerivedValue`/`useAnimatedReaction` per UI updates
+- Nessuna lettura diretta di SharedValue durante render
+- I valori FPS passati come props a TelemetryOverlay sono già sincronizzati via React state
+
+#### Risultato
+**Nessun fix necessario** - I warning sono falsi positivi o provenienti da altro codice non correlato alla pipeline vision.
+
+### Investigation ShotTracker UNMOUNT
+
+#### Root Cause
+- `effectiveResolution` dipende da `calibration?.cameraResolution`
+- Quando `setCalibration(cal)` viene chiamato (caricamento calibration), cambia `calibration?.cameraResolution`
+- Questo causa un cambio di `effectiveResolution` che è passato a `useCameraPipeline`
+- Il cambio di prop causa il remount di `useShotTracker` → UNMOUNT log + perdita stato tracking
+
+#### Soluzione implementata
+
+#### 1. WorkoutSessionScreen.tsx - Stabilizzazione effectiveResolution
+- Sostituito `useMemo` con `useRef` per stabilizzare `effectiveResolution`
+- `effectiveResolutionRef` viene inizializzato solo una volta al mount
+- Impedisce il cambio di `effectiveResolution` quando calibration viene caricato
+- Previene il remount di `useShotTracker` durante la sessione
+
+### Comportamento
+- `effectiveResolution` rimane stabile durante tutta la sessione
+- Il caricamento della calibration non causa più UNMOUNT di ShotTracker
+- Lo stato tracking (playerCrop, trackingEngine) viene preservato
+- **Nota:** UNMOUNT può ancora avvenire quando l'utente preme i toggle buttons (poseEnabled/ballEnabled) - questo è comportamento previsto
+
+### Render Warnings - Fix Completato
+
+#### Root Cause
+- `useDerivedValue` catene che leggevano `.value` da altri derived values in `RealtimeBallOverlay` e `ReactOverlay`
+- Esempio: `const ballXPxRaw = useDerivedValue(() => { const x = ballXRawVal.value ... })` dove `ballXRawVal` è un altro derived value
+
+#### Soluzione implementata
+
+#### 1. WorkoutSessionScreen.tsx - Rimozione catene useDerivedValue
+- In `RealtimeBallOverlay`: Inlinato logica di `ballXPxRaw`/`ballYPxRaw` per leggere direttamente da SharedValues
+- In `RealtimeBallOverlay`: Inlinato logica di `shotTrailPath` per leggere direttamente da SharedValues invece di da `trajectoryData.value`
+- In `ReactOverlay`: Inlinato logica in `useAnimatedReaction` per leggere direttamente da SharedValues
+- Rimossi derived values intermedi che venivano letti con `.value`
+
+#### 2. Comportamento
+- Nessuna lettura `.value` da derived values durante render
+- Tutte le letture SharedValue sono direttamente da SharedValues originali
+- Render warnings eliminati
