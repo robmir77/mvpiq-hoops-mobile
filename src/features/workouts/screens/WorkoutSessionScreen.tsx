@@ -1,17 +1,7 @@
 // src/features/workouts/screens/WorkoutSessionScreen.tsx
 //
-// Integrazione completa Opzione A:
-//  - react-native-vision-camera v4 (rimpiazza expo-camera)
-//  - YOLO11 ball/hoop detection on-device (useBallDetection)
-//  - MoveNet pose detection on-device (usePoseDetection)
-//  - React Native Skia overlay GPU-accelerated (rimpiazza SVG)
-//  - useTrackingEngine Kalman + shot detection automatica
-//  - Bottoni manuali come fallback / correzione
-//
-// Overlay completo:
-//  - 🏀 Label "BALL XX%" sopra la palla rilevata
-//  - Scia della parabola (appare solo quando inFlight=true, con ritardo N punti)
-//  - Skeleton + punti pose del player (MoveNet keypoints)
+// Vision camera integration with YOLO ball/hoop detection, MoveNet pose detection,
+// Skia overlay, Kalman tracking, and automatic shot detection.
 
 import React, {
     useState, useContext, useEffect, useCallback, useRef,
@@ -58,7 +48,6 @@ const COURT_WIDTH_M  = 15.24
 const COURT_HEIGHT_M = 28.65
 const HOOP_Y_M       = 1.575
 
-// ToggleButton component for enabling/disabling features
 const ToggleButton = ({ active, disabled, labelOn, labelOff, onPress }: any) => (
     <TouchableOpacity
         style={[
@@ -188,8 +177,6 @@ const KP_THRESH = 0.35
 const TRAIL_DELAY_POINTS = 5
 
 // ─── Realtime Ball Overlay (Pure Skia, no React state) ───────────────────────
-// This component renders only the realtime ball/hoop/trail using SharedValues
-// It is completely independent of React render cycle - updates at 30/60 FPS via Skia
 const RealtimeBallOverlay = React.memo(({
     sharedValues,
     effectiveResolution,
@@ -213,10 +200,8 @@ const RealtimeBallOverlay = React.memo(({
     }
     effectiveResolution: { width: number; height: number }
 }) => {
-    // Memoize Skia path objects to avoid continuous allocations
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
 
-    // Derived values for ball position - use mapYoloPointToView for proper resolution-aware mapping
     const ballXPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
         const y = sharedValues?.ballY.value ?? 0
@@ -282,7 +267,6 @@ const RealtimeBallOverlay = React.memo(({
         return CAMERA_H - screenY
     })
 
-    // Derived values for ball raw
     const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
     const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
     const ballXPxRaw = useDerivedValue(() => {
@@ -325,7 +309,6 @@ const RealtimeBallOverlay = React.memo(({
         return Math.max(8, (avgSize * SCREEN_W) / 2)
     })
 
-    // Opacity controls
     const ballRawOpacity = useDerivedValue(() => {
         const hasRaw = (sharedValues?.ballXRaw.value ?? 0) > 0 && (sharedValues?.ballYRaw.value ?? 0) > 0
         return hasRaw ? 1 : 0
@@ -338,7 +321,6 @@ const RealtimeBallOverlay = React.memo(({
         return sharedValues?.shotResult.value === 'MADE' ? 1 : 0
     })
 
-    // Trail colors
     const trailColor = useDerivedValue(() => {
         const inFlight = sharedValues?.inFlight.value ?? false
         const shotResult = sharedValues?.shotResult.value ?? null
@@ -356,7 +338,6 @@ const RealtimeBallOverlay = React.memo(({
         return 'rgba(255,140,0,0.20)'
     })
 
-    // Hoop oval path
     const hoopOvalPath = useDerivedValue(() => {
         const w = (sharedValues?.hoopWidth.value ?? 0) > 0 ? (sharedValues?.hoopWidth.value ?? 0) * SCREEN_W : 40
         const h = (sharedValues?.hoopHeight.value ?? 0) > 0 ? (sharedValues?.hoopHeight.value ?? 0) * CAMERA_H : 40
@@ -388,7 +369,6 @@ const RealtimeBallOverlay = React.memo(({
         return Skia.Path.Oval(rect)
     }, [sharedValues, effectiveResolution])
 
-    // Trail path
     const trajectoryData = useDerivedValue(() => {
         const showTrail = sharedValues?.showShotTrail.value ?? false
         const isInFlight = sharedValues?.inFlight.value ?? false
@@ -473,7 +453,6 @@ const RealtimeBallOverlay = React.memo(({
     return (
         <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
             <Group clip={Skia.Path.Make().addRect(Skia.XYWHRect(0, 0, SCREEN_W, CAMERA_H))}>
-                {/* Ball Trail */}
                 <Group>
                     <SkiaPath
                         path={shotTrailPath as any}
@@ -493,7 +472,6 @@ const RealtimeBallOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* Ball Raw (YOLO detection) */}
                 <Group opacity={ballRawOpacity}>
                     <SkiaCircle
                         cx={ballXPxRaw}
@@ -509,7 +487,6 @@ const RealtimeBallOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* Ball Kalman (smoothed) */}
                 <Group opacity={ballKalmanOpacity}>
                     <SkiaCircle
                         cx={ballXPx}
@@ -519,7 +496,6 @@ const RealtimeBallOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* Hoop illumination effect */}
                 <Group opacity={isMadeOpacity}>
                     <SkiaCircle
                         cx={hoopXPx}
@@ -535,7 +511,6 @@ const RealtimeBallOverlay = React.memo(({
                     />
                 </Group>
 
-                {/* Hoop oval */}
                 <Group>
                     <SkiaPath
                         path={hoopOvalPath}
@@ -551,7 +526,6 @@ const RealtimeBallOverlay = React.memo(({
     )
 })
 
-// Color map per differenziare gli arti
 const KP_COLORS: Record<keyof PoseKeypoints, { main: string; glow: string; label: string }> = {
     leftShoulder:  { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Spalla SX' },
     rightShoulder: { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Spalla DX' },
@@ -567,7 +541,6 @@ const KP_COLORS: Record<keyof PoseKeypoints, { main: string; glow: string; label
     rightAnkle:    { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia DX' },
 }
 
-// Color map per le linee del skeleton
 const CONNECTION_COLORS: Record<string, string> = {
     'leftShoulder-rightShoulder': '#a855f7',
     'leftShoulder-leftElbow': '#ef4444',
@@ -584,7 +557,6 @@ const CONNECTION_COLORS: Record<string, string> = {
 }
 
 // ── Game-style effects ───────────────────────────────────────────────────────
-// Calculate player size from pose keypoints for dynamic circle
 const calculatePlayerSize = (poseKeypoints: PoseKeypoints | null): number => {
     if (!poseKeypoints) return 0
     const leftShoulder = poseKeypoints.leftShoulder
@@ -607,7 +579,6 @@ const calculatePlayerSize = (poseKeypoints: PoseKeypoints | null): number => {
     return 0
 }
 
-// Calculate shot power from velocity
 const calculateShotPower = (velocity: { vx: number; vy: number } | null): number => {
     if (!velocity) return 0
     const speed = Math.sqrt(velocity.vx * velocity.vx + velocity.vy * velocity.vy)
@@ -615,14 +586,12 @@ const calculateShotPower = (velocity: { vx: number; vy: number } | null): number
     return Math.min(100, Math.round(speed * 20))
 }
 
-// Helper function for biomechanical angle coloring
 const getAngleColor = (angle: number): string => {
     if (angle >= 80 && angle <= 110) return '#22c55e' // Green: optimal
     if (angle >= 60 && angle <= 130) return '#f59e0b' // Yellow: acceptable
     return '#ef4444' // Red: poor
 }
 
-// Helper function for release angle color coding
 const getReleaseColor = (angle: number): string => {
     if (angle >= 45 && angle <= 55) return '#22c55e' // Green: optimal
     if (angle >= 35 && angle <= 65) return '#f59e0b' // Yellow: acceptable
@@ -630,8 +599,6 @@ const getReleaseColor = (angle: number): string => {
 }
 
 // ─── React Overlay (Badges, Debug, Pose Skeleton) ─────────────────────────────
-// This component renders only React-based UI elements that don't need realtime updates
-// Badges, labels, debug panels, and pose skeleton update at 2-5 Hz
 const ReactOverlay = React.memo(({
     trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution, showDebug, rimFromDetection,
 }: {
@@ -664,13 +631,11 @@ const ReactOverlay = React.memo(({
     showDebug?: boolean
     rimFromDetection?: { x: number; y: number; width: number; height: number; confidence: number } | null
 }) => {
-    // Track overlay renders for telemetry
     setTimeout(() => {
         incrementOverlayRenders()
         telemetryLogger.incrementOverlayRendered()
     }, 0)
 
-    // Conversion functions for pose skeleton (still needed for pose overlay)
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
@@ -693,11 +658,9 @@ const ReactOverlay = React.memo(({
     const pxCam = (x: number, y: number = 0) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).x
     const pyCam = (x: number, y: number) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).y
 
-    // Calculate dynamic player size
     const playerSize = calculatePlayerSize(poseKeypoints)
     const shotPower = calculateShotPower(trackingState?.ballVelocity ?? null)
 
-    // Calculate player center position (average of hips)
     const playerCenterX = poseKeypoints?.leftHip && poseKeypoints?.rightHip
         ? (poseKeypoints.leftHip.x + poseKeypoints.rightHip.x) / 2
         : null
@@ -705,7 +668,6 @@ const ReactOverlay = React.memo(({
         ? (poseKeypoints.leftHip.y + poseKeypoints.rightHip.y) / 2
         : null
 
-    // React state for badges (updated at low frequency via useAnimatedReaction)
     const [ballLabelVisible, setBallLabelVisible] = React.useState(false)
     const [ballLabelPos, setBallLabelPos] = React.useState({ left: 0, top: 0 })
     const [ballLabelText, setBallLabelText] = React.useState('')
@@ -714,7 +676,6 @@ const ReactOverlay = React.memo(({
     const [inFlightBadgeVisible, setInFlightBadgeVisible] = React.useState(false)
     const [inFlightBadgeText, setInFlightBadgeText] = React.useState('')
 
-    // Low-frequency debug panel state (updated at 2Hz)
     const [debugYoloData, setDebugYoloData] = React.useState({
         x: 0, y: 0, w: 0, h: 0, conf: 0
     })
@@ -723,7 +684,6 @@ const ReactOverlay = React.memo(({
     })
     const lastDebugUpdate = React.useRef(0)
 
-    // Update badge state (throttled to 2-5 Hz)
     const updateBadgeState = React.useCallback((data: {
         showLabel: boolean
         ballX: number
@@ -764,7 +724,6 @@ const ReactOverlay = React.memo(({
         }
     }, [shotPower, releaseAngle, effectiveResolution])
 
-    // Derived values for badge updates
     const showBallLabel = useDerivedValue(
         () => (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
     )
@@ -792,7 +751,6 @@ const ReactOverlay = React.memo(({
         }
     )
 
-    // Debug panel update function (throttled to 2Hz)
     const updateDebugPanels = React.useCallback((data: {
         ballXRaw: number
         ballYRaw: number
@@ -811,7 +769,6 @@ const ReactOverlay = React.memo(({
             h: data.ballHeight,
             conf: data.confidence,
         })
-        // Use rimFromDetection as fallback if sharedValues hoop data is not available
         const hoopX = data.hoopX > 0 ? data.hoopX : (rimFromDetection?.x ?? 0)
         const hoopY = data.hoopY > 0 ? data.hoopY : (rimFromDetection?.y ?? 0)
         const hoopW = data.hoopWidth > 0 ? data.hoopWidth : (rimFromDetection?.width ?? 0)
@@ -826,11 +783,9 @@ const ReactOverlay = React.memo(({
         })
     }, [rimFromDetection])
 
-    // Low-frequency debug panel update (2Hz)
     const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
     const ballYRawVal = useDerivedValue(() => sharedValues?.ballYRaw.value ?? 0)
 
-    // Initialize debug data from rimFromDetection when sharedValues is not available
     React.useEffect(() => {
         if (!sharedValues && rimFromDetection) {
             setDebugHoopData({
@@ -864,10 +819,8 @@ const ReactOverlay = React.memo(({
         }
     )
 
-    // Return React-based UI elements (badges, debug panels, pose skeleton)
     return (
         <>
-            {/* Ball Label Badge */}
             {ballLabelVisible && (
                 <View
                     pointerEvents="none"
@@ -881,7 +834,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* Shot Power Badge */}
             {powerBadgeVisible && (
                 <View pointerEvents="none" style={ovStyles.powerBadge}>
                     <Text style={ovStyles.powerText}>
@@ -890,7 +842,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* In Flight Badge */}
             {inFlightBadgeVisible && (
                 <View pointerEvents="none" style={ovStyles.inFlightBadge}>
                     <Text style={ovStyles.inFlightText}>
@@ -899,7 +850,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* FPS Panel */}
             {fpsMetrics && (
                 <View pointerEvents="none" style={ovStyles.fpsPanel}>
                     <Text style={ovStyles.fpsTitle}>📊 FPS</Text>
@@ -912,7 +862,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* YOLO Debug Panel - shown when debug is enabled */}
             {showDebug && (
                 <View pointerEvents="none" style={ovStyles.yoloDebugPanel}>
                     <Text style={ovStyles.yoloDebugTitle}>🔍 YOLO Raw</Text>
@@ -940,7 +889,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* Hoop Debug Panel - shown when debug is enabled */}
             {showDebug && (
                 <View pointerEvents="none" style={ovStyles.hoopDebugPanel}>
                     <Text style={ovStyles.hoopDebugTitle}>🏀 Canestro</Text>
@@ -968,7 +916,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* Biomechanics Panel */}
             {jointAngles && (
                 <View pointerEvents="none" style={ovStyles.bioPanel}>
                     {releaseAngle != null && (
@@ -1003,7 +950,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {/* Calibration Debug Panel - only shown when debug is enabled */}
             {showDebug && calibration && (
                 <SessionCalibDebug
                     calibration={calibration}
@@ -1068,7 +1014,6 @@ const ovStyles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
     },
-    // FPS Panel
     fpsPanel: {
         position: 'absolute',
         top: 14,
@@ -1092,7 +1037,6 @@ const ovStyles = StyleSheet.create({
         fontWeight: '600',
         marginVertical: 1,
     },
-    // YOLO Debug Panel
     yoloDebugPanel: {
         position: 'absolute',
         top: 100,
@@ -1116,7 +1060,6 @@ const ovStyles = StyleSheet.create({
         fontWeight: '600',
         marginVertical: 1,
     },
-    // Hoop Debug Panel
     hoopDebugPanel: {
         position: 'absolute',
         top: 240,
@@ -1140,7 +1083,6 @@ const ovStyles = StyleSheet.create({
         fontWeight: '600',
         marginVertical: 1,
     },
-    // Biomechanics Panel
     bioPanel: {
         position: 'absolute',
         top: 14,
@@ -1160,7 +1102,6 @@ const ovStyles = StyleSheet.create({
     },
 })
 
-// ─── StatBox ──────────────────────────────────────────────────────────────────
 const StatBox = ({ label, value, highlight }: { label: string; value: any; highlight?: boolean }) => (
     <View style={styles.statBox}>
         <Text style={[styles.statValue, highlight && styles.statValueHL]}>{value}</Text>
@@ -1168,7 +1109,6 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
     </View>
 )
 
-// ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
     const { user } = useContext(AuthContext) || {}
@@ -1176,10 +1116,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
 
-    // Resume-safe camera/model defaults. The WorkoutHome "Riprendi" route
-    // intentionally passes only sessionId, so the session screen must never
-    // forward undefined camera parameters to VisionCamera/the pipeline.
-    // Priority: route.params > calibration > default
+    // Resume-safe camera/model defaults. Priority: route.params > calibration > default
     const effectiveResolution = React.useMemo(
         () => selectedResolution ?? calibration?.cameraResolution ?? DEFAULT_CAMERA_RESOLUTION,
         [selectedResolution, calibration?.cameraResolution]
@@ -1190,7 +1127,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const effectiveMoveNetModelId = moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID
     const effectiveZoom = zoom ?? DEFAULT_CAMERA_ZOOM
 
-    // Camera constraints for FPS
     const constraints = React.useMemo(
         () => [{ fps: effectiveFps }],
         [effectiveFps]
@@ -1228,16 +1164,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const isActiveRef     = useRef(true)
     const resetShotTrackingRef = useRef<(() => void) | null>(null)
     
-    // Get YOLO model name for loading messages (prima dell'uso nei derived values)
+    // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
     
-    // Derived values per tracking badge (hooks devono essere al livello superiore)
+    // Derived values per tracking badge
     const trackingBallX = useDerivedValue(() => sharedValues?.ballX.value ?? 0, [sharedValues])
     const trackingConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0, [sharedValues])
     const trackingIsActive = useDerivedValue(() => (trackingBallX.value > 0), [trackingBallX])
     
-    // Local state per tracking badge (non critico per performance)
     const [trackingBadgeText, setTrackingBadgeText] = React.useState('Cerca palla...')
     const [trackingDotActive, setTrackingDotActive] = React.useState(false)
     
@@ -1261,7 +1196,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     )
     
-    // Local state per auto status display
     const [autoStatusText, setAutoStatusText] = React.useState('In attesa della palla…')
     const [autoDotActive, setAutoDotActive] = React.useState(false)
     

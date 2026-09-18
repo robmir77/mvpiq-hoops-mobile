@@ -1,8 +1,5 @@
 // src/vision/useMoveNetWorker.ts
-//
-// MoveNet Worker - processes frames immediately with independent timing
-// Runs MoveNet inference at target FPS independently from YOLO
-// No buffering - processes frames synchronously when they arrive
+// MoveNet worker for pose detection with independent timing.
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
@@ -34,24 +31,19 @@ export const useMoveNetWorker = (
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   moveNetModelId?: string
 ) => {
-  // Latest result - use SharedValue for worklet access
   const latestResultKeypoints = useSharedValue<any>(null)
   const latestResultAngles = useSharedValue<any>(null)
   const latestResultTimestamp = useSharedValue(0)
   const latestCropInfo = useSharedValue<PlayerCropResult | null>(null)
 
-  // Timing - use SharedValue for worklet access
   const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
 
-  // Shared values for UI
   const isReady = useSharedValue(false)
   const fps = useSharedValue(0)
 
-  // Player bbox from YOLO (for cropping)
   const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
 
-  // Pre-allocated reusable buffers to avoid repeated allocations
   const cropBufferRef = useRef<Uint8Array | null>(null)
   const resizeBufferRef = useRef<Uint8Array | null>(null)
   
@@ -69,7 +61,6 @@ export const useMoveNetWorker = (
     return resizeBufferRef.current
   }, [])
 
-  // Model setup
   const selectedMoveNetModel = useMemo(
     () => getMoveNetModel(moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID),
     [moveNetModelId]
@@ -102,17 +93,14 @@ export const useMoveNetWorker = (
     ? poseModel.model
     : null
 
-  // Update ready state and log MoveNet model input
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
     
-    // Log MoveNet model input size when model loads
     if (isReady.value) {
       telemetryLogger.setMoveNetModelInput(poseInputSize)
     }
   }, [poseModel.state, poseModel.model, isReady, poseInputSize])
 
-  // Resizer config for RGB conversion at original frame size
   const rgbResizerConfig = useMemo(
     () => ({
       width: 192, // Use MoveNet input size
@@ -127,7 +115,6 @@ export const useMoveNetWorker = (
 
   const { resizer: rgbResizer } = useResizer(rgbResizerConfig)
 
-  // JS-side callback for telemetry recording
   const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, cropMs?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
     if (requested) telemetryLogger.recordMoveNetRequested()
     if (executed) telemetryLogger.recordMoveNetExecuted()
@@ -138,9 +125,7 @@ export const useMoveNetWorker = (
     if (runMs !== undefined) telemetryLogger.recordMoveNetRun(runMs)
     if (parseMs !== undefined) telemetryLogger.recordMoveNetParse(parseMs)
     
-    // Calculate average keypoint confidence
     if (keypoints) {
-      // Convert PoseKeypoints object to array of values
       const keypointValues = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0)
       if (keypointValues.length > 0) {
         const avgConfidence = keypointValues.reduce((sum: number, kp: any) => sum + kp.score, 0) / keypointValues.length

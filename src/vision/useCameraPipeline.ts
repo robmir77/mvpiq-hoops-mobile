@@ -1,11 +1,5 @@
 // src/vision/useCameraPipeline.ts
-//
-// Camera Pipeline - frame acquisition only
-// Integrates VisionCamera with the new zero-image-passing architecture
-// Responsibilities:
-// - Camera setup and permissions
-// - Frame processor attachment
-// - NO analysis, tracking, overlay, or basketball logic
+// Camera pipeline for frame acquisition only. Integrates VisionCamera with zero-image-passing architecture.
 
 import { useRef, useState } from 'react'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
@@ -35,7 +29,7 @@ export const useCameraPipeline = (
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
   enabled: boolean = true,
   poseEnabled: boolean = true,
-  ballEnabled: boolean = false,  // BENCHMARK TEST 2: Force MoveNet only
+  ballEnabled: boolean = false,
   rimEnabled: boolean = false,
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,

@@ -1,8 +1,5 @@
 // src/vision/useYoloWorker.ts
-//
-// YOLO Worker - processes frames immediately with independent timing
-// Runs YOLO inference at target FPS independently from MoveNet
-// No buffering - processes frames synchronously when they arrive
+// YOLO worker for ball/hoop/player detection with independent timing.
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
@@ -34,21 +31,17 @@ export const useYoloWorker = (
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   yoloModelId?: string
 ) => {
-  // Latest result - use SharedValue for worklet access
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultRim = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultTimestamp = useSharedValue(0)
 
-  // Timing - use SharedValue for worklet access
   const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
 
-  // Shared values for UI
   const isReady = useSharedValue(false)
   const fps = useSharedValue(0)
 
-  // JS-side callback for telemetry recording
   const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
     if (requested) telemetryLogger.recordYoloRequested()
     if (executed) telemetryLogger.recordYoloExecuted()
@@ -59,11 +52,9 @@ export const useYoloWorker = (
     if (parseMs !== undefined) telemetryLogger.recordYoloParse(parseMs)
 
     if (ball) {
-      // Only record frame-level detection once per frame, not per candidate
       telemetryLogger.recordBallDetection(ball.confidence, frameCounter)
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
 
-      // False positive detection - use normalized thresholds for consistency
       const bboxSizeNormalized = ball.width * ball.height
       const MIN_BBOX_SIZE_NORMALIZED = 0.0001
       const MAX_BBOX_SIZE_NORMALIZED = 0.06
@@ -94,7 +85,6 @@ export const useYoloWorker = (
     }
   }, [])
 
-  // Model setup
   const selectedYoloModel = useMemo(() => getYoloModel(yoloModelId), [yoloModelId])
   const yoloInputSize = selectedYoloModel?.inputSize ?? YOLO_INPUT_SIZE
   const yoloInputElements = yoloInputSize * yoloInputSize * 3
@@ -129,7 +119,6 @@ export const useYoloWorker = (
     ? yoloModel.model
     : null
 
-  // Update ready state and log model metadata
   useEffect(() => {
     const isLoaded = yoloModel.state === 'loaded' && yoloModel.model != null
     isReady.value = isLoaded
@@ -149,7 +138,6 @@ export const useYoloWorker = (
     }
   }, [yoloModel.state, yoloModel.model, isReady, selectedYoloModel, yoloDelegate])
 
-  // Resizer config
   const yoloResizerConfig = useMemo(
     () => {
       const config = {
@@ -167,7 +155,6 @@ export const useYoloWorker = (
 
   const { resizer: yoloResizer } = useResizer(yoloResizerConfig)
 
-  // Process frame immediately (no buffering)
   const processFrame = useCallback((frame: any, timestamp: number, frameCounter?: number) => {
     'worklet'
 
@@ -210,20 +197,16 @@ export const useYoloWorker = (
           // Use appropriate parser based on model precision
           const tParseStart = performance.now()
           let ball, player, rim
-          // High confidence threshold for rim detection to avoid false positives
           const RIM_CONFIDENCE_THRESHOLD = 0.6
           if (selectedYoloModel?.precision === 'int8') {
-            // INT8 model: despite the name, the model outputs Float32 tensors
-            // Use Float32Array directly, no dequantization needed
-            // Lower threshold from 0.012 to 0.005 to allow more detections
+            // INT8 model outputs Float32 tensors, no dequantization needed
             const output = new Float32Array(rawOutput)
             const result = parseYoloOutputInt8(output, 0.005, frame.width, frame.height, RIM_CONFIDENCE_THRESHOLD)
             ball = result.ball
             player = result.player
             rim = result.rim
           } else {
-            // Float16 model: use Float32Array and standard parser
-            // Float16 outputs raw logits, so use much lower threshold
+            // Float16 model outputs raw logits, use lower threshold
             const output = new Float32Array(rawOutput)
             const result = parseYoloOutputFloat16(output, 0.0005, frame.width, frame.height, RIM_CONFIDENCE_THRESHOLD)
             ball = result.ball
@@ -235,7 +218,6 @@ export const useYoloWorker = (
 
           const t2 = performance.now()
           
-          // Validate ball detection before updating tracking
           let validBall = null
           if (ball) {
             const bboxSizeNormalized = ball.width * ball.height
@@ -245,7 +227,6 @@ export const useYoloWorker = (
             const bboxSizePixels = bboxSizeNormalized * frameArea
 
             // Calculate thresholds based on actual frame resolution
-            // Normalized thresholds: 100px / (1280*720) ≈ 0.000108, 50000px / (1280*720) ≈ 0.054
             const MIN_BBOX_SIZE_NORMALIZED = 0.0001
             const MAX_BBOX_SIZE_NORMALIZED = 0.06
             const COURT_MARGIN = 0.1
@@ -261,20 +242,17 @@ export const useYoloWorker = (
             }
           }
           
-          // Update latest result (only valid ball detection)
           latestResultBall.value = validBall
           latestResultPlayer.value = player
           latestResultRim.value = rim
           latestResultTimestamp.value = timestamp
           
-          // Update FPS only if valid (greater than 0)
           const inferenceTime = t2 - t0
           const calculatedFps = 1000 / inferenceTime
           if (calculatedFps > 0) {
             fps.value = calculatedFps
           }
 
-          // Record telemetry via scheduleOnRN with frame counter (only valid ball detection)
           scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, frameCounter, resizeMs, runMs, parseMs, true, true)
 
         }
@@ -283,20 +261,18 @@ export const useYoloWorker = (
     } catch (error) {
       console.error('[YoloWorker] Error processing frame:', error)
     } finally {
-      // Dispose GPUFrame to release GPU resources
+      // Dispose GPUFrame
       if (resized) {
         try {
           resized.dispose()
         } catch (e) {
-          // Ignore if already disposed
-        }
+          }
       }
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
   }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, fps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt])
 
-  // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): YoloWorkerResult | null => {
     if (latestResultBall.value === null && latestResultTimestamp.value === 0) {
       return null
@@ -309,7 +285,6 @@ export const useYoloWorker = (
     }
   }, [latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp])
 
-  // Reset
   const reset = useCallback(() => {
     latestResultBall.value = null
     latestResultPlayer.value = null
