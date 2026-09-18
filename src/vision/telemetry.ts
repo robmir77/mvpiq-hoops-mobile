@@ -242,8 +242,7 @@ class TelemetryLogger {
 
   logYoloPerf(): void {
     const metrics = this.getYoloPerfMetrics()
-    console.log('[PERF][YOLO]', `fps=${metrics.fps.toFixed(1)} avgMs=${metrics.avgMs.toFixed(1)} minMs=${metrics.minMs.toFixed(1)} maxMs=${metrics.maxMs.toFixed(1)} requested=${metrics.requested} executed=${metrics.executed}`)
-    console.log('[PERF][YOLO]', `resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
+    console.log('[PERF][YOLO]', `fps=${metrics.fps.toFixed(1)} avg=${metrics.avgMs.toFixed(1)}ms req/exec=${metrics.requested}/${metrics.executed} resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
   recordBallDetection(confidence: number, frameCounter?: number): void {
@@ -319,7 +318,6 @@ class TelemetryLogger {
   recordFalsePositive(reason: string, confidence: number): void {
     const count = this.falsePositives.get(reason) || 0
     this.falsePositives.set(reason, count + 1)
-    console.log('[YOLO][FP]', `reason=${reason} conf=${confidence.toFixed(2)}`)
   }
 
   recordBbox(x: number, y: number, w: number, h: number): void {
@@ -415,7 +413,7 @@ class TelemetryLogger {
 
   logPipelineMetrics(): void {
     const m = this.pipelineMetrics
-    console.log('[PIPELINE]', `cameraFPS=${m.cameraFPS.toFixed(1)} received=${m.received} processed=${m.processed} dropped=${m.droppedBusy} yoloDetections=${m.yoloDetections} ball=${m.ballDetections} player=${m.playerDetections} tracking=${m.trackingAccepted} pose=${m.poseUpdates} overlay=${m.overlayRendered}`)
+    console.log('[PIPELINE]', `camFPS=${m.cameraFPS.toFixed(1)} recv=${m.received} proc=${m.processed} drop=${m.droppedBusy} yolo=${m.yoloDetections} ball=${m.ballDetections} player=${m.playerDetections} track=${m.trackingAccepted} pose=${m.poseUpdates}`)
   }
 
   getPipelineMetrics(): PipelineMetrics {
@@ -632,9 +630,7 @@ class TelemetryLogger {
 
   logMoveNetMetrics(): void {
     const metrics = this.getMoveNetMetrics()
-    console.log('[MOVENET]', `modelInput=${metrics.modelInput} fps=${metrics.fps.toFixed(1)} avgMs=${metrics.avgMs.toFixed(1)} keypoints=${metrics.validKeypoints} confidence=${metrics.avgConfidence.toFixed(2)}`)
-    console.log('[MOVENET]', `requested=${metrics.requested} executed=${metrics.executed}`)
-    console.log('[MOVENET]', `crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
+    console.log('[MOVENET]', `input=${metrics.modelInput} fps=${metrics.fps.toFixed(1)} avg=${metrics.avgMs.toFixed(1)}ms req/exec=${metrics.requested}/${metrics.executed} crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {

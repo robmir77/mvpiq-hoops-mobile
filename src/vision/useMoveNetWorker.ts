@@ -14,7 +14,7 @@ import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
 import { getMoveNetModel, getMoveNetModelUri, DEFAULT_MOVENET_MODEL_ID } from './yoloModels'
-import { playerCropManager, type PlayerCropResult } from './playerCrop'
+import type { PlayerCropResult } from './playerCrop'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
 
@@ -50,6 +50,24 @@ export const useMoveNetWorker = (
 
   // Player bbox from YOLO (for cropping)
   const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
+
+  // Pre-allocated reusable buffers to avoid repeated allocations
+  const cropBufferRef = useRef<Uint8Array | null>(null)
+  const resizeBufferRef = useRef<Uint8Array | null>(null)
+  
+  const getCropBuffer = useCallback((size: number): Uint8Array => {
+    if (!cropBufferRef.current || cropBufferRef.current.length < size) {
+      cropBufferRef.current = new Uint8Array(size)
+    }
+    return cropBufferRef.current
+  }, [])
+  
+  const getResizeBuffer = useCallback((size: number): Uint8Array => {
+    if (!resizeBufferRef.current || resizeBufferRef.current.length < size) {
+      resizeBufferRef.current = new Uint8Array(size)
+    }
+    return resizeBufferRef.current
+  }, [])
 
   // Model setup
   const selectedMoveNetModel = useMemo(
@@ -110,7 +128,7 @@ export const useMoveNetWorker = (
   const { resizer: rgbResizer } = useResizer(rgbResizerConfig)
 
   // JS-side callback for telemetry recording
-  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, cropInfo: PlayerCropResult | null) => {
+  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any) => {
     telemetryLogger.recordMoveNetInference(inferenceTime)
     telemetryLogger.incrementPoseUpdates()
     
@@ -124,13 +142,6 @@ export const useMoveNetWorker = (
       }
     }
     
-    if (__DEV__ && cropInfo) {
-      console.log('[MoveNetWorker] Crop info:', {
-        isValid: cropInfo.isValid,
-        isUsingLastBbox: cropInfo.isUsingLastBbox,
-        cropSize: `${cropInfo.cropWidth.toFixed(0)}x${cropInfo.cropHeight.toFixed(0)}`,
-      })
-    }
   }, [])
 
   // Process frame immediately (no buffering)
@@ -216,21 +227,22 @@ export const useMoveNetWorker = (
               // Get source data from RGB buffer at ORIGINAL frame size
               const srcData = new Uint8Array(pixelBuffer as ArrayBuffer)
               const bytesPerPixel = 3
-              const srcStride = Math.floor(frameW * bytesPerPixel)
               
-              // Create cropped buffer
-              const croppedBuffer = new Uint8Array(cropWInt * cropHInt * bytesPerPixel)
+              // Create cropped buffer (reuse if possible)
+              const croppedBufferSize = cropWInt * cropHInt * bytesPerPixel
+              const croppedBuffer = getCropBuffer(croppedBufferSize)
               
               // Extract crop region row by row
               for (let y = 0; y < cropHInt; y++) {
-                const srcOffset = ((cropYInt + y) * srcStride) + (cropXInt * bytesPerPixel)
+                const srcOffset = ((cropYInt + y) * frameW * bytesPerPixel) + (cropXInt * bytesPerPixel)
                 const dstOffset = y * cropWInt * bytesPerPixel
                 croppedBuffer.set(srcData.subarray(srcOffset, srcOffset + cropWInt * bytesPerPixel), dstOffset)
               }
               
               // Resize cropped buffer to target input size (simple nearest-neighbor)
               const targetSize = poseInputSize
-              const resizedBuffer = new Uint8Array(targetSize * targetSize * bytesPerPixel)
+              const resizedBufferSize = targetSize * targetSize * bytesPerPixel
+              const resizedBuffer = getResizeBuffer(resizedBufferSize)
               
               const resizeScaleX = cropWInt / targetSize
               const resizeScaleY = cropHInt / targetSize
@@ -248,22 +260,13 @@ export const useMoveNetWorker = (
                 }
               }
               
-              if (__DEV__) {
-                console.log('[MoveNetWorker] Using player crop on RGB-converted frame:', {
-                  bbox: { x: bbox.x.toFixed(3), y: bbox.y.toFixed(3), width: bbox.width.toFixed(3), height: bbox.height.toFixed(3) },
-                  crop: { x: cropInfo.cropX.toFixed(0), y: cropInfo.cropY.toFixed(0), width: cropInfo.cropWidth.toFixed(0), height: cropInfo.cropHeight.toFixed(0) },
-                  targetSize,
-                })
-              }
               
               // Use the resized cropped buffer directly
               const source = resizedBuffer
               
               if (source.length === poseInputElements) {
-                const inputBuffer = source.buffer.slice(
-                  source.byteOffset,
-                  source.byteOffset + source.byteLength
-                ) as ArrayBuffer
+                // Pass buffer directly without slice() to avoid unnecessary copy
+                const inputBuffer = source.buffer as ArrayBuffer
 
                 const outputs = poseModelInstance!.runSync([inputBuffer])
                 const output = new Float32Array(outputs[0] as ArrayBufferLike)
@@ -296,15 +299,12 @@ export const useMoveNetWorker = (
                 const inferenceTime = t2 - t0
                 const calculatedFps = 1000 / inferenceTime
 
-                if (__DEV__) {
-                  console.log(`[MoveNetWorker] Processed CROPPED frame in ${inferenceTime.toFixed(1)}ms, FPS: ${calculatedFps.toFixed(1)}`)
-                }
 
                 if (calculatedFps > 0) {
                   fps.value = calculatedFps
                 }
 
-                scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, cropInfo)
+                scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints)
                 
                 // resized will be disposed in finally block
                 isProcessing.value = false
@@ -322,7 +322,6 @@ export const useMoveNetWorker = (
       
       // Fallback: use full frame if crop failed or no bbox
       resized = rgbResizer?.resize(frame)
-      const t1 = performance.now()
 
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
@@ -334,11 +333,11 @@ export const useMoveNetWorker = (
           // Get source data from RGB buffer at original frame size
           const srcData = new Uint8Array(pixelBuffer as ArrayBuffer)
           const bytesPerPixel = 3
-          const srcStride = Math.floor(frameW * bytesPerPixel)
           
           // Resize full frame to target input size (simple nearest-neighbor)
           const targetSize = poseInputSize
-          const resizedBuffer = new Uint8Array(targetSize * targetSize * bytesPerPixel)
+          const resizedBufferSize = targetSize * targetSize * bytesPerPixel
+          const resizedBuffer = getResizeBuffer(resizedBufferSize)
           
           const resizeScaleX = frameW / targetSize
           const resizeScaleY = frameH / targetSize
@@ -360,10 +359,8 @@ export const useMoveNetWorker = (
           const source = resizedBuffer
 
           if (source.length === poseInputElements) {
-            const inputBuffer = source.buffer.slice(
-              source.byteOffset,
-              source.byteOffset + source.byteLength
-            ) as ArrayBuffer
+            // Pass buffer directly without slice() to avoid unnecessary copy
+            const inputBuffer = source.buffer as ArrayBuffer
 
             const outputs = poseModelInstance!.runSync([inputBuffer])
             const output = new Float32Array(outputs[0] as ArrayBufferLike)
@@ -399,20 +396,13 @@ export const useMoveNetWorker = (
             const inferenceTime = t2 - t0
             const calculatedFps = 1000 / inferenceTime
 
-            if (__DEV__) {
-              console.log(`[MoveNetWorker] Processed frame in ${inferenceTime.toFixed(1)}ms, FPS: ${calculatedFps.toFixed(1)}`)
-            }
 
             if (calculatedFps > 0) {
               fps.value = calculatedFps
-            } else {
-              if (__DEV__) {
-                console.log(`[MoveNetWorker] FPS is 0, not updating. InferenceTime: ${inferenceTime.toFixed(1)}ms`)
-              }
             }
 
             // Record telemetry via scheduleOnRN
-            scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints, cropInfo)
+            scheduleOnRN(recordTelemetry, inferenceTime, finalKeypoints)
           }
         }
       }
@@ -431,7 +421,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, recordTelemetry])
+  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, recordTelemetry, getCropBuffer, getResizeBuffer])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {

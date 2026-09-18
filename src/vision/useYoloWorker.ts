@@ -135,17 +135,12 @@ export const useYoloWorker = (
         ? (yoloDelegate as AndroidDelegateOption) || DEFAULT_ANDROID_DELEGATE
         : (yoloDelegate as IosDelegateOption) || DEFAULT_IOS_DELEGATE
       
-      if (__DEV__) {
-        console.log('[YoloWorker] Model loaded:', selectedYoloModel.fileName, 'inputSize:', selectedYoloModel.inputSize, 'precision:', selectedYoloModel.precision)
-      }
       
       telemetryLogger.logModelMetadata({
         name: selectedYoloModel.fileName,
         inputSize: selectedYoloModel.inputSize,
         delegate: typeof delegateName === 'string' ? delegateName : 'unknown'
       })
-    } else if (__DEV__) {
-      console.log('[YoloWorker] Model not loaded. State:', yoloModel.state, 'Model:', yoloModel.model ? 'exists' : 'null')
     }
   }, [yoloModel.state, yoloModel.model, isReady, selectedYoloModel, yoloDelegate])
 
@@ -159,9 +154,6 @@ export const useYoloWorker = (
         dataType: 'float32' as const,
         pixelLayout: 'interleaved' as const,
         scaleMode: 'contain' as const,
-      }
-      if (__DEV__) {
-        console.log('[YoloWorker] Resizer config:', config)
       }
       return config
     },
@@ -199,20 +191,12 @@ export const useYoloWorker = (
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (source.length === yoloInputElements) {
-          const inputBuffer = source.buffer.slice(
-            source.byteOffset,
-            source.byteOffset + source.byteLength
-          ) as ArrayBuffer
+          // Pass buffer directly without slice() to avoid unnecessary copy
+          const inputBuffer = source.buffer as ArrayBuffer
 
           const outputs = yoloModelInstance!.runSync([inputBuffer])
           const rawOutput = outputs[0] as ArrayBufferLike
 
-          // Log output shape for verification
-          if (__DEV__) {
-            console.log(`[YoloWorker] Model precision: ${selectedYoloModel?.precision}`)
-            console.log(`[YoloWorker] Raw buffer length: ${rawOutput.byteLength}`)
-            console.log(`[YoloWorker] Input elements: ${yoloInputElements}`)
-          }
 
           // Use appropriate parser based on model precision
           let ball, player, rim
@@ -262,17 +246,6 @@ export const useYoloWorker = (
 
             if (isValidSize && isInCourt && hasMinConfidence) {
               validBall = ball
-            } else if (__DEV__) {
-              console.log('[YoloWorker] Ball detection rejected:', {
-                reason: !isValidSize ? (bboxSizeNormalized < MIN_BBOX_SIZE_NORMALIZED ? 'small_bbox' : 'large_bbox') :
-                        !isInCourt ? 'outside_court' : 'low_confidence',
-                confidence: ball.confidence.toFixed(3),
-                bboxSizeNormalized: bboxSizeNormalized.toFixed(6),
-                bboxSizePixels: bboxSizePixels.toFixed(0),
-                frameResolution: `${frameW}x${frameH}`,
-                x: ball.x.toFixed(3),
-                y: ball.y.toFixed(3)
-              })
             }
           }
           
@@ -292,9 +265,6 @@ export const useYoloWorker = (
           // Record telemetry via scheduleOnRN with frame counter (only valid ball detection)
           scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, frameCounter)
 
-          if (__DEV__) {
-            console.log(`[YoloWorker] Processed frame in ${inferenceTime.toFixed(1)}ms`)
-          }
         }
       }
 
