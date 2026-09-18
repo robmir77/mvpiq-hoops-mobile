@@ -44,7 +44,7 @@ const DEFAULT_CONFIG: PlayerCropConfig = {
   paddingPercent: 0.15,
   smoothingFactor: 0.3,
   bboxTtlMs: 750,
-  minConfidence: 0.3,
+  minConfidence: 0.45,
 }
 
 /**
