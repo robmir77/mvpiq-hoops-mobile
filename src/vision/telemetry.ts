@@ -12,6 +12,11 @@ export interface YoloPerfMetrics {
   minMs: number
   maxMs: number
   samples: number
+  requested: number
+  executed: number
+  resizeMs: number
+  runMs: number
+  parseMs: number
 }
 
 export interface BallDetectionMetrics {
@@ -44,6 +49,12 @@ export interface MoveNetMetrics {
   validKeypoints: number
   avgConfidence: number
   keypointStability: number
+  requested: number
+  executed: number
+  cropMs: number
+  resizeMs: number
+  runMs: number
+  parseMs: number
 }
 
 export interface FalsePositiveMetrics {
@@ -61,6 +72,7 @@ export interface BboxStabilityMetrics {
 }
 
 export interface PipelineMetrics {
+  cameraFPS: number
   received: number
   processed: number
   droppedBusy: number
@@ -117,6 +129,7 @@ class TelemetryLogger {
   private falsePositives: Map<string, number> = new Map()
   private bboxHistory: Array<{ x: number; y: number; w: number; h: number; timestamp: number }> = []
   private pipelineMetrics: PipelineMetrics = {
+    cameraFPS: 0,
     received: 0,
     processed: 0,
     droppedBusy: 0,
@@ -135,6 +148,21 @@ class TelemetryLogger {
   private deviceMetrics: DeviceMetrics | null = null
   private testStartTime: number | null = null
   private testEndTime: number | null = null
+  
+  // Granular YOLO metrics
+  private yoloRequested: number = 0
+  private yoloExecuted: number = 0
+  private yoloResizeTimes: number[] = []
+  private yoloRunTimes: number[] = []
+  private yoloParseTimes: number[] = []
+  
+  // Granular MoveNet metrics
+  private moveNetRequested: number = 0
+  private moveNetExecuted: number = 0
+  private moveNetCropTimes: number[] = []
+  private moveNetResizeTimes: number[] = []
+  private moveNetRunTimes: number[] = []
+  private moveNetParseTimes: number[] = []
 
   logModelMetadata(metadata: ModelMetadata): void {
     this.modelMetadata = metadata
@@ -155,15 +183,48 @@ class TelemetryLogger {
     }
   }
 
+  recordYoloRequested(): void {
+    this.yoloRequested++
+  }
+
+  recordYoloExecuted(): void {
+    this.yoloExecuted++
+  }
+
+  recordYoloResize(resizeMs: number): void {
+    this.yoloResizeTimes.push(resizeMs)
+    if (this.yoloResizeTimes.length > 300) {
+      this.yoloResizeTimes.shift()
+    }
+  }
+
+  recordYoloRun(runMs: number): void {
+    this.yoloRunTimes.push(runMs)
+    if (this.yoloRunTimes.length > 300) {
+      this.yoloRunTimes.shift()
+    }
+  }
+
+  recordYoloParse(parseMs: number): void {
+    this.yoloParseTimes.push(parseMs)
+    if (this.yoloParseTimes.length > 300) {
+      this.yoloParseTimes.shift()
+    }
+  }
+
   getYoloPerfMetrics(): YoloPerfMetrics {
     if (this.yoloInferenceTimes.length === 0) {
-      return { fps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0 }
+      return { fps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: this.yoloRequested, executed: this.yoloExecuted, resizeMs: 0, runMs: 0, parseMs: 0 }
     }
 
     const avgMs = this.yoloInferenceTimes.reduce((a, b) => a + b, 0) / this.yoloInferenceTimes.length
     const minMs = Math.min(...this.yoloInferenceTimes)
     const maxMs = Math.max(...this.yoloInferenceTimes)
     const fps = 1000 / avgMs
+    
+    const avgResizeMs = this.yoloResizeTimes.length > 0 ? this.yoloResizeTimes.reduce((a, b) => a + b, 0) / this.yoloResizeTimes.length : 0
+    const avgRunMs = this.yoloRunTimes.length > 0 ? this.yoloRunTimes.reduce((a, b) => a + b, 0) / this.yoloRunTimes.length : 0
+    const avgParseMs = this.yoloParseTimes.length > 0 ? this.yoloParseTimes.reduce((a, b) => a + b, 0) / this.yoloParseTimes.length : 0
 
     return {
       fps,
@@ -171,12 +232,18 @@ class TelemetryLogger {
       minMs,
       maxMs,
       samples: this.yoloInferenceTimes.length,
+      requested: this.yoloRequested,
+      executed: this.yoloExecuted,
+      resizeMs: avgResizeMs,
+      runMs: avgRunMs,
+      parseMs: avgParseMs,
     }
   }
 
   logYoloPerf(): void {
     const metrics = this.getYoloPerfMetrics()
-    console.log('[PERF][YOLO]', `fps=${metrics.fps.toFixed(1)} avgMs=${metrics.avgMs.toFixed(1)} minMs=${metrics.minMs.toFixed(1)} maxMs=${metrics.maxMs.toFixed(1)}`)
+    console.log('[PERF][YOLO]', `fps=${metrics.fps.toFixed(1)} avgMs=${metrics.avgMs.toFixed(1)} minMs=${metrics.minMs.toFixed(1)} maxMs=${metrics.maxMs.toFixed(1)} requested=${metrics.requested} executed=${metrics.executed}`)
+    console.log('[PERF][YOLO]', `resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
   recordBallDetection(confidence: number, frameCounter?: number): void {
@@ -203,6 +270,42 @@ class TelemetryLogger {
     this.moveNetInferenceTimes.push(inferenceTimeMs)
     if (this.moveNetInferenceTimes.length > 300) {
       this.moveNetInferenceTimes.shift()
+    }
+  }
+
+  recordMoveNetRequested(): void {
+    this.moveNetRequested++
+  }
+
+  recordMoveNetExecuted(): void {
+    this.moveNetExecuted++
+  }
+
+  recordMoveNetCrop(cropMs: number): void {
+    this.moveNetCropTimes.push(cropMs)
+    if (this.moveNetCropTimes.length > 300) {
+      this.moveNetCropTimes.shift()
+    }
+  }
+
+  recordMoveNetResize(resizeMs: number): void {
+    this.moveNetResizeTimes.push(resizeMs)
+    if (this.moveNetResizeTimes.length > 300) {
+      this.moveNetResizeTimes.shift()
+    }
+  }
+
+  recordMoveNetRun(runMs: number): void {
+    this.moveNetRunTimes.push(runMs)
+    if (this.moveNetRunTimes.length > 300) {
+      this.moveNetRunTimes.shift()
+    }
+  }
+
+  recordMoveNetParse(parseMs: number): void {
+    this.moveNetParseTimes.push(parseMs)
+    if (this.moveNetParseTimes.length > 300) {
+      this.moveNetParseTimes.shift()
     }
   }
 
@@ -269,8 +372,9 @@ class TelemetryLogger {
     console.log('[BBOX][STABILITY]', `avgJump=${metrics.avgJump.toFixed(4)} maxJump=${metrics.maxJump.toFixed(4)} jitter=${metrics.jitter.toFixed(4)} stability=${metrics.stability.toFixed(0)}%`)
   }
 
-  updatePipelineMetrics(received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
+  updatePipelineMetrics(cameraFPS: number, received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
     this.pipelineMetrics = {
+      cameraFPS,
       received,
       processed,
       droppedBusy,
@@ -311,7 +415,7 @@ class TelemetryLogger {
 
   logPipelineMetrics(): void {
     const m = this.pipelineMetrics
-    console.log('[PIPELINE]', `received=${m.received} processed=${m.processed} droppedBusy=${m.droppedBusy} yoloDetections=${m.yoloDetections} ball=${m.ballDetections} player=${m.playerDetections} tracking=${m.trackingAccepted} pose=${m.poseUpdates} overlay=${m.overlayRendered}`)
+    console.log('[PIPELINE]', `cameraFPS=${m.cameraFPS.toFixed(1)} received=${m.received} processed=${m.processed} dropped=${m.droppedBusy} yoloDetections=${m.yoloDetections} ball=${m.ballDetections} player=${m.playerDetections} tracking=${m.trackingAccepted} pose=${m.poseUpdates} overlay=${m.overlayRendered}`)
   }
 
   getPipelineMetrics(): PipelineMetrics {
@@ -476,6 +580,12 @@ class TelemetryLogger {
         validKeypoints: 0,
         avgConfidence: 0,
         keypointStability: 0,
+        requested: this.moveNetRequested,
+        executed: this.moveNetExecuted,
+        cropMs: 0,
+        resizeMs: 0,
+        runMs: 0,
+        parseMs: 0,
       }
     }
 
@@ -495,6 +605,11 @@ class TelemetryLogger {
       const stdDev = Math.sqrt(variance)
       keypointStability = Math.max(0, 100 - (stdDev * 100))
     }
+    
+    const avgCropMs = this.moveNetCropTimes.length > 0 ? this.moveNetCropTimes.reduce((a, b) => a + b, 0) / this.moveNetCropTimes.length : 0
+    const avgResizeMs = this.moveNetResizeTimes.length > 0 ? this.moveNetResizeTimes.reduce((a, b) => a + b, 0) / this.moveNetResizeTimes.length : 0
+    const avgRunMs = this.moveNetRunTimes.length > 0 ? this.moveNetRunTimes.reduce((a, b) => a + b, 0) / this.moveNetRunTimes.length : 0
+    const avgParseMs = this.moveNetParseTimes.length > 0 ? this.moveNetParseTimes.reduce((a, b) => a + b, 0) / this.moveNetParseTimes.length : 0
 
     return {
       modelInput: this.moveNetModelInput,
@@ -506,12 +621,20 @@ class TelemetryLogger {
       validKeypoints,
       avgConfidence,
       keypointStability,
+      requested: this.moveNetRequested,
+      executed: this.moveNetExecuted,
+      cropMs: avgCropMs,
+      resizeMs: avgResizeMs,
+      runMs: avgRunMs,
+      parseMs: avgParseMs,
     }
   }
 
   logMoveNetMetrics(): void {
     const metrics = this.getMoveNetMetrics()
     console.log('[MOVENET]', `modelInput=${metrics.modelInput} fps=${metrics.fps.toFixed(1)} avgMs=${metrics.avgMs.toFixed(1)} keypoints=${metrics.validKeypoints} confidence=${metrics.avgConfidence.toFixed(2)}`)
+    console.log('[MOVENET]', `requested=${metrics.requested} executed=${metrics.executed}`)
+    console.log('[MOVENET]', `crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
@@ -649,6 +772,7 @@ Current=${summary.battery.endLevel}%
     this.ballDetectionFrames.clear()
     this.playerDetectionFrames.clear()
     this.pipelineMetrics = {
+      cameraFPS: 0,
       received: 0,
       processed: 0,
       droppedBusy: 0,
@@ -665,6 +789,21 @@ Current=${summary.battery.endLevel}%
     this.deviceMetrics = null
     this.testStartTime = null
     this.testEndTime = null
+    
+    // Reset granular YOLO metrics
+    this.yoloRequested = 0
+    this.yoloExecuted = 0
+    this.yoloResizeTimes = []
+    this.yoloRunTimes = []
+    this.yoloParseTimes = []
+    
+    // Reset granular MoveNet metrics
+    this.moveNetRequested = 0
+    this.moveNetExecuted = 0
+    this.moveNetCropTimes = []
+    this.moveNetResizeTimes = []
+    this.moveNetRunTimes = []
+    this.moveNetParseTimes = []
   }
 }
 
