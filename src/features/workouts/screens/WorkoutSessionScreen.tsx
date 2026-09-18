@@ -224,8 +224,14 @@ const RealtimeBallOverlay = React.memo(({
     })
 
     const hoopOvalPath = useDerivedValue(() => {
-        const w = (sharedValues?.hoopWidth.value ?? 0) > 0 ? (sharedValues?.hoopWidth.value ?? 0) * SCREEN_W : 40
-        const h = (sharedValues?.hoopHeight.value ?? 0) > 0 ? (sharedValues?.hoopHeight.value ?? 0) * CAMERA_H : 40
+        const hoopWidthNorm = sharedValues?.hoopWidth.value ?? 0
+        const hoopHeightNorm = sharedValues?.hoopHeight.value ?? 0
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        
+        const w = hoopWidthNorm > 0 ? (hoopWidthNorm * cameraResW) * coverScale : 40
+        const h = hoopHeightNorm > 0 ? (hoopHeightNorm * cameraResH) * coverScale : 40
         const flattenedW = w * 1.3
         const flattenedH = h * 0.6
         
