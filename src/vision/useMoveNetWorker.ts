@@ -19,6 +19,13 @@ const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the re
 const MOVENET_TARGET_FPS = 3 // Target 3 FPS for MoveNet
 const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
 
+// Validation thresholds for player bbox (worklet-safe inline checks)
+const PLAYER_CONFIDENCE_THRESH = 0.20
+const PLAYER_MIN_WIDTH = 0.10
+const PLAYER_MAX_WIDTH = 0.80
+const PLAYER_MIN_HEIGHT = 0.20
+const PLAYER_MAX_HEIGHT = 0.95
+
 interface PoseWorkerResult {
   keypoints: any
   angles: any
@@ -42,7 +49,7 @@ export const useMoveNetWorker = (
   const isReady = useSharedValue(false)
   const fps = useSharedValue(0)
 
-  const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
+  const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number; confidence?: number } | null>(null)
 
   // Telemetry SharedValues (worklet-safe)
   const telemetryInferenceTime = useSharedValue(0)
@@ -184,13 +191,25 @@ export const useMoveNetWorker = (
       // Get player bbox from YOLO
       const bbox = playerBbox.value
 
-      // Determine pose source: crop if bbox valid, full-frame fallback otherwise
-      const poseSource = bbox ? "PLAYER_CROP" : "FULL_FRAME"
-      console.log('[MoveNet] source=', poseSource, bbox ? '' : 'fallback')
+      // Inline validation (worklet-safe - no external function calls)
+      const hasValidPlayer =
+        bbox != null &&
+        bbox.confidence != null &&
+        bbox.confidence >= PLAYER_CONFIDENCE_THRESH &&
+        bbox.width >= PLAYER_MIN_WIDTH &&
+        bbox.width <= PLAYER_MAX_WIDTH &&
+        bbox.height >= PLAYER_MIN_HEIGHT &&
+        bbox.height <= PLAYER_MAX_HEIGHT &&
+        bbox.x >= 0 &&
+        bbox.y >= 0 &&
+        bbox.x + bbox.width <= 1 &&
+        bbox.y + bbox.height <= 1
 
-      if (!bbox) {
-        // Fallback: use full-frame when player bbox not available
-        console.log('[MoveNet] Using full-frame fallback (no player bbox)')
+      const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
+      
+      console.log('[MoveNet] Processing frame - source=', poseSource, 'bboxValid=', hasValidPlayer)
+      if (hasValidPlayer && bbox) {
+        console.log('[MoveNet] bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
       }
 
       // Use rgbResizer with float32 to avoid YUV-HardwareBuffer error
@@ -216,15 +235,24 @@ export const useMoveNetWorker = (
           const runMs = tRunEnd - tRunStart
           const output = new Float32Array(outputs[0] as ArrayBufferLike)
 
+          // Log raw output length for diagnostics (should be 51 for 17 keypoints * 3 values)
+          const outputLength = output.length
+          console.log('[POSE RAW] outputLength=', outputLength)
+
           const tParseStart = performance.now()
           const keypoints = parseMoveNetOutput(output, poseInputSize)
           const angles = computeJointAngles(keypoints)
           const tParseEnd = performance.now()
           const parseMs = tParseEnd - tParseStart
 
-          // Log keypoints count for diagnostics
+          // Enhanced logging with valid keypoints
           const keypointsCount = Object.keys(keypoints).length
-          console.log('[MoveNet] keypoints=', keypointsCount)
+          const validKeypoints = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).length
+          const avgConfidence = validKeypoints > 0 
+            ? Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints 
+            : 0
+          
+          console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
 
           // Since we're using full-frame resize (not crop), keypoints are already in normalized space
           const finalKeypoints = keypoints
