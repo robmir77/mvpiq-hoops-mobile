@@ -49,7 +49,7 @@ export const useYoloWorker = (
       if (frameCounter !== undefined) telemetryLogger.recordYoloProcessedFrame(frameCounter)
     }
     telemetryLogger.recordYoloInference(inferenceTime)
-    telemetryLogger.incrementYoloDetections()
+    telemetryLogger.incrementYoloExecuted()
     if (resizeMs !== undefined) telemetryLogger.recordYoloResize(resizeMs)
     if (runMs !== undefined) telemetryLogger.recordYoloRun(runMs)
     if (parseMs !== undefined) telemetryLogger.recordYoloParse(parseMs)

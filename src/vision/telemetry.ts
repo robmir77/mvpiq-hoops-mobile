@@ -78,9 +78,9 @@ export interface PipelineMetrics {
   droppedBusy: number
   dropped: number
   dropRate: number
-  yoloDetections: number
-  ballDetections: number
-  playerDetections: number
+  yoloExecuted: number  // Total YOLO executions
+  framesWithBall: number  // Unique frames where ball was detected
+  framesWithPlayer: number  // Unique frames where player was detected
   trackingAccepted: number
   poseUpdates: number
   overlayRendered: number // Deprecated: Skia renders at camera FPS, not tracked separately
@@ -135,9 +135,9 @@ class TelemetryLogger {
     droppedBusy: 0,
     dropped: 0,
     dropRate: 0,
-    yoloDetections: 0,
-    ballDetections: 0,
-    playerDetections: 0,
+    yoloExecuted: 0,
+    framesWithBall: 0,
+    framesWithPlayer: 0,
     trackingAccepted: 0,
     poseUpdates: 0,
     overlayRendered: 0,
@@ -384,25 +384,17 @@ class TelemetryLogger {
       droppedBusy,
       dropped: droppedBusy,
       dropRate: received > 0 ? (droppedBusy / received) * 100 : 0,
-      yoloDetections: this.pipelineMetrics.yoloDetections,
-      ballDetections: this.ballDetections.length,
-      playerDetections: this.playerDetections.length,
+      yoloExecuted: this.yoloExecuted,
+      framesWithBall: this.ballDetectionFrames.size,
+      framesWithPlayer: this.playerDetectionFrames.size,
       trackingAccepted,
       poseUpdates: this.pipelineMetrics.poseUpdates,
       overlayRendered,
     }
   }
 
-  incrementYoloDetections(): void {
-    this.pipelineMetrics.yoloDetections++
-  }
-
-  incrementBallDetections(): void {
-    this.pipelineMetrics.ballDetections++
-  }
-
-  incrementPlayerDetections(): void {
-    this.pipelineMetrics.playerDetections++
+  incrementYoloExecuted(): void {
+    this.yoloExecuted++
   }
 
   incrementTrackingAccepted(): void {
@@ -415,7 +407,7 @@ class TelemetryLogger {
 
   logPipelineMetrics(): void {
     const m = this.pipelineMetrics
-    console.log('[PIPELINE]', `camFPS=${m.cameraFPS.toFixed(1)} recv=${m.received} proc=${m.processed} drop=${m.droppedBusy} yolo=${m.yoloDetections} ball=${m.ballDetections} player=${m.playerDetections} track=${m.trackingAccepted} pose=${m.poseUpdates}`)
+    console.log('[PIPELINE]', `camFPS=${m.cameraFPS.toFixed(1)} recv=${m.received} proc=${m.processed} drop=${m.droppedBusy} yoloExec=${m.yoloExecuted} ballFrames=${m.framesWithBall} playerFrames=${m.framesWithPlayer} track=${m.trackingAccepted} pose=${m.poseUpdates}`)
   }
 
   getPipelineMetrics(): PipelineMetrics {
@@ -702,9 +694,9 @@ class TelemetryLogger {
     console.log(`Received=${summary.pipeline.received}`)
     console.log(`Processed=${summary.pipeline.processed}`)
     console.log(`DroppedBusy=${summary.pipeline.droppedBusy}`)
-    console.log(`YOLO Detections=${summary.pipeline.yoloDetections}`)
-    console.log(`Ball=${summary.pipeline.ballDetections}`)
-    console.log(`Player=${summary.pipeline.playerDetections}`)
+    console.log(`YOLO Executed=${summary.pipeline.yoloExecuted}`)
+    console.log(`Frames with Ball=${summary.pipeline.framesWithBall}`)
+    console.log(`Frames with Player=${summary.pipeline.framesWithPlayer}`)
     console.log(`Tracking=${summary.pipeline.trackingAccepted}`)
     console.log(`Pose=${summary.pipeline.poseUpdates}`)
     console.log('')
@@ -747,9 +739,9 @@ AVG=${summary.moveNet.avgMs.toFixed(1)}ms
 Received=${summary.pipeline.received}
 Processed=${summary.pipeline.processed}
 DroppedBusy=${summary.pipeline.droppedBusy}
-YOLO Detections=${summary.pipeline.yoloDetections}
-Ball=${summary.pipeline.ballDetections}
-Player=${summary.pipeline.playerDetections}
+YOLO Executed=${summary.pipeline.yoloExecuted}
+Frames with Ball=${summary.pipeline.framesWithBall}
+Frames with Player=${summary.pipeline.framesWithPlayer}
 Tracking=${summary.pipeline.trackingAccepted}
 Pose=${summary.pipeline.poseUpdates}
 
@@ -779,9 +771,9 @@ Current=${summary.battery.endLevel}%
       droppedBusy: 0,
       dropped: 0,
       dropRate: 0,
-      yoloDetections: 0,
-      ballDetections: 0,
-      playerDetections: 0,
+      yoloExecuted: 0,
+      framesWithBall: 0,
+      framesWithPlayer: 0,
       trackingAccepted: 0,
       poseUpdates: 0,
       overlayRendered: 0,

@@ -50,9 +50,9 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     droppedBusy: 0,
     dropped: 0,
     dropRate: 0,
-    yoloDetections: 0,
-    ballDetections: 0,
-    playerDetections: 0,
+    yoloExecuted: 0,
+    framesWithBall: 0,
+    framesWithPlayer: 0,
     trackingAccepted: 0,
     poseUpdates: 0,
     overlayRendered: 0,
@@ -234,12 +234,16 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.value}>{pipelineMetrics.droppedBusy}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Ball:</Text>
-                <Text style={styles.value}>{pipelineMetrics.ballDetections}</Text>
+                <Text style={styles.label}>YOLO Exec:</Text>
+                <Text style={styles.value}>{pipelineMetrics.yoloExecuted}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Player:</Text>
-                <Text style={styles.value}>{pipelineMetrics.playerDetections}</Text>
+                <Text style={styles.label}>Ball Frames:</Text>
+                <Text style={styles.value}>{pipelineMetrics.framesWithBall}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Player Frames:</Text>
+                <Text style={styles.value}>{pipelineMetrics.framesWithPlayer}</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Track:</Text>
