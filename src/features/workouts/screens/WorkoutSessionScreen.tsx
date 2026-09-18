@@ -995,6 +995,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     
     const [trackingBadgeText, setTrackingBadgeText] = React.useState('Cerca palla...')
     const [trackingDotActive, setTrackingDotActive] = React.useState(false)
+    const lastTrackingUpdate = React.useRef(0)
     
     const updateTrackingBadge = React.useCallback((isActive: boolean, confidence: number) => {
         if (isActive) {
@@ -1012,12 +1013,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             confidence: trackingConfidence.value,
         }),
         (current) => {
-            runOnJS(updateTrackingBadge)(current.isActive, current.confidence)
+            const now = Date.now()
+            if (now - lastTrackingUpdate.current > 150) {
+                lastTrackingUpdate.current = now
+                runOnJS(updateTrackingBadge)(current.isActive, current.confidence)
+            }
         }
     )
     
     const [autoStatusText, setAutoStatusText] = React.useState('In attesa della palla…')
     const [autoDotActive, setAutoDotActive] = React.useState(false)
+    const lastAutoStatusUpdate = React.useRef(0)
     
     const updateAutoStatus = React.useCallback((ballX: number, inFlight: boolean) => {
         const isActive = ballX > 0
@@ -1039,7 +1045,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             inFlight: sharedValues?.inFlight.value ?? false,
         }),
         (current) => {
-            runOnJS(updateAutoStatus)(current.ballX, current.inFlight)
+            const now = Date.now()
+            if (now - lastAutoStatusUpdate.current > 150) {
+                lastAutoStatusUpdate.current = now
+                runOnJS(updateAutoStatus)(current.ballX, current.inFlight)
+            }
         }
     )
     // Sync isRecordingRef con lo state (per evitare stale closure)
