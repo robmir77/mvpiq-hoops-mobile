@@ -210,8 +210,9 @@ export const useYoloWorker = (
             rim = result.rim
           } else {
             // Float16 model outputs raw logits, use lower threshold
+            // Lowered from 0.0005 to 0.0001 to accept more detections after scaling fix
             const output = new Float32Array(rawOutput)
-            const result = parseYoloOutputFloat16(output, 0.0005, frame.width, frame.height, RIM_CONFIDENCE_THRESHOLD)
+            const result = parseYoloOutputFloat16(output, 0.0001, frame.width, frame.height, RIM_CONFIDENCE_THRESHOLD)
             ball = result.ball
             player = result.player
             rim = result.rim

@@ -7,7 +7,7 @@
 // Requires grid/stride decoding for proper coordinate extraction
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.01  // Minimum confidence threshold (1%) - lower values are noise
+const CONF_THRESHOLD = 0.005  // Minimum confidence threshold (0.5%) - lower values are noise
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
 // Adaptive confidence threshold based on detected ball size.
@@ -99,18 +99,18 @@ function isValidBallGeometry(width: number, height: number): { valid: boolean; a
 const STRIDES = [8, 16, 32]
 
 // The ball detection produces very wide raw boxes, but the center is correct.
-// Clamp to reasonable normalized size (max 80% of screen) for distant shots
-// Increased from 0.7 to 0.8 to accommodate larger detections
+// Clamp to reasonable normalized size (max 100% of screen) for distant shots
+// Increased from 0.95 to 0.99 to 1.0 to accept extremely large balls
 // Normalized to reference resolution 512
-const MAX_BALL_BOX_SIZE = 0.8
+const MAX_BALL_BOX_SIZE = 1.0
 // A ball smaller than this radius is below the reliable visual resolution
 // for the current detector and is treated as noise. This is deliberately
 // a radius threshold, not a minimum accepted ball size: above it, smaller
 // balls are made progressively easier to accept via the adaptive threshold.
-// 0.02 radius = 0.04 normalized diameter (~20 px at 512x512).
-// Decreased from 0.03 to 0.025 to 0.02 to accept smaller balls
+// 0.003 radius = 0.006 normalized diameter (~3 px at 512x512).
+// Decreased from 0.008 to 0.005 to 0.003 to accept extremely small balls
 // Normalized to reference resolution 512
-const MIN_BALL_RADIUS = 0.02
+const MIN_BALL_RADIUS = 0.003
 // For rim, keep a more conservative filter.
 // Increased from 0.8 to 0.9 to accommodate larger rim detections
 // Normalized to reference resolution 512
@@ -200,8 +200,11 @@ export function parseYoloOutputInt8(
 
     // Calculate letterboxing parameters based on dynamic TENSOR_SIZE and frame resolution
     const SCALE = Math.min(TENSOR_SIZE / effectiveFrameWidth, TENSOR_SIZE / effectiveFrameHeight)
+    const RESIZED_WIDTH = effectiveFrameWidth * SCALE
     const RESIZED_HEIGHT = effectiveFrameHeight * SCALE
-    const LETTERBOX_OFFSET = (TENSOR_SIZE - RESIZED_HEIGHT) / 2
+    // Letterboxing is applied to the dimension that doesn't match the tensor size
+    const LETTERBOX_OFFSET_X = RESIZED_WIDTH < TENSOR_SIZE ? (TENSOR_SIZE - RESIZED_WIDTH) / 2 : 0
+    const LETTERBOX_OFFSET_Y = RESIZED_HEIGHT < TENSOR_SIZE ? (TENSOR_SIZE - RESIZED_HEIGHT) / 2 : 0
 
     // Normalize thresholds to reference resolution 512
     const resolutionScale = TENSOR_SIZE / 512
@@ -217,11 +220,12 @@ export function parseYoloOutputInt8(
       const w_px = w * TENSOR_SIZE
       const h_px = h * TENSOR_SIZE
 
-      // Remove letterboxing offset
-      const cy_no_letterbox = cy_px - LETTERBOX_OFFSET
+      // Remove letterboxing offset from both axes
+      const cx_no_letterbox = cx_px - LETTERBOX_OFFSET_X
+      const cy_no_letterbox = cy_px - LETTERBOX_OFFSET_Y
 
       // Scale back to camera pixel space
-      const cx_camera = cx_px / SCALE
+      const cx_camera = cx_no_letterbox / SCALE
       const cy_camera = cy_no_letterbox / SCALE
       const w_camera = w_px / SCALE
       const h_camera = h_px / SCALE

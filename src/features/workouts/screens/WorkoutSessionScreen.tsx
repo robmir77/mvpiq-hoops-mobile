@@ -100,27 +100,20 @@ const TRAIL_DELAY_POINTS = 5
 
 // Worklet-compatible coordinate mapping function
 // Maps normalized camera coordinates (0-1) to screen coordinates
+// YOLO parser already produces normalized coordinates from original camera image
 const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number) => {
     'worklet';
-    const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH);
-    const displayedW = cameraResW * coverScale;
-    const displayedH = cameraResH * coverScale;
-    const cropX = (displayedW - SCREEN_W) / 2;
-    const cropY = (displayedH - CAMERA_H) / 2;
-    const displayedX = normX * displayedW;
-    const displayedY = normY * displayedH;
-    const screenX = displayedX - cropX;
-    const screenY = displayedY - cropY;
+    
+    // X: mapping on actual view width
+    const screenX = normX * SCREEN_W;
+    
+    // Y: mapping on actual view height
+    const screenY = normY * CAMERA_H;
+    
     const result = {
         x: SCREEN_W - screenX,
         y: CAMERA_H - screenY,
     };
-
-    // Log occasionally (every ~100 calls) to avoid spam
-    if (Math.random() < 0.01) {
-        console.log('[COORD MAP] normX=', normX.toFixed(3), 'normY=', normY.toFixed(3), '-> screenX=', result.x.toFixed(1), 'screenY=', result.y.toFixed(1))
-        console.log('[COORD MAP] cameraRes=', cameraResW, 'x', cameraResH, 'SCREEN=', SCREEN_W, 'x', CAMERA_H, 'coverScale=', coverScale.toFixed(3))
-    }
 
     return result;
 };
@@ -203,10 +196,10 @@ const RealtimeBallOverlay = React.memo(({
         const ballH = sharedValues?.ballHeight.value ?? 0
         const cameraResW = effectiveResolution.width
         const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const containScale = Math.min(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
         const avgSize = ((ballW * cameraResW) + (ballH * cameraResH)) / 2
-        const scaledSize = avgSize * coverScale
-        return Math.max(8, scaledSize / 2)
+        const scaledSize = avgSize * containScale
+        return Math.max(8, scaledSize / 2.5)
     })
 
     const ballRawOpacity = useDerivedValue(() => {
@@ -243,10 +236,10 @@ const RealtimeBallOverlay = React.memo(({
         const hoopHeightNorm = sharedValues?.hoopHeight.value ?? 0
         const cameraResW = effectiveResolution.width
         const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const containScale = Math.min(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
         
-        const w = hoopWidthNorm > 0 ? (hoopWidthNorm * cameraResW) * coverScale : 40
-        const h = hoopHeightNorm > 0 ? (hoopHeightNorm * cameraResH) * coverScale : 40
+        const w = hoopWidthNorm > 0 ? (hoopWidthNorm * cameraResW) * containScale : 40
+        const h = hoopHeightNorm > 0 ? (hoopHeightNorm * cameraResH) * containScale : 40
         const flattenedW = w * 1.3
         const flattenedH = h * 0.6
         
