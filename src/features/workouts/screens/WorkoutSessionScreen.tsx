@@ -531,6 +531,7 @@ const ReactOverlay = React.memo(({
         x: 0, y: 0, w: 0, h: 0, conf: 0
     })
     const lastDebugUpdate = React.useRef(0)
+    const lastBadgeUpdate = React.useRef(0)
 
     const updateBadgeState = React.useCallback((data: {
         showLabel: boolean
@@ -595,7 +596,11 @@ const ReactOverlay = React.memo(({
             adaptiveThreshold: sharedValues?.adaptiveThreshold.value,
         }),
         (current) => {
-            runOnJS(updateBadgeState)(current)
+            const now = Date.now()
+            if (now - lastBadgeUpdate.current > 100) {
+                lastBadgeUpdate.current = now
+                runOnJS(updateBadgeState)(current)
+            }
         }
     )
 
