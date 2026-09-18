@@ -53,23 +53,6 @@ export const useMoveNetWorker = (
   const telemetryKeypointsConfidence = useSharedValue(0)
   const telemetryHasNewData = useSharedValue(false)
 
-  const cropBufferRef = useRef<Uint8Array | null>(null)
-  const resizeBufferRef = useRef<Uint8Array | null>(null)
-  
-  const getCropBuffer = useCallback((size: number): Uint8Array => {
-    if (!cropBufferRef.current || cropBufferRef.current.length < size) {
-      cropBufferRef.current = new Uint8Array(size)
-    }
-    return cropBufferRef.current
-  }, [])
-  
-  const getResizeBuffer = useCallback((size: number): Uint8Array => {
-    if (!resizeBufferRef.current || resizeBufferRef.current.length < size) {
-      resizeBufferRef.current = new Uint8Array(size)
-    }
-    return resizeBufferRef.current
-  }, [])
-
   const selectedMoveNetModel = useMemo(
     () => getMoveNetModel(moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID),
     [moveNetModelId]
@@ -104,22 +87,23 @@ export const useMoveNetWorker = (
 
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
-    
+
     if (isReady.value) {
       telemetryLogger.setMoveNetModelInput(poseInputSize)
     }
   }, [poseModel.state, poseModel.model, isReady, poseInputSize])
 
+  // Configure resizer with float32 to avoid YUV-HardwareBuffer error on Android
   const rgbResizerConfig = useMemo(
     () => ({
-      width: 192, // Use MoveNet input size
-      height: 192, // Use MoveNet input size
+      width: poseInputSize,
+      height: poseInputSize,
       channelOrder: 'rgb' as const,
-      dataType: 'uint8' as const,
+      dataType: 'float32' as const, // Use float32 to avoid YUV-HardwareBuffer error
       pixelLayout: 'interleaved' as const,
       scaleMode: 'contain' as const,
     }),
-    []
+    [poseInputSize]
   )
 
   const { resizer: rgbResizer } = useResizer(rgbResizerConfig)
@@ -192,186 +176,77 @@ export const useMoveNetWorker = (
 
     let resized: any = null
     let cropInfo: PlayerCropResult | null = null
-    
+
     try {
       const t0 = performance.now()
       const tResizeStart = performance.now()
-      
+
       // Get player bbox from YOLO (now guaranteed to be valid when processFrame is called)
       const bbox = playerBbox.value
-      
+
       if (!bbox) {
         console.warn('[MoveNet] No bbox available - skipping (should not happen with new architecture)')
         isProcessing.value = false
         return
       }
-      
-      // Convert YUV frame to RGB at ORIGINAL frame size, then crop
+
+      // Use rgbResizer with float32 to avoid YUV-HardwareBuffer error
+      // The resizer handles YUV→RGB conversion and resize to 192x192
       resized = rgbResizer?.resize(frame)
       const tResizeEnd = performance.now()
       const resizeMs = tResizeEnd - tResizeStart
-      
+
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
-        
-        if (pixelBuffer) {
-          // Inline crop calculation (worklet-safe)
-          const frameW = frame.width || 1280
-          const frameH = frame.height || 720
-          
-          const cropX = bbox.x * frameW
-          const cropY = bbox.y * frameH
-          const cropW = bbox.width * frameW
-          const cropH = bbox.height * frameH
-          
-          // Add padding (15%)
-          const paddingX = cropW * 0.15
-          const paddingY = cropH * 0.15
-          
-          let finalCropX = cropX - paddingX
-          let finalCropY = cropY - paddingY
-          let finalCropW = cropW + 2 * paddingX
-          let finalCropH = cropH + 2 * paddingY
-          
-          // Clamp to frame boundaries
-          finalCropX = Math.max(0, finalCropX)
-          finalCropY = Math.max(0, finalCropY)
-          finalCropW = Math.min(frameW - finalCropX, finalCropW)
-          finalCropH = Math.min(frameH - finalCropY, finalCropH)
-          
-          // Ensure minimum crop size
-          const minCropSize = Math.min(frameW, frameH) * 0.2
-          finalCropW = Math.max(minCropSize, finalCropW)
-          finalCropH = Math.max(minCropSize, finalCropH)
-          
-          cropInfo = {
-            cropX: finalCropX,
-            cropY: finalCropY,
-            cropWidth: finalCropW,
-            cropHeight: finalCropH,
-            isValid: true,
-            isUsingLastBbox: false,
+
+        // Convert to Float32Array (resizer outputs float32)
+        const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
+
+        if (source.length === poseInputElements) {
+          // Pass buffer directly without slice() to avoid unnecessary copy
+          const inputBuffer = source.buffer as ArrayBuffer
+
+          const tRunStart = performance.now()
+          const outputs = poseModelInstance!.runSync([inputBuffer])
+          const tRunEnd = performance.now()
+          const runMs = tRunEnd - tRunStart
+          const output = new Float32Array(outputs[0] as ArrayBufferLike)
+
+          const tParseStart = performance.now()
+          const keypoints = parseMoveNetOutput(output, poseInputSize)
+          const angles = computeJointAngles(keypoints)
+          const tParseEnd = performance.now()
+          const parseMs = tParseEnd - tParseStart
+
+          // Since we're using full-frame resize (not crop), keypoints are already in normalized space
+          const finalKeypoints = keypoints
+
+          const t2 = performance.now()
+
+          latestResultKeypoints.value = finalKeypoints
+          latestResultAngles.value = angles
+          latestResultTimestamp.value = timestamp
+          latestCropInfo.value = cropInfo
+
+          const inferenceTime = t2 - t0
+          const calculatedFps = 1000 / inferenceTime
+
+          if (calculatedFps > 0) {
+            fps.value = calculatedFps
           }
-          
-          // CPU-based cropping and resizing on RGB buffer
-          const tCropStart = performance.now()
-          const cropXInt = Math.floor(cropInfo.cropX)
-          const cropYInt = Math.floor(cropInfo.cropY)
-          const cropWInt = Math.floor(cropInfo.cropWidth)
-          const cropHInt = Math.floor(cropInfo.cropHeight)
-          
-          // Get source data from RGB buffer at ORIGINAL frame size
-          const srcData = new Uint8Array(pixelBuffer as ArrayBuffer)
-          const bytesPerPixel = 3
-          
-          // Create cropped buffer (reuse if possible)
-          const croppedBufferSize = cropWInt * cropHInt * bytesPerPixel
-          
-          // Inline buffer allocation to avoid worklet callback issue
-          let croppedBuffer: Uint8Array
-          if (!cropBufferRef.current || cropBufferRef.current.length < croppedBufferSize) {
-            croppedBuffer = new Uint8Array(croppedBufferSize)
-            cropBufferRef.current = croppedBuffer
-          } else {
-            croppedBuffer = cropBufferRef.current
-          }
-          
-          // Extract crop region row by row
-          for (let y = 0; y < cropHInt; y++) {
-            const srcOffset = ((cropYInt + y) * frameW * bytesPerPixel) + (cropXInt * bytesPerPixel)
-            const dstOffset = y * cropWInt * bytesPerPixel
-            croppedBuffer.set(srcData.subarray(srcOffset, srcOffset + cropWInt * bytesPerPixel), dstOffset)
-          }
-          const tCropEnd = performance.now()
-          const cropMs = tCropEnd - tCropStart
-          
-          // Resize cropped buffer to target input size (simple nearest-neighbor)
-          const tResizeCropStart = performance.now()
-          const targetSize = poseInputSize
-          const resizedBufferSize = targetSize * targetSize * bytesPerPixel
-          const resizedBuffer = getResizeBuffer(resizedBufferSize)
-          
-          const resizeScaleX = cropWInt / targetSize
-          const resizeScaleY = cropHInt / targetSize
-          
-          for (let y = 0; y < targetSize; y++) {
-            for (let x = 0; x < targetSize; x++) {
-              const srcX = Math.floor(x * resizeScaleX)
-              const srcY = Math.floor(y * resizeScaleY)
-              const srcOffset = (srcY * cropWInt + srcX) * bytesPerPixel
-              const dstOffset = (y * targetSize + x) * bytesPerPixel
-              
-              resizedBuffer[dstOffset] = croppedBuffer[srcOffset]
-              resizedBuffer[dstOffset + 1] = croppedBuffer[srcOffset + 1]
-              resizedBuffer[dstOffset + 2] = croppedBuffer[srcOffset + 2]
-            }
-          }
-          const tResizeCropEnd = performance.now()
-          const resizeCropMs = tResizeCropEnd - tResizeCropStart
-          const totalResizeMs = resizeMs + resizeCropMs
-          
-          // Use the resized cropped buffer directly
-          const source = resizedBuffer
-          
-          if (source.length === poseInputElements) {
-            // Pass buffer directly without slice() to avoid unnecessary copy
-            const inputBuffer = source.buffer as ArrayBuffer
 
-            const tRunStart = performance.now()
-            const outputs = poseModelInstance!.runSync([inputBuffer])
-            const tRunEnd = performance.now()
-            const runMs = tRunEnd - tRunStart
-            const output = new Float32Array(outputs[0] as ArrayBufferLike)
+          // Write telemetry to SharedValues (worklet-safe)
+          telemetryInferenceTime.value = inferenceTime
+          telemetryCropMs.value = 0 // No crop when using full-frame resize
+          telemetryResizeMs.value = resizeMs
+          telemetryRunMs.value = runMs
+          telemetryParseMs.value = parseMs
+          telemetryKeypointsConfidence.value = finalKeypoints ? Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).length : 0
+          telemetryHasNewData.value = true
 
-            const tParseStart = performance.now()
-            const keypoints = parseMoveNetOutput(output, poseInputSize)
-            const angles = computeJointAngles(keypoints)
-            const tParseEnd = performance.now()
-            const parseMs = tParseEnd - tParseStart
-
-            // Transform keypoints back to original frame space
-            let finalKeypoints = keypoints
-            if (cropInfo && cropInfo.isValid) {
-              finalKeypoints = {}
-              for (const [key, kp] of Object.entries(keypoints)) {
-                if (kp && typeof kp === 'object') {
-                  (finalKeypoints as any)[key] = {
-                    ...kp,
-                    x: (cropInfo.cropX + kp.x * cropInfo.cropWidth) / frameW,
-                    y: (cropInfo.cropY + kp.y * cropInfo.cropHeight) / frameH,
-                  }
-                }
-              }
-            }
-
-            const t2 = performance.now()
-
-            latestResultKeypoints.value = finalKeypoints
-            latestResultAngles.value = angles
-            latestResultTimestamp.value = timestamp
-            latestCropInfo.value = cropInfo
-
-            const inferenceTime = t2 - t0
-            const calculatedFps = 1000 / inferenceTime
-
-            if (calculatedFps > 0) {
-              fps.value = calculatedFps
-            }
-
-            // Write telemetry to SharedValues (worklet-safe)
-            telemetryInferenceTime.value = inferenceTime
-            telemetryCropMs.value = cropMs
-            telemetryResizeMs.value = totalResizeMs
-            telemetryRunMs.value = runMs
-            telemetryParseMs.value = parseMs
-            telemetryKeypointsConfidence.value = finalKeypoints ? Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).length : 0
-            telemetryHasNewData.value = true
-
-            // resized will be disposed in finally block
-            isProcessing.value = false
-            lastInferenceAt.value = Date.now()
-            return
-          }
+          isProcessing.value = false
+          lastInferenceAt.value = Date.now()
+          return
         }
       }
 

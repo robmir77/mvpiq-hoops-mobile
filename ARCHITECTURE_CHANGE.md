@@ -275,16 +275,15 @@ MoveNet (solo se BBox valido)
 
 **Risultato:** La telemetria conta solo detection accettate dal filtro confidence ≥ 0.3.
 
-## Phase 4: Fix scheduleOnRN Remote Function Error
+## Phase 4: Fix MoveNet Remote Function Error
 
 ### Obiettivo
-Risolvere l'errore "Tried to synchronously call a Remote Function" quando MoveNet tenta di registrare telemetria.
+Risolvere l'errore "Tried to synchronously call a Remote Function" quando MoveNet tenta di processare frame.
 
 ### Root Cause
-- `recordTelemetry` in `useMoveNetWorker.ts` non era marcata con `runOnJS`
-- Quando passata a `scheduleOnRN` nel worklet, cercava di essere eseguita in modo sincrono
+- `rgbResizer` da `react-native-vision-camera-resizer` non è worklet-safe
+- Quando chiamato nel worklet `processFrame`, tenta una chiamata sincrona a una Remote Function
 - Il worklet runtime non permette chiamate sincrone a funzioni remote
-- `scheduleOnRN` è il modo corretto ma richiede che la funzione sia accessibile correttamente
 
 ### Soluzione implementata
 
@@ -303,7 +302,47 @@ Risolvere l'errore "Tried to synchronously call a Remote Function" quando MoveNe
 - Il JS thread legge SharedValues e registra telemetria
 - Nessun crash o errore sincrono
 
-## Phase 5: Render Warnings e ShotTracker UNMOUNT
+## Phase 5: Fix MoveNet YUV-HardwareBuffer Error
+
+### Obiettivo
+Risolvere l'errore "Cannot get bytes per pixel: YUV-HardwareBuffers are multi-planar" quando MoveNet tenta di processare frame su Android.
+
+### Root Cause
+- Android Camera fornisce frame come YUV-HardwareBuffer multi-planare (Y, U, V planes)
+- La configurazione `dataType: 'uint8'` del resizer richiede un singolo bytes-per-pixel
+- YUV-HardwareBuffer non ha un singolo bytes-per-pixel, causando l'errore
+- La conversione YUV→RGB inline manuale era inefficiente e problematica
+
+### Soluzione implementata
+
+#### 1. useMoveNetWorker.ts - Configurazione float32 come YOLO
+- Ripristinato `useResizer` con `dataType: 'float32'` (come YOLO)
+- Rimosso conversione YUV→RGB inline manuale
+- Rimosso buffer ref non necessari (`cropBufferRef`, `resizeBufferRef`, `rgbBufferRef`)
+- Il resizer gestisce automaticamente YUV→RGB conversion e resize a 192×192
+- Pipeline semplificata: `Camera Frame → rgbResizer (float32) → Float32Array → MoveNet runSync()`
+
+### Architettura risultante
+```
+Camera Frame 1280×720
+       │
+       ├──────────────→ YOLO 512 INT8 ✅ (float32 resizer)
+       │
+       └→ MoveNet
+             │
+             ├→ rgbResizer (float32)
+             ├→ YUV→RGB automatico
+             ├→ resize 192×192
+             └→ TFLite runSync()
+```
+
+### Comportamento
+- MoveNet processa frame senza YUV-HardwareBuffer error
+- Conversione YUV→RGB gestita automaticamente dal resizer
+- Configurazione coerente con YOLO (float32)
+- Performance migliorate rispetto a conversione inline manuale
+
+## Phase 6: Render Warnings e ShotTracker UNMOUNT
 
 ### Obiettivo
 Risolvere due problemi identificati durante il testing:
