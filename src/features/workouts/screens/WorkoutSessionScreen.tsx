@@ -186,8 +186,12 @@ const RealtimeBallOverlay = React.memo(({
     const ballRadius = useDerivedValue(() => {
         const ballW = sharedValues?.ballWidth.value ?? 0
         const ballH = sharedValues?.ballHeight.value ?? 0
-        const avgSize = (ballW + ballH) / 2
-        return Math.max(8, (avgSize * SCREEN_W) / 2)
+        const cameraResW = effectiveResolution.width
+        const cameraResH = effectiveResolution.height
+        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
+        const avgSize = ((ballW * cameraResW) + (ballH * cameraResH)) / 2
+        const scaledSize = avgSize * coverScale
+        return Math.max(8, scaledSize / 2)
     })
 
     const ballRawOpacity = useDerivedValue(() => {
