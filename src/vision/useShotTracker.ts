@@ -261,6 +261,7 @@ export const useShotTracker = (
         telemetryLogger.logFalsePositiveSummary()
         telemetryLogger.logBboxStability()
         telemetryLogger.logPlayerTrackingMetrics()
+        telemetryLogger.logBallTrackingMetrics()
     }, [])
 
 

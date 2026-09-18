@@ -24,6 +24,7 @@ const HOOP_RADIUS_MADE       = 0.10  // Dynamic radius for MADE detection
 const DESCENDING_VY_THRESHOLD = 0.3  // Descending threshold (vy > 0 = falling)
 const MIN_TRAJECTORY_FRAMES  = 4  // Min frames before shot detection
 const SHOT_COOLDOWN_MS       = 600  // Cooldown between shots
+const BALL_TRACK_TTL_MS      = 500  // Time-based TTL for ball tracking validity
 
 // Dynamic hoop radius from detected dimensions
 const getDynamicHoopRadius = (hoop: { width?: number; height?: number } | null): number => {
@@ -35,7 +36,13 @@ const getDynamicHoopRadius = (hoop: { width?: number; height?: number } | null):
 const MIN_RISING_FRAMES = 3  // Consecutive rising frames required
 const MIN_ARC_HEIGHT = 0.08  // Min arc height (dribbles bounce ~5-8%, shots rise 12-15%)
 
-export const useTrackingEngine = () => {
+interface BallTrackingCallbacks {
+    onBallDetected?: () => void
+    onBallPrediction?: (ageMs: number) => void
+    onBallTrackingExpired?: () => void
+}
+
+export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     const kalman     = useRef<KalmanState>({ ...INITIAL_KALMAN })
     // Ring buffer for trajectory (O(1) insert, no reallocation)
     const MAX_POINTS = 90
@@ -94,6 +101,11 @@ export const useTrackingEngine = () => {
     const apexPoint    = useRef<{ x: number; y: number } | null>(null)
     const inFlightRef  = useRef<boolean>(false)
 
+    // Ball tracking state for TTL
+    const ballLastSeenAt = useRef<number>(0)
+    const ballTrackingValid = useRef<boolean>(false)
+    const lastBallWasDetected = useRef<boolean>(false)
+
     // Dribble filter state
     const risingFrames  = useRef<number>(0)  // Consecutive rising frames
     const flightStartY  = useRef<number>(1.0)  // Y at first rising frame
@@ -132,6 +144,97 @@ export const useTrackingEngine = () => {
 
         return { x: k.x, y: k.y }
     }, [])
+
+    const kalmanPredict = useCallback((frameTs: number): { x: number; y: number } | null => {
+        const k  = kalman.current
+        const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
+        
+        // Check TTL - if expired, return null
+        const ageMs = frameTs - ballLastSeenAt.current
+        if (ageMs > BALL_TRACK_TTL_MS) {
+            ballTrackingValid.current = false
+            if (lastBallWasDetected.current) {
+                callbacks?.onBallTrackingExpired?.()
+                lastBallWasDetected.current = false
+            }
+            return null
+        }
+        
+        // Predict position from last velocity
+        const predX = k.x + k.vx * dt
+        const predY = k.y + k.vy * dt
+        
+        return { x: predX, y: predY }
+    }, [callbacks])
+
+    const predictFrame = useCallback((frameTs: number): boolean => {
+        const current = state.current
+        
+        // Only predict if we have a valid ball position and tracking is valid
+        if (!current.ballPosition || !ballTrackingValid.current) {
+            return false
+        }
+        
+        const prediction = kalmanPredict(frameTs)
+        if (!prediction) {
+            // TTL expired - invalidate tracking
+            current.ballPosition = null
+            current.ballVelocity = null
+            current.ballPositionRaw = null
+            current.confidence = 0
+            
+            // Reset Shared Values
+            ballX.value = 0
+            ballY.value = 0
+            ballXRaw.value = 0
+            ballYRaw.value = 0
+            confidence.value = 0
+            return false
+        }
+        
+        // Update state with prediction
+        current.ballPosition = prediction
+        current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }
+        
+        // Call telemetry callback for prediction
+        const ageMs = frameTs - ballLastSeenAt.current
+        callbacks?.onBallPrediction?.(ageMs)
+        
+        // Update Shared Values with prediction
+        ballX.value = prediction.x
+        ballY.value = prediction.y
+        
+        // Add predicted point to trajectory
+        trajectoryBuffer.current[trajectoryHead.current] = { x: prediction.x, y: prediction.y, t: frameTs }
+        trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
+        if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+        
+        // Update trajectory SharedValues when inFlight
+        if (inFlightRef.current) {
+            const traj = getTrajectory()
+            const points = trajectoryPoints.value
+            for (let i = 0; i < Math.min(traj.length, MAX_POINTS); i++) {
+                points[i * 2] = traj[i].x
+                points[i * 2 + 1] = traj[i].y
+            }
+            trajectoryPoints.value = points
+            trajectoryPointCount.value = traj.length
+        }
+        
+        // Copy trajectory for UI every 5 frames when inFlight
+        if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
+            current.trajectory = getTrajectory()
+        }
+        
+        // Update peak with prediction
+        if (prediction.y < peakY.current) {
+            peakY.current = prediction.y
+            apexPoint.current = { x: prediction.x, y: prediction.y }
+        }
+        
+        lastFrameTs.current = frameTs
+        return true
+    }, [kalmanPredict, getTrajectory, ballX, ballY, ballXRaw, ballYRaw, confidence, trajectoryPoints, trajectoryPointCount, MAX_POINTS])
 
     const processFrame = useCallback((
         ballDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
@@ -175,6 +278,14 @@ export const useTrackingEngine = () => {
             current.confidence   = ballDetection.confidence
             current.ballWidth    = ballDetection.width
             current.ballHeight   = ballDetection.height
+            
+            // Update ball tracking TTL state
+            ballLastSeenAt.current = frameTs
+            ballTrackingValid.current = true
+            lastBallWasDetected.current = true
+            
+            // Call telemetry callback for detection
+            callbacks?.onBallDetected?.()
 
             // Update Shared Values for Skia
             ballX.value = ballDetection.x
@@ -229,43 +340,60 @@ export const useTrackingEngine = () => {
             const k = kalman.current
             const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
             
-            // Predict position from last velocity
-            const predX = k.x + k.vx * dt
-            const predY = k.y + k.vy * dt
-            
-            current.ballPosition = { x: predX, y: predY }
-            current.ballVelocity = { vx: k.vx, vy: k.vy }
-            
-            // Update Shared Values with prediction
-            ballX.value = predX
-            ballY.value = predY
-            
-            // Add predicted point to trajectory
-            trajectoryBuffer.current[trajectoryHead.current] = { x: predX, y: predY, t: frameTs }
-            trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
-            if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
-            
-            // Update trajectory SharedValues
-            if (inFlightRef.current) {
-                const traj = getTrajectory()
-                const points = trajectoryPoints.value
-                for (let i = 0; i < Math.min(traj.length, MAX_POINTS); i++) {
-                    points[i * 2] = traj[i].x
-                    points[i * 2 + 1] = traj[i].y
+            // Check TTL - if expired, invalidate tracking
+            const ageMs = frameTs - ballLastSeenAt.current
+            if (ageMs > BALL_TRACK_TTL_MS) {
+                ballTrackingValid.current = false
+                current.ballPosition = null
+                current.ballVelocity = null
+                current.ballPositionRaw = null
+                current.confidence = 0
+                
+                // Reset Shared Values
+                ballX.value = 0
+                ballY.value = 0
+                ballXRaw.value = 0
+                ballYRaw.value = 0
+                confidence.value = 0
+            } else {
+                // Predict position from last velocity
+                const predX = k.x + k.vx * dt
+                const predY = k.y + k.vy * dt
+                
+                current.ballPosition = { x: predX, y: predY }
+                current.ballVelocity = { vx: k.vx, vy: k.vy }
+                
+                // Update Shared Values with prediction
+                ballX.value = predX
+                ballY.value = predY
+                
+                // Add predicted point to trajectory
+                trajectoryBuffer.current[trajectoryHead.current] = { x: predX, y: predY, t: frameTs }
+                trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
+                if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+                
+                // Update trajectory SharedValues
+                if (inFlightRef.current) {
+                    const traj = getTrajectory()
+                    const points = trajectoryPoints.value
+                    for (let i = 0; i < Math.min(traj.length, MAX_POINTS); i++) {
+                        points[i * 2] = traj[i].x
+                        points[i * 2 + 1] = traj[i].y
+                    }
+                    trajectoryPoints.value = points
+                    trajectoryPointCount.value = traj.length
                 }
-                trajectoryPoints.value = points
-                trajectoryPointCount.value = traj.length
-            }
-            
-            // Copy trajectory for UI every 5 frames when inFlight
-            if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
-                current.trajectory = getTrajectory()
-            }
-            
-            // Update peak with prediction
-            if (predY < peakY.current) {
-                peakY.current = predY
-                apexPoint.current = { x: predX, y: predY }
+                
+                // Copy trajectory for UI every 5 frames when inFlight
+                if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
+                    current.trajectory = getTrajectory()
+                }
+                
+                // Update peak with prediction
+                if (predY < peakY.current) {
+                    peakY.current = predY
+                    apexPoint.current = { x: predX, y: predY }
+                }
             }
         }
 
@@ -404,6 +532,10 @@ export const useTrackingEngine = () => {
         inFlightRef.current       = false
         risingFrames.current       = 0
         flightStartY.current       = 1.0
+        // Reset ball tracking TTL state
+        ballLastSeenAt.current = 0
+        ballTrackingValid.current = false
+        lastBallWasDetected.current = false
         // Reset Shared Values
         inFlight.value = false
         showShotTrail.value = false
@@ -423,6 +555,10 @@ export const useTrackingEngine = () => {
         risingFrames.current = 0
         flightStartY.current = 1.0
         lastShotTs.current  = 0
+        // Reset ball tracking TTL state
+        ballLastSeenAt.current = 0
+        ballTrackingValid.current = false
+        lastBallWasDetected.current = false
         state.current       = {
             ballPosition: null, ballPositionRaw: null, ballVelocity: null, hoopPosition: null,
             shotDetected: false, shotResult: null, trajectory: [], confidence: 0,
@@ -519,6 +655,8 @@ export const useTrackingEngine = () => {
 
     return {
         processFrame,
+        predictFrame,
+        kalmanPredict,
         resetShot,
         resetAll,
         setHoopFromCalibration,

@@ -171,6 +171,12 @@ class TelemetryLogger {
   private playerUsingLastBbox: number = 0
   private playerBboxExpired: number = 0
   private playerBboxAgeMs: number[] = []
+  
+  // Ball tracking metrics
+  private ballDetected: number = 0
+  private ballPrediction: number = 0
+  private ballTrackingExpired: number = 0
+  private ballPredictionAgeMs: number[] = []
 
   logModelMetadata(metadata: ModelMetadata): void {
     this.modelMetadata = metadata
@@ -407,6 +413,29 @@ class TelemetryLogger {
       ? this.playerBboxAgeMs.reduce((a, b) => a + b, 0) / this.playerBboxAgeMs.length 
       : 0
     console.log('[PLAYER][TRACKING]', `detected=${this.playerDetected} lost=${this.playerLost} usingLastBbox=${this.playerUsingLastBbox} expired=${this.playerBboxExpired} avgAge=${avgAgeMs.toFixed(0)}ms`)
+  }
+
+  recordBallDetected(): void {
+    this.ballDetected++
+  }
+
+  recordBallPrediction(ageMs: number): void {
+    this.ballPrediction++
+    this.ballPredictionAgeMs.push(ageMs)
+    if (this.ballPredictionAgeMs.length > 300) {
+      this.ballPredictionAgeMs.shift()
+    }
+  }
+
+  recordBallTrackingExpired(): void {
+    this.ballTrackingExpired++
+  }
+
+  logBallTrackingMetrics(): void {
+    const avgAgeMs = this.ballPredictionAgeMs.length > 0 
+      ? this.ballPredictionAgeMs.reduce((a, b) => a + b, 0) / this.ballPredictionAgeMs.length 
+      : 0
+    console.log('[BALL][TRACKING]', `detected=${this.ballDetected} prediction=${this.ballPrediction} expired=${this.ballTrackingExpired} avgAge=${avgAgeMs.toFixed(0)}ms`)
   }
 
   updatePipelineMetrics(cameraFPS: number, received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
@@ -838,6 +867,12 @@ Current=${summary.battery.endLevel}%
     this.playerUsingLastBbox = 0
     this.playerBboxExpired = 0
     this.playerBboxAgeMs = []
+    
+    // Reset ball tracking metrics
+    this.ballDetected = 0
+    this.ballPrediction = 0
+    this.ballTrackingExpired = 0
+    this.ballPredictionAgeMs = []
   }
 }
 

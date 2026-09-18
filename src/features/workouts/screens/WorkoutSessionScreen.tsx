@@ -979,7 +979,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     const { alert, showError, showWarning, showSuccess } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
-    const tracking = useTrackingEngine()
+    const tracking = useTrackingEngine({
+        onBallDetected: () => telemetryLogger.recordBallDetected(),
+        onBallPrediction: (ageMs: number) => telemetryLogger.recordBallPrediction(ageMs),
+        onBallTrackingExpired: () => telemetryLogger.recordBallTrackingExpired(),
+    })
     const { sharedValues } = tracking
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
