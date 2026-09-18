@@ -308,6 +308,7 @@ export const useShotTracker = (
 
     // JS-side callback for pipeline telemetry recording
     const updatePipelineTelemetry = useCallback((
+        cameraFPS: number,
         received: number,
         processed: number,
         droppedBusy: number,
@@ -315,6 +316,7 @@ export const useShotTracker = (
         overlayRendered: number
     ) => {
         telemetryLogger.updatePipelineMetrics(
+            cameraFPS,
             received,
             processed,
             droppedBusy,
@@ -862,7 +864,7 @@ export const useShotTracker = (
                 perfFramesReceived.value += 1
 
                 // ───────────────────────────────────────────────────────────────────
-                // Reentrancy guard
+                // Fatal error guard
                 // ───────────────────────────────────────────────────────────────────
 
                 if (hasFatalError.value) {
@@ -872,17 +874,8 @@ export const useShotTracker = (
                     return
                 }
 
-                if (isProcessingFrame.value) {
-                    // A previous invocation is still running (e.g. slow
-                    // model.runSync()). Drop this one instead of letting it
-                    // race on the same Frame/buffers.
-                    perfFramesDroppedBusy.value += 1
-                    frame.dispose()
-                    return
-                }
-
-                isProcessingFrame.value = true
-                perfFramesProcessed.value += 1
+                // NOTE: Removed global isProcessingFrame guard to allow true parallelism
+                // Each worker (YOLO/MoveNet) has its own internal processing guard
 
                 // ───────────────────────────────────────────────────────────────────
                 // Frame counter
@@ -963,12 +956,12 @@ export const useShotTracker = (
                         }
                     }
 
-                    // Esegui YOLO prima per ottenere il player bbox corrente
+                    // Esegui YOLO e MoveNet in parallelo - non sequenzialmente
+                    // Ogni modello ha il proprio throttling indipendente
                     if (yoloDue) {
                         yoloWorker.processFrame(frame, timestamp, currentFrame)
                         
-                        // Aggiorna playerBbox immediatamente dopo YOLO
-                        // così MoveNet userà il bbox del frame corrente
+                        // Aggiorna playerBbox per MoveNet (asincrono, non bloccante)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
                         if (currentPlayer) {
                             moveNetWorker.playerBbox.value = {
@@ -980,7 +973,6 @@ export const useShotTracker = (
                         }
                     }
 
-                    // Esegui MoveNet dopo YOLO con il player bbox aggiornato
                     if (moveNetDue) {
                         lastMoveNetInferenceAt.value = nowForMoveNet
                         moveNetWorker.processFrame(frame, timestamp)
@@ -1052,9 +1044,13 @@ export const useShotTracker = (
                             )
                         }
 
+                        // Calculate camera FPS from received frames over the 1-second interval
+                        const cameraFPS = perfFramesReceived.value / 1.0
+                        
                         // Update telemetry pipeline metrics via scheduleOnRN
                         scheduleOnRN(
                             updatePipelineTelemetry,
+                            cameraFPS,
                             perfFramesReceived.value,
                             perfFramesProcessed.value,
                             perfFramesDroppedBusy.value,
@@ -1101,10 +1097,6 @@ export const useShotTracker = (
 
                     // Camera frame is disposed exactly once.
                     frame.dispose()
-
-                    // Always release the guard, even on error, so the next
-                    // frame can be processed.
-                    isProcessingFrame.value = false
                 }
             },
 
