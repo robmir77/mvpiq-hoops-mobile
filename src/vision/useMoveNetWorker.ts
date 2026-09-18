@@ -115,8 +115,8 @@ export const useMoveNetWorker = (
   // Resizer config for RGB conversion at original frame size
   const rgbResizerConfig = useMemo(
     () => ({
-      width: 0, // 0 = use original frame size
-      height: 0, // 0 = use original frame size
+      width: 192, // Use MoveNet input size
+      height: 192, // Use MoveNet input size
       channelOrder: 'rgb' as const,
       dataType: 'uint8' as const,
       pixelLayout: 'interleaved' as const,
@@ -155,6 +155,7 @@ export const useMoveNetWorker = (
     'worklet'
 
     if (!poseModelInstance || isProcessing.value || !enabled) {
+      console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled)
       return
     }
 
@@ -162,8 +163,11 @@ export const useMoveNetWorker = (
     const now = Date.now()
     const timeSinceLast = lastInferenceAt.value > 0 ? now - lastInferenceAt.value : MOVENET_INTERVAL_MS
     if (timeSinceLast < MOVENET_INTERVAL_MS) {
+      console.log('[MoveNet Throttle] Skip:', timeSinceLast, 'ms since last (need', MOVENET_INTERVAL_MS, 'ms)')
       return
     }
+
+    console.log('[MoveNet] Processing frame - bbox=', !!playerBbox.value)
 
     isProcessing.value = true
 
@@ -178,6 +182,7 @@ export const useMoveNetWorker = (
       const bbox = playerBbox.value
       
       // Calculate crop region if player bbox is available
+      // If no bbox (YOLO disabled or no player detected), fall through to full frame processing
       if (bbox && enabled) {
         // First convert YUV frame to RGB at ORIGINAL frame size, then crop
         resized = rgbResizer?.resize(frame)
@@ -240,7 +245,15 @@ export const useMoveNetWorker = (
               
               // Create cropped buffer (reuse if possible)
               const croppedBufferSize = cropWInt * cropHInt * bytesPerPixel
-              const croppedBuffer = getCropBuffer(croppedBufferSize)
+              
+              // Inline buffer allocation to avoid worklet callback issue
+              let croppedBuffer: Uint8Array
+              if (!cropBufferRef.current || cropBufferRef.current.length < croppedBufferSize) {
+                croppedBuffer = new Uint8Array(croppedBufferSize)
+                cropBufferRef.current = croppedBuffer
+              } else {
+                croppedBuffer = cropBufferRef.current
+              }
               
               // Extract crop region row by row
               for (let y = 0; y < cropHInt; y++) {
@@ -337,7 +350,15 @@ export const useMoveNetWorker = (
           } catch (cropError) {
             console.warn('[MoveNetWorker] Crop failed, falling back to full frame:', cropError)
             cropInfo = null
-            // resized will be disposed in finally block
+            // Dispose resized frame before fallback
+            if (resized) {
+              try {
+                resized.dispose()
+              } catch (e) {
+                // Ignore if already disposed
+              }
+              resized = null
+            }
           }
         }
       }
@@ -359,7 +380,15 @@ export const useMoveNetWorker = (
           // Resize full frame to target input size (simple nearest-neighbor)
           const targetSize = poseInputSize
           const resizedBufferSize = targetSize * targetSize * bytesPerPixel
-          const resizedBuffer = getResizeBuffer(resizedBufferSize)
+          
+          // Inline buffer allocation to avoid worklet callback issue
+          let resizedBuffer: Uint8Array
+          if (!resizeBufferRef.current || resizeBufferRef.current.length < resizedBufferSize) {
+            resizedBuffer = new Uint8Array(resizedBufferSize)
+            resizeBufferRef.current = resizedBuffer
+          } else {
+            resizedBuffer = resizeBufferRef.current
+          }
           const tResizeFullStart = performance.now()
           
           const resizeScaleX = frameW / targetSize
@@ -452,7 +481,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, recordTelemetry, getCropBuffer, getResizeBuffer])
+  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, recordTelemetry])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {

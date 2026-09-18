@@ -3,6 +3,54 @@
 // Orchestrates ball detection, pose detection, and shot analysis.
 // Both YOLO and MoveNet run entirely in the Frame Processor Worklet.
 // Only processed results (BallDetection, PoseResult, ShotEvent) cross to JS.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// BENCHMARK PLAN - Identificazione collo di bottiglia
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Configurazione test:
+// - Camera: 1280x720 @ 30 FPS
+// - Android GPU delegate
+// - RGB Resizer
+// - YOLO: 512 INT8
+// - MoveNet: 192 INT8
+//
+// TEST 1: YOLO only (ballEnabled=true, poseEnabled=false)
+// Obiettivo: Misurare throughput YOLO isolato
+// Metriche chiave:
+// - YOLO requested/executed
+// - YOLO resize/run/parse timing
+// - YOLO execution FPS (executed/secondo)
+// - Pipeline received/processed/dropped
+//
+// TEST 2: YOLO + MoveNet (ballEnabled=true, poseEnabled=true)
+// Obiettivo: Misurare throughput combinato
+// Metriche chiave:
+// - Tutte le metriche YOLO sopra
+// - MoveNet requested/executed
+// - MoveNet crop/resize/run/parse timing
+// - MoveNet execution FPS (executed/secondo)
+// - Confronto con TEST 1
+//
+// Analisi scenari:
+// A. TFLite è il collo di bottiglia (serializzazione)
+//    Se TEST 2 ≈ TEST 1 + tempo MoveNet
+//    → Serializzazione confermata, considerare istanze separate
+//
+// B. Il problema è RGB/resize
+//    Se resize/crop domina i tempi totali
+//    → Ottimizzare resizer o considerare pipeline diversa
+//
+// C. Il problema è il frame processor/pipeline
+//    Se droppedBusy è alto ma requested basso
+//    → Ottimizzare scheduling o throttling
+//
+// D. GPU contention
+//    Se TEST 2 mostra degrado molto maggiore della somma
+//    → Investigare contesa GPU delegate
+//
+// NOTA: MoveNet only non è testabile perché dipende dal player bbox di YOLO
+// ─────────────────────────────────────────────────────────────────────────────
 
 import { useRef, useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
@@ -327,6 +375,9 @@ export const useShotTracker = (
         
         // Log YOLO performance metrics
         telemetryLogger.logYoloPerf()
+        
+        // Log MoveNet performance metrics
+        telemetryLogger.logMoveNetMetrics()
         
         // Log ball detection metrics
         telemetryLogger.logBallDetectionMetrics(processed)
@@ -921,10 +972,23 @@ export const useShotTracker = (
                     // ────────────────────────────────────────────────────────────────
                     // FASE 6: Scheduling chiaro per YOLO e MoveNet
                     //
-                    // YOLO: ~15-30 FPS (con throttling intelligente basato sulla stabilità della palla)
+                    // YOLO: ~10-15 FPS (con throttling intelligente basato sulla stabilità della palla)
                     // MoveNet: ~3 FPS (time-based scheduling)
                     //
-                    // I due modelli NON sono mutualmente esclusivi - possono girare indipendentemente
+                    // IMPORTANTE: I due modelli NON sono realmente concorrenti.
+                    // Entrambi usano runSync() che occupa lo stesso thread nativo TFLite.
+                    // L'architettura attuale è:
+                    //
+                    // Frame Processor
+                    //       │
+                    //       ├── YOLO processFrame()
+                    //       │      └── runSync() (bloccante)
+                    //       │
+                    //       └── MoveNet processFrame()
+                    //              └── runSync() (bloccante)
+                    //
+                    // Quindi anche se chiamati "in parallelo", eseguono sequenzialmente.
+                    // La telemetria granulari (resize/run/parse) ci dirà dove è il bottleneck.
                     // ────────────────────────────────────────────────────────────────
 
                     const timestamp = Date.now()

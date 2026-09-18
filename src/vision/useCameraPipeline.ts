@@ -35,7 +35,7 @@ export const useCameraPipeline = (
   kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
   enabled: boolean = true,
   poseEnabled: boolean = true,
-  ballEnabled: boolean = true,
+  ballEnabled: boolean = false,  // BENCHMARK TEST 2: Force MoveNet only
   rimEnabled: boolean = false,
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
