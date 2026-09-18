@@ -581,3 +581,17 @@ Validazione inline (worklet-safe)
 **Soluzione:**
 - Rimosso l'early return su `moveNetWorker.processFrame` all'interno di `useShotTracker.ts`.
 - `processFrame` viene ora chiamato incondizionatamente ad ogni intervallo di MoveNet (333ms), permettendo a `useMoveNetWorker` di applicare correttamente la logica `FULL_FRAME` quando `trackedBbox` è `null` o invalida.
+
+### Fix 9C - Conversione automatica dataType MoveNet
+**Problema:** Il modello MoveNet caricato era `uint8` ma il resizer produceva `float32`. La conversione diretta causava problemi nell'inferenza.
+
+**Soluzione:**
+- Aggiunto rilevamento automatico del dataType del modello (`poseModelInstance!.inputs[0].dataType`)
+- Conversione automatica da float32 al tipo corretto:
+  - Se `uint8`: `float32 * 255.0 → Uint8Array`
+  - Se `int8`: `float32 * 255.0 - 128 → Int8Array`
+  - Se `float32`: nessuna conversione
+- Log diagnostico: `[MoveNet Input] Model expects dataType: uint8, shape: 1,192,192,3`
+- Log valore massimo campione: `[MoveNet Input] floatSource max sample value: 0.996`
+
+**Risultato:** MoveNet ora funziona correttamente con qualsiasi dataType del modello (uint8/int8/float32).

@@ -111,16 +111,25 @@ const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: num
     const displayedY = normY * displayedH;
     const screenX = displayedX - cropX;
     const screenY = displayedY - cropY;
-    return {
+    const result = {
         x: SCREEN_W - screenX,
         y: CAMERA_H - screenY,
     };
+
+    // Log occasionally (every ~100 calls) to avoid spam
+    if (Math.random() < 0.01) {
+        console.log('[COORD MAP] normX=', normX.toFixed(3), 'normY=', normY.toFixed(3), '-> screenX=', result.x.toFixed(1), 'screenY=', result.y.toFixed(1))
+        console.log('[COORD MAP] cameraRes=', cameraResW, 'x', cameraResH, 'SCREEN=', SCREEN_W, 'x', CAMERA_H, 'coverScale=', coverScale.toFixed(3))
+    }
+
+    return result;
 };
 
 // Realtime Ball Overlay (Pure Skia, no React state)
 const RealtimeBallOverlay = React.memo(({
     sharedValues,
     effectiveResolution,
+    poseKeypoints,
 }: {
     sharedValues?: {
         ballX: any
@@ -140,13 +149,16 @@ const RealtimeBallOverlay = React.memo(({
         trajectoryPointCount: any
     }
     effectiveResolution: { width: number; height: number }
+    poseKeypoints: any
 }) => {
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
 
     // Log for diagnostics - track when ball overlay renders
     React.useEffect(() => {
         console.log('[BALL OVERLAY] render')
-    }, [])
+        console.log('[BALL OVERLAY] effectiveResolution:', effectiveResolution)
+        console.log('[BALL OVERLAY] SCREEN_W:', SCREEN_W, 'CAMERA_H:', CAMERA_H)
+    }, [effectiveResolution])
 
     const ballXPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
@@ -251,6 +263,49 @@ const RealtimeBallOverlay = React.memo(({
             flattenedH
         )
         return Skia.Path.Oval(rect)
+    })
+
+    // Player bbox from pose keypoints - returns rect for Skia
+    const playerBboxPath = useDerivedValue(() => {
+        if (!poseKeypoints) return Skia.Path.Make()
+
+        // Get all valid keypoints
+        const keypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0)
+        if (keypoints.length === 0) return Skia.Path.Make()
+
+        // Calculate bbox min/max
+        let minX = 1, maxX = 0, minY = 1, maxY = 0
+        keypoints.forEach((kp: any) => {
+            if (kp.x < minX) minX = kp.x
+            if (kp.x > maxX) maxX = kp.x
+            if (kp.y < minY) minY = kp.y
+            if (kp.y > maxY) maxY = kp.y
+        })
+
+        // Add margin
+        const margin = 0.05
+        minX = Math.max(0, minX - margin)
+        maxX = Math.min(1, maxX + margin)
+        minY = Math.max(0, minY - margin)
+        maxY = Math.min(1, maxY + margin)
+
+        // Convert to screen coordinates
+        const topLeft = mapNormalizedToCameraView(minX, minY, effectiveResolution.width, effectiveResolution.height)
+        const bottomRight = mapNormalizedToCameraView(maxX, maxY, effectiveResolution.width, effectiveResolution.height)
+
+        const rect = Skia.XYWHRect(
+            topLeft.x,
+            topLeft.y,
+            bottomRight.x - topLeft.x,
+            bottomRight.y - topLeft.y
+        )
+        return Skia.Path.Make().addRect(rect)
+    })
+
+    const playerBboxOpacity = useDerivedValue(() => {
+        if (!poseKeypoints) return 0
+        const validKeypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0).length
+        return validKeypoints >= 5 ? 1 : 0
     })
 
     const shotTrailPath = useDerivedValue(() => {
@@ -381,6 +436,17 @@ const RealtimeBallOverlay = React.memo(({
                     <SkiaPath
                         path={hoopOvalPath}
                         color="#4ade80" style="stroke" strokeWidth={2.5}
+                    />
+                </Group>
+
+                <Group opacity={playerBboxOpacity}>
+                    <SkiaPath
+                        path={playerBboxPath}
+                        color="rgba(34,197,94,0.2)"
+                    />
+                    <SkiaPath
+                        path={playerBboxPath}
+                        color="#22c55e" style="stroke" strokeWidth={2}
                     />
                 </Group>
             </Group>
@@ -532,6 +598,12 @@ const ReactOverlay = React.memo(({
     const [debugHoopData, setDebugHoopData] = React.useState({
         x: 0, y: 0, w: 0, h: 0, conf: 0
     })
+    const [debugMoveNetData, setDebugMoveNetData] = React.useState({
+        keypointsCount: 0,
+        validKeypoints: 0,
+        avgConfidence: 0,
+        sampleKeypoint: { name: '', x: 0, y: 0, score: 0 }
+    })
     const lastDebugUpdate = React.useRef(0)
     const lastBadgeUpdate = React.useRef(0)
 
@@ -626,7 +698,30 @@ const ReactOverlay = React.memo(({
             h: hoopH,
             conf: hoopConf,
         })
-    }, [rimFromDetection])
+
+        // Update MoveNet debug data
+        if (poseKeypoints) {
+            const validKeypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0)
+            const avgConfidence = validKeypoints.length > 0
+                ? validKeypoints.reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints.length
+                : 0
+
+            // Find a sample valid keypoint (prefer shoulders)
+            const sampleKp = poseKeypoints.leftShoulder || poseKeypoints.rightShoulder || poseKeypoints.leftHip || validKeypoints[0]
+
+            setDebugMoveNetData({
+                keypointsCount: Object.keys(poseKeypoints).length,
+                validKeypoints: validKeypoints.length,
+                avgConfidence,
+                sampleKeypoint: sampleKp ? {
+                    name: Object.keys(poseKeypoints).find((k: string) => poseKeypoints[k as keyof PoseKeypoints] === sampleKp) || 'unknown',
+                    x: sampleKp.x,
+                    y: sampleKp.y,
+                    score: sampleKp.score
+                } : { name: '', x: 0, y: 0, score: 0 }
+            })
+        }
+    }, [rimFromDetection, poseKeypoints])
 
     React.useEffect(() => {
         if (!sharedValues && rimFromDetection) {
@@ -781,6 +876,28 @@ const ReactOverlay = React.memo(({
                             {calibration.courtCorners && <Text style={ovStyles.debugText}>Campo: 4 angoli ✓</Text>}
                         </View>
                     )}
+
+                    {/* MoveNet Section */}
+                    <View style={ovStyles.debugSection}>
+                        <Text style={ovStyles.debugSectionTitle}>🤖 MOVENET</Text>
+                        {debugMoveNetData.keypointsCount === 0 ? (
+                            <Text style={ovStyles.debugText}>Nessun dato</Text>
+                        ) : (
+                            <>
+                                <Text style={ovStyles.debugText}>Keypoints: {debugMoveNetData.keypointsCount}</Text>
+                                <Text style={ovStyles.debugText}>Validi: {debugMoveNetData.validKeypoints}</Text>
+                                <Text style={ovStyles.debugText}>Avg Conf: {(debugMoveNetData.avgConfidence * 100).toFixed(1)}%</Text>
+                                {debugMoveNetData.sampleKeypoint.name && (
+                                    <>
+                                        <Text style={ovStyles.debugText}>Sample: {debugMoveNetData.sampleKeypoint.name}</Text>
+                                        <Text style={ovStyles.debugText}>  X: {debugMoveNetData.sampleKeypoint.x.toFixed(3)}</Text>
+                                        <Text style={ovStyles.debugText}>  Y: {debugMoveNetData.sampleKeypoint.y.toFixed(3)}</Text>
+                                        <Text style={ovStyles.debugText}>  Score: {debugMoveNetData.sampleKeypoint.score.toFixed(3)}</Text>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </View>
                 </View>
             )}
         </>
@@ -1639,6 +1756,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 <RealtimeBallOverlay
                     sharedValues={sharedValues}
                     effectiveResolution={effectiveResolution}
+                    poseKeypoints={poseKeypoints}
                 />
 
                 {/* React Overlay (badges, debug, 2-5 Hz) */}
