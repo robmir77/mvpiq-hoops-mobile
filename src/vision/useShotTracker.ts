@@ -884,12 +884,14 @@ export const useShotTracker = (
                             if (trackedBbox.isUsingLastBbox) {
                                 scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
                             }
-                            moveNetWorker.processFrame(frame, timestamp)
                         } else {
+                            moveNetWorker.playerBbox.value = null
                             // BBox expired - record telemetry
                             scheduleOnRN(recordPlayerBboxExpired)
                         }
-                        // If trackedBbox is null (expired), MoveNet is skipped - no full-frame fallback
+                        
+                        // MoveNet is ALWAYS executed, with or without bbox (full-frame fallback handled inside worker)
+                        moveNetWorker.processFrame(frame, timestamp)
                     }
 
                     // Process worker results (get latest available from shared values)

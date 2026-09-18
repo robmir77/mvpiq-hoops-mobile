@@ -497,3 +497,87 @@ Risolvere due problemi identificati durante il testing:
 - Nessuna lettura `.value` da derived values durante render
 - Tutte le letture SharedValue sono direttamente da SharedValues originali
 - Render warnings eliminati
+
+## Phase 9: MoveNet Player BBox Validation - Worklet-Safe Fallback
+
+### Obiettivo
+Risolvere l'errore Worklet "Tried to synchronously call a Remote Function" causato dalla chiamata a `isValidPlayer()` nel frame processor, e implementare fallback FULL_FRAME quando player bbox YOLO non è valido.
+
+### Root Cause
+- `isValidPlayer()` era una normale funzione JavaScript
+- Quando chiamata nel worklet `processFrame`, il Worklet Runtime tentava una chiamata sincrona a una Remote Function
+- Il worklet runtime non permette chiamate sincrone a funzioni remote
+- YOLO produceva player bbox con confidence molto bassa (0.01-0.08) e dimensioni assurde (width ≈ 0.99, height ≈ 0.98)
+- Queste bbox non valide venivano passate a MoveNet, producendo keypoints vuoti
+
+### Soluzione implementata
+
+#### 1. useMoveNetWorker.ts - Validazione inline worklet-safe
+- Rimossa funzione `isValidPlayer()` (causa errore Worklet)
+- Implementata validazione inline con operazioni primitive worklet-safe:
+  ```typescript
+  const hasValidPlayer =
+    bbox != null &&
+    bbox.confidence != null &&
+    bbox.confidence >= PLAYER_CONFIDENCE_THRESH &&  // 0.20
+    bbox.width >= PLAYER_MIN_WIDTH &&               // 0.10
+    bbox.width <= PLAYER_MAX_WIDTH &&               // 0.80
+    bbox.height >= PLAYER_MIN_HEIGHT &&             // 0.20
+    bbox.height <= PLAYER_MAX_HEIGHT &&             // 0.95
+    bbox.x >= 0 && bbox.y >= 0 &&
+    bbox.x + bbox.width <= 1 &&
+    bbox.y + bbox.height <= 1
+  ```
+- Aggiunto fallback FULL_FRAME quando `hasValidPlayer = false`
+- MoveNet viene sempre eseguito (nessun early return), ma con sorgente diversa
+
+#### 2. useMoveNetWorker.ts - Logging diagnostico migliorato
+- Log sorgente input: `[MoveNet] Processing frame - source=PLAYER_CROP bboxValid=true` o `source=FULL_FRAME bboxValid=false`
+- Log bbox dettagliato (solo se valido): `[MoveNet] bbox=x=0.xxx y=0.xxx w=0.xxx h=0.xxx conf=0.xxx`
+- Log output raw: `[POSE RAW] outputLength=51` (dovrebbe essere 51 per 17 keypoints × 3 valori)
+- Log keypoints: `[POSE RESULT] keypoints=17 valid=14 avgConf=0.71`
+
+#### 3. useMoveNetWorker.ts - Tipo playerBbox aggiornato
+- Aggiunto `confidence?: number` al tipo di `playerBbox` SharedValue
+
+### Architettura finale (con fallback)
+```
+YOLO PLAYER
+    ↓
+playerBbox (confidence, x, y, width, height)
+    ↓
+Validazione inline (worklet-safe)
+    ↓
+    ├── hasValidPlayer = true
+    │       ↓
+    │   PLAYER_CROP → MoveNet
+    │
+    └── hasValidPlayer = false
+            ↓
+        FULL_FRAME → MoveNet
+```
+
+### Comportamento
+- Player bbox valida (confidence ≥ 0.20, dimensioni ragionevoli) → `PLAYER_CROP` → MoveNet
+- Player bbox non valida (confidence < 0.20, o dimensioni assurde) → `FULL_FRAME` → MoveNet
+- Player bbox assente → `FULL_FRAME` → MoveNet
+- MoveNet viene sempre eseguito, ma con sorgente diversa a seconda della validità del player
+
+### Diagnostica
+- `outputLength=51` → MoveNet produce output corretto (17 keypoints × 3 valori)
+- `keypoints=17 valid=14` → Parser funziona, confidence sufficiente
+- `keypoints=0 valid=0` → Problema nel parser o threshold troppo alti
+- `outputLength=0` → Problema nell'inferenza TFLite o input
+
+### Criteri validazione player bbox
+- **Confidence**: ≥ 0.20 (rifiuta detection spurie)
+- **Width**: tra 0.10 e 0.80 (rifiuta strisce verticali e bbox troppo larghe)
+- **Height**: tra 0.20 e 0.95 (rifiuta bbox troppo basse o troppo alte)
+- **Bounds**: x, y, x+width, y+height tutti in [0, 1] (rifiuta bbox fuori frame)
+
+### Fix 9B - Rimozione early return in useShotTracker.ts
+**Problema:** Nonostante la logica di fallback fosse implementata in `useMoveNetWorker.ts`, l'overlay della pose continuava a non apparire quando il player veniva perso, poichè in `useShotTracker.ts` era rimasto un blocco `if (trackedBbox)` che agiva da early return, saltando l'esecuzione di `moveNetWorker.processFrame` se la BBox non era valida.
+
+**Soluzione:**
+- Rimosso l'early return su `moveNetWorker.processFrame` all'interno di `useShotTracker.ts`.
+- `processFrame` viene ora chiamato incondizionatamente ad ogni intervallo di MoveNet (333ms), permettendo a `useMoveNetWorker` di applicare correttamente la logica `FULL_FRAME` quando `trackedBbox` è `null` o invalida.

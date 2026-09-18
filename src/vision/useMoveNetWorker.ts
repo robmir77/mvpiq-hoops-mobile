@@ -177,7 +177,29 @@ export const useMoveNetWorker = (
       return
     }
 
-    console.log('[MoveNet] Processing frame - bbox=', !!playerBbox.value)
+    // Get player bbox from YOLO
+    const bbox = playerBbox.value
+
+    // Inline validation (worklet-safe - no external function calls)
+    const hasValidPlayer =
+      bbox != null &&
+      bbox.confidence != null &&
+      bbox.confidence >= PLAYER_CONFIDENCE_THRESH &&
+      bbox.width >= PLAYER_MIN_WIDTH &&
+      bbox.width <= PLAYER_MAX_WIDTH &&
+      bbox.height >= PLAYER_MIN_HEIGHT &&
+      bbox.height <= PLAYER_MAX_HEIGHT &&
+      bbox.x >= 0 &&
+      bbox.y >= 0 &&
+      bbox.x + bbox.width <= 1 &&
+      bbox.y + bbox.height <= 1
+
+    const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
+
+    console.log('[MoveNet] Processing frame - source=', poseSource, 'bboxValid=', hasValidPlayer)
+    if (hasValidPlayer && bbox) {
+      console.log('[MoveNet] bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
+    }
 
     isProcessing.value = true
 
@@ -187,30 +209,6 @@ export const useMoveNetWorker = (
     try {
       const t0 = performance.now()
       const tResizeStart = performance.now()
-
-      // Get player bbox from YOLO
-      const bbox = playerBbox.value
-
-      // Inline validation (worklet-safe - no external function calls)
-      const hasValidPlayer =
-        bbox != null &&
-        bbox.confidence != null &&
-        bbox.confidence >= PLAYER_CONFIDENCE_THRESH &&
-        bbox.width >= PLAYER_MIN_WIDTH &&
-        bbox.width <= PLAYER_MAX_WIDTH &&
-        bbox.height >= PLAYER_MIN_HEIGHT &&
-        bbox.height <= PLAYER_MAX_HEIGHT &&
-        bbox.x >= 0 &&
-        bbox.y >= 0 &&
-        bbox.x + bbox.width <= 1 &&
-        bbox.y + bbox.height <= 1
-
-      const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
-      
-      console.log('[MoveNet] Processing frame - source=', poseSource, 'bboxValid=', hasValidPlayer)
-      if (hasValidPlayer && bbox) {
-        console.log('[MoveNet] bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
-      }
 
       // Use rgbResizer with float32 to avoid YUV-HardwareBuffer error
       // The resizer handles YUV→RGB conversion and resize to 192x192
@@ -222,17 +220,47 @@ export const useMoveNetWorker = (
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
 
-        // Convert to Float32Array (resizer outputs float32)
-        const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
+        // Convert to Float32Array (resizer outputs float32 in range 0-255)
+        const floatSource = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
-        if (source.length === poseInputElements) {
-          // Pass buffer directly without slice() to avoid unnecessary copy
-          const inputBuffer = source.buffer as ArrayBuffer
+          if (floatSource.length === poseInputElements) {
+          
+            let maxVal = 0;
+            for (let i = 0; i < floatSource.length; i+=100) {
+              if (floatSource[i] > maxVal) maxVal = floatSource[i];
+            }
+
+            if (telemetryHasNewData.value === false) { // log occasionally
+              console.log(`[MoveNet Input] Model expects dataType: ${poseModelInstance!.inputs[0].dataType}, shape: ${poseModelInstance!.inputs[0].shape}`)
+              console.log(`[MoveNet Input] floatSource max sample value: ${maxVal}`)
+            }
+
+            let inputBuffer: ArrayBuffer;
+            const needsScaling = maxVal <= 1.0 && maxVal > 0;
+
+            if (poseModelInstance!.inputs[0].dataType === 'uint8') {
+              const uint8Source = new Uint8Array(floatSource.length)
+              for (let i = 0; i < floatSource.length; i++) {
+                uint8Source[i] = needsScaling ? floatSource[i] * 255.0 : floatSource[i];
+              }
+              inputBuffer = uint8Source.buffer as ArrayBuffer
+            } else if (poseModelInstance!.inputs[0].dataType === 'int8') {
+              const int8Source = new Int8Array(floatSource.length)
+              for (let i = 0; i < floatSource.length; i++) {
+                let val = needsScaling ? floatSource[i] * 255.0 : floatSource[i];
+                int8Source[i] = val - 128
+              }
+              inputBuffer = int8Source.buffer as ArrayBuffer
+            } else {
+              inputBuffer = floatSource.buffer as ArrayBuffer
+            }
 
           const tRunStart = performance.now()
           const outputs = poseModelInstance!.runSync([inputBuffer])
           const tRunEnd = performance.now()
           const runMs = tRunEnd - tRunStart
+          
+          // The MoveNet INT8 model outputs a Float32 tensor for keypoints
           const output = new Float32Array(outputs[0] as ArrayBufferLike)
 
           // Log raw output length for diagnostics (should be 51 for 17 keypoints * 3 values)
@@ -240,7 +268,7 @@ export const useMoveNetWorker = (
           console.log('[POSE RAW] outputLength=', outputLength)
 
           const tParseStart = performance.now()
-          const keypoints = parseMoveNetOutput(output, poseInputSize)
+          const keypoints = parseMoveNetOutput(output, 17)
           const angles = computeJointAngles(keypoints)
           const tParseEnd = performance.now()
           const parseMs = tParseEnd - tParseStart
