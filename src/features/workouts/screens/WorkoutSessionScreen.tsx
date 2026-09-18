@@ -143,6 +143,11 @@ const RealtimeBallOverlay = React.memo(({
 }) => {
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
 
+    // Log for diagnostics - track when ball overlay renders
+    React.useEffect(() => {
+        console.log('[BALL OVERLAY] render')
+    }, [])
+
     const ballXPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
         const y = sharedValues?.ballY.value ?? 0
@@ -512,6 +517,14 @@ const ReactOverlay = React.memo(({
     const [angleBadgeVisible, setAngleBadgeVisible] = React.useState(false)
     const [inFlightBadgeVisible, setInFlightBadgeVisible] = React.useState(false)
     const [inFlightBadgeText, setInFlightBadgeText] = React.useState('')
+
+    // Log for diagnostics - track when pose overlay renders with valid keypoints
+    React.useEffect(() => {
+        if (poseKeypoints) {
+            const validKeypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0).length
+            console.log('[POSE OVERLAY] render valid=', validKeypoints)
+        }
+    }, [poseKeypoints])
 
     const [debugYoloData, setDebugYoloData] = React.useState({
         x: 0, y: 0, w: 0, h: 0, conf: 0
@@ -1086,8 +1099,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Pose callback
     const handlePoseResult = useCallback((result: PoseResult) => {
+        const validKeypoints = Object.values(result.keypoints).filter((kp: any) => kp && kp.score > 0).length
+        console.log('[POSE RESULT] keypoints=', Object.keys(result.keypoints).length, 'valid=', validKeypoints)
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
+        console.log('[POSE STATE] setPoseKeypoints called')
     }, [])
 
     // Rim detection callback (replaces calibrated rim if confidence high)

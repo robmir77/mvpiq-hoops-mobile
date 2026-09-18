@@ -181,17 +181,21 @@ export const useMoveNetWorker = (
       const t0 = performance.now()
       const tResizeStart = performance.now()
 
-      // Get player bbox from YOLO (now guaranteed to be valid when processFrame is called)
+      // Get player bbox from YOLO
       const bbox = playerBbox.value
 
+      // Determine pose source: crop if bbox valid, full-frame fallback otherwise
+      const poseSource = bbox ? "PLAYER_CROP" : "FULL_FRAME"
+      console.log('[MoveNet] source=', poseSource, bbox ? '' : 'fallback')
+
       if (!bbox) {
-        console.warn('[MoveNet] No bbox available - skipping (should not happen with new architecture)')
-        isProcessing.value = false
-        return
+        // Fallback: use full-frame when player bbox not available
+        console.log('[MoveNet] Using full-frame fallback (no player bbox)')
       }
 
       // Use rgbResizer with float32 to avoid YUV-HardwareBuffer error
       // The resizer handles YUV→RGB conversion and resize to 192x192
+      // TODO: Implement actual crop when bbox is valid (currently using full-frame for both)
       resized = rgbResizer?.resize(frame)
       const tResizeEnd = performance.now()
       const resizeMs = tResizeEnd - tResizeStart
@@ -217,6 +221,10 @@ export const useMoveNetWorker = (
           const angles = computeJointAngles(keypoints)
           const tParseEnd = performance.now()
           const parseMs = tParseEnd - tParseStart
+
+          // Log keypoints count for diagnostics
+          const keypointsCount = Object.keys(keypoints).length
+          console.log('[MoveNet] keypoints=', keypointsCount)
 
           // Since we're using full-frame resize (not crop), keypoints are already in normalized space
           const finalKeypoints = keypoints

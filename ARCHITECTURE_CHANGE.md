@@ -342,7 +342,100 @@ Camera Frame 1280×720
 - Configurazione coerente con YOLO (float32)
 - Performance migliorate rispetto a conversione inline manuale
 
-## Phase 6: Render Warnings e ShotTracker UNMOUNT
+## Phase 6: MoveNet Fallback Diagnostico
+
+### Obiettivo
+Implementare strategia di fallback per MoveNet per diagnosticare se il problema è nella detection/crop del player o nell'inferenza MoveNet stessa.
+
+### Strategia
+```
+YOLO
+  │
+  ├─ player trovato con bbox valida
+  │      ↓
+  │   crop player
+  │      ↓
+  │   MoveNet 192×192
+  │
+  └─ player NON trovato
+         ↓
+     intero frame
+         ↓
+     MoveNet 192×192
+```
+
+### Soluzione implementata
+
+#### 1. useMoveNetWorker.ts - Logica fallback
+- Aggiunto controllo `poseSource`: `PLAYER_CROP` se bbox valido, `FULL_FRAME` fallback altrimenti
+- Log diagnostico: `[MoveNet] source=PLAYER_CROP` o `[MoveNet] source=FULL_FRAME fallback`
+- Log keypoints count: `[MoveNet] keypoints=17` per verificare parsing corretto
+- TODO: Implementare crop effettivo quando bbox valido (attualmente full-frame per entrambi)
+
+### Diagnostica
+- Se `keypoints=17` e compaiono `fps`, `run`, `parse` → MoveNet funziona, problema è detection/crop
+- Se full-frame funziona ma crop no → problema nella logica del crop
+- Se full-frame non funziona → problema MoveNet/preprocessing
+
+### Architettura finale (target)
+```
+Player bbox valida
+       ↓
+   CROP → MoveNet
+
+Player bbox assente
+       ↓
+FULL FRAME → MoveNet
+```
+
+## Phase 7: Rendering Diagnostico - Pose vs Ball Overlay
+
+### Obiettivo
+Diagnosticare se l'arrivo della pose provoca aggiornamenti del React overlay che interferiscono con il rendering realtime della palla.
+
+### Problema identificato
+- Quando MoveNet produce pose keypoints, `setPoseKeypoints()` causa re-render di ReactOverlay
+- ReactOverlay riceve sia poseKeypoints che dati tracking
+- RealtimeBallOverlay (Skia) dovrebbe essere indipendente ma potrebbe essere influenzato
+- Comportamento osservato: palla → cerchio arancione, palla + pose → overlay si blocca
+
+### Soluzione implementata - Fase 1: Log diagnostici
+
+#### 1. WorkoutSessionScreen.tsx - Log pose result/state
+- Aggiunto `[POSE RESULT] keypoints=X valid=Y` in `handlePoseResult`
+- Aggiunto `[POSE STATE] setPoseKeypoints called` dopo `setPoseKeypoints()`
+
+#### 2. RealtimeBallOverlay - Log render
+- Aggiunto `[BALL OVERLAY] render` in `useEffect` (una volta al mount)
+
+#### 3. ReactOverlay - Log render pose
+- Aggiunto `[POSE OVERLAY] render valid=X` in `useEffect` quando `poseKeypoints` cambia
+
+### Diagnostica attiva
+Se vediamo:
+```
+[BALL OVERLAY] render
+[POSE RESULT] keypoints=17 valid=12
+[POSE STATE] setPoseKeypoints called
+[POSE OVERLAY] render valid=12
+```
+e poi `[BALL OVERLAY] render` smette di comparire → conferma che l'aggiornamento React della pose interferisce con rendering realtime.
+
+### Architettura target (Fase 1b)
+```
+CAMERA
+  │
+  ├── SkiaBallOverlay
+  │      └── palla / canestro / traiettoria (intoccato)
+  │
+  ├── SkiaPoseOverlay
+  │      └── skeleton MoveNet (nuovo, separato)
+  │
+  └── ReactOverlay
+         └── badge / debug / statistiche (pose rimossa)
+```
+
+## Phase 8: Render Warnings e ShotTracker UNMOUNT
 
 ### Obiettivo
 Risolvere due problemi identificati durante il testing:
