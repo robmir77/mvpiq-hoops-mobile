@@ -835,6 +835,9 @@ export const useShotTracker = (
                         
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
+                        if (__DEV__) {
+                            console.log('[PlayerCrop] manager:', playerCropManager, 'currentPlayer:', currentPlayer)
+                        }
                         if (currentPlayer) {
                             playerCropManager.update({
                                 x: currentPlayer.x,
