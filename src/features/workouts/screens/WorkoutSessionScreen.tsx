@@ -98,6 +98,25 @@ const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = 
 const KP_THRESH = 0.35
 const TRAIL_DELAY_POINTS = 5
 
+// Worklet-compatible coordinate mapping function
+// Maps normalized camera coordinates (0-1) to screen coordinates
+const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number) => {
+    'worklet';
+    const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH);
+    const displayedW = cameraResW * coverScale;
+    const displayedH = cameraResH * coverScale;
+    const cropX = (displayedW - SCREEN_W) / 2;
+    const cropY = (displayedH - CAMERA_H) / 2;
+    const displayedX = normX * displayedW;
+    const displayedY = normY * displayedH;
+    const screenX = displayedX - cropX;
+    const screenY = displayedY - cropY;
+    return {
+        x: SCREEN_W - screenX,
+        y: CAMERA_H - screenY,
+    };
+};
+
 // Realtime Ball Overlay (Pure Skia, no React state)
 const RealtimeBallOverlay = React.memo(({
     sharedValues,
@@ -127,66 +146,26 @@ const RealtimeBallOverlay = React.memo(({
     const ballXPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
         const y = sharedValues?.ballY.value ?? 0
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        return SCREEN_W - screenX
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        return mapped.x
     })
     const ballYPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
         const y = sharedValues?.ballY.value ?? 0
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        return CAMERA_H - screenY
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        return mapped.y
     })
     const hoopXPx = useDerivedValue(() => {
         const x = sharedValues?.hoopX.value ?? 0
         const y = sharedValues?.hoopY.value ?? 0
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        return SCREEN_W - screenX
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        return mapped.x
     })
     const hoopYPx = useDerivedValue(() => {
         const x = sharedValues?.hoopX.value ?? 0
         const y = sharedValues?.hoopY.value ?? 0
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        return CAMERA_H - screenY
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        return mapped.y
     })
 
     const ballXRawVal = useDerivedValue(() => sharedValues?.ballXRaw.value ?? 0)
@@ -194,34 +173,14 @@ const RealtimeBallOverlay = React.memo(({
     const ballXPxRaw = useDerivedValue(() => {
         const x = ballXRawVal.value
         const y = ballYRawVal.value
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        return SCREEN_W - screenX
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        return mapped.x
     })
     const ballYPxRaw = useDerivedValue(() => {
         const x = ballXRawVal.value
         const y = ballYRawVal.value
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        return CAMERA_H - screenY
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        return mapped.y
     })
 
     const ballRadius = useDerivedValue(() => {
@@ -268,19 +227,9 @@ const RealtimeBallOverlay = React.memo(({
         
         const x = sharedValues?.hoopX.value ?? 0
         const y = sharedValues?.hoopY.value ?? 0
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        const hoopXPxVal = SCREEN_W - screenX
-        const hoopYPxVal = CAMERA_H - screenY
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const hoopXPxVal = mapped.x
+        const hoopYPxVal = mapped.y
         
         const rect = Skia.XYWHRect(
             hoopXPxVal - flattenedW / 2,
@@ -325,20 +274,8 @@ const RealtimeBallOverlay = React.memo(({
         const { points } = data
         if (points.length < 2) return null
 
-        const cameraResW = effectiveResolution.width
-        const cameraResH = effectiveResolution.height
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-
         const transformPoint = (x: number, y: number) => {
-            const displayedX = x * displayedW
-            const displayedY = y * displayedH
-            const screenX = displayedX - cropX
-            const screenY = displayedY - cropY
-            return { x: SCREEN_W - screenX, y: CAMERA_H - screenY }
+            return mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
         }
 
         const p0 = transformPoint(points[0].x, points[0].y)
@@ -556,24 +493,8 @@ const ReactOverlay = React.memo(({
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
-    const mapYoloPointToView = (x: number, y: number, cameraResW: number, cameraResH: number) => {
-        const coverScale = Math.max(SCREEN_W / cameraResW, CAMERA_H / cameraResH)
-        const displayedW = cameraResW * coverScale
-        const displayedH = cameraResH * coverScale
-        const cropX = (displayedW - SCREEN_W) / 2
-        const cropY = (displayedH - CAMERA_H) / 2
-        const displayedX = x * displayedW
-        const displayedY = y * displayedH
-        const screenX = displayedX - cropX
-        const screenY = displayedY - cropY
-        return {
-            x: SCREEN_W - screenX,
-            y: CAMERA_H - screenY,
-        }
-    }
-
-    const pxCam = (x: number, y: number = 0) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).x
-    const pyCam = (x: number, y: number) => mapYoloPointToView(x, y, effectiveResolution.width, effectiveResolution.height).y
+    const pxCam = (x: number, y: number = 0) => mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height).x
+    const pyCam = (x: number, y: number) => mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height).y
 
     const playerSize = calculatePlayerSize(poseKeypoints)
     const shotPower = calculateShotPower(trackingState?.ballVelocity ?? null)
@@ -613,7 +534,7 @@ const ReactOverlay = React.memo(({
         adaptiveThreshold?: number
     }) => {
         setBallLabelVisible(data.showLabel)
-        const mappedPos = mapYoloPointToView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
+        const mappedPos = mapNormalizedToCameraView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
         setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
         
         let sizeLabel = ''
