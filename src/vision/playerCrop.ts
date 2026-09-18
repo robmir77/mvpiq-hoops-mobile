@@ -7,7 +7,7 @@
 export interface PlayerCropConfig {
   paddingPercent: number // Padding around bbox (default 0.15 = 15%)
   smoothingFactor: number // Smoothing factor for bbox (0-1, default 0.3)
-  maxLostFrames: number // Max frames to use last bbox when player lost (default 5)
+  bboxTtlMs: number // Time-based TTL for bbox validity in milliseconds (default 750)
 }
 
 export interface PlayerCropResult {
@@ -26,62 +26,103 @@ export interface BBox {
   height: number
 }
 
+export interface TrackedPlayerBbox {
+  bbox: BBox
+  detectedAt: number
+  lastSeenAt: number
+  isStale: boolean
+  ageMs: number
+  isUsingLastBbox: boolean
+}
+
 const DEFAULT_CONFIG: PlayerCropConfig = {
   paddingPercent: 0.15,
   smoothingFactor: 0.3,
-  maxLostFrames: 5,
+  bboxTtlMs: 750,
 }
 
 class PlayerCropManager {
   private config: PlayerCropConfig
   private lastBbox: BBox | null = null
   private smoothedBbox: BBox | null = null
-  private lostFrameCount: number = 0
+  private lastSeenAt: number = 0
+  private detectedAt: number = 0
 
   constructor(config: Partial<PlayerCropConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config }
   }
 
   /**
-   * Calculate crop region from player bbox with padding and smoothing
-   * @param playerBbox - Current player detection from YOLO (normalized 0-1)
+   * Update player bbox with new detection
+   * @param playerBbox - Current player detection from YOLO (normalized 0-1), null if not detected
+   */
+  update(playerBbox: BBox | null): void {
+    const now = Date.now()
+    
+    if (playerBbox) {
+      // Player detected - update tracking state
+      this.lastBbox = playerBbox
+      this.detectedAt = now
+      this.lastSeenAt = now
+    }
+    // If playerBbox is null, we don't update lastSeenAt - let it expire naturally
+  }
+
+  /**
+   * Get effective bbox for MoveNet processing
+   * @param now - Current timestamp (Date.now())
+ * @returns Tracked bbox with state information, or null if expired
+   */
+  getEffectiveBbox(now: number): TrackedPlayerBbox | null {
+    if (!this.lastBbox) {
+      return null
+    }
+
+    const ageMs = now - this.lastSeenAt
+    const isStale = ageMs > this.config.bboxTtlMs
+    const isUsingLastBbox = ageMs > 0
+
+    if (isStale) {
+      // BBox expired - reset tracking state
+      this.reset()
+      return null
+    }
+
+    // Apply smoothing to bbox
+    if (this.smoothedBbox) {
+      this.smoothedBbox = {
+        x: this.lerp(this.smoothedBbox.x, this.lastBbox.x, this.config.smoothingFactor),
+        y: this.lerp(this.smoothedBbox.y, this.lastBbox.y, this.config.smoothingFactor),
+        width: this.lerp(this.smoothedBbox.width, this.lastBbox.width, this.config.smoothingFactor),
+        height: this.lerp(this.smoothedBbox.height, this.lastBbox.height, this.config.smoothingFactor),
+      }
+    } else {
+      this.smoothedBbox = this.lastBbox
+    }
+
+    return {
+      bbox: this.smoothedBbox!,
+      detectedAt: this.detectedAt,
+      lastSeenAt: this.lastSeenAt,
+      isStale,
+      ageMs,
+      isUsingLastBbox,
+    }
+  }
+
+  /**
+   * Calculate crop region from tracked bbox with padding
+   * @param trackedBbox - Tracked bbox from getEffectiveBbox()
    * @param frameWidth - Frame width in pixels
    * @param frameHeight - Frame height in pixels
    * @returns Crop region in pixel coordinates
    */
   calculateCrop(
-    playerBbox: BBox | null,
+    trackedBbox: TrackedPlayerBbox | null,
     frameWidth: number,
     frameHeight: number
   ): PlayerCropResult {
-    let effectiveBbox: BBox | null = playerBbox
-    let isUsingLastBbox = false
-
-    // Handle player loss - use last valid bbox
-    if (!playerBbox) {
-      if (this.lastBbox && this.lostFrameCount < this.config.maxLostFrames) {
-        effectiveBbox = this.lastBbox
-        this.lostFrameCount++
-        isUsingLastBbox = true
-      } else {
-        // Player lost for too long - reset
-        this.reset()
-        return {
-          cropX: 0,
-          cropY: 0,
-          cropWidth: frameWidth,
-          cropHeight: frameHeight,
-          isValid: false,
-          isUsingLastBbox: false,
-        }
-      }
-    } else {
-      // Player found - reset lost counter
-      this.lostFrameCount = 0
-      this.lastBbox = playerBbox
-    }
-
-    if (!effectiveBbox) {
+    if (!trackedBbox) {
       return {
         cropX: 0,
         cropY: 0,
@@ -92,28 +133,16 @@ class PlayerCropManager {
       }
     }
 
-    // Apply smoothing to bbox
-    if (this.smoothedBbox) {
-      this.smoothedBbox = {
-        x: this.lerp(this.smoothedBbox.x, effectiveBbox.x, this.config.smoothingFactor),
-        y: this.lerp(this.smoothedBbox.y, effectiveBbox.y, this.config.smoothingFactor),
-        width: this.lerp(this.smoothedBbox.width, effectiveBbox.width, this.config.smoothingFactor),
-        height: this.lerp(this.smoothedBbox.height, effectiveBbox.height, this.config.smoothingFactor),
-      }
-    } else {
-      this.smoothedBbox = effectiveBbox
-    }
-
-    const bbox = this.smoothedBbox!
+    const effectiveBbox = trackedBbox.bbox
 
     // Add padding
-    const paddingX = bbox.width * this.config.paddingPercent
-    const paddingY = bbox.height * this.config.paddingPercent
+    const paddingX = effectiveBbox.width * this.config.paddingPercent
+    const paddingY = effectiveBbox.height * this.config.paddingPercent
 
-    let cropX = bbox.x - paddingX
-    let cropY = bbox.y - paddingY
-    let cropWidth = bbox.width + 2 * paddingX
-    let cropHeight = bbox.height + 2 * paddingY
+    let cropX = effectiveBbox.x - paddingX
+    let cropY = effectiveBbox.y - paddingY
+    let cropWidth = effectiveBbox.width + 2 * paddingX
+    let cropHeight = effectiveBbox.height + 2 * paddingY
 
     // Clamp to frame boundaries
     cropX = Math.max(0, cropX)
@@ -132,7 +161,7 @@ class PlayerCropManager {
       cropWidth,
       cropHeight,
       isValid: true,
-      isUsingLastBbox,
+      isUsingLastBbox: trackedBbox.isUsingLastBbox,
     }
   }
 
@@ -170,7 +199,8 @@ class PlayerCropManager {
   reset(): void {
     this.lastBbox = null
     this.smoothedBbox = null
-    this.lostFrameCount = 0
+    this.lastSeenAt = 0
+    this.detectedAt = 0
   }
 
   /**
@@ -179,12 +209,22 @@ class PlayerCropManager {
   getState(): {
     lastBbox: BBox | null
     smoothedBbox: BBox | null
-    lostFrameCount: number
+    lastSeenAt: number
+    detectedAt: number
+    isStale: boolean
+    ageMs: number
   } {
+    const now = Date.now()
+    const ageMs = this.lastSeenAt > 0 ? now - this.lastSeenAt : 0
+    const isStale = ageMs > this.config.bboxTtlMs
+    
     return {
       lastBbox: this.lastBbox,
       smoothedBbox: this.smoothedBbox,
-      lostFrameCount: this.lostFrameCount,
+      lastSeenAt: this.lastSeenAt,
+      detectedAt: this.detectedAt,
+      isStale,
+      ageMs,
     }
   }
 }

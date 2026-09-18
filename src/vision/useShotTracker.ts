@@ -14,6 +14,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 import { ShotDetector } from './shotDetector'
 import { useYoloWorker } from './useYoloWorker'
 import { useMoveNetWorker } from './useMoveNetWorker'
+import { playerCropManager } from './playerCrop'
 
 import type {
     BallDetection,
@@ -134,6 +135,8 @@ export const useShotTracker = (
             y: number
             t: number
         } | null>(null)
+
+    const lastPlayerDetectedRef = useRef(false)
 
     // Shared values
 
@@ -257,6 +260,7 @@ export const useShotTracker = (
         telemetryLogger.logPlayerDetectionMetrics(processed)
         telemetryLogger.logFalsePositiveSummary()
         telemetryLogger.logBboxStability()
+        telemetryLogger.logPlayerTrackingMetrics()
     }, [])
 
 
@@ -724,6 +728,22 @@ export const useShotTracker = (
             []
         )
 
+    const recordPlayerDetected = useCallback(() => {
+        telemetryLogger.recordPlayerDetected()
+    }, [])
+
+    const recordPlayerLost = useCallback(() => {
+        telemetryLogger.recordPlayerLost()
+    }, [])
+
+    const recordPlayerUsingLastBbox = useCallback((ageMs: number) => {
+        telemetryLogger.recordPlayerUsingLastBbox(ageMs)
+    }, [])
+
+    const recordPlayerBboxExpired = useCallback(() => {
+        telemetryLogger.recordPlayerBboxExpired()
+    }, [])
+
     const emitPoseResult =
         useCallback(
             (
@@ -812,21 +832,52 @@ export const useShotTracker = (
                     if (yoloDue) {
                         yoloWorker.processFrame(frame, timestamp, currentFrame)
                         
-                        // Update playerBbox for MoveNet (async, non-blocking)
+                        // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
                         if (currentPlayer) {
-                            moveNetWorker.playerBbox.value = {
+                            playerCropManager.update({
                                 x: currentPlayer.x,
                                 y: currentPlayer.y,
                                 width: currentPlayer.width,
                                 height: currentPlayer.height,
+                            })
+                            if (!lastPlayerDetectedRef.current) {
+                                // Transition: LOST → DETECTED
+                                lastPlayerDetectedRef.current = true
+                            }
+                            scheduleOnRN(recordPlayerDetected)
+                        } else {
+                            playerCropManager.update(null)
+                            if (lastPlayerDetectedRef.current) {
+                                // Transition: DETECTED → LOST
+                                lastPlayerDetectedRef.current = false
+                                scheduleOnRN(recordPlayerLost)
                             }
                         }
                     }
 
                     if (moveNetDue) {
                         lastMoveNetInferenceAt.value = nowForMoveNet
-                        moveNetWorker.processFrame(frame, timestamp)
+                        
+                        // Get effective bbox from PlayerCropManager (time-based tracking)
+                        const trackedBbox = playerCropManager.getEffectiveBbox(nowForMoveNet)
+                        if (trackedBbox) {
+                            // Pass effective bbox to MoveNet
+                            moveNetWorker.playerBbox.value = {
+                                x: trackedBbox.bbox.x,
+                                y: trackedBbox.bbox.y,
+                                width: trackedBbox.bbox.width,
+                                height: trackedBbox.bbox.height,
+                            }
+                            if (trackedBbox.isUsingLastBbox) {
+                                scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
+                            }
+                            moveNetWorker.processFrame(frame, timestamp)
+                        } else {
+                            // BBox expired - record telemetry
+                            scheduleOnRN(recordPlayerBboxExpired)
+                        }
+                        // If trackedBbox is null (expired), MoveNet is skipped - no full-frame fallback
                     }
 
                     // Process worker results (get latest available from shared values)
@@ -990,6 +1041,8 @@ export const useShotTracker = (
 
             lastBallRef.current =
                 null
+
+            playerCropManager.reset()
 
         }, [])
 

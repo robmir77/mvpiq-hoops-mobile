@@ -164,6 +164,13 @@ class TelemetryLogger {
   private moveNetResizeTimes: number[] = []
   private moveNetRunTimes: number[] = []
   private moveNetParseTimes: number[] = []
+  
+  // Player tracking metrics
+  private playerDetected: number = 0
+  private playerLost: number = 0
+  private playerUsingLastBbox: number = 0
+  private playerBboxExpired: number = 0
+  private playerBboxAgeMs: number[] = []
 
   logModelMetadata(metadata: ModelMetadata): void {
     this.modelMetadata = metadata
@@ -373,6 +380,33 @@ class TelemetryLogger {
   logBboxStability(): void {
     const metrics = this.getBboxStabilityMetrics()
     console.log('[BBOX][STABILITY]', `avgJump=${metrics.avgJump.toFixed(4)} maxJump=${metrics.maxJump.toFixed(4)} jitter=${metrics.jitter.toFixed(4)} stability=${metrics.stability.toFixed(0)}%`)
+  }
+
+  recordPlayerDetected(): void {
+    this.playerDetected++
+  }
+
+  recordPlayerLost(): void {
+    this.playerLost++
+  }
+
+  recordPlayerUsingLastBbox(ageMs: number): void {
+    this.playerUsingLastBbox++
+    this.playerBboxAgeMs.push(ageMs)
+    if (this.playerBboxAgeMs.length > 300) {
+      this.playerBboxAgeMs.shift()
+    }
+  }
+
+  recordPlayerBboxExpired(): void {
+    this.playerBboxExpired++
+  }
+
+  logPlayerTrackingMetrics(): void {
+    const avgAgeMs = this.playerBboxAgeMs.length > 0 
+      ? this.playerBboxAgeMs.reduce((a, b) => a + b, 0) / this.playerBboxAgeMs.length 
+      : 0
+    console.log('[PLAYER][TRACKING]', `detected=${this.playerDetected} lost=${this.playerLost} usingLastBbox=${this.playerUsingLastBbox} expired=${this.playerBboxExpired} avgAge=${avgAgeMs.toFixed(0)}ms`)
   }
 
   updatePipelineMetrics(cameraFPS: number, received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
@@ -797,6 +831,13 @@ Current=${summary.battery.endLevel}%
     this.moveNetResizeTimes = []
     this.moveNetRunTimes = []
     this.moveNetParseTimes = []
+    
+    // Reset player tracking metrics
+    this.playerDetected = 0
+    this.playerLost = 0
+    this.playerUsingLastBbox = 0
+    this.playerBboxExpired = 0
+    this.playerBboxAgeMs = []
   }
 }
 
