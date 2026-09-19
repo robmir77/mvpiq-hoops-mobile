@@ -7,8 +7,8 @@
 // Requires grid/stride decoding for proper coordinate extraction
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.003  // Minimum confidence threshold (0.3%) - lowered to detect more balls
-const PLAYER_CONF_THRESHOLD = 0.001  // Minimum confidence threshold for player (0.1%) - slightly increased
+const CONF_THRESHOLD = 0.005  // Minimum confidence threshold (0.5%) - lowered to detect more balls
+const PLAYER_CONF_THRESHOLD = 0.005  // Minimum confidence threshold for player (0.5%) - aligned with ball
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
 // Adaptive confidence threshold based on detected ball size.
@@ -329,11 +329,8 @@ export function parseYoloOutputInt8(
           confidence: rimProb,
           index: i,
         }
-        if (detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
+        if (!bestRim || detection.confidence > bestRim.confidence) {
           bestRim = detection
-        } else if (detection.y >= 0.5 && (!bestRim || detection.confidence > (bestRim?.confidence ?? 0))) {
-          // Track rejection reason for rim in wrong position
-          rimRejectionReason = 'position'
         }
       } else if (!bestRim || rimProb > (bestRim?.confidence ?? 0)) {
         // Track rejection reason for rim with low confidence
