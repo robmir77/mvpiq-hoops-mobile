@@ -273,6 +273,12 @@ export const useShotTracker = (
     const adaptiveThreshold =
         useSharedValue(0.01)
 
+    // Player bbox from YOLO (for direct display in overlay)
+    const playerX = useSharedValue(0)
+    const playerY = useSharedValue(0)
+    const playerWidth = useSharedValue(0)
+    const playerHeight = useSharedValue(0)
+
     const detectionHistory =
         useRef<
             Array<{
@@ -849,6 +855,11 @@ export const useShotTracker = (
                                 height: currentPlayer.height,
                                 confidence: currentPlayer.confidence,
                             })
+                            // Update shared values for direct display in overlay
+                            playerX.value = currentPlayer.x
+                            playerY.value = currentPlayer.y
+                            playerWidth.value = currentPlayer.width
+                            playerHeight.value = currentPlayer.height
                             // Check if the detection was accepted by the confidence filter
                             const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
                             if (trackedBbox) {
@@ -884,14 +895,15 @@ export const useShotTracker = (
                             if (trackedBbox.isUsingLastBbox) {
                                 scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
                             }
+                            
+                            // Execute MoveNet only if bbox is available
+                            moveNetWorker.processFrame(frame, timestamp)
                         } else {
                             moveNetWorker.playerBbox.value = null
                             // BBox expired - record telemetry
                             scheduleOnRN(recordPlayerBboxExpired)
+                            // Skip MoveNet execution when no bbox is available
                         }
-                        
-                        // MoveNet is ALWAYS executed, with or without bbox (full-frame fallback handled inside worker)
-                        moveNetWorker.processFrame(frame, timestamp)
                     }
 
                     // Process worker results (get latest available from shared values)
@@ -1102,5 +1114,11 @@ export const useShotTracker = (
         exportTelemetrySummary,
         logTelemetrySummary,
         resetTelemetry,
+        sharedValues: {
+            playerX,
+            playerY,
+            playerWidth,
+            playerHeight,
+        },
     }
 }

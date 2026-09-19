@@ -8,6 +8,7 @@
 
 const NMS_IOU_THRESHOLD = 0.4
 const CONF_THRESHOLD = 0.005  // Minimum confidence threshold (0.5%) - lower values are noise
+const PLAYER_CONF_THRESHOLD = 0.0001  // Minimum confidence threshold for player (0.01%) - very permissive
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
 // Adaptive confidence threshold based on detected ball size.
@@ -357,7 +358,7 @@ export function parseYoloOutputInt8(
 
       // Add player detection if score above threshold
       // Player (human) detection - less strict size constraints than ball
-      if (humanProb >= threshold && cameraW > 0.05 && cameraH > 0.1) {
+      if (humanProb >= PLAYER_CONF_THRESHOLD && cameraW > 0.05 && cameraH > 0.1) {
         const detection = {
           x: cameraCx,
           y: cameraCy,

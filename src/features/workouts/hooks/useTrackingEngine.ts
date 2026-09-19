@@ -78,6 +78,11 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     const hoopWidth = useSharedValue(0)
     const hoopHeight = useSharedValue(0)
     const confidence = useSharedValue(0)
+    // Player bbox from YOLO (for direct display in overlay)
+    const playerX = useSharedValue(0)
+    const playerY = useSharedValue(0)
+    const playerWidth = useSharedValue(0)
+    const playerHeight = useSharedValue(0)
     const inFlight = useSharedValue(false)
     const shotDetected = useSharedValue(false)
     const showShotTrail = useSharedValue(false)
@@ -598,6 +603,22 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         if (height !== undefined) hoopHeight.value = height
     }, [])
 
+    const setPlayerFromYolo = useCallback((x: number, y: number, width: number, height: number) => {
+        playerX.value = x
+        playerY.value = y
+        playerWidth.value = width
+        playerHeight.value = height
+    }, [playerX, playerY, playerWidth, playerHeight])
+
+    const updatePlayerFromPipeline = useCallback((pipelineSharedValues: any) => {
+        if (pipelineSharedValues?.playerX !== undefined) {
+            playerX.value = pipelineSharedValues.playerX.value
+            playerY.value = pipelineSharedValues.playerY.value
+            playerWidth.value = pipelineSharedValues.playerWidth.value
+            playerHeight.value = pipelineSharedValues.playerHeight.value
+        }
+    }, [playerX, playerY, playerWidth, playerHeight])
+
     const computeTrajectoryMetrics = useCallback((): {
         arcHeight: number; releaseAngle: number; smoothness: number
     } => {
@@ -660,6 +681,8 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         resetShot,
         resetAll,
         setHoopFromCalibration,
+        setPlayerFromYolo,
+        updatePlayerFromPipeline,
         computeTrajectoryMetrics,
         calculateShotQuality,
         getState,
@@ -677,6 +700,10 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             hoopHeight,
             confidence,
             ballSizeCategory,
+            playerX,
+            playerY,
+            playerWidth,
+            playerHeight,
             adaptiveThreshold,
             inFlight,
             shotDetected,

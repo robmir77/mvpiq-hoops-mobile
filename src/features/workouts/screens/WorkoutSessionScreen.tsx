@@ -140,6 +140,10 @@ const RealtimeBallOverlay = React.memo(({
         showShotTrail: any
         trajectoryPoints: any
         trajectoryPointCount: any
+        playerX: any
+        playerY: any
+        playerWidth: any
+        playerHeight: any
     }
     effectiveResolution: { width: number; height: number }
     poseKeypoints: any
@@ -258,33 +262,18 @@ const RealtimeBallOverlay = React.memo(({
         return Skia.Path.Oval(rect)
     })
 
-    // Player bbox from pose keypoints - returns rect for Skia
+    // Player bbox from YOLO - returns rect for Skia
     const playerBboxPath = useDerivedValue(() => {
-        if (!poseKeypoints) return Skia.Path.Make()
+        const playerXVal = sharedValues?.playerX?.value ?? 0
+        const playerYVal = sharedValues?.playerY?.value ?? 0
+        const playerW = sharedValues?.playerWidth?.value ?? 0
+        const playerH = sharedValues?.playerHeight?.value ?? 0
 
-        // Get all valid keypoints
-        const keypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0)
-        if (keypoints.length === 0) return Skia.Path.Make()
-
-        // Calculate bbox min/max
-        let minX = 1, maxX = 0, minY = 1, maxY = 0
-        keypoints.forEach((kp: any) => {
-            if (kp.x < minX) minX = kp.x
-            if (kp.x > maxX) maxX = kp.x
-            if (kp.y < minY) minY = kp.y
-            if (kp.y > maxY) maxY = kp.y
-        })
-
-        // Add margin
-        const margin = 0.05
-        minX = Math.max(0, minX - margin)
-        maxX = Math.min(1, maxX + margin)
-        minY = Math.max(0, minY - margin)
-        maxY = Math.min(1, maxY + margin)
+        if (playerXVal === 0 && playerYVal === 0) return Skia.Path.Make()
 
         // Convert to screen coordinates
-        const topLeft = mapNormalizedToCameraView(minX, minY, effectiveResolution.width, effectiveResolution.height)
-        const bottomRight = mapNormalizedToCameraView(maxX, maxY, effectiveResolution.width, effectiveResolution.height)
+        const topLeft = mapNormalizedToCameraView(playerXVal, playerYVal, effectiveResolution.width, effectiveResolution.height)
+        const bottomRight = mapNormalizedToCameraView(playerXVal + playerW, playerYVal + playerH, effectiveResolution.width, effectiveResolution.height)
 
         const rect = Skia.XYWHRect(
             topLeft.x,
@@ -296,9 +285,9 @@ const RealtimeBallOverlay = React.memo(({
     })
 
     const playerBboxOpacity = useDerivedValue(() => {
-        if (!poseKeypoints) return 0
-        const validKeypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0).length
-        return validKeypoints >= 5 ? 1 : 0
+        const playerXVal = sharedValues?.playerX?.value ?? 0
+        const playerYVal = sharedValues?.playerY?.value ?? 0
+        return (playerXVal > 0 && playerYVal > 0) ? 1 : 0
     })
 
     // Skeleton segment colors
@@ -618,6 +607,10 @@ const ReactOverlay = React.memo(({
         hoopWidth: any
         hoopHeight: any
         showShotTrail: any
+        playerX: any
+        playerY: any
+        playerWidth: any
+        playerHeight: any
     }
     fpsMetrics?: { yoloFps: number; moveNetFps: number }
     effectiveResolution: { width: number; height: number }
@@ -1522,6 +1515,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         resetShotTracking,
         yoloFps,
         moveNetFps,
+        sharedValues: pipelineSharedValues,
     } = useCameraPipeline(
         handleBallDetection,
         handlePoseResult,
@@ -1544,6 +1538,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
     resetShotTrackingRef.current = resetShotTracking
+
+    // Update player bbox from pipeline shared values
+    useEffect(() => {
+        if (pipelineSharedValues) {
+            tracking.updatePlayerFromPipeline(pipelineSharedValues)
+        }
+    }, [pipelineSharedValues, tracking])
 
     // Update FPS metrics every second from worker SharedValues
     useEffect(() => {
