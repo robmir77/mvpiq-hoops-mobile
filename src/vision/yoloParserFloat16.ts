@@ -6,9 +6,8 @@
 // Format: standard YOLOv8 TFLite [x, y, w, h, conf, cls] per detection
 // Requires grid/stride decoding for proper coordinate extraction
 
-const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.005  // Minimum confidence threshold (0.5%) - lowered to detect more balls
-const PLAYER_CONF_THRESHOLD = 0.005  // Minimum confidence threshold for player (0.5%) - aligned with ball
+import { YOLO_CONFIG } from '@/config/appConfig'
+
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
 // Adaptive confidence threshold based on detected ball size.
@@ -121,7 +120,7 @@ const STRIDES = [8, 16, 32]
 // Letterboxing: calculated dynamically
 export function parseYoloOutputFloat16(
     output: Float32Array,
-    threshold: number = CONF_THRESHOLD,
+    threshold: number = YOLO_CONFIG.BALL_CONF_THRESHOLD,
     frameWidth?: number,
     frameHeight?: number,
     rimThreshold?: number
@@ -334,7 +333,7 @@ export function parseYoloOutputFloat16(
 
       // Add player detection if score above threshold
       // Player (human) detection - less strict size constraints than ball
-      if (humanProb >= PLAYER_CONF_THRESHOLD && cameraW > 0.05 && cameraH > 0.1) {
+      if (humanProb >= YOLO_CONFIG.PLAYER_CONF_THRESHOLD && cameraW > YOLO_CONFIG.PLAYER_MIN_WIDTH && cameraH > YOLO_CONFIG.PLAYER_MIN_HEIGHT) {
         const detection = {
           x: cameraCx,
           y: cameraCy,

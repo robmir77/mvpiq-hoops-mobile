@@ -37,6 +37,7 @@ import {
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
+import { YOLO_CONFIG } from '@/config/appConfig'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -314,11 +315,11 @@ const RealtimeBallOverlay = React.memo(({
     
     const playerColor = useDerivedValue(() => {
         const playerConf = sharedValues?.playerConfidence?.value ?? 0
-        return playerConf < 0.45 ? '#ef4444' : '#22c55e'
+        return playerConf < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE ? '#ef4444' : '#22c55e'
     })
     const playerFillColor = useDerivedValue(() => {
         const playerConf = sharedValues?.playerConfidence?.value ?? 0
-        return playerConf < 0.45 ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'
+        return playerConf < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'
     })
 
     // Skeleton segment colors
@@ -847,8 +848,8 @@ const ReactOverlay = React.memo(({
             w: data.playerWidth,
             h: data.playerHeight,
             conf: data.playerConfidence,
-            rejected: data.playerConfidence < 0.45,
-            rejectionReason: data.playerConfidence < 0.45 ? 'conf' : '',
+            rejected: data.playerConfidence < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE,
+            rejectionReason: data.playerConfidence < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE ? 'conf' : '',
         })
 
         // Update MoveNet debug data

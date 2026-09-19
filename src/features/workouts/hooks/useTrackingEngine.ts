@@ -619,8 +619,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             playerY.value = pipelineSharedValues.playerY.value
             playerWidth.value = pipelineSharedValues.playerWidth.value
             playerHeight.value = pipelineSharedValues.playerHeight.value
+            playerConfidence.value = pipelineSharedValues.playerConfidence?.value ?? 0
         }
-    }, [playerX, playerY, playerWidth, playerHeight])
+    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence])
 
     const computeTrajectoryMetrics = useCallback((): {
         arcHeight: number; releaseAngle: number; smoothness: number

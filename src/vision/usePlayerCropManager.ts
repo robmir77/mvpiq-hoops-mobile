@@ -7,6 +7,11 @@
 
 import { useSharedValue } from 'react-native-reanimated'
 
+// Import YOLO config for threshold
+const YOLO_CONFIG = {
+  PLAYER_CROP_MIN_CONFIDENCE: 0.01
+}
+
 export interface PlayerCropConfig {
   paddingPercent: number // Padding around bbox (default 0.15 = 15%)
   smoothingFactor: number // Smoothing factor for bbox (0-1, default 0.3)
@@ -45,7 +50,7 @@ const DEFAULT_CONFIG: PlayerCropConfig = {
   paddingPercent: 0.15,
   smoothingFactor: 0.3,
   bboxTtlMs: 750,
-  minConfidence: 0.45,
+  minConfidence: YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE,
   maxJumpThreshold: 0.15, // Reject bbox jumps larger than 15% of frame
 }
 
