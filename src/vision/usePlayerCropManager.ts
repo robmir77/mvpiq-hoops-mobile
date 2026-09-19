@@ -9,7 +9,7 @@ import { useSharedValue } from 'react-native-reanimated'
 
 // Import YOLO config for threshold
 const YOLO_CONFIG = {
-  PLAYER_CROP_MIN_CONFIDENCE: 0.01
+  PLAYER_CROP_MIN_CONFIDENCE: 0.005
 }
 
 export interface PlayerCropConfig {
