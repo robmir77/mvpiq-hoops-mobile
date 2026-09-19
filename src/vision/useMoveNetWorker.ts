@@ -21,10 +21,11 @@ const MOVENET_TARGET_FPS = 3 // Target 3 FPS for MoveNet
 const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
 
 // Validation thresholds for player bbox (worklet-safe inline checks)
-const PLAYER_CONFIDENCE_THRESH = 0.20
-const PLAYER_MIN_WIDTH = 0.10
+// Aligned with YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
+const PLAYER_CONFIDENCE_THRESH = 0.005
+const PLAYER_MIN_WIDTH = 0.05
 const PLAYER_MAX_WIDTH = 0.80
-const PLAYER_MIN_HEIGHT = 0.20
+const PLAYER_MIN_HEIGHT = 0.1
 const PLAYER_MAX_HEIGHT = 0.95
 
 interface PoseWorkerResult {
@@ -260,6 +261,20 @@ export const useMoveNetWorker = (
     const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
 
     console.log('[MoveNet CROP] source=', poseSource, 'bboxValid=', hasValidPlayer)
+    if (!hasValidPlayer && bbox) {
+      console.log('[MoveNet CROP] Rejection reason:', 
+        bbox.confidence == null ? 'no_confidence' :
+        bbox.confidence < PLAYER_CONFIDENCE_THRESH ? `conf_too_low (${bbox.confidence.toFixed(4)} < ${PLAYER_CONFIDENCE_THRESH})` :
+        bbox.width < PLAYER_MIN_WIDTH ? `width_too_small (${bbox.width.toFixed(3)} < ${PLAYER_MIN_WIDTH})` :
+        bbox.width > PLAYER_MAX_WIDTH ? `width_too_large (${bbox.width.toFixed(3)} > ${PLAYER_MAX_WIDTH})` :
+        bbox.height < PLAYER_MIN_HEIGHT ? `height_too_small (${bbox.height.toFixed(3)} < ${PLAYER_MIN_HEIGHT})` :
+        bbox.height > PLAYER_MAX_HEIGHT ? `height_too_large (${bbox.height.toFixed(3)} > ${PLAYER_MAX_HEIGHT})` :
+        bbox.x < 0 ? `x_negative (${bbox.x.toFixed(3)})` :
+        bbox.y < 0 ? `y_negative (${bbox.y.toFixed(3)})` :
+        bbox.x + bbox.width > 1 ? `x_out_of_bounds (${(bbox.x + bbox.width).toFixed(3)} > 1)` :
+        bbox.y + bbox.height > 1 ? `y_out_of_bounds (${(bbox.y + bbox.height).toFixed(3)} > 1)` :
+        'unknown')
+    }
     if (hasValidPlayer && bbox) {
       console.log('[MoveNet CROP] normalized bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
     }

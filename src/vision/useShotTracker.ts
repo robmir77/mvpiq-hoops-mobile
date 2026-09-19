@@ -891,10 +891,15 @@ export const useShotTracker = (
                         // Get effective bbox from PlayerCropManager (time-based tracking)
                         const trackedBbox = playerCrop.getEffectiveBbox(nowForMoveNet)
                         if (trackedBbox) {
-                            // Pass effective bbox to MoveNet
+                            // Convert center coordinates to top-left for MoveNet validation
+                            // YOLO provides center (cx, cy), but MoveNet validation expects top-left
+                            const topLeftX = trackedBbox.bbox.x - trackedBbox.bbox.width / 2
+                            const topLeftY = trackedBbox.bbox.y - trackedBbox.bbox.height / 2
+                            
+                            // Pass effective bbox to MoveNet (converted to top-left)
                             moveNetWorker.playerBbox.value = {
-                                x: trackedBbox.bbox.x,
-                                y: trackedBbox.bbox.y,
+                                x: topLeftX,
+                                y: topLeftY,
                                 width: trackedBbox.bbox.width,
                                 height: trackedBbox.bbox.height,
                                 confidence: trackedBbox.bbox.confidence,

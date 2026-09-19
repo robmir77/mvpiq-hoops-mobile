@@ -765,3 +765,140 @@ Le opzioni per risolvere il problema sono:
 1. Riaddestrare il modello con più epoche e/o più dati umani
 2. Utilizzare un modello separato per person detection (es. COCO)
 3. Valutare un modello YOLO diverso addestrato specificamente per persone
+
+## Phase 11: Debug Overlay Refactoring & Global Threshold Configuration
+
+### Obiettivo
+Rifattorizzare il debug overlay per mostrare sempre i dati quando presenti (anche se scartati), centralizzare i threshold di confidence in un unico file di configurazione globale, e implementare indicazioni visive (colore rosso) per oggetti scartati.
+
+### Modifiche implementate
+
+#### 1. Debug Overlay Unification - WorkoutSessionScreen.tsx
+- **Problema precedente**: Il debug box mostrava "Nessun dato" quando l'oggetto era scartato, perdendo informazioni utili.
+- **Soluzione**: Unificata la logica di visualizzazione per ball, hoop e player:
+  - Se `x === 0 && y === 0` → "Nessun dato"
+  - Se dati presenti e `rejected = true` → mostra messaggio di scarto + confidence in rosso + coordinate
+  - Se dati presenti e `rejected = false` → mostra confidence (verde se ≥ 0.01, rosso altrimenti) + coordinate
+- **Beneficio**: Tutte le informazioni sono sempre visibili quando disponibili, facilitando il debugging.
+
+#### 2. Player Coordinate Correction - WorkoutSessionScreen.tsx
+- **Problema**: `playerBboxPath` trattava `playerX` e `playerY` come coordinate top-left, ma il parser YOLO fornisce coordinate centrali.
+- **Soluzione**: Corretto il calcolo di `topLeft` e `bottomRight`:
+  ```typescript
+  const topLeft = mapNormalizedToCameraView(playerXVal - playerW/2, playerYVal - playerH/2, ...)
+  const bottomRight = mapNormalizedToCameraView(playerXVal + playerW/2, playerYVal + playerH/2, ...)
+  ```
+- **Beneficio**: Il bounding box del player viene disegnato nella posizione corretta.
+
+#### 3. Confidence Overlay per Hoop e Player - WorkoutSessionScreen.tsx
+- **Problema**: Solo la palla aveva label di confidence in overlay.
+- **Soluzione**: Aggiunto label di confidence per hoop e player:
+  - Stati aggiunti: `hoopLabelVisible`, `hoopLabelPos`, `hoopLabelText`, `playerLabelVisible`, `playerLabelPos`, `playerLabelText`
+  - `updateBadgeState` aggiornato per calcolare posizione e testo delle label
+  - `useAnimatedReaction` aggiornato per passare `hoopX/Y/Confidence` e `playerX/Y/Confidence`
+  - Componenti UI aggiunti per renderizzare le label con bordi colorati specifici
+- **Beneficio**: Confidence visibile in overlay per tutti gli oggetti tracciati.
+
+#### 4. Dynamic Color per Rejected Objects - WorkoutSessionScreen.tsx
+- **Problema**: Non era visivamente chiaro quando un oggetto era scartato.
+- **Soluzione**: Implementato colori dinamici basati sullo stato di rejection:
+  ```typescript
+  const ballRawColor = useDerivedValue(() => {
+    const rejectionReason = sharedValues?.ballRejectionReason?.value ?? ''
+    return rejectionReason !== '' ? '#ef4444' : '#ff8c00'
+  })
+  const hoopColor = useDerivedValue(() => {
+    const rejectionReason = sharedValues?.rimRejectionReason?.value ?? ''
+    return rejectionReason !== '' ? '#ef4444' : '#4ade80'
+  })
+  const playerColor = useDerivedValue(() => {
+    const playerConf = sharedValues?.playerConfidence?.value ?? 0
+    return playerConf < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE ? '#ef4444' : '#22c55e'
+  })
+  ```
+- **Beneficio**: Oggetti scartati diventano rossi, rendendo immediatamente evidente lo stato di rejection.
+
+#### 5. Global Threshold Configuration - appConfig.ts
+- **Problema**: I threshold di confidence erano sparsi in più file (parser, crop manager, screen), rendendo difficile la manutenzione e il tuning.
+- **Soluzione**: Centralizzato tutti i threshold in `YOLO_CONFIG` in `appConfig.ts`:
+  ```typescript
+  export const YOLO_CONFIG = {
+    BALL_CONF_THRESHOLD: 0.005,           // YOLO parser
+    PLAYER_CONF_THRESHOLD: 0.005,         // YOLO parser
+    PLAYER_CROP_MIN_CONFIDENCE: 0.005,   // Player crop manager
+    RIM_CONF_THRESHOLD: 0.005,            // YOLO parser
+    NMS_IOU_THRESHOLD: 0.4,               // NMS
+    PLAYER_MIN_WIDTH: 0.05,              // Size constraints
+    PLAYER_MIN_HEIGHT: 0.1,              // Size constraints
+  } as const
+  ```
+- **File aggiornati per usare YOLO_CONFIG**:
+  - `yoloParserFloat16.ts`: Import e uso di `YOLO_CONFIG` per threshold e size constraints
+  - `yoloParserInt8.ts`: Import e uso di `YOLO_CONFIG` per threshold e size constraints
+  - `usePlayerCropManager.ts`: Definizione locale (worklet-safe) con valore da `YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE`
+  - `WorkoutSessionScreen.tsx`: Import e uso di `YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE` per colori dinamici e debug panel
+- **Nota**: `usePlayerCropManager.ts` usa una definizione locale perché i worklet non supportano path alias `@/config`.
+- **Beneficio**: Tutti i threshold in un unico punto centrale, facilita manutenzione e tuning.
+
+#### 6. Player Confidence Fix - useTrackingEngine.ts
+- **Problema**: `updatePlayerFromPipeline` non aggiornava `playerConfidence`, causando label che mostravano 0%.
+- **Soluzione**: Aggiunto aggiornamento di `playerConfidence`:
+  ```typescript
+  const updatePlayerFromPipeline = useCallback((pipelineSharedValues: any) => {
+    if (pipelineSharedValues?.playerX !== undefined) {
+      playerX.value = pipelineSharedValues.playerX.value
+      playerY.value = pipelineSharedValues.playerY.value
+      playerWidth.value = pipelineSharedValues.playerWidth.value
+      playerHeight.value = pipelineSharedValues.playerHeight.value
+      playerConfidence.value = pipelineSharedValues.playerConfidence?.value ?? 0  // Aggiunto
+    }
+  }, [playerX, playerY, playerWidth, playerHeight, playerConfidence])
+  ```
+- **Beneficio**: Label del player mostra confidence corretta invece di 0%.
+
+#### 7. Player Crop Threshold Tuning
+- **Analisi dei log**: Confidence player rilevata: 0.006 - 0.135 (la maggior parte 0.01-0.03)
+- **Problema**: Threshold 0.01 era troppo alto, scartava detection valide con bbox stabile e corretto.
+- **Soluzione**: Abbassato `PLAYER_CROP_MIN_CONFIDENCE` da 0.01 a 0.005 in:
+  - `appConfig.ts`: `PLAYER_CROP_MIN_CONFIDENCE: 0.005`
+  - `usePlayerCropManager.ts`: Definizione locale aggiornata a 0.005
+- **Beneficio**: Player accettato più frequentemente mentre mantiene filtro per confidence molto basse (< 0.005).
+
+### Architettura Debug Overlay aggiornata
+```
+YOLO Detection
+    ↓
+Tracking Engine (SharedValues)
+    ↓
+WorkoutSessionScreen
+    ├── Debug Box (sempre mostra dati se presenti)
+    │   ├── Ball: confidence + rejection reason + coordinates
+    │   ├── Hoop: confidence + rejection reason + coordinates
+    │   └── Player: confidence + rejection reason + coordinates
+    │
+    ├── Overlay Labels (confidence %)
+    │   ├── Ball: 🏀 XX%
+    │   ├── Hoop: 🏀 XX%
+    │   └── Player: 👤 XX%
+    │
+    └── Skia Drawing (colori dinamici)
+        ├── Ball: arancione (valido) / rosso (scartato)
+        ├── Hoop: verde (valido) / rosso (scartato)
+        └── Player: verde (valido) / rosso (scartato)
+```
+
+### Comportamento attuale
+- **Debug Box**: Mostra sempre i dati quando presenti, con messaggi di scarto e confidence colorati in rosso se scartato.
+- **Overlay Labels**: Confidence percentuale visibile per ball, hoop e player.
+- **Skia Drawing**: Oggetti diventano rossi quando scartati (confidence troppo bassa o rejection reason presente).
+- **Threshold Centralizzati**: Tutti i threshold definiti in `YOLO_CONFIG` in `appConfig.ts`.
+- **Player Detection**: Confidence threshold 0.005 permette detection valide con bbox stabile.
+
+### Riepilogo Threshold finali
+- **Ball**: 0.005 (0.5%)
+- **Player (YOLO parser)**: 0.005 (0.5%)
+- **Player (Crop manager)**: 0.005 (0.5%)
+- **Rim**: 0.005 (0.5%)
+- **NMS IoU**: 0.4
+- **Player min width**: 0.05 (5% del frame)
+- **Player min height**: 0.1 (10% del frame)
