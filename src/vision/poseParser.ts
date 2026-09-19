@@ -46,8 +46,8 @@ export function parseMoveNetOutput(outputData: Float32Array, expectedKeypoints =
 
     const name = KP_MAP[i]
     if (name) {
-      // Transform coordinates: x = 1 - y, y = x (same as ball detection)
-      (keypoints as any)[name] = { x: 1 - yNorm, y: xNorm, score }
+      // MoveNet output: [y, x, score] - use coordinates directly
+      (keypoints as any)[name] = { x: xNorm, y: yNorm, score }
     }
   }
 

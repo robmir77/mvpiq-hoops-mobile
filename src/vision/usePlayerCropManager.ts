@@ -27,6 +27,10 @@ export interface PlayerCropResult {
   cropHeight: number
   isValid: boolean
   isUsingLastBbox: boolean
+  // Padding info for aspect-ratio-preserving square crop
+  squareCropX?: number
+  squareCropY?: number
+  squareCropSize?: number
 }
 
 export interface BBox {

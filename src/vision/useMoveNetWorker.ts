@@ -49,7 +49,7 @@ const cropResizedFloat32 = (
   frameHeight: number,
   crop: { cropX: number; cropY: number; cropWidth: number; cropHeight: number },
   outputSize: number,
-): Float32Array => {
+): { output: Float32Array; squareCropX: number; squareCropY: number; cropSize: number } => {
   'worklet'
 
   const output = new Float32Array(outputSize * outputSize * 3)
@@ -62,19 +62,25 @@ const cropResizedFloat32 = (
   const offsetX = (sourceSize - contentWidth) * 0.5
   const offsetY = (sourceSize - contentHeight) * 0.5
 
+  // Calculate the crop in the source (resized) image
   const sourceCropX = offsetX + crop.cropX * scale
   const sourceCropY = offsetY + crop.cropY * scale
   const sourceCropW = Math.max(1, crop.cropWidth * scale)
   const sourceCropH = Math.max(1, crop.cropHeight * scale)
 
+  // Maintain aspect ratio: make the crop square by adding padding
+  const cropSize = Math.max(sourceCropW, sourceCropH)
+  const squareCropX = sourceCropX + (sourceCropW - cropSize) * 0.5
+  const squareCropY = sourceCropY + (sourceCropH - cropSize) * 0.5
+
   for (let oy = 0; oy < outputSize; oy++) {
-    const fy = sourceCropY + ((oy + 0.5) / outputSize) * sourceCropH - 0.5
+    const fy = squareCropY + ((oy + 0.5) / outputSize) * cropSize - 0.5
     const y0 = Math.max(0, Math.min(sourceSize - 1, Math.floor(fy)))
     const y1 = Math.max(0, Math.min(sourceSize - 1, y0 + 1))
     const wy = Math.max(0, Math.min(1, fy - Math.floor(fy)))
 
     for (let ox = 0; ox < outputSize; ox++) {
-      const fx = sourceCropX + ((ox + 0.5) / outputSize) * sourceCropW - 0.5
+      const fx = squareCropX + ((ox + 0.5) / outputSize) * cropSize - 0.5
       const x0 = Math.max(0, Math.min(sourceSize - 1, Math.floor(fx)))
       const x1 = Math.max(0, Math.min(sourceSize - 1, x0 + 1))
       const wx = Math.max(0, Math.min(1, fx - Math.floor(fx)))
@@ -93,7 +99,7 @@ const cropResizedFloat32 = (
     }
   }
 
-  return output
+  return { output, squareCropX, squareCropY, cropSize }
 }
 
 export const useMoveNetWorker = (
@@ -360,7 +366,7 @@ export const useMoveNetWorker = (
             let inputSource = floatSource
 
             if (cropRegion) {
-              inputSource = cropResizedFloat32(
+              const cropResult = cropResizedFloat32(
                 floatSource,
                 poseInputSize,
                 frame.width,
@@ -368,6 +374,31 @@ export const useMoveNetWorker = (
                 cropRegion,
                 poseInputSize,
               )
+              inputSource = cropResult.output
+              
+              // Calculate padding info for inverse transformation
+              const scale = Math.min(poseInputSize / frame.width, poseInputSize / frame.height)
+              const sourceCropW = Math.max(1, cropRegion.cropWidth * scale)
+              const sourceCropH = Math.max(1, cropRegion.cropHeight * scale)
+              const cropSize = Math.max(sourceCropW, sourceCropH)
+              
+              // Convert square crop coordinates back to frame space
+              const squareCropX = (cropResult.squareCropX - (poseInputSize - frame.width * scale) * 0.5) / scale
+              const squareCropY = (cropResult.squareCropY - (poseInputSize - frame.height * scale) * 0.5) / scale
+              const squareCropSize = cropResult.cropSize / scale
+              
+              cropInfo = {
+                cropX: cropRegion.cropX,
+                cropY: cropRegion.cropY,
+                cropWidth: cropRegion.cropWidth,
+                cropHeight: cropRegion.cropHeight,
+                isValid: true,
+                isUsingLastBbox: false,
+                squareCropX,
+                squareCropY,
+                squareCropSize,
+              }
+              
               console.log('[MoveNet CROP] CPU resample applied=', true, 'inputElements=', inputSource.length)
             } else {
               console.log('[MoveNet CROP] CPU resample applied=', false, 'source=FULL_FRAME')
@@ -436,24 +467,35 @@ export const useMoveNetWorker = (
 
           // Transform keypoints from crop space back to frame space if crop was used
           let finalKeypoints = keypoints
-          if (cropRegion) {
+          if (cropRegion && cropInfo && cropInfo.squareCropSize !== undefined) {
             // Log for debugging pose position issue
             const sampleKey = Object.keys(keypoints)[0] as keyof PoseKeypoints
             if (sampleKey && keypoints[sampleKey]) {
               console.log('[POSE TRANSFORM DEBUG] cropRegion:', `x=${cropRegion.cropX.toFixed(0)} y=${cropRegion.cropY.toFixed(0)} w=${cropRegion.cropWidth.toFixed(0)} h=${cropRegion.cropHeight.toFixed(0)}`)
+              console.log('[POSE TRANSFORM DEBUG] squareCrop:', `x=${cropInfo.squareCropX?.toFixed(0)} y=${cropInfo.squareCropY?.toFixed(0)} size=${cropInfo.squareCropSize?.toFixed(0)}`)
               console.log('[POSE TRANSFORM DEBUG] frame size:', `${frame.width}x${frame.height}`)
               console.log('[POSE TRANSFORM DEBUG] raw keypoint:', `${sampleKey}= x=${keypoints[sampleKey]!.x.toFixed(3)} y=${keypoints[sampleKey]!.y.toFixed(3)}`)
             }
             
             // PoseKeypoints is an object with named properties, not an array
+            // Transform from square crop space (with padding) back to frame space
             finalKeypoints = {} as PoseKeypoints
             const keyNames = Object.keys(keypoints) as Array<keyof PoseKeypoints>
             for (const key of keyNames) {
               if (keypoints[key]) {
+                // First: map from 0-1 (square crop) to pixel coordinates in square crop
+                const squareCropX = cropInfo.squareCropX || 0
+                const squareCropY = cropInfo.squareCropY || 0
+                const squareCropSize = cropInfo.squareCropSize || cropRegion.cropWidth
+                
+                const pixelX = squareCropX + keypoints[key]!.x * squareCropSize
+                const pixelY = squareCropY + keypoints[key]!.y * squareCropSize
+                
+                // Then: normalize to frame space
                 finalKeypoints[key] = {
                   ...keypoints[key]!,
-                  x: (cropRegion.cropX + keypoints[key]!.x * cropRegion.cropWidth) / frame.width,
-                  y: (cropRegion.cropY + keypoints[key]!.y * cropRegion.cropHeight) / frame.height,
+                  x: pixelX / frame.width,
+                  y: pixelY / frame.height,
                 }
               }
             }

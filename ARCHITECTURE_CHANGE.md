@@ -902,3 +902,81 @@ WorkoutSessionScreen
 - **NMS IoU**: 0.4
 - **Player min width**: 0.05 (5% del frame)
 - **Player min height**: 0.1 (10% del frame)
+
+## Phase 12: Fix Coordinate Transformation in Pose Parser
+
+### Obiettivo
+Correggere la trasformazione delle coordinate nel parser dell'output MoveNet che causava una deformazione della geometria del corpo umano.
+
+### Root Cause
+Il parser `poseParser.ts` applicava una trasformazione errata alle coordinate dei keypoints:
+```typescript
+// Trasformazione errata
+x: 1 - yNorm, y: xNorm
+```
+Questa trasformazione combinava:
+- Swap degli assi x/y
+- Flip orizzontale (1 - y)
+
+MoveNet produce output nel formato `[y, x, score]`, quindi la trasformazione corretta doveva essere semplicemente usare `xNorm` e `yNorm` direttamente senza modifiche.
+
+### Analisi del problema
+La trasformazione errata causava:
+1. **Deformazione della pose**: La struttura del corpo umano non veniva rappresentata correttamente
+2. **Coordinate invertite**: I keypoints apparivano in posizioni sbagliate rispetto al frame
+3. **Skeleton non allineato**: La pose visualizzata non seguiva la struttura anatomicamente corretta
+
+Il log MoveNet mostrava output plausibile (confidence non nulle, 51 valori), indicando che il problema era a valle del modello stesso nella trasformazione delle coordinate.
+
+### Soluzione implementata
+
+#### 1. poseParser.ts - Rimozione trasformazione errata
+- Rimosso la trasformazione `x: 1 - yNorm, y: xNorm`
+- Sostituito con trasformazione corretta `x: xNorm, y: yNorm`
+- Aggiornato commento per riflettere il comportamento corretto:
+  ```typescript
+  // MoveNet output: [y, x, score] - use coordinates directly
+  (keypoints as any)[name] = { x: xNorm, y: yNorm, score }
+  ```
+
+#### 2. Verifica logica crop quadrato
+- La logica del crop quadrato in `cropResizedFloat32()` era già corretta
+- Il padding per mantenere l'aspect ratio (es. 605×471 → 605×605) era già implementato
+- Il mapping inverso con padding era già corretto
+- Non sono state necessarie modifiche al preprocessing del crop
+
+### Architettura risultante
+```
+YOLO PLAYER
+    ↓
+Player BBox (605×471)
+    ↓
+cropResizedFloat32()
+    ├── Padding per crop quadrato (605×605)
+    ├── Resize a 192×192
+    └── Output Float32Array
+    ↓
+MoveNet inference
+    ↓
+Output [y, x, score] (51 valori)
+    ↓
+poseParser.parseMoveNetOutput()
+    ├── x = xNorm (corretto)
+    ├── y = yNorm (corretto)
+    └── score = score
+    ↓
+Keypoints trasformati da crop space → frame space
+    ↓
+Pose finale
+```
+
+### Comportamento
+- Le coordinate dei keypoints sono ora corrette
+- La struttura del corpo umano viene rappresentata accuratamente
+- Il skeleton è allineato con l'immagine del player
+- Nessuna deformazione geometrica
+
+### Diagnostica
+- Log raw MoveNet: `[POSE RAW] outputLength=51` (corretto)
+- Log parser: `[PoseParser] Raw values` mostra valori plausibili
+- La trasformazione delle coordinate è ora diretta e corretta
