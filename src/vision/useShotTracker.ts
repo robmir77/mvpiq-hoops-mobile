@@ -891,6 +891,7 @@ export const useShotTracker = (
                                 y: trackedBbox.bbox.y,
                                 width: trackedBbox.bbox.width,
                                 height: trackedBbox.bbox.height,
+                                confidence: trackedBbox.bbox.confidence,
                             }
                             if (trackedBbox.isUsingLastBbox) {
                                 scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
@@ -900,9 +901,10 @@ export const useShotTracker = (
                             moveNetWorker.processFrame(frame, timestamp)
                         } else {
                             moveNetWorker.playerBbox.value = null
-                            // BBox expired - record telemetry
+                            // BBox expired: MoveNet still runs in FULL_FRAME fallback.
+                            // This keeps Phase 10 operational while player YOLO is temporarily lost.
                             scheduleOnRN(recordPlayerBboxExpired)
-                            // Skip MoveNet execution when no bbox is available
+                            moveNetWorker.processFrame(frame, timestamp)
                         }
                     }
 

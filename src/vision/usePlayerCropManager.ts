@@ -68,12 +68,14 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const bboxY = useSharedValue(0)
   const bboxWidth = useSharedValue(0)
   const bboxHeight = useSharedValue(0)
+  const bboxConfidence = useSharedValue(0)
 
   // Smoothed bbox (exponential moving average)
   const smoothedX = useSharedValue(0)
   const smoothedY = useSharedValue(0)
   const smoothedWidth = useSharedValue(0)
   const smoothedHeight = useSharedValue(0)
+  const smoothedConfidence = useSharedValue(0)
 
   // Tracking state
   const lastSeenAt = useSharedValue(0)
@@ -101,6 +103,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       bboxY.value = playerBbox.y
       bboxWidth.value = playerBbox.width
       bboxHeight.value = playerBbox.height
+      bboxConfidence.value = confidence
       detectedAt.value = now
       lastSeenAt.value = now
       hasBbox.value = true
@@ -138,12 +141,14 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       smoothedY.value = bboxY.value
       smoothedWidth.value = bboxWidth.value
       smoothedHeight.value = bboxHeight.value
+      smoothedConfidence.value = bboxConfidence.value
     } else {
       // Apply exponential moving average
       smoothedX.value = lerp(smoothedX.value, bboxX.value, cfg.smoothingFactor)
       smoothedY.value = lerp(smoothedY.value, bboxY.value, cfg.smoothingFactor)
       smoothedWidth.value = lerp(smoothedWidth.value, bboxWidth.value, cfg.smoothingFactor)
       smoothedHeight.value = lerp(smoothedHeight.value, bboxHeight.value, cfg.smoothingFactor)
+      smoothedConfidence.value = lerp(smoothedConfidence.value, bboxConfidence.value, cfg.smoothingFactor)
     }
 
     return {
@@ -152,6 +157,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
         y: smoothedY.value,
         width: smoothedWidth.value,
         height: smoothedHeight.value,
+        confidence: smoothedConfidence.value,
       },
       detectedAt: detectedAt.value,
       lastSeenAt: lastSeenAt.value,
@@ -257,6 +263,8 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     smoothedY.value = 0
     smoothedWidth.value = 0
     smoothedHeight.value = 0
+    smoothedConfidence.value = 0
+    bboxConfidence.value = 0
   }
 
   /**
@@ -277,10 +285,10 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
 
     return {
       lastBbox: hasBbox.value
-        ? { x: bboxX.value, y: bboxY.value, width: bboxWidth.value, height: bboxHeight.value }
+        ? { x: bboxX.value, y: bboxY.value, width: bboxWidth.value, height: bboxHeight.value, confidence: smoothedConfidence.value }
         : null,
       smoothedBbox: hasBbox.value
-        ? { x: smoothedX.value, y: smoothedY.value, width: smoothedWidth.value, height: smoothedHeight.value }
+        ? { x: smoothedX.value, y: smoothedY.value, width: smoothedWidth.value, height: smoothedHeight.value, confidence: smoothedConfidence.value }
         : null,
       lastSeenAt: lastSeenAt.value,
       detectedAt: detectedAt.value,

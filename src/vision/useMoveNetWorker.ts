@@ -34,6 +34,67 @@ interface PoseWorkerResult {
   cropInfo?: PlayerCropResult | null
 }
 
+
+/**
+ * CPU-side crop/resample used with react-native-vision-camera-resizer V5.
+ * V5 resize() only accepts the frame, so the frame is first resized to the
+ * configured square and the player crop is then extracted from that tensor.
+ * This keeps the implementation worklet-safe and avoids the deprecated V4 API.
+ */
+const cropResizedFloat32 = (
+  source: Float32Array,
+  sourceSize: number,
+  frameWidth: number,
+  frameHeight: number,
+  crop: { cropX: number; cropY: number; cropWidth: number; cropHeight: number },
+  outputSize: number,
+): Float32Array => {
+  'worklet'
+
+  const output = new Float32Array(outputSize * outputSize * 3)
+
+  // The V5 resizer uses `contain`: the camera image is centered inside the
+  // square tensor. Map the original-frame crop into that tensor first.
+  const scale = Math.min(sourceSize / frameWidth, sourceSize / frameHeight)
+  const contentWidth = frameWidth * scale
+  const contentHeight = frameHeight * scale
+  const offsetX = (sourceSize - contentWidth) * 0.5
+  const offsetY = (sourceSize - contentHeight) * 0.5
+
+  const sourceCropX = offsetX + crop.cropX * scale
+  const sourceCropY = offsetY + crop.cropY * scale
+  const sourceCropW = Math.max(1, crop.cropWidth * scale)
+  const sourceCropH = Math.max(1, crop.cropHeight * scale)
+
+  for (let oy = 0; oy < outputSize; oy++) {
+    const fy = sourceCropY + ((oy + 0.5) / outputSize) * sourceCropH - 0.5
+    const y0 = Math.max(0, Math.min(sourceSize - 1, Math.floor(fy)))
+    const y1 = Math.max(0, Math.min(sourceSize - 1, y0 + 1))
+    const wy = Math.max(0, Math.min(1, fy - Math.floor(fy)))
+
+    for (let ox = 0; ox < outputSize; ox++) {
+      const fx = sourceCropX + ((ox + 0.5) / outputSize) * sourceCropW - 0.5
+      const x0 = Math.max(0, Math.min(sourceSize - 1, Math.floor(fx)))
+      const x1 = Math.max(0, Math.min(sourceSize - 1, x0 + 1))
+      const wx = Math.max(0, Math.min(1, fx - Math.floor(fx)))
+
+      const src00 = (y0 * sourceSize + x0) * 3
+      const src01 = (y0 * sourceSize + x1) * 3
+      const src10 = (y1 * sourceSize + x0) * 3
+      const src11 = (y1 * sourceSize + x1) * 3
+      const dst = (oy * outputSize + ox) * 3
+
+      for (let c = 0; c < 3; c++) {
+        const top = source[src00 + c] * (1 - wx) + source[src01 + c] * wx
+        const bottom = source[src10 + c] * (1 - wx) + source[src11 + c] * wx
+        output[dst + c] = top * (1 - wy) + bottom * wy
+      }
+    }
+  }
+
+  return output
+}
+
 export const useMoveNetWorker = (
   enabled: boolean = true,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
@@ -255,9 +316,8 @@ export const useMoveNetWorker = (
 
       const tResizeStart = performance.now()
 
-      // Use rgbResizer with crop region when available
-      // Note: react-native-vision-camera-resizer may not support inline crop/scale options
-      // For now, use full-frame resize (crop will be implemented with proper API in Phase 11)
+      // V5 accepts only resize(frame). We therefore resize the full frame first
+      // and perform the player crop/resample CPU-side on the Float32 tensor.
       resized = rgbResizer?.resize(frame)
       const tResizeEnd = performance.now()
       const resizeMs = tResizeEnd - tResizeStart
@@ -269,10 +329,30 @@ export const useMoveNetWorker = (
         const floatSource = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
           if (floatSource.length === poseInputElements) {
+            const tCpuCropStart = performance.now()
+            let inputSource = floatSource
+
+            if (cropRegion) {
+              inputSource = cropResizedFloat32(
+                floatSource,
+                poseInputSize,
+                frame.width,
+                frame.height,
+                cropRegion,
+                poseInputSize,
+              )
+              console.log('[MoveNet CROP] CPU resample applied=', true, 'inputElements=', inputSource.length)
+            } else {
+              console.log('[MoveNet CROP] CPU resample applied=', false, 'source=FULL_FRAME')
+            }
+
+            const cpuCropMs = performance.now() - tCpuCropStart
+            // cropMs includes crop-region calculation + actual CPU extraction.
+            const totalCropMs = cropMs + cpuCropMs
           
             let maxVal = 0;
-            for (let i = 0; i < floatSource.length; i+=100) {
-              if (floatSource[i] > maxVal) maxVal = floatSource[i];
+            for (let i = 0; i < inputSource.length; i+=100) {
+              if (inputSource[i] > maxVal) maxVal = inputSource[i];
             }
 
             if (telemetryHasNewData.value === false) { // log occasionally
@@ -284,20 +364,20 @@ export const useMoveNetWorker = (
             const needsScaling = maxVal <= 1.0 && maxVal > 0;
 
             if (poseModelInstance!.inputs[0].dataType === 'uint8') {
-              const uint8Source = new Uint8Array(floatSource.length)
-              for (let i = 0; i < floatSource.length; i++) {
-                uint8Source[i] = needsScaling ? floatSource[i] * 255.0 : floatSource[i];
+              const uint8Source = new Uint8Array(inputSource.length)
+              for (let i = 0; i < inputSource.length; i++) {
+                uint8Source[i] = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
               }
               inputBuffer = uint8Source.buffer as ArrayBuffer
             } else if (poseModelInstance!.inputs[0].dataType === 'int8') {
-              const int8Source = new Int8Array(floatSource.length)
-              for (let i = 0; i < floatSource.length; i++) {
-                let val = needsScaling ? floatSource[i] * 255.0 : floatSource[i];
+              const int8Source = new Int8Array(inputSource.length)
+              for (let i = 0; i < inputSource.length; i++) {
+                let val = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
                 int8Source[i] = val - 128
               }
               inputBuffer = int8Source.buffer as ArrayBuffer
             } else {
-              inputBuffer = floatSource.buffer as ArrayBuffer
+              inputBuffer = inputSource.buffer as ArrayBuffer
             }
 
           const tRunStart = performance.now()
@@ -360,7 +440,7 @@ export const useMoveNetWorker = (
 
           // Write telemetry to SharedValues (worklet-safe)
           telemetryInferenceTime.value = inferenceTime
-          telemetryCropMs.value = cropMs
+          telemetryCropMs.value = totalCropMs
           telemetryResizeMs.value = resizeMs
           telemetryRunMs.value = runMs
           telemetryParseMs.value = parseMs

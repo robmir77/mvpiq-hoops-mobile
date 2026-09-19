@@ -723,8 +723,21 @@ getEffectiveBbox()
     │
     └── BBox scaduto
             ↓
-        SKIP MoveNet
+        FULL-FRAME FALLBACK
+            ↓
+        MoveNet 192×192
 ````
 
 ### Principio fondamentale
-MoveNet non decide autonomamente cosa osservare - riceve sempre il BBox tracciato dal PlayerTracker. Se il BBox scade, MoveNet non esegue (nessun fallback full-frame).
+MoveNet usa il BBox tracciato dal PlayerTracker quando disponibile. Con `react-native-vision-camera-resizer` V5, `resize()` accetta solo il frame: la Fase 10 applica quindi il crop **CPU-side dopo il resize** sul tensor Float32 192×192. Se il BBox scade, MoveNet continua temporaneamente in FULL_FRAME come fallback diagnostico.
+
+### Fase 10 - implementazione definitiva
+1. YOLO fornisce il BBox player normalizzato.
+2. `PlayerCropManager` applica TTL e smoothing e conserva anche la confidence.
+3. `useMoveNetWorker` converte il BBox in pixel e calcola il crop con padding 15%.
+4. V5 esegue `resize(frame)` sul full-frame in Float32.
+5. Un resampling CPU worklet estrae il crop dal tensor 192×192 e produce nuovamente un input 192×192×3.
+6. MoveNet esegue sul tensor croppato; i keypoint vengono riportati dal crop allo spazio frame originale.
+7. In assenza di BBox valido viene usato temporaneamente il FULL_FRAME fallback.
+
+Questa soluzione evita la migrazione al plugin V4 deprecato e non richiede codice nativo Kotlin/Swift. Il costo del resampling CPU viene misurato nella telemetria `cropMs`.
