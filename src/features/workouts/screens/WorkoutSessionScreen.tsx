@@ -942,11 +942,10 @@ const ReactOverlay = React.memo(({
                                     <Text style={[ovStyles.debugText, { color: '#ef4444' }]}>
                                         Scartato: {debugYoloData.rejectionReason || 'conf'}
                                     </Text>
-                                ) : (
-                                    <Text style={[ovStyles.debugText, { color: debugYoloData.conf >= 0.01 ? '#4ade80' : '#ef4444' }]}>
-                                        Conf: {(debugYoloData.conf * 100).toFixed(1)}%
-                                    </Text>
-                                )}
+                                ) : null}
+                                <Text style={[ovStyles.debugText, { color: debugYoloData.rejected ? '#ef4444' : (debugYoloData.conf >= 0.01 ? '#4ade80' : '#ef4444') }]}>
+                                    Conf: {(debugYoloData.conf * 100).toFixed(1)}%
+                                </Text>
                                 <Text style={ovStyles.debugText}>X: {debugYoloData.x.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>Y: {debugYoloData.y.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>W: {debugYoloData.w.toFixed(3)}</Text>
@@ -966,11 +965,10 @@ const ReactOverlay = React.memo(({
                                     <Text style={[ovStyles.debugText, { color: '#ef4444' }]}>
                                         Scartato: {debugHoopData.rejectionReason || 'conf'}
                                     </Text>
-                                ) : (
-                                    <Text style={[ovStyles.debugText, { color: debugHoopData.conf >= 0.01 ? '#4ade80' : '#ef4444' }]}>
-                                        Conf: {(debugHoopData.conf * 100).toFixed(1)}%
-                                    </Text>
-                                )}
+                                ) : null}
+                                <Text style={[ovStyles.debugText, { color: debugHoopData.rejected ? '#ef4444' : (debugHoopData.conf >= 0.01 ? '#4ade80' : '#ef4444') }]}>
+                                    Conf: {(debugHoopData.conf * 100).toFixed(1)}%
+                                </Text>
                                 <Text style={ovStyles.debugText}>X: {debugHoopData.x.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>Y: {debugHoopData.y.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>W: {debugHoopData.w.toFixed(3)}</Text>
@@ -990,11 +988,10 @@ const ReactOverlay = React.memo(({
                                     <Text style={[ovStyles.debugText, { color: '#ef4444' }]}>
                                         Scartato: {debugPlayerData.rejectionReason || 'conf'}
                                     </Text>
-                                ) : (
-                                    <Text style={[ovStyles.debugText, { color: '#4ade80' }]}>
-                                        Conf: {(debugPlayerData.conf * 100).toFixed(1)}%
-                                    </Text>
-                                )}
+                                ) : null}
+                                <Text style={[ovStyles.debugText, { color: debugPlayerData.rejected ? '#ef4444' : '#4ade80' }]}>
+                                    Conf: {(debugPlayerData.conf * 100).toFixed(1)}%
+                                </Text>
                                 <Text style={ovStyles.debugText}>X: {debugPlayerData.x.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>Y: {debugPlayerData.y.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>W: {debugPlayerData.w.toFixed(3)}</Text>
