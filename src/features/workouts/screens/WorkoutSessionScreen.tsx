@@ -144,6 +144,9 @@ const RealtimeBallOverlay = React.memo(({
         playerY: any
         playerWidth: any
         playerHeight: any
+        playerConfidence: any
+        ballRejectionReason: any
+        rimRejectionReason: any
     }
     effectiveResolution: { width: number; height: number }
     poseKeypoints: any
@@ -611,6 +614,9 @@ const ReactOverlay = React.memo(({
         playerY: any
         playerWidth: any
         playerHeight: any
+        playerConfidence: any
+        ballRejectionReason: any
+        rimRejectionReason: any
     }
     fpsMetrics?: { yoloFps: number; moveNetFps: number }
     effectiveResolution: { width: number; height: number }
@@ -651,10 +657,13 @@ const ReactOverlay = React.memo(({
     }, [poseKeypoints])
 
     const [debugYoloData, setDebugYoloData] = React.useState({
-        x: 0, y: 0, w: 0, h: 0, conf: 0
+        x: 0, y: 0, w: 0, h: 0, conf: 0, rejected: false, rejectionReason: ''
     })
     const [debugHoopData, setDebugHoopData] = React.useState({
-        x: 0, y: 0, w: 0, h: 0, conf: 0
+        x: 0, y: 0, w: 0, h: 0, conf: 0, rejected: false, rejectionReason: ''
+    })
+    const [debugPlayerData, setDebugPlayerData] = React.useState({
+        x: 0, y: 0, w: 0, h: 0, conf: 0, rejected: false, rejectionReason: ''
     })
     const [debugMoveNetData, setDebugMoveNetData] = React.useState({
         keypointsCount: 0,
@@ -736,6 +745,13 @@ const ReactOverlay = React.memo(({
         hoopY: number
         hoopWidth: number
         hoopHeight: number
+        playerX: number
+        playerY: number
+        playerWidth: number
+        playerHeight: number
+        playerConfidence: number
+        ballRejectionReason: string
+        rimRejectionReason: string
     }) => {
         setDebugYoloData({
             x: data.ballXRaw,
@@ -743,6 +759,8 @@ const ReactOverlay = React.memo(({
             w: data.ballWidth,
             h: data.ballHeight,
             conf: data.confidence,
+            rejected: data.ballRejectionReason !== '',
+            rejectionReason: data.ballRejectionReason,
         })
         const hoopX = data.hoopX > 0 ? data.hoopX : (rimFromDetection?.x ?? 0)
         const hoopY = data.hoopY > 0 ? data.hoopY : (rimFromDetection?.y ?? 0)
@@ -755,6 +773,17 @@ const ReactOverlay = React.memo(({
             w: hoopW,
             h: hoopH,
             conf: hoopConf,
+            rejected: data.rimRejectionReason !== '',
+            rejectionReason: data.rimRejectionReason,
+        })
+        setDebugPlayerData({
+            x: data.playerX,
+            y: data.playerY,
+            w: data.playerWidth,
+            h: data.playerHeight,
+            conf: data.playerConfidence,
+            rejected: data.playerConfidence < 0.45,
+            rejectionReason: data.playerConfidence < 0.45 ? 'conf' : '',
         })
 
         // Update MoveNet debug data
@@ -789,6 +818,8 @@ const ReactOverlay = React.memo(({
                 w: rimFromDetection.width,
                 h: rimFromDetection.height,
                 conf: rimFromDetection.confidence,
+                rejected: false,
+                rejectionReason: '',
             })
         }
     }, [sharedValues, rimFromDetection])
@@ -804,6 +835,13 @@ const ReactOverlay = React.memo(({
             hoopY: sharedValues?.hoopY.value ?? 0,
             hoopWidth: sharedValues?.hoopWidth.value ?? 0,
             hoopHeight: sharedValues?.hoopHeight.value ?? 0,
+            playerX: sharedValues?.playerX.value ?? 0,
+            playerY: sharedValues?.playerY.value ?? 0,
+            playerWidth: sharedValues?.playerWidth.value ?? 0,
+            playerHeight: sharedValues?.playerHeight.value ?? 0,
+            playerConfidence: sharedValues?.playerConfidence?.value ?? 0,
+            ballRejectionReason: sharedValues?.ballRejectionReason?.value ?? '',
+            rimRejectionReason: sharedValues?.rimRejectionReason?.value ?? '',
         }),
         (current) => {
             const now = Date.now()
@@ -893,18 +931,26 @@ const ReactOverlay = React.memo(({
 
             {showDebug && (
                 <View pointerEvents="none" style={ovStyles.combinedDebugPanel}>
-                    {/* YOLO Raw Section */}
+                    {/* Palla Section */}
                     <View style={ovStyles.debugSection}>
-                        <Text style={ovStyles.debugSectionTitle}>🔍 YOLO Raw</Text>
+                        <Text style={ovStyles.debugSectionTitle}>🏀 Palla</Text>
                         {debugYoloData.x === 0 && debugYoloData.y === 0 ? (
                             <Text style={ovStyles.debugText}>Nessun dato</Text>
                         ) : (
                             <>
+                                {debugYoloData.rejected ? (
+                                    <Text style={[ovStyles.debugText, { color: '#ef4444' }]}>
+                                        Scartato: {debugYoloData.rejectionReason || 'conf'}
+                                    </Text>
+                                ) : (
+                                    <Text style={[ovStyles.debugText, { color: debugYoloData.conf >= 0.01 ? '#4ade80' : '#ef4444' }]}>
+                                        Conf: {(debugYoloData.conf * 100).toFixed(1)}%
+                                    </Text>
+                                )}
                                 <Text style={ovStyles.debugText}>X: {debugYoloData.x.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>Y: {debugYoloData.y.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>W: {debugYoloData.w.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>H: {debugYoloData.h.toFixed(3)}</Text>
-                                <Text style={ovStyles.debugText}>Conf: {(debugYoloData.conf * 100).toFixed(1)}%</Text>
                             </>
                         )}
                     </View>
@@ -916,11 +962,43 @@ const ReactOverlay = React.memo(({
                             <Text style={ovStyles.debugText}>Nessun dato</Text>
                         ) : (
                             <>
+                                {debugHoopData.rejected ? (
+                                    <Text style={[ovStyles.debugText, { color: '#ef4444' }]}>
+                                        Scartato: {debugHoopData.rejectionReason || 'conf'}
+                                    </Text>
+                                ) : (
+                                    <Text style={[ovStyles.debugText, { color: debugHoopData.conf >= 0.01 ? '#4ade80' : '#ef4444' }]}>
+                                        Conf: {(debugHoopData.conf * 100).toFixed(1)}%
+                                    </Text>
+                                )}
                                 <Text style={ovStyles.debugText}>X: {debugHoopData.x.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>Y: {debugHoopData.y.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>W: {debugHoopData.w.toFixed(3)}</Text>
                                 <Text style={ovStyles.debugText}>H: {debugHoopData.h.toFixed(3)}</Text>
-                                <Text style={ovStyles.debugText}>Conf: {debugHoopData.conf.toFixed(3)}</Text>
+                            </>
+                        )}
+                    </View>
+
+                    {/* Player Section */}
+                    <View style={ovStyles.debugSection}>
+                        <Text style={ovStyles.debugSectionTitle}>👤 Player</Text>
+                        {debugPlayerData.x === 0 && debugPlayerData.y === 0 ? (
+                            <Text style={ovStyles.debugText}>Nessun dato</Text>
+                        ) : (
+                            <>
+                                {debugPlayerData.rejected ? (
+                                    <Text style={[ovStyles.debugText, { color: '#ef4444' }]}>
+                                        Scartato: {debugPlayerData.rejectionReason || 'conf'}
+                                    </Text>
+                                ) : (
+                                    <Text style={[ovStyles.debugText, { color: '#4ade80' }]}>
+                                        Conf: {(debugPlayerData.conf * 100).toFixed(1)}%
+                                    </Text>
+                                )}
+                                <Text style={ovStyles.debugText}>X: {debugPlayerData.x.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>Y: {debugPlayerData.y.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>W: {debugPlayerData.w.toFixed(3)}</Text>
+                                <Text style={ovStyles.debugText}>H: {debugPlayerData.h.toFixed(3)}</Text>
                             </>
                         )}
                     </View>
@@ -1040,7 +1118,7 @@ const ovStyles = StyleSheet.create({
     },
     combinedDebugPanel: {
         position: 'absolute',
-        bottom: 80,
+        bottom: 10,
         right: 10,
         backgroundColor: 'rgba(0,0,0,0.5)',
         borderRadius: 10,

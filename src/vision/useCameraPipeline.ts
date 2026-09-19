@@ -23,6 +23,9 @@ export interface CameraPipelineResult {
     playerY: any
     playerWidth: any
     playerHeight: any
+    playerConfidence: any
+    ballRejectionReason: any
+    rimRejectionReason: any
   }
 }
 

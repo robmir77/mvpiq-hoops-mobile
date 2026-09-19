@@ -131,7 +131,7 @@ export function parseYoloOutputFloat16(
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
   ballSizeCategory?: 'small' | 'medium' | 'large' | null
   adaptiveThreshold?: number
-  debug?: { conf: number; ballIndex?: number; rimIndex?: number; rejectedTooSmall: number; rejectedLowConfidence: number; rejectedGeometry: number; tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }>; lowConfidenceAccepted: { confidence: number; width: number; height: number; x: number; y: number } | null; maxBallScore: number; maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null; maxBallAnchorRejection: string | null }
+  debug?: { conf: number; ballIndex?: number; rimIndex?: number; rejectedTooSmall: number; rejectedLowConfidence: number; rejectedGeometry: number; tooSmallSamples: Array<{ confidence: number; width: number; height: number; radius: number }>; lowConfidenceAccepted: { confidence: number; width: number; height: number; x: number; y: number } | null; maxBallScore: number; maxBallAnchor: { index: number; cx: number; cy: number; w: number; h: number; confidence: number } | null; maxBallAnchorRejection: string | null; ballRejectionReason: string; rimRejectionReason: string }
 } {
   'worklet'; // eslint-disable-line
 
@@ -149,6 +149,8 @@ export function parseYoloOutputFloat16(
     let bestBall: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
     let bestPlayer: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
     let bestRim: { x: number; y: number; width: number; height: number; confidence: number; index: number } | null = null
+    let ballRejectionReason: string = ''
+    let rimRejectionReason: string = ''
     let bestBallRaw: { cxRaw: number; cyRaw: number; wRaw: number; hRaw: number; ballScore: number; humanScore: number; rimScore: number } | null = null
 
     // Diagnostic counters for ball loss analysis
@@ -277,6 +279,12 @@ export function parseYoloOutputFloat16(
       if (ballProb > maxBallScore) {
         maxBallScore = ballProb
         maxBallAnchor = { index: i, cx: cameraCx, cy: cameraCy, w: cameraW, h: cameraH, confidence: ballProb }
+        // Track rejection reason for the best ball candidate
+        if (!validGeometry) {
+          ballRejectionReason = 'geometry'
+        } else if (ballProb < ballAdaptiveThreshold) {
+          ballRejectionReason = 'conf'
+        }
       }
       if (!validGeometry) {
         rejectedGeometry++
@@ -318,7 +326,13 @@ export function parseYoloOutputFloat16(
         }
         if (detection.y < 0.5 && (!bestRim || detection.confidence > bestRim.confidence)) {
           bestRim = detection
+        } else if (detection.y >= 0.5 && (!bestRim || detection.confidence > (bestRim?.confidence ?? 0))) {
+          // Track rejection reason for rim in wrong position
+          rimRejectionReason = 'position'
         }
+      } else if (!bestRim || rimProb > (bestRim?.confidence ?? 0)) {
+        // Track rejection reason for rim with low confidence
+        rimRejectionReason = 'conf'
       }
 
       // Add player detection if score above threshold
@@ -408,10 +422,10 @@ export function parseYoloOutputFloat16(
       }
     }
 
-    return { ball: bestBall ? { x: bestBall.x, y: bestBall.y, width: bestBall.width, height: bestBall.height, confidence: bestBall.confidence } : null, player: bestPlayer ? { x: bestPlayer.x, y: bestPlayer.y, width: bestPlayer.width, height: bestPlayer.height, confidence: bestPlayer.confidence } : null, rim: bestRim ? { x: bestRim.x, y: bestRim.y, width: bestRim.width, height: bestRim.height, confidence: bestRim.confidence } : null, debug: { conf: maxRawConfidence, ballIndex: bestBall?.index, rimIndex: bestRim?.index, rejectedTooSmall, rejectedLowConfidence, rejectedGeometry, tooSmallSamples, lowConfidenceAccepted: bestBall && bestBall.confidence <= 0.03 ? { confidence: bestBall.confidence, width: bestBall.width, height: bestBall.height, x: bestBall.x, y: bestBall.y } : null, maxBallScore, maxBallAnchor, maxBallAnchorRejection } }
+    return { ball: bestBall ? { x: bestBall.x, y: bestBall.y, width: bestBall.width, height: bestBall.height, confidence: bestBall.confidence } : null, player: bestPlayer ? { x: bestPlayer.x, y: bestPlayer.y, width: bestPlayer.width, height: bestPlayer.height, confidence: bestPlayer.confidence } : null, rim: bestRim ? { x: bestRim.x, y: bestRim.y, width: bestRim.width, height: bestRim.height, confidence: bestRim.confidence } : null, debug: { conf: maxRawConfidence, ballIndex: bestBall?.index, rimIndex: bestRim?.index, rejectedTooSmall, rejectedLowConfidence, rejectedGeometry, tooSmallSamples, lowConfidenceAccepted: bestBall && bestBall.confidence <= 0.03 ? { confidence: bestBall.confidence, width: bestBall.width, height: bestBall.height, x: bestBall.x, y: bestBall.y } : null, maxBallScore, maxBallAnchor, maxBallAnchorRejection, ballRejectionReason, rimRejectionReason } }
 
   } catch (error) {
     console.error('[YOLO PARSER ERROR]', error)
-    return { ball: null, player: null, rim: null, debug: { conf: 0, rejectedTooSmall: 0, rejectedLowConfidence: 0, rejectedGeometry: 0, tooSmallSamples: [], lowConfidenceAccepted: null, maxBallScore: 0, maxBallAnchor: null, maxBallAnchorRejection: null } }
+    return { ball: null, player: null, rim: null, debug: { conf: 0, rejectedTooSmall: 0, rejectedLowConfidence: 0, rejectedGeometry: 0, tooSmallSamples: [], lowConfidenceAccepted: null, maxBallScore: 0, maxBallAnchor: null, maxBallAnchorRejection: null, ballRejectionReason: '', rimRejectionReason: '' } }
   }
 }

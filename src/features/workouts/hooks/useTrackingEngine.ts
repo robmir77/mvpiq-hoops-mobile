@@ -83,6 +83,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     const playerY = useSharedValue(0)
     const playerWidth = useSharedValue(0)
     const playerHeight = useSharedValue(0)
+    const playerConfidence = useSharedValue(0)
+    const ballRejectionReason = useSharedValue('')
+    const rimRejectionReason = useSharedValue('')
     const inFlight = useSharedValue(false)
     const shotDetected = useSharedValue(false)
     const showShotTrail = useSharedValue(false)
@@ -704,6 +707,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             playerY,
             playerWidth,
             playerHeight,
+            playerConfidence,
+            ballRejectionReason,
+            rimRejectionReason,
             adaptiveThreshold,
             inFlight,
             shotDetected,

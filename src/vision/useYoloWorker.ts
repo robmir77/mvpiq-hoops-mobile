@@ -23,6 +23,7 @@ interface YoloWorkerResult {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   player: { x: number; y: number; width: number; height: number; confidence: number } | null
   rim: { x: number; y: number; width: number; height: number; confidence: number } | null
+  debug: any
   timestamp: number
 }
 
@@ -34,6 +35,7 @@ export const useYoloWorker = (
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultRim = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
+  const latestResultDebug = useSharedValue<any>(null)
   const latestResultTimestamp = useSharedValue(0)
 
   const lastInferenceAt = useSharedValue(0)
@@ -199,7 +201,7 @@ export const useYoloWorker = (
 
           // Use appropriate parser based on model precision
           const tParseStart = performance.now()
-          let ball, player, rim
+          let ball, player, rim, debug
           const RIM_CONFIDENCE_THRESHOLD = 0.6
           if (selectedYoloModel?.precision === 'int8') {
             // INT8 model outputs Float32 tensors, no dequantization needed
@@ -208,6 +210,7 @@ export const useYoloWorker = (
             ball = result.ball
             player = result.player
             rim = result.rim
+            debug = result.debug
           } else {
             // Float16 model outputs raw logits, use lower threshold
             // Lowered from 0.0005 to 0.0001 to accept more detections after scaling fix
@@ -216,6 +219,7 @@ export const useYoloWorker = (
             ball = result.ball
             player = result.player
             rim = result.rim
+            debug = result.debug
           }
           const tParseEnd = performance.now()
           const parseMs = tParseEnd - tParseStart
@@ -249,6 +253,7 @@ export const useYoloWorker = (
           latestResultBall.value = validBall
           latestResultPlayer.value = player
           latestResultRim.value = rim
+          latestResultDebug.value = debug
           latestResultTimestamp.value = timestamp
           
           const inferenceTime = t2 - t0
@@ -285,9 +290,10 @@ export const useYoloWorker = (
       ball: latestResultBall.value,
       player: latestResultPlayer.value,
       rim: latestResultRim.value,
+      debug: latestResultDebug.value,
       timestamp: latestResultTimestamp.value
     }
-  }, [latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp])
+  }, [latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp])
 
   const reset = useCallback(() => {
     latestResultBall.value = null
@@ -307,6 +313,7 @@ export const useYoloWorker = (
     latestResultBall,
     latestResultPlayer,
     latestResultRim,
+    latestResultDebug,
     latestResultTimestamp,
   }
 }

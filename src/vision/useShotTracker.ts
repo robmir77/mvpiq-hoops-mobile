@@ -278,6 +278,11 @@ export const useShotTracker = (
     const playerY = useSharedValue(0)
     const playerWidth = useSharedValue(0)
     const playerHeight = useSharedValue(0)
+    const playerConfidence = useSharedValue(0)
+    
+    // Debug rejection reasons from YOLO parser
+    const ballRejectionReason = useSharedValue('')
+    const rimRejectionReason = useSharedValue('')
 
     const detectionHistory =
         useRef<
@@ -860,6 +865,7 @@ export const useShotTracker = (
                             playerY.value = currentPlayer.y
                             playerWidth.value = currentPlayer.width
                             playerHeight.value = currentPlayer.height
+                            playerConfidence.value = currentPlayer.confidence
                             // Check if the detection was accepted by the confidence filter
                             const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
                             if (trackedBbox) {
@@ -913,7 +919,14 @@ export const useShotTracker = (
                         ball: yoloWorker.latestResultBall.value,
                         player: yoloWorker.latestResultPlayer.value,
                         rim: yoloWorker.latestResultRim.value,
+                        debug: yoloWorker.latestResultDebug.value,
                         timestamp: yoloWorker.latestResultTimestamp.value
+                    }
+                    
+                    // Update rejection reasons from debug data
+                    if (yoloResult.debug) {
+                        ballRejectionReason.value = yoloResult.debug.ballRejectionReason || ''
+                        rimRejectionReason.value = yoloResult.debug.rimRejectionReason || ''
                     }
                     const poseResult = {
                         keypoints: moveNetWorker.latestResultKeypoints.value,
@@ -1121,6 +1134,9 @@ export const useShotTracker = (
             playerY,
             playerWidth,
             playerHeight,
+            playerConfidence,
+            ballRejectionReason,
+            rimRejectionReason,
         },
     }
 }
