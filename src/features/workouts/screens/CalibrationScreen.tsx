@@ -32,13 +32,13 @@ import {
     DEFAULT_IOS_DELEGATE,
 } from '@/vision/delegates'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, MOVENET_MODELS, YOLO_MODELS } from '@/vision/yoloModels'
+import { CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
-const MIN_CAPTURE = { width: 1280, height: 720 }
-const DEFAULT_CAPTURE = { width: 1280, height: 720 }
-const DEFAULT_FPS = 30
-const DEFAULT_POSE_RESOLUTION = 192
+const DEFAULT_CAPTURE = CAMERA_CONFIG.DEFAULT_RESOLUTION
+const DEFAULT_FPS = CAMERA_CONFIG.DEFAULT_FPS
+const DEFAULT_POSE_RESOLUTION = CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION
 
 interface Point { x: number; y: number }
 type CalibStep = 'hoop' | 'corners' | 'done'
@@ -758,8 +758,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
             const filtered = resolutions
                 .filter((r: { width: number; height: number }) => {
                     const aspect = r.width / r.height
-                    return r.width >= MIN_CAPTURE.width &&
-                        r.height >= MIN_CAPTURE.height &&
+                    return r.width >= CAMERA_CONFIG.MIN_RESOLUTION.width &&
+                        r.height >= CAMERA_CONFIG.MIN_RESOLUTION.height &&
                         Math.abs(aspect - 16 / 9) < 0.08
                 })
                 .sort((a: any, b: any) => a.width * a.height - b.width * b.height)
@@ -895,9 +895,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 
                 // Calculate real homography matrix from image corners to court coordinates in meters
                 // Court dimensions: 15.24m width, 28.65m height (FIBA/NBA full court)
-                const COURT_WIDTH_M = 15.24
-                const COURT_HEIGHT_M = 28.65
-                const dstCorners = getCourtCornersMeters(COURT_WIDTH_M, COURT_HEIGHT_M)
+                const dstCorners = getCourtCornersMeters(COURT_CONFIG.WIDTH_M, COURT_CONFIG.HEIGHT_M)
                 
                 try {
                     homographyMatrix = calculateHomography(nc, dstCorners)

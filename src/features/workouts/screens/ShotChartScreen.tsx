@@ -12,16 +12,17 @@ import { AuthContext } from '@/features/auth/context/AuthContext'
 import { ShotChartResponse, CourtZone } from '../types/workouts.types'
 import { getShotChart } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { COURT_CONFIG } from '@/config/appConfig'
 
 const { width: SW } = Dimensions.get('window')
 
 // Basketball court SVG (half-court)
 // Normalized coordinates: x ∈ [0,15.24], y ∈ [0,14] (NBA half-court)
 // SVG rendering maps these to courtW × courtH pixels
-const COURT_W_M  = 15.24
-const COURT_H_M  = 14.0
+const COURT_W_M  = COURT_CONFIG.WIDTH_M
+const COURT_H_M  = 14.0 // Half-court height (full court is 28.65m)
 const HOOP_X_M   = COURT_W_M / 2
-const HOOP_Y_M   = 1.575
+const HOOP_Y_M   = COURT_CONFIG.HOOP_Y_M
 
 const CourtSVG = ({
     shots,

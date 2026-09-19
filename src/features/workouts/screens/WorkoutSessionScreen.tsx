@@ -37,17 +37,10 @@ import {
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
-import { YOLO_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
-const DEFAULT_CAMERA_RESOLUTION = { width: 1280, height: 720 }
-const DEFAULT_CAMERA_FPS = 30
-const DEFAULT_POSE_RESOLUTION = 192 // Only 192 is currently available
-const DEFAULT_CAMERA_ZOOM = 1
-const COURT_WIDTH_M  = 15.24
-const COURT_HEIGHT_M = 28.65
-const HOOP_Y_M       = 1.575
 
 const ToggleButton = ({ active, disabled, labelOn, labelOff, onPress }: any) => (
     <TouchableOpacity
@@ -68,8 +61,8 @@ const ToggleButton = ({ active, disabled, labelOn, labelOff, onPress }: any) => 
 function toCourtMeters(
     normX: number, normY: number, calibration: CalibrationData | null
 ): { courtX: number; courtY: number; distanceFromHoop: number } {
-    let courtX = normX * COURT_WIDTH_M
-    let courtY = (1 - normY) * COURT_HEIGHT_M
+    let courtX = normX * COURT_CONFIG.WIDTH_M
+    let courtY = (1 - normY) * COURT_CONFIG.HEIGHT_M
     if (calibration?.homographyMatrix?.length === 9) {
         const H = calibration.homographyMatrix
         const wx = H[0]*normX + H[1]*normY + H[2]
@@ -77,8 +70,8 @@ function toCourtMeters(
         const wz = H[6]*normX + H[7]*normY + H[8]
         if (Math.abs(wz) > 1e-6) { courtX = wx/wz; courtY = wy/wz }
     }
-    const dx = courtX - COURT_WIDTH_M/2
-    const dy = courtY - HOOP_Y_M
+    const dx = courtX - COURT_CONFIG.WIDTH_M/2
+    const dy = courtY - COURT_CONFIG.HOOP_Y_M
     return {
         courtX:  Math.round(courtX*100)/100,
         courtY:  Math.round(courtY*100)/100,
@@ -1269,14 +1262,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Stabilize effectiveResolution to prevent remount when calibration loads
     const effectiveResolutionRef = useRef<{ width: number; height: number }>(
-        selectedResolution ?? (calibration?.cameraResolution ?? DEFAULT_CAMERA_RESOLUTION)
+        selectedResolution ?? (calibration?.cameraResolution ?? CAMERA_CONFIG.DEFAULT_RESOLUTION)
     )
     const effectiveResolution = effectiveResolutionRef.current
-    const effectiveFps = selectedFps ?? DEFAULT_CAMERA_FPS
-    const effectivePoseResolution = selectedPoseResolution ?? DEFAULT_POSE_RESOLUTION
+    const effectiveFps = selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS
+    const effectivePoseResolution = selectedPoseResolution ?? CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION
     const effectiveYoloModelId = yoloModelId ?? DEFAULT_YOLO_MODEL_ID
     const effectiveMoveNetModelId = moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID
-    const effectiveZoom = zoom ?? DEFAULT_CAMERA_ZOOM
+    const effectiveZoom = zoom ?? CAMERA_CONFIG.DEFAULT_ZOOM
 
     const constraints = React.useMemo(
         () => [{ fps: effectiveFps }],
