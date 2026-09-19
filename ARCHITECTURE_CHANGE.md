@@ -980,3 +980,124 @@ Pose finale
 - Log raw MoveNet: `[POSE RAW] outputLength=51` (corretto)
 - Log parser: `[PoseParser] Raw values` mostra valori plausibili
 - La trasformazione delle coordinate è ora diretta e corretta
+
+### Risultato
+**Confermato**: La pose funziona correttamente dopo il fix. I keypoints sono rilevati con coordinate corrette e la struttura del corpo umano viene rappresentata accuratamente.
+
+## Phase 13: Centralizzazione Configuration Defaults in appConfig.ts
+
+### Obiettivo
+Centralizzare tutti i valori di default della configurazione (camera, court, calibration) nel file `appConfig.ts` per facilitare la manutenzione e il tuning.
+
+### Modifiche implementate
+
+#### 1. appConfig.ts - Aggiunta CAMERA_CONFIG e COURT_CONFIG
+- **CAMERA_CONFIG**: Valori di default per la configurazione camera
+  - `DEFAULT_RESOLUTION`: { width: 1280, height: 720 }
+  - `DEFAULT_FPS`: 30
+  - `DEFAULT_POSE_RESOLUTION`: 192
+  - `DEFAULT_ZOOM`: 1
+  - `MIN_RESOLUTION`: { width: 1280, height: 720 }
+- **COURT_CONFIG**: Dimensioni del campo in metri
+  - `WIDTH_M`: 15.24 (50 feet)
+  - `HEIGHT_M`: 28.65 (94 feet)
+  - `HOOP_Y_M`: 1.575 (10 feet / 3.05 meters)
+
+#### 2. WorkoutSessionScreen.tsx - Sostituzione costanti locali
+- Rimosse costanti locali: `DEFAULT_CAMERA_RESOLUTION`, `DEFAULT_CAMERA_FPS`, `DEFAULT_POSE_RESOLUTION`, `DEFAULT_CAMERA_ZOOM`, `COURT_WIDTH_M`, `COURT_HEIGHT_M`, `HOOP_Y_M`
+- Sostituite con riferimenti a `CAMERA_CONFIG` e `COURT_CONFIG`
+- Aggiornata funzione `toCourtMeters()` per usare `COURT_CONFIG.WIDTH_M`, `COURT_CONFIG.HEIGHT_M`, `COURT_CONFIG.HOOP_Y_M`
+
+#### 3. CalibrationScreen.tsx - Sostituzione costanti locali
+- Rimosse costanti locali: `MIN_CAPTURE`, `DEFAULT_CAPTURE`, `DEFAULT_FPS`, `DEFAULT_POSE_RESOLUTION`, `COURT_WIDTH_M`, `COURT_HEIGHT_M`
+- Sostituite con riferimenti a `CAMERA_CONFIG` e `COURT_CONFIG`
+- Aggiornato filtro risoluzioni per usare `CAMERA_CONFIG.MIN_RESOLUTION`
+- Aggiornato calcolo homography per usare `COURT_CONFIG.WIDTH_M`, `COURT_CONFIG.HEIGHT_M`
+
+#### 4. ShotChartScreen.tsx - Sostituzione costanti locali
+- Rimosse costanti locali: `COURT_W_M`, `HOOP_Y_M`
+- Sostituite con riferimenti a `COURT_CONFIG.WIDTH_M`, `COURT_CONFIG.HOOP_Y_M`
+
+### Architettura risultante
+```
+appConfig.ts (centralizzato)
+├── YOLO_CONFIG (thresholds detection)
+├── CAMERA_CONFIG (default camera settings)
+└── COURT_CONFIG (court dimensions in meters)
+
+WorkoutSessionScreen.tsx
+├── Import: CAMERA_CONFIG, COURT_CONFIG
+└── Uso: effectiveResolution, effectiveFps, toCourtMeters()
+
+CalibrationScreen.tsx
+├── Import: CAMERA_CONFIG, COURT_CONFIG
+└── Uso: DEFAULT_CAPTURE, MIN_RESOLUTION, homography calculation
+
+ShotChartScreen.tsx
+├── Import: COURT_CONFIG
+└── Uso: COURT_W_M, HOOP_Y_M
+```
+
+### Comportamento
+- Tutti i valori di default sono ora centralizzati in un unico file
+- Facilità di manutenzione: modifica in un solo punto per aggiornare i valori
+- Facilità di tuning: threshold e dimensioni facilmente accessibili
+- Coerenza: tutti i componenti usano gli stessi valori di default
+
+## Phase 14: Fix MoveNet 320 Model Preloading
+
+### Obiettivo
+Risolvere il problema per cui la pose detection funziona a 192x192 ma non a 320x320.
+
+### Root Cause
+La funzione `preloadModelAssets()` in `yoloModels.ts` pre-caricava solo il modello MoveNet di default (192x192). Quando l'utente selezionava il modello 320x320, il file del modello non era stato pre-caricato, causando il fallimento del caricamento del modello.
+
+### Modifiche implementate
+
+#### yoloModels.ts - Preload di tutti i modelli MoveNet
+**Prima:**
+```typescript
+// Also preload MoveNet model
+try {
+  const moveNetModel = getMoveNetModel()
+  if (!moveNetModel) throw new Error('No MoveNet model configured')
+  moveNetModelUri = await copyAssetToFile(moveNetModel.asset, moveNetModel.fileName)
+  moveNetModel.fileUri = moveNetModelUri
+  console.log('[YoloModels] MoveNet preloaded:', moveNetModelUri)
+} catch (error) {
+  console.error('[YoloModels] Failed to copy MoveNet model:', error)
+}
+```
+
+**Dopo:**
+```typescript
+// Also preload all MoveNet models
+for (const moveNetModel of MOVENET_MODELS) {
+  try {
+    const uri = await copyAssetToFile(moveNetModel.asset, moveNetModel.fileName)
+    moveNetModel.fileUri = uri
+    console.log('[YoloModels] MoveNet preloaded:', moveNetModel.id, uri)
+    // Set default model URI if this is the default model
+    if (moveNetModel.id === DEFAULT_MOVENET_MODEL_ID) {
+      moveNetModelUri = uri
+    }
+  } catch (error) {
+    console.error('[YoloModels] Failed to copy MoveNet model:', moveNetModel.fileName, error)
+  }
+}
+```
+
+### Architettura risultante
+```
+preloadModelAssets()
+├── Preload YOLO models (320, 512, 640)
+└── Preload ALL MoveNet models (192, 320) ← FIX
+    ├── movenet_lightning_192_int8
+    └── movenet_lightning_320_int8
+```
+
+### Comportamento
+- Tutti i modelli MoveNet sono ora pre-caricati all'avvio dell'app
+- L'utente può selezionare qualsiasi risoluzione (192 o 320) senza errori di caricamento
+- Il modello di default (192) mantiene il suo URI nella variabile `moveNetModelUri`
+- Ogni modello ha il proprio `fileUri` memorizzato nell'oggetto di configurazione
