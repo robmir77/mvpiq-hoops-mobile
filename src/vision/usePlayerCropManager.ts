@@ -187,14 +187,20 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
 
     const effectiveBbox = trackedBbox.bbox
 
-    // Add padding
-    const paddingX = effectiveBbox.width * cfg.paddingPercent
-    const paddingY = effectiveBbox.height * cfg.paddingPercent
+    // Convert normalized bbox (0-1) to pixel coordinates
+    const pixelX = effectiveBbox.x * frameWidth
+    const pixelY = effectiveBbox.y * frameHeight
+    const pixelWidth = effectiveBbox.width * frameWidth
+    const pixelHeight = effectiveBbox.height * frameHeight
 
-    let cropX = effectiveBbox.x - paddingX
-    let cropY = effectiveBbox.y - paddingY
-    let cropWidth = effectiveBbox.width + 2 * paddingX
-    let cropHeight = effectiveBbox.height + 2 * paddingY
+    // Add padding (in pixels)
+    const paddingX = pixelWidth * cfg.paddingPercent
+    const paddingY = pixelHeight * cfg.paddingPercent
+
+    let cropX = pixelX - paddingX
+    let cropY = pixelY - paddingY
+    let cropWidth = pixelWidth + 2 * paddingX
+    let cropHeight = pixelHeight + 2 * paddingY
 
     // Clamp to frame boundaries
     cropX = Math.max(0, cropX)

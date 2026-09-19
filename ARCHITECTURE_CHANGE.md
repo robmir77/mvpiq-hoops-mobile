@@ -595,3 +595,136 @@ Validazione inline (worklet-safe)
 - Log valore massimo campione: `[MoveNet Input] floatSource max sample value: 0.996`
 
 **Risultato:** MoveNet ora funziona correttamente con qualsiasi dataType del modello (uint8/int8/float32).
+
+## Phase 10: Real Player Crop Implementation
+
+### Obiettivo
+Implementare il crop reale di MoveNet worklet-safe, mantenendo il fallback FULL_FRAME solo per diagnosi transitoria. La Phase 9 aveva introdotto il fallback per capire se MoveNet funzionasse, ma ora che è stato verificato (outputLength=51, 17 keypoints), procediamo verso l'architettura definitiva senza fallback.
+
+### Modifiche implementate
+
+#### 1. usePlayerCropManager.ts - Fix calculateCrop conversion
+- **Problema:** `calculateCrop` operava direttamente su valori normalizzati (0-1) come se fossero pixel
+- **Soluzione:** Aggiunta conversione esplicita da BBox normalizzato a coordinate pixel prima di padding/clamping:
+  ```typescript
+  // Convert normalized bbox (0-1) to pixel coordinates
+  const pixelX = effectiveBbox.x * frameWidth
+  const pixelY = effectiveBbox.y * frameHeight
+  const pixelWidth = effectiveBbox.width * frameWidth
+  const pixelHeight = effectiveBbox.height * frameHeight
+  ```
+- Padding e clamp ora operano correttamente su pixel coordinate
+- Minimum crop size calcolato su pixel (20% del frame minore)
+
+#### 2. useMoveNetWorker.ts - Crop reale con logging dettagliato
+- Aggiunto `playerCropRegion` SharedValue per tracciare la regione di crop
+- Implementato calcolo crop reale inline (worklet-safe):
+  - Conversione BBox normalizzato → pixel
+  - Padding 15% (come configurazione usePlayerCropManager)
+  - Clamp ai bordi del frame
+  - Minimum crop size 20%
+- Passato crop al `rgbResizer` quando disponibile:
+  ```typescript
+  if (cropRegion) {
+    resized = rgbResizer?.resize(frame, {
+      crop: {
+        originX: cropRegion.cropX,
+        originY: cropRegion.cropY,
+        width: cropRegion.cropWidth,
+        height: cropRegion.cropHeight,
+      },
+      scale: {
+        width: poseInputSize,
+        height: poseInputSize,
+      },
+    })
+  } else {
+    // Full-frame fallback (will be removed in Phase 11)
+    resized = rgbResizer?.resize(frame)
+  }
+  ```
+- Transform keypoints da crop space → frame space quando crop è usato:
+  ```typescript
+  if (cropRegion) {
+    finalKeypoints = keypoints.map((kp: any) => ({
+      ...kp,
+      x: (cropRegion.cropX + kp.x * cropRegion.cropWidth) / frame.width,
+      y: (cropRegion.cropY + kp.y * cropRegion.cropHeight) / frame.height,
+    }))
+  }
+  ```
+- Logging dettagliato per diagnosi:
+  - `[MoveNet CROP] source=PLAYER_CROP/FULL_FRAME`
+  - `[MoveNet CROP] normalized bbox=x=0.xxx y=0.xxx w=0.xxx h=0.xxx conf=0.xxx`
+  - `[MoveNet CROP] pixelRect=x=397 y=129 w=486 h=547`
+- Telemetry `cropMs` ora registrato correttamente (era 0 prima)
+- Aggiunto `playerCropRegion` al reset
+
+### Architettura risultante (con fallback transitorio)
+````
+YOLO PLAYER
+    ↓
+playerCrop.update() (worklet function su SharedValues)
+    ↓
+TTL 750ms
+    ↓
+playerCrop.getEffectiveBbox()
+    ↓
+useShotTracker passa bbox a MoveNet
+    ↓
+useMoveNetWorker calcola crop reale
+    ├── BBox valido → crop pixel → MoveNet 192×192
+    └── BBox invalido → FULL_FRAME fallback → MoveNet 192×192 (transitorio)
+````
+
+### Comportamento attuale (Phase 10)
+- Player bbox valida → Calcolo crop pixel → MoveNet con crop reale
+- Player bbox invalida → FULL_FRAME fallback → MoveNet (per diagnosi)
+- Keypoints trasformati da crop space → frame space quando crop è usato
+- Logging coordinate per verificare correttezza del crop
+
+### Diagnostica attiva
+I log mostrano:
+- Sorgente input: `source=PLAYER_CROP` o `source=FULL_FRAME`
+- BBox normalizzato: `x=0.31 y=0.18 w=0.38 h=0.76`
+- Crop pixel: `x=397 y=129 w=486 h=547`
+- Output MoveNet: `outputLength=51`, `keypoints=17`
+
+Questo permette di identificare se il problema è:
+- BBox YOLO (coordinate normalizzate sbagliate)
+- Conversione normalizzato → pixel
+- Padding del crop
+- Clamp ai bordi
+- Coordinate invertite
+- Crop fuori frame
+- Resizer
+- Input MoveNet
+
+### Prossima fase (Phase 11)
+Dopo aver verificato che il crop reale produce output MoveNet valido (outputLength=51, keypoints=17), il fallback FULL_FRAME verrà eliminato:
+- BBox valido → crop → MoveNet
+- BBox invalido/scaduto → **NESSUNA inferenza MoveNet** (skip)
+
+### Architettura target definitiva
+````
+YOLO PLAYER
+    ↓
+playerCrop.update()
+    ↓
+TTL 750ms
+    ↓
+getEffectiveBbox()
+    ↓
+    ├── BBox valido
+    │       ↓
+    │   CROP REALE → MoveNet 192×192
+    │       ↓
+    │   POSE (17 keypoints)
+    │
+    └── BBox scaduto
+            ↓
+        SKIP MoveNet
+````
+
+### Principio fondamentale
+MoveNet non decide autonomamente cosa osservare - riceve sempre il BBox tracciato dal PlayerTracker. Se il BBox scade, MoveNet non esegue (nessun fallback full-frame).

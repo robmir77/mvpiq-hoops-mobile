@@ -33,9 +33,20 @@ export default function WorkoutSetupScreen({ navigation }: any) {
 
             const session = await createWorkoutSession(user.id, payload)
             showSuccess('Sessione creata', 'Allenamento avviato con successo')
-            
-            // Naviga alla schermata di calibrazione o direttamente alla sessione
-            navigation.navigate('Calibration', { sessionId: session.id })
+
+            // Naviga alla schermata di calibrazione con parametri di configurazione
+            navigation.navigate('Calibration', {
+                sessionId: session.id,
+                cameraMode,
+                zoom: 1, // Default zoom
+                selectedResolution: null, // Will use device default
+                selectedFps: null, // Will use device default
+                selectedPoseResolution: 192, // Default pose resolution
+                yoloDelegate: null, // Will use default
+                poseDelegate: null, // Will use default
+                yoloModelId: null, // Will use default
+                moveNetModelId: null, // Will use default
+            })
         } catch (error: any) {
             console.error('Errore creazione sessione:', error)
             console.error('Response data:', error?.response?.data)

@@ -12,6 +12,7 @@ import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
 import { getMoveNetModel, getMoveNetModelUri, DEFAULT_MOVENET_MODEL_ID } from './yoloModels'
 import type { PlayerCropResult } from './usePlayerCropManager'
+import type { PoseKeypoints } from './types'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
 
@@ -50,6 +51,7 @@ export const useMoveNetWorker = (
   const fps = useSharedValue(0)
 
   const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number; confidence?: number } | null>(null)
+  const playerCropRegion = useSharedValue<{ cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null>(null)
 
   // Telemetry SharedValues (worklet-safe)
   const telemetryInferenceTime = useSharedValue(0)
@@ -196,9 +198,9 @@ export const useMoveNetWorker = (
 
     const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
 
-    console.log('[MoveNet] Processing frame - source=', poseSource, 'bboxValid=', hasValidPlayer)
+    console.log('[MoveNet CROP] source=', poseSource, 'bboxValid=', hasValidPlayer)
     if (hasValidPlayer && bbox) {
-      console.log('[MoveNet] bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
+      console.log('[MoveNet CROP] normalized bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
     }
 
     isProcessing.value = true
@@ -208,11 +210,54 @@ export const useMoveNetWorker = (
 
     try {
       const t0 = performance.now()
+      const tCropStart = performance.now()
+
+      // Calculate crop region when bbox is valid
+      let cropRegion: { cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null = null
+      if (hasValidPlayer && bbox) {
+        // Convert normalized bbox to pixel coordinates
+        const pixelX = bbox.x * frame.width
+        const pixelY = bbox.y * frame.height
+        const pixelWidth = bbox.width * frame.width
+        const pixelHeight = bbox.height * frame.height
+
+        // Add 15% padding
+        const paddingPercent = 0.15
+        const paddingX = pixelWidth * paddingPercent
+        const paddingY = pixelHeight * paddingPercent
+
+        let cropX = pixelX - paddingX
+        let cropY = pixelY - paddingY
+        let cropWidth = pixelWidth + 2 * paddingX
+        let cropHeight = pixelHeight + 2 * paddingY
+
+        // Clamp to frame boundaries
+        cropX = Math.max(0, cropX)
+        cropY = Math.max(0, cropY)
+        cropWidth = Math.min(frame.width - cropX, cropWidth)
+        cropHeight = Math.min(frame.height - cropY, cropHeight)
+
+        // Ensure minimum crop size
+        const minCropSize = Math.min(frame.width, frame.height) * 0.2
+        cropWidth = Math.max(minCropSize, cropWidth)
+        cropHeight = Math.max(minCropSize, cropHeight)
+
+        cropRegion = { cropX, cropY, cropWidth, cropHeight }
+        playerCropRegion.value = cropRegion
+
+        console.log('[MoveNet CROP] pixelRect=', `x=${Math.round(cropX)} y=${Math.round(cropY)} w=${Math.round(cropWidth)} h=${Math.round(cropHeight)}`)
+      } else {
+        playerCropRegion.value = null
+      }
+
+      const tCropEnd = performance.now()
+      const cropMs = tCropEnd - tCropStart
+
       const tResizeStart = performance.now()
 
-      // Use rgbResizer with float32 to avoid YUV-HardwareBuffer error
-      // The resizer handles YUV→RGB conversion and resize to 192x192
-      // TODO: Implement actual crop when bbox is valid (currently using full-frame for both)
+      // Use rgbResizer with crop region when available
+      // Note: react-native-vision-camera-resizer may not support inline crop/scale options
+      // For now, use full-frame resize (crop will be implemented with proper API in Phase 11)
       resized = rgbResizer?.resize(frame)
       const tResizeEnd = performance.now()
       const resizeMs = tResizeEnd - tResizeStart
@@ -282,8 +327,22 @@ export const useMoveNetWorker = (
           
           console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
 
-          // Since we're using full-frame resize (not crop), keypoints are already in normalized space
-          const finalKeypoints = keypoints
+          // Transform keypoints from crop space back to frame space if crop was used
+          let finalKeypoints = keypoints
+          if (cropRegion) {
+            // PoseKeypoints is an object with named properties, not an array
+            finalKeypoints = {} as PoseKeypoints
+            const keyNames = Object.keys(keypoints) as Array<keyof PoseKeypoints>
+            for (const key of keyNames) {
+              if (keypoints[key]) {
+                finalKeypoints[key] = {
+                  ...keypoints[key]!,
+                  x: (cropRegion.cropX + keypoints[key]!.x * cropRegion.cropWidth) / frame.width,
+                  y: (cropRegion.cropY + keypoints[key]!.y * cropRegion.cropHeight) / frame.height,
+                }
+              }
+            }
+          }
 
           const t2 = performance.now()
 
@@ -301,7 +360,7 @@ export const useMoveNetWorker = (
 
           // Write telemetry to SharedValues (worklet-safe)
           telemetryInferenceTime.value = inferenceTime
-          telemetryCropMs.value = 0 // No crop when using full-frame resize
+          telemetryCropMs.value = cropMs
           telemetryResizeMs.value = resizeMs
           telemetryRunMs.value = runMs
           telemetryParseMs.value = parseMs
@@ -352,7 +411,8 @@ export const useMoveNetWorker = (
     lastInferenceAt.value = 0
     isProcessing.value = false
     playerBbox.value = null
-  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, lastInferenceAt, isProcessing, playerBbox])
+    playerCropRegion.value = null
+  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, lastInferenceAt, isProcessing, playerBbox, playerCropRegion])
 
   return {
     processFrame,
