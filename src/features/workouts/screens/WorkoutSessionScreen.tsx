@@ -274,9 +274,9 @@ const RealtimeBallOverlay = React.memo(({
 
         if (playerXVal === 0 && playerYVal === 0) return Skia.Path.Make()
 
-        // Convert to screen coordinates
-        const topLeft = mapNormalizedToCameraView(playerXVal, playerYVal, effectiveResolution.width, effectiveResolution.height)
-        const bottomRight = mapNormalizedToCameraView(playerXVal + playerW, playerYVal + playerH, effectiveResolution.width, effectiveResolution.height)
+        // Convert to screen coordinates (playerX/Y are center coordinates from YOLO)
+        const topLeft = mapNormalizedToCameraView(playerXVal - playerW/2, playerYVal - playerH/2, effectiveResolution.width, effectiveResolution.height)
+        const bottomRight = mapNormalizedToCameraView(playerXVal + playerW/2, playerYVal + playerH/2, effectiveResolution.width, effectiveResolution.height)
 
         const rect = Skia.XYWHRect(
             topLeft.x,
@@ -291,6 +291,34 @@ const RealtimeBallOverlay = React.memo(({
         const playerXVal = sharedValues?.playerX?.value ?? 0
         const playerYVal = sharedValues?.playerY?.value ?? 0
         return (playerXVal > 0 && playerYVal > 0) ? 1 : 0
+    })
+
+    // Dynamic colors based on rejection state
+    const ballRawColor = useDerivedValue(() => {
+        const rejectionReason = sharedValues?.ballRejectionReason?.value ?? ''
+        return rejectionReason !== '' ? '#ef4444' : '#ff8c00'
+    })
+    const ballRawFillColor = useDerivedValue(() => {
+        const rejectionReason = sharedValues?.ballRejectionReason?.value ?? ''
+        return rejectionReason !== '' ? 'rgba(239,68,68,0.22)' : 'rgba(255,140,0,0.22)'
+    })
+    
+    const hoopColor = useDerivedValue(() => {
+        const rejectionReason = sharedValues?.rimRejectionReason?.value ?? ''
+        return rejectionReason !== '' ? '#ef4444' : '#4ade80'
+    })
+    const hoopFillColor = useDerivedValue(() => {
+        const rejectionReason = sharedValues?.rimRejectionReason?.value ?? ''
+        return rejectionReason !== '' ? 'rgba(239,68,68,0.18)' : 'rgba(74,222,128,0.18)'
+    })
+    
+    const playerColor = useDerivedValue(() => {
+        const playerConf = sharedValues?.playerConfidence?.value ?? 0
+        return playerConf < 0.45 ? '#ef4444' : '#22c55e'
+    })
+    const playerFillColor = useDerivedValue(() => {
+        const playerConf = sharedValues?.playerConfidence?.value ?? 0
+        return playerConf < 0.45 ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'
     })
 
     // Skeleton segment colors
@@ -429,13 +457,13 @@ const RealtimeBallOverlay = React.memo(({
                         cx={ballXPxRaw}
                         cy={ballYPxRaw}
                         r={ballRadius}
-                        color="rgba(255,140,0,0.22)"
+                        color={ballRawFillColor}
                     />
                     <SkiaCircle
                         cx={ballXPxRaw}
                         cy={ballYPxRaw}
                         r={ballRadius}
-                        color="#ff8c00" style="stroke" strokeWidth={2.5}
+                        color={ballRawColor} style="stroke" strokeWidth={2.5}
                     />
                 </Group>
 
@@ -466,22 +494,22 @@ const RealtimeBallOverlay = React.memo(({
                 <Group>
                     <SkiaPath
                         path={hoopOvalPath}
-                        color="rgba(74,222,128,0.18)"
+                        color={hoopFillColor}
                     />
                     <SkiaPath
                         path={hoopOvalPath}
-                        color="#4ade80" style="stroke" strokeWidth={2.5}
+                        color={hoopColor} style="stroke" strokeWidth={2.5}
                     />
                 </Group>
 
                 <Group opacity={playerBboxOpacity}>
                     <SkiaPath
                         path={playerBboxPath}
-                        color="rgba(34,197,94,0.2)"
+                        color={playerFillColor}
                     />
                     <SkiaPath
                         path={playerBboxPath}
-                        color="#22c55e" style="stroke" strokeWidth={2}
+                        color={playerColor} style="stroke" strokeWidth={2}
                     />
                 </Group>
 
@@ -643,6 +671,12 @@ const ReactOverlay = React.memo(({
     const [ballLabelVisible, setBallLabelVisible] = React.useState(false)
     const [ballLabelPos, setBallLabelPos] = React.useState({ left: 0, top: 0 })
     const [ballLabelText, setBallLabelText] = React.useState('')
+    const [hoopLabelVisible, setHoopLabelVisible] = React.useState(false)
+    const [hoopLabelPos, setHoopLabelPos] = React.useState({ left: 0, top: 0 })
+    const [hoopLabelText, setHoopLabelText] = React.useState('')
+    const [playerLabelVisible, setPlayerLabelVisible] = React.useState(false)
+    const [playerLabelPos, setPlayerLabelPos] = React.useState({ left: 0, top: 0 })
+    const [playerLabelText, setPlayerLabelText] = React.useState('')
     const [powerBadgeVisible, setPowerBadgeVisible] = React.useState(false)
     const [angleBadgeVisible, setAngleBadgeVisible] = React.useState(false)
     const [inFlightBadgeVisible, setInFlightBadgeVisible] = React.useState(false)
@@ -684,6 +718,12 @@ const ReactOverlay = React.memo(({
         showTrail: boolean
         ballSizeCategory?: string | null
         adaptiveThreshold?: number
+        hoopX: number
+        hoopY: number
+        hoopConfidence: number
+        playerX: number
+        playerY: number
+        playerConfidence: number
     }) => {
         setBallLabelVisible(data.showLabel)
         const mappedPos = mapNormalizedToCameraView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
@@ -700,6 +740,25 @@ const ReactOverlay = React.memo(({
         
         const threshLabel = data.adaptiveThreshold ? `| Thresh: ${data.adaptiveThreshold.toFixed(3)}` : ''
         setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}% ${sizeLabel} ${threshLabel}`)
+        
+        // Hoop label
+        const showHoopLabel = data.hoopX > 0 && data.hoopY > 0
+        setHoopLabelVisible(showHoopLabel)
+        if (showHoopLabel) {
+            const hoopPos = mapNormalizedToCameraView(data.hoopX, data.hoopY, effectiveResolution.width, effectiveResolution.height)
+            setHoopLabelPos({ left: hoopPos.x - 32, top: hoopPos.y - 44 })
+            setHoopLabelText(`🏀 ${Math.round(data.hoopConfidence * 100)}%`)
+        }
+        
+        // Player label
+        const showPlayerLabel = data.playerX > 0 && data.playerY > 0
+        setPlayerLabelVisible(showPlayerLabel)
+        if (showPlayerLabel) {
+            const playerPos = mapNormalizedToCameraView(data.playerX, data.playerY, effectiveResolution.width, effectiveResolution.height)
+            setPlayerLabelPos({ left: playerPos.x - 32, top: playerPos.y - 44 })
+            setPlayerLabelText(`👤 ${Math.round(data.playerConfidence * 100)}%`)
+        }
+        
         setPowerBadgeVisible(data.inFlight && shotPower > 0)
         setAngleBadgeVisible(releaseAngle != null && data.inFlight)
         setInFlightBadgeVisible(data.showTrail)
@@ -725,6 +784,12 @@ const ReactOverlay = React.memo(({
             showTrail: sharedValues?.showShotTrail.value ?? false,
             ballSizeCategory: sharedValues?.ballSizeCategory.value,
             adaptiveThreshold: sharedValues?.adaptiveThreshold.value,
+            hoopX: sharedValues?.hoopX.value ?? 0,
+            hoopY: sharedValues?.hoopY.value ?? 0,
+            hoopConfidence: rimFromDetection?.confidence ?? 0,
+            playerX: sharedValues?.playerX.value ?? 0,
+            playerY: sharedValues?.playerY.value ?? 0,
+            playerConfidence: sharedValues?.playerConfidence?.value ?? 0,
         }),
         (current) => {
             const now = Date.now()
@@ -862,6 +927,32 @@ const ReactOverlay = React.memo(({
                     <View style={ovStyles.ballLabelBox}>
                         <Text style={ovStyles.ballLabelText}>
                             {ballLabelText}
+                        </Text>
+                    </View>
+                </View>
+            )}
+
+            {hoopLabelVisible && (
+                <View
+                    pointerEvents="none"
+                    style={[ovStyles.ballLabelWrap, hoopLabelPos]}
+                >
+                    <View style={[ovStyles.ballLabelBox, { borderColor: 'rgba(74,222,128,0.6)' }]}>
+                        <Text style={ovStyles.ballLabelText}>
+                            {hoopLabelText}
+                        </Text>
+                    </View>
+                </View>
+            )}
+
+            {playerLabelVisible && (
+                <View
+                    pointerEvents="none"
+                    style={[ovStyles.ballLabelWrap, playerLabelPos]}
+                >
+                    <View style={[ovStyles.ballLabelBox, { borderColor: 'rgba(34,197,94,0.6)' }]}>
+                        <Text style={ovStyles.ballLabelText}>
+                            {playerLabelText}
                         </Text>
                     </View>
                 </View>
