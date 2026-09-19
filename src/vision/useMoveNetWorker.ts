@@ -241,10 +241,22 @@ export const useMoveNetWorker = (
       return
     }
 
-    // Get player bbox from YOLO
-    const bbox = playerBbox.value
+    // Get player bbox from YOLO (center coordinates)
+    const bboxRaw = playerBbox.value
+    
+    // Convert center coordinates to top-left for validation and crop calculation
+    // YOLO provides center (cx, cy), but validation and crop need top-left
+    const bbox = bboxRaw ? {
+      x: bboxRaw.x - bboxRaw.width / 2,
+      y: bboxRaw.y - bboxRaw.height / 2,
+      width: bboxRaw.width,
+      height: bboxRaw.height,
+      confidence: bboxRaw.confidence,
+    } : null
 
     // Inline validation (worklet-safe - no external function calls)
+    // Allow slight out-of-bounds (up to 5%) since crop will be clamped anyway
+    const BOUNDARY_TOLERANCE = 0.05
     const hasValidPlayer =
       bbox != null &&
       bbox.confidence != null &&
@@ -253,10 +265,10 @@ export const useMoveNetWorker = (
       bbox.width <= PLAYER_MAX_WIDTH &&
       bbox.height >= PLAYER_MIN_HEIGHT &&
       bbox.height <= PLAYER_MAX_HEIGHT &&
-      bbox.x >= 0 &&
-      bbox.y >= 0 &&
-      bbox.x + bbox.width <= 1 &&
-      bbox.y + bbox.height <= 1
+      bbox.x >= -BOUNDARY_TOLERANCE &&
+      bbox.y >= -BOUNDARY_TOLERANCE &&
+      bbox.x + bbox.width <= 1 + BOUNDARY_TOLERANCE &&
+      bbox.y + bbox.height <= 1 + BOUNDARY_TOLERANCE
 
     const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
 
@@ -291,7 +303,7 @@ export const useMoveNetWorker = (
       // Calculate crop region when bbox is valid
       let cropRegion: { cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null = null
       if (hasValidPlayer && bbox) {
-        // Convert normalized bbox to pixel coordinates
+        // Convert normalized bbox to pixel coordinates (bbox is already top-left)
         const pixelX = bbox.x * frame.width
         const pixelY = bbox.y * frame.height
         const pixelWidth = bbox.width * frame.width
@@ -425,6 +437,14 @@ export const useMoveNetWorker = (
           // Transform keypoints from crop space back to frame space if crop was used
           let finalKeypoints = keypoints
           if (cropRegion) {
+            // Log for debugging pose position issue
+            const sampleKey = Object.keys(keypoints)[0] as keyof PoseKeypoints
+            if (sampleKey && keypoints[sampleKey]) {
+              console.log('[POSE TRANSFORM DEBUG] cropRegion:', `x=${cropRegion.cropX.toFixed(0)} y=${cropRegion.cropY.toFixed(0)} w=${cropRegion.cropWidth.toFixed(0)} h=${cropRegion.cropHeight.toFixed(0)}`)
+              console.log('[POSE TRANSFORM DEBUG] frame size:', `${frame.width}x${frame.height}`)
+              console.log('[POSE TRANSFORM DEBUG] raw keypoint:', `${sampleKey}= x=${keypoints[sampleKey]!.x.toFixed(3)} y=${keypoints[sampleKey]!.y.toFixed(3)}`)
+            }
+            
             // PoseKeypoints is an object with named properties, not an array
             finalKeypoints = {} as PoseKeypoints
             const keyNames = Object.keys(keypoints) as Array<keyof PoseKeypoints>
@@ -436,6 +456,10 @@ export const useMoveNetWorker = (
                   y: (cropRegion.cropY + keypoints[key]!.y * cropRegion.cropHeight) / frame.height,
                 }
               }
+            }
+            
+            if (sampleKey && finalKeypoints[sampleKey]) {
+              console.log('[POSE TRANSFORM DEBUG] transformed keypoint:', `${sampleKey}= x=${finalKeypoints[sampleKey]!.x.toFixed(3)} y=${finalKeypoints[sampleKey]!.y.toFixed(3)}`)
             }
           }
 
