@@ -741,3 +741,27 @@ MoveNet usa il BBox tracciato dal PlayerTracker quando disponibile. Con `react-n
 7. In assenza di BBox valido viene usato temporaneamente il FULL_FRAME fallback.
 
 Questa soluzione evita la migrazione al plugin V4 deprecato e non richiede codice nativo Kotlin/Swift. Il costo del resampling CPU viene misurato nella telemetria `cropMs`.
+
+### Stato attuale - Player Detection
+L'attuale modello `best_512_int8.tflite` produce valori di confidence estremamente bassi per la classe human (circa 0.0001–0.0003 nei frame analizzati), mentre i valori relativi alla classe ball risultano significativamente maggiori (circa 0.01–0.14).
+
+La conversione tramite sigmoid non è applicabile come correzione: valori raw prossimi a zero producono valori sigmoid prossimi a 0.5 e non rappresentano una confidence reale elevata. I log diagnostici mostrano:
+- `humanRaw: 0.000111` → `humanSigmoid: 0.500028`
+- `humanRaw: 0.000128` → `humanSigmoid: 0.500032`
+- `humanRaw: 0.000147` → `humanSigmoid: 0.500037`
+
+Il `PlayerCropManager` mantiene correttamente una soglia di sicurezza (0.45) e rifiuta le candidate human con confidence ~0.0001. Di conseguenza il sistema non dispone attualmente di un bounding box player affidabile e MoveNet opera in fallback FULL_FRAME.
+
+### Test con PLAYER_CONF_THRESHOLD=0.01
+Per verificare se il problema fosse rumore da filtrare, è stato aumentato `PLAYER_CONF_THRESHOLD` da 0.0001 a 0.01 (100 volte più restrittivo). Il test ha prodotto:
+- **Risultato**: Tutti i frame mostrano `player: "null"` e `humanRawMax: "N/A"`
+- **Telemetria**: Solo 2 detections su 243 frames (0.8% detection rate)
+- **Conclusione**: Non c'è rumore da filtrare - i valori human sono semplicemente troppo bassi. Il modello non produce detections umane affidabili a nessuna soglia ragionevole.
+
+Questo test conferma che il problema risiede nel modello/addestramento, non nell'interpretazione del parser. Il modello `best_512_int8.tflite` non è adatto per la player detection affidabile.
+
+### Prossimi passi
+Le opzioni per risolvere il problema sono:
+1. Riaddestrare il modello con più epoche e/o più dati umani
+2. Utilizzare un modello separato per person detection (es. COCO)
+3. Valutare un modello YOLO diverso addestrato specificamente per persone

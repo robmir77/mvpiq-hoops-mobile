@@ -12,6 +12,7 @@ export interface PlayerCropConfig {
   smoothingFactor: number // Smoothing factor for bbox (0-1, default 0.3)
   bboxTtlMs: number // Time-based TTL for bbox validity in milliseconds (default 750)
   minConfidence: number // Minimum confidence threshold for player detection (default 0.3)
+  maxJumpThreshold: number // Maximum allowed bbox jump between frames (normalized, default 0.15)
 }
 
 export interface PlayerCropResult {
@@ -45,6 +46,7 @@ const DEFAULT_CONFIG: PlayerCropConfig = {
   smoothingFactor: 0.3,
   bboxTtlMs: 750,
   minConfidence: 0.45,
+  maxJumpThreshold: 0.15, // Reject bbox jumps larger than 15% of frame
 }
 
 /**
@@ -95,7 +97,25 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       const confidence = playerBbox.confidence ?? 1.0
       if (confidence < cfg.minConfidence) {
         // Low confidence detection - ignore but don't reset tracking
+        if (__DEV__) {
+          console.log('[PLAYER CROP] Rejected low confidence:', confidence.toFixed(6), 'threshold:', cfg.minConfidence)
+        }
         return
+      }
+
+      // Apply jump threshold filter (stability check)
+      if (hasBbox.value && smoothedX.value !== 0) {
+        const dx = Math.abs(playerBbox.x - smoothedX.value)
+        const dy = Math.abs(playerBbox.y - smoothedY.value)
+        const jump = Math.sqrt(dx * dx + dy * dy)
+
+        if (jump > cfg.maxJumpThreshold) {
+          // Bbox jumped too much - reject as noise
+          if (__DEV__) {
+            console.log('[PLAYER CROP] Rejected large jump:', jump.toFixed(3), 'threshold:', cfg.maxJumpThreshold, 'from:', smoothedX.value.toFixed(3), smoothedY.value.toFixed(3), 'to:', playerBbox.x.toFixed(3), playerBbox.y.toFixed(3))
+          }
+          return
+        }
       }
 
       // Player detected - update tracking state

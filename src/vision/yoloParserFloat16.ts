@@ -7,8 +7,8 @@
 // Requires grid/stride decoding for proper coordinate extraction
 
 const NMS_IOU_THRESHOLD = 0.4
-const CONF_THRESHOLD = 0.005  // Minimum confidence threshold (0.5%) - lower values are noise
-const PLAYER_CONF_THRESHOLD = 0.0001  // Minimum confidence threshold for player (0.01%) - very permissive
+const CONF_THRESHOLD = 0.003  // Minimum confidence threshold (0.3%) - lowered to detect more balls
+const PLAYER_CONF_THRESHOLD = 0.001  // Minimum confidence threshold for player (0.1%) - slightly increased
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
 // Adaptive confidence threshold based on detected ball size.
@@ -99,23 +99,7 @@ function isValidBallGeometry(width: number, height: number): { valid: boolean; a
 // YOLOv8 detection head strides for multi-scale feature pyramid
 const STRIDES = [8, 16, 32]
 
-// The ball detection produces very wide raw boxes, but the center is correct.
-// Clamp to reasonable normalized size (max 100% of screen) for distant shots
-// Increased from 0.95 to 0.99 to 1.0 to accept extremely large balls
-// Normalized to reference resolution 512
-const MAX_BALL_BOX_SIZE = 1.0
-// A ball smaller than this radius is below the reliable visual resolution
-// for the current detector and is treated as noise. This is deliberately
-// a radius threshold, not a minimum accepted ball size: above it, smaller
-// balls are made progressively easier to accept via the adaptive threshold.
-// 0.003 radius = 0.006 normalized diameter (~3 px at 512x512).
-// Decreased from 0.008 to 0.005 to 0.003 to accept extremely small balls
-// Normalized to reference resolution 512
-const MIN_BALL_RADIUS = 0.003
-// For rim, keep a more conservative filter.
-// Increased from 0.8 to 0.9 to accommodate larger rim detections
-// Normalized to reference resolution 512
-const MAX_RIM_BOX_SIZE = 0.9
+// MAX_BALL_BOX_SIZE and MAX_RIM_BOX_SIZE filters removed - trust the model's output
 
 // Parse YOLO output to BallDetection
 // This runs in the Worklet - NO runOnJS here
@@ -204,9 +188,6 @@ export function parseYoloOutputFloat16(
 
     // Normalize thresholds to reference resolution 512
     const resolutionScale = TENSOR_SIZE / 512
-    const normalizedMinBallRadius = MIN_BALL_RADIUS * resolutionScale
-    const normalizedMaxBallBoxSize = MAX_BALL_BOX_SIZE * resolutionScale
-    const normalizedMaxRimBoxSize = MAX_RIM_BOX_SIZE * resolutionScale
 
     // Convert coordinates from letterboxed tensor space to camera-normalized space
     const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
@@ -289,10 +270,7 @@ export function parseYoloOutputFloat16(
       const aspectRatio = geometryCheck.aspectRatio
 
       // Use adaptive threshold for ball detection based on apparent size.
-      // Small/distant balls get a lower confidence requirement; extremely tiny
-      // boxes are rejected as noise instead of lowering the threshold forever.
-      const ballRadius = Math.min(cameraW, cameraH) / 2
-      const ballTooSmall = ballRadius < normalizedMinBallRadius
+      // Small/distant balls get a lower confidence requirement
       const ballAdaptiveThreshold = getAdaptiveThreshold(cameraW, cameraH, threshold, resolutionScale)
 
       // Track max ball score for frames without detection
@@ -300,13 +278,7 @@ export function parseYoloOutputFloat16(
         maxBallScore = ballProb
         maxBallAnchor = { index: i, cx: cameraCx, cy: cameraCy, w: cameraW, h: cameraH, confidence: ballProb }
       }
-      if (ballTooSmall) {
-        rejectedTooSmall++
-        // Only sample if confidence is significant (> 0.01) to filter out noise
-        if (tooSmallSamples.length < MAX_SAMPLES && ballProb > 0.01) {
-          tooSmallSamples.push({ confidence: ballProb, width: cameraW, height: cameraH, radius: ballRadius })
-        }
-      } else if (!validGeometry) {
+      if (!validGeometry) {
         rejectedGeometry++
       } else if (ballProb < ballAdaptiveThreshold) {
         rejectedLowConfidence++
@@ -315,12 +287,10 @@ export function parseYoloOutputFloat16(
       // Removed per-detection logging - too expensive with 8400 anchors
 
       // Accept when:
-      // 1. Not too small (above noise floor)
-      // 2. Valid geometry (aspect ratio not suspicious)
-      // 3. Confidence clears adaptive threshold
-      // 4. Box not absurdly large
+      // 1. Valid geometry (aspect ratio not suspicious)
+      // 2. Confidence clears adaptive threshold
       // Use ball class (0) for ball detection
-      if (!ballTooSmall && validGeometry && ballProb >= ballAdaptiveThreshold && cameraW <= normalizedMaxBallBoxSize && cameraH <= normalizedMaxBallBoxSize) {
+      if (validGeometry && ballProb >= ballAdaptiveThreshold) {
         const detection = {
           x: cameraCx,
           y: cameraCy,
@@ -335,9 +305,9 @@ export function parseYoloOutputFloat16(
         }
       }
 
-      // Add rim detection if score above rim threshold (or default threshold) and box size is acceptable
+      // Add rim detection if score above rim threshold (or default threshold)
       const effectiveRimThreshold = rimThreshold ?? threshold
-      if (rimProb >= effectiveRimThreshold && cameraW <= normalizedMaxRimBoxSize && cameraH <= normalizedMaxRimBoxSize) {
+      if (rimProb >= effectiveRimThreshold) {
         const detection = {
           x: cameraCx,
           y: cameraCy,
@@ -371,20 +341,13 @@ export function parseYoloOutputFloat16(
     // Classify rejection reason for max ball anchor
     let maxBallAnchorRejection: string | null = null
     if (maxBallAnchor) {
-      const ballRadius = Math.min(maxBallAnchor.w, maxBallAnchor.h) / 2
-      const ballTooSmall = ballRadius < normalizedMinBallRadius
       const geometryCheck = isValidBallGeometry(maxBallAnchor.w, maxBallAnchor.h)
       const ballAdaptiveThreshold = getAdaptiveThreshold(maxBallAnchor.w, maxBallAnchor.h, threshold, resolutionScale)
-      const tooLarge = maxBallAnchor.w > normalizedMaxBallBoxSize || maxBallAnchor.h > normalizedMaxBallBoxSize
-      
+
       if (maxBallAnchor.confidence < ballAdaptiveThreshold) {
         maxBallAnchorRejection = 'LOW_CONFIDENCE'
-      } else if (ballTooSmall) {
-        maxBallAnchorRejection = 'TOO_SMALL'
       } else if (!geometryCheck.valid) {
         maxBallAnchorRejection = 'BAD_GEOMETRY'
-      } else if (tooLarge) {
-        maxBallAnchorRejection = 'MAX_SIZE'
       } else {
         maxBallAnchorRejection = 'ACCEPTED'
       }
@@ -408,6 +371,41 @@ export function parseYoloOutputFloat16(
         height: bestBall.height.toFixed(6),
         confidence: bestBall.confidence.toFixed(6),
       })
+    }
+
+    // Log player geometry for diagnostic
+    if (__DEV__ && bestPlayer) {
+      const aspectRatio = bestPlayer.height / bestPlayer.width
+      console.log('[PLAYER GEOMETRY]', {
+        conf: bestPlayer.confidence.toFixed(6),
+        w: bestPlayer.width.toFixed(6),
+        h: bestPlayer.height.toFixed(6),
+        aspect: aspectRatio.toFixed(2),
+      })
+    }
+
+    // Diagnostic logging to understand output format (raw logits vs probabilities)
+    if (__DEV__) {
+      const sigmoid = (x: number) => 1 / (1 + Math.exp(-x))
+      console.log('[YOLO SCORE DIAGNOSTIC]', {
+        ballRawMin: maxBallScore.toFixed(6),
+        ballRawMax: maxBallScore.toFixed(6),
+        ballSigmoid: sigmoid(maxBallScore).toFixed(6),
+        humanRawMin: bestPlayer ? bestPlayer.confidence.toFixed(6) : 'N/A',
+        humanRawMax: bestPlayer ? bestPlayer.confidence.toFixed(6) : 'N/A',
+        humanSigmoid: bestPlayer ? sigmoid(bestPlayer.confidence).toFixed(6) : 'N/A',
+        rimRawMin: bestRim ? bestRim.confidence.toFixed(6) : 'N/A',
+        rimRawMax: bestRim ? bestRim.confidence.toFixed(6) : 'N/A',
+        rimSigmoid: bestRim ? sigmoid(bestRim.confidence).toFixed(6) : 'N/A'
+      })
+
+      if (bestPlayer) {
+        console.log('[YOLO HUMAN BEST]', {
+          raw: bestPlayer.confidence.toFixed(6),
+          sigmoid: sigmoid(bestPlayer.confidence).toFixed(6),
+          bbox: `x=${bestPlayer.x.toFixed(3)} y=${bestPlayer.y.toFixed(3)} w=${bestPlayer.width.toFixed(3)} h=${bestPlayer.height.toFixed(3)}`
+        })
+      }
     }
 
     return { ball: bestBall ? { x: bestBall.x, y: bestBall.y, width: bestBall.width, height: bestBall.height, confidence: bestBall.confidence } : null, player: bestPlayer ? { x: bestPlayer.x, y: bestPlayer.y, width: bestPlayer.width, height: bestPlayer.height, confidence: bestPlayer.confidence } : null, rim: bestRim ? { x: bestRim.x, y: bestRim.y, width: bestRim.width, height: bestRim.height, confidence: bestRim.confidence } : null, debug: { conf: maxRawConfidence, ballIndex: bestBall?.index, rimIndex: bestRim?.index, rejectedTooSmall, rejectedLowConfidence, rejectedGeometry, tooSmallSamples, lowConfidenceAccepted: bestBall && bestBall.confidence <= 0.03 ? { confidence: bestBall.confidence, width: bestBall.width, height: bestBall.height, x: bestBall.x, y: bestBall.y } : null, maxBallScore, maxBallAnchor, maxBallAnchorRejection } }
