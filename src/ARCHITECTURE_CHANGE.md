@@ -1262,218 +1262,87 @@ I test diagnostici della Phase 15 hanno mostrato che MoveNet è il collo di bott
 - Con MoveNet disabilitato: camFPS ~29 FPS (+163%)
 - Il problema è architetturale: l'esecuzione sincrona seriale blocca il camera thread
 
-### Modifiche implementate
+### Architettura attuale (sorgente src(20260920-092613).zip)
 
-#### 1. Riattivazione MoveNet
-- `ENABLE_MOVENET = false` → `ENABLE_MOVENET = true`
+**Percorso MoveNet:**
+```
+Camera frame (1280×720)
+   ↓
+processFrame() [WORKLET]
+   ↓
+calcolo bbox / crop
+   ↓
+rgbResizer.resize(frame) → FULL FRAME 192×192
+   ↓
+getPixelBuffer()
+   ↓
+CPU crop/resample [WORKLET] → 192×192 player
+   ↓
+costruzione inputBuffer
+   ↓
+scheduleOnRN(runMoveNetInference, ...)
+   ↓
+runMoveNetInference() [JS THREAD]
+   ↓
+await poseModelInstance.run()
+   ↓
+parse output
+   ↓
+aggiornamento SharedValues
+```
 
-#### 2. Conversione runSync → run()
-**Prima:**
+**Nota importante:** Nel sorgente attuale MoveNet è già ASYNC. Non viene più usato `runSync()`, ma `run()` con `scheduleOnRN`.
+
+### Problema identificato: CPU crop è il vero collo di bottiglia
+
+**Design attuale subottimale:**
+```
+1280×720 camera
+       ↓
+resize FULL FRAME → 192×192
+       ↓
+CPU crop/resample → 192×192 player
+       ↓
+MoveNet
+```
+
+Il codice attuale fa:
 ```typescript
-const tRunStart = performance.now()
-const outputs = poseModelInstance!.runSync([inputBuffer])
-const tRunEnd = performance.now()
-const runMs = tRunEnd - tRunStart
-// ... parsing e post-processing sincroni
+// V5 accepts only resize(frame). We therefore resize the full frame first
+// and perform the player crop/resample CPU-side on the Float32 tensor.
+resized = rgbResizer?.resize(frame)
 ```
 
-**Dopo:**
+Poi esegue il crop CPU via `cropResizedFloat32()`:
 ```typescript
-const tRunStart = performance.now()
-poseModelInstance!.run([inputBuffer]).then((outputs: ArrayBuffer[]) => {
-  const tRunEnd = performance.now()
-  const runMs = tRunEnd - tRunStart
-  // ... parsing e post-processing nel callback asincrono
-}).catch((error: any) => {
-  // Gestione errori
-})
+const cropResult = cropResizedFloat32(
+  floatSource,
+  poseInputSize,
+  frame.width,
+  frame.height,
+  cropRegion,
+  poseInputSize,
+)
 ```
 
-#### 3. Ristrutturazione processFrame
-- Preprocessing (crop, resize, CPU crop, conversione dataType) eseguito sincronamente
-- Inferenza eseguita asincronamente con `run()`
-- Tutto il codice dipendente da `outputs` spostato dentro la continuation:
-  - Parsing output
-  - Calcolo joint angles
-  - Transform keypoints (crop → frame space)
-  - Aggiornamento SharedValues
-  - Telemetry
-- `isProcessing.value = false` eseguito solo quando l'inferenza asincrona termina
-- `resized.dispose()` spostato dopo il completamento dell'operazione asincrona (sia in `.then()` che in `.catch()`)
-- Rimosso `finally` perché con async sarebbe eseguito prematuramente
+Questa funzione percorre tutti i 192×192 pixel con interpolazione bilineare:
+- 192 × 192 × 3 = 110.592 valori da ricampionare ad ogni inferenza
+- Costo: ~92 ms
 
-#### 4. Fix use-after-free
-**Problema identificato:**
-Con l'operazione asincrona, `processFrame()` ritorna prima che la Promise abbia terminato. Nel frattempo `useShotTracker` esegue `frame.dispose()`. Il callback asincrono potrebbe ancora tentare di accedere a `frame.width` e `frame.height`, causando un crash.
-
-**Soluzione implementata:**
-Salvataggio delle dimensioni del frame prima dell'operazione asincrona:
-```typescript
-isProcessing.value = true
-
-// Capture frame dimensions before async operation to avoid use-after-free
-const frameWidth = frame.width
-const frameHeight = frame.height
-```
-
-Sostituzione degli usi di `frame.width/height` nel callback asincrono:
-```typescript
-// Log
-console.log('[POSE TRANSFORM DEBUG] frame size:', `${frameWidth}x${frameHeight}`)
-
-// Transform keypoints
-finalKeypoints[key] = {
-  ...keypoints[key]!,
-  x: pixelX / frameWidth,
-  y: pixelY / frameHeight,
-}
-```
-
-### Architettura risultante
-```
-Frame N
-  │
-  ├─ crop calculation (sync)
-  ├─ resize (sync)
-  ├─ CPU crop (sync)
-  ├─ inputBuffer preparation (sync)
-  ├─ isProcessing = true
-  │
-  └─ run() async ────────────────────────┐
-                                       │
-Frame N ritorna                         │
-  │                                    │
-  └─ frame.dispose()                    │
-                                       │
-                                 risultato MoveNet
-                                       │
-                                       ├─ parse
-                                       ├─ angles
-                                       ├─ transform (usa frameWidth/frameHeight salvati)
-                                       ├─ SharedValues
-                                       ├─ telemetry
-                                       ├─ resized.dispose()
-                                       ├─ isProcessing = false
-                                       └─ lastInferenceAt = Date.now()
-```
-
-### Comportamento
-- Il Frame Processor può continuare a ricevere frame mentre MoveNet elabora
-- `isProcessing` impedisce di lanciare una seconda inferenza mentre la prima è ancora in corso
-- Frame successivi vengono saltati (`[MoveNet] Skip: ... isProcessing=true`) finché l'inferenza corrente non termina
-- Le dimensioni del frame sono salvate come numeri semplici, sicuri da usare nel callback asincrono
-
-### Protezione contro code infinite
-Il controllo `isProcessing.value` all'inizio di `processFrame()` impedisce di lanciare una seconda inferenza MoveNet mentre la prima è ancora in corso:
-```
-Frame 100
-   │
-   └─ MoveNet async ────────────────┐
-                                   │
-Frame 101 ── skip                   │
-Frame 102 ── skip                   │
-Frame 103 ── skip                   │
-                                   ▼
-                               risultato
-                                   │
-                            isProcessing=false
-```
-
-### Risultato atteso
-- Camera FPS dovrebbe migliorare significativamente (da ~11 FPS verso ~29 FPS come nel test diagnostico)
-- MoveNet continua a operare a 3 FPS (frequenza invariata)
-- Nessun crash da use-after-free grazie al salvataggio delle dimensioni del frame
-
-### Problema riscontrato: Promises non worklet-safe
-**Sintomo:**
-Dopo l'implementazione iniziale con `poseModelInstance!.run([inputBuffer]).then(...)`, l'app crashava senza mai mostrare `[POSE RAW]` o `[POSE RESULT]`. Il log mostrava che `isProcessing` rimaneva `true` ma l'inferenza non completava mai.
-
-**Causa:**
-Le Promises (`.then()`) non sono worklet-safe in Reanimated. Il callback asincrono non viene mai eseguito quando chiamato da un worklet, causando il crash dell'applicazione.
-
-**Soluzione implementata:**
-Utilizzo di `scheduleOnRN` per eseguire l'inferenza MoveNet sul JS thread:
-
-1. **Creata funzione `runMoveNetInference` con `createRunOnJS`**:
-   ```typescript
-   const runMoveNetInference = createRunOnJS(async (
-     inputBuffer: ArrayBuffer,
-     cropInfo: PlayerCropResult | null,
-     cropRegion: { cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null,
-     frameWidth: number,
-     frameHeight: number,
-     timestamp: number,
-     t0: number,
-     totalCropMs: number,
-     resizeMs: number,
-     resized: any
-   ) => {
-     // ... inferenza, parsing, post-processing
-   })
-   ```
-
-2. **Sostituito `.then()` con `scheduleOnRN` nel worklet**:
-   ```typescript
-   // Prima (non worklet-safe):
-   poseModelInstance!.run([inputBuffer]).then((outputs: ArrayBuffer[]) => { ... })
-   
-   // Dopo (worklet-safe):
-   scheduleOnRN(runMoveNetInference, inputBuffer, cropInfo, cropRegion, frameWidth, frameHeight, timestamp, t0, totalCropMs, resizeMs, resized)
-   ```
-
-3. **Aggiunto dipendenze al worklet**:
-   - `runMoveNetInference`
-   - Tutte le SharedValues di telemetry
-
-### Architettura finale aggiornata
-```
-Frame N (Worklet)
-  │
-  ├─ crop calculation (sync)
-  ├─ resize (sync)
-  ├─ CPU crop (sync)
-  ├─ inputBuffer preparation (sync)
-  ├─ isProcessing = true
-  │
-  └─ scheduleOnRN(runMoveNetInference) ────────────────┐
-                                                   │
-Frame N ritorna (Worklet)                           │
-  │                                                │
-  └─ frame.dispose()                               │
-                                                   │
-                                         JS Thread:
-                                                   │
-                                         await run() async
-                                                   │
-                                         parse
-                                                   │
-                                         angles
-                                                   │
-                                         transform (usa frameWidth/frameHeight salvati)
-                                                   │
-                                         SharedValues
-                                                   │
-                                         telemetry
-                                                   │
-                                         resized.dispose()
-                                                   │
-                                         isProcessing = false
-                                                   │
-                                         lastInferenceAt = Date.now()
-```
-
-### Note importanti
-- L'inferenza MoveNet viene eseguita sul JS thread, non sul worklet thread
-- Questo è necessario perché le Promises non sono supportate nei worklet Reanimated
-- Il preprocessing rimane nel worklet per evitare bridge crossings non necessari
-- Il worklet ritorna immediatamente dopo `scheduleOnRN`, non blocca il camera frame processor
-
-### Risultati del test
-**Metriche osservate:**
+**Metriche attuali:**
 ```
 [MOVENET] input=192 fps=4.7 avg=214.8ms req/exec=36/36 crop=92.5ms resize=1.8ms run=72.1ms parse=0.3ms
-[PIPELINE] camFPS=9.0 recv=9 proc=0 drop=0 yoloExec=228 ballFrames=33 playerFrames=107 track=5 pose=36
+[PIPELINE] camFPS=9.0 recv=9 proc=0 drop=0
 ```
+
+**Analisi dei costi:**
+| Operazione | Tempo | % totale |
+|------------|-------|----------|
+| rgbResizer.resize() | ~1.8 ms | 0.8% |
+| CPU crop/resample | ~92 ms | 43% |
+| MoveNet inference (JS thread) | ~72 ms | 34% |
+| Parsing | ~0.3 ms | 0.1% |
+| **Totale** | **~214.8 ms** | **100%** |
 
 **Confronto con test diagnostico (runSync):**
 ```
@@ -1481,18 +1350,674 @@ MoveNet avg: 89.4 ms (crop: 47.5ms, resize: 2.3ms, run: 17.1ms, parse: 0.1ms)
 camFPS: 11.0
 ```
 
-**Analisi dei risultati:**
-1. **Camera FPS peggiorato**: 9.0 FPS vs 11.0 FPS con runSync (-18%)
-2. **MoveNet FPS sopra target**: 4.7 FPS invece di 3 FPS target
-3. **Costo inferenza aumentato**: run=72.1ms vs run=17.1ms (test diagnostico) - eseguire sul JS thread è ~4x più lento
-4. **Crop ancora costoso**: crop=92.5ms vs 47.5ms (test diagnostico) - il crop CPU rimane il collo di bottiglia principale
-5. **Costo totale MoveNet**: 214.8ms vs 89.4ms (test diagnostico) - +140%
+**Problemi identificati:**
+1. **CPU crop costa più dell'inferenza**: 92ms vs 72ms
+2. **Inferenza JS thread è più lenta**: 72ms vs 17.1ms (worklet) - ~4x più lento
+3. **Costo totale aumentato**: 214.8ms vs 89.4ms (+140%)
+4. **Camera FPS peggiorato**: 9.0 FPS vs 11.0 FPS (-18%)
+5. **Qualità crop subottimale**: Il crop viene ricavato dalla rappresentazione 192×192 del frame intero, non direttamente dal frame originale
+
+### Anomalia non spiegata: Raddoppio del crop (47.5ms → 92.5ms)
+
+**Analisi del codice riga per riga:**
+Il worklet `processFrame` esegue tutto in modo sincrono sul thread del frame processor PRIMA di toccare `scheduleOnRN`:
+```
+1. calcolo crop region (sync, riga 448-484)
+2. rgbResizer.resize(frame) (sync, riga 493)
+3. cropResizedFloat32() — doppio loop bilinear 192×192×3 (sync, riga 508-516)
+4. conversione a uint8Source/inputBuffer (sync, riga 560-578)
+5. scheduleOnRN(runMoveNetInference, ...) (riga 581) ← solo qui passa al JS thread
+```
+
+`cropResizedFloat32()` è codice worklet identico, stesso thread, stesso numero fisso di iterazioni (192×192×3, indipendente dalla bbox) sia nella versione `runSync` che in quella `run()` async. La conversione async non tocca minimamente questo step.
+
+**Il problema:**
+Il crop è passato da 47.5ms a 92.5ms — quasi raddoppiato — per uno step che il refactoring non ha modificato. La spiegazione "il bridge JS ha rallentato tutto" non giustifica questo raddoppio, perché il bridge riguarda solo `run()` (17ms→72ms, quello è spiegabile con l'overhead cross-thread).
+
+**Ipotesi più probabili:**
+
+1. **Contesa CPU reale**: Mentre il worklet thread esegue il crop del frame N, il JS thread sta eseguendo `run()` del frame N-1. L'inferenza TFLite è multi-thread via XNNPACK/delegate e può saturare gli stessi core. Nella versione sync questo non accorre mai, perché tutto è serializzato sullo stesso thread.
+
+2. **Buffer GPU tenuto vivo più a lungo**: Nella versione async, `resized.dispose()` avviene solo a fine `runMoveNetInference` (~70-90ms dopo), mentre nella versione sync veniva rilasciato subito. Questo può aumentare la pressione sul pool di buffer del resizer e rallentare la resize/crop del frame successivo.
+
+3. **Non è un confronto controllato**: I due numeri (47.5ms vs 92.5ms) vengono da due sessioni di test diverse, non da un A/B sullo stesso device/stato termico/stessa sequenza video. Un device che si scalda o un frame più complesso possono spiegare buona parte del delta senza che l'architettura async c'entri.
+
+### Analisi approfondita: Contesa risorse GPU
+
+**Osservazione:**
+Ogni worker (`useMoveNetWorker`, `useYoloWorker`) crea la propria istanza di `useResizer` (righe 321 e 161) — sono resizer nativi separati, non condivisi.
+
+**Tuttavia, esistono due punti concreti di contesa plausibile:**
+
+#### 1. Delegate GPU condiviso tra YOLO e MoveNet
+In `delegates.ts` il default è `android-gpu` (Android) / `core-ml` (iOS). Sia `useYoloWorker` che `useMoveNetWorker` lo usano come fallback:
+```typescript
+// useYoloWorker.ts riga 102-104 e useMoveNetWorker.ts riga 156-158
+return Platform.OS === 'android' ? [DEFAULT_ANDROID_DELEGATE] : [DEFAULT_IOS_DELEGATE]
+```
+
+`yoloDelegate` e `poseDelegate` sono parametri passati dall'esterno (da chi chiama `useCameraPipeline`), non hardcoded — quindi non è confermato dal codice se in produzione siano diversi o entrambi sul default GPU.
+
+**Scenario problematico:**
+Se sono entrambi su GPU:
+- La GPU è una risorsa fisica con una coda di esecuzione singola
+- Prima (tutto `runSync` seriale sullo stesso thread) le due inferenze GPU non potevano mai sovrapporsi
+- Ora che `run()` di MoveNet parte in modo asincrono dal JS thread, l'inferenza GPU di MoveNet del frame N può essere ancora in coda/esecuzione quando il worklet thread chiama `yoloResizer.resize()` o `rgbResizer.resize()` per il frame N+1
+- Se il resizer nativo usa lo stesso contesto GPU (EGL/Metal) del delegate, quella chiamata può bloccarsi in attesa che la GPU si liberi
+- Questo spiegherebbe un rallentamento anche di codice "non toccato" come il crop, perché la sua misurazione (`performance.now()`) include l'attesa
+
+#### 2. resized.dispose() differito
+Confronto diretto tra le due versioni:
+
+| Versione | dispose del buffer GPU resized |
+|----------|--------------------------------|
+| runSync (prima) | Subito dopo l'uso, stesso frame, stesso thread |
+| run() async (ora) | Solo a fine `runMoveNetInference` (riga 273-279), 70-90ms dopo, sul JS thread |
+
+Se il resizer nativo mantiene un pool limitato di texture/buffer GPU (comune per resizer basati su OpenGL/Metal/Skia):
+- Tenerne uno "in prestito" per 70-90ms in più per ogni frame MoveNet può costringere la `resize()` successiva ad aspettare un buffer libero o ad allocarne uno nuovo
+- Questo tempo finisce contabilizzato come "crop"/"resize" nel log
+
+### Metodi di verifica (senza leggere codice nativo)
+
+Per verificare queste ipotesi senza dover leggere il modulo nativo:
+
+**Test 1: Isolare contesa GPU**
+Passare a MoveNet un delegate esplicito diverso da quello di YOLO:
+- Forzare YOLO su GPU
+- Forzare MoveNet senza delegate/CPU-only
+- Rifare lo stesso test
+- Se il crop torna vicino a 47ms, la contesa era la GPU condivisa
+
+**Test 2: Loggap temporale dispose() → resize()**
+Loggare il timestamp di `resized.dispose()` e quello di inizio della `resize()` del frame successivo, per vedere se c'è un gap di attesa misurabile.
+
+**Test 3: Isolare MoveNet (alternativa più rapida)**
+Rimettere `ENABLE_MOVENET = false` come nella Phase 15 ma con l'async ancora attivo per YOLO:
+- Vedere se YOLO da solo con MoveNet disabilitato ha lo stesso crop/resize di sempre
+- Isolare se la contesa esiste anche senza MoveNet in coda
+
+### Bug di throttling scoperto (Test 2)
 
 **Problema identificato:**
-Eseguire l'inferenza MoveNet sul JS thread via `scheduleOnRN` è significativamente più lento del worklet thread. Il bridge crossing e l'overhead del JS thread hanno peggiorato le performance invece di migliorarle.
+Il Test 2 ha rivelato un bug reale nel throttling, non una contesa GPU. Ci sono due orologi diversi per lo stesso rate-limit:
+
+| Gate | Quando aggiorna il proprio "ultimo timestamp" | Posizione |
+|------|-----------------------------------------------|----------|
+| Esterno (lastMoveNetInferenceAt) | All'inizio del ciclo, prima di chiamare processFrame | useShotTracker.ts:889 |
+| Interno (lastInferenceAt) | Solo alla fine del ciclo async, dopo il dispose | useMoveNetWorker.ts:282/296/598 |
+
+**Conseguenza:**
+Il gate esterno dice "sono passati 333ms dall'inizio dell'ultimo ciclo, vai" e chiama processFrame. Ma dentro processFrame c'è un secondo controllo con il proprio orologio che parte solo quando il ciclo precedente è finito (non iniziato). Il risultato è che ogni ciclo paga elaborazione (~206ms) + 333ms pieni, invece di un rate-limit corretto che dovrebbe sovrapporre parzialmente le due fasi.
+
+**Prova nei log:**
+Due formati di messaggio "Skip" diversi che si alternano:
+- `Skip: 137ms since last (need 333ms)` → formato dell'orologio esterno (useShotTracker.ts:839)
+- `Skip: 130 ms since last (need 333.3333333333333 ms)` → formato dell'orologio interno (useMoveNetWorker.ts:381)
+
+Il conto torna: gap_from_dispose= 478ms e 505ms, sommati al tempo di elaborazione (~206ms), danno un ciclo completo dispose→dispose di ~684-711ms — molto vicino ai 720ms osservati tra i due [MoveNet DISPOSE] consecutivi.
+
+**Risultato:**
+MoveNet gira a ~1.4 FPS reali, non ai 3 FPS che il codice crede di rispettare. Il telemetry fps=4.8 è fuorviante: misura solo la durata di elaborazione attiva, non include l'attesa causata dal doppio throttle.
+
+**Fix implementato:**
+Spostare l'aggiornamento di `lastInferenceAt.value` dal termine dell'async (righe 282/296) all'inizio del dispatch, subito dopo `isProcessing.value = true` (riga 446), così l'orologio interno riflette l'inizio ciclo come quello esterno.
+
+**Nota:**
+Questo fix farà girare MoveNet più spesso (verso i 3 FPS reali invece di ~1.4), quindi potrebbe aumentare il carico sulla pipeline invece di ridurlo. È una correttezza da sistemare, ma va misurata insieme agli altri test prima di sapere se aiuta o peggiora il camFPS complessivo.
+
+**Cosa NON spiega questo bug:**
+Il crop resta a ~91ms nei log — quindi l'ipotesi GPU/resizer per il costo del crop non è né confermata né esclusa da questo test. Restano da fare Test 1 e Test 3 per quello.
+
+### Risultati Test 1 (MoveNet CPU-only)
+
+**Metriche osservate:**
+```
+[MOVENET] input=192 fps=4.8 avg=209.0ms req/exec=64/64 crop=90.6ms resize=2.6ms run=70.9ms parse=0.3ms
+[PIPELINE] camFPS=13.0 recv=13 proc=0 drop=0 yoloExec=364 ballFrames=47 playerFrames=141 track=0 pose=64
+```
+
+**Confronto con GPU delegate (prima del fix):**
+| Metrica | CPU-only (Test 1) | GPU (prima) | Baseline sync | Delta vs baseline |
+|---------|------------------|-------------|---------------|-------------------|
+| Crop | 90.6ms | 92.5ms | 47.5ms | +91% |
+| Run | 70.9ms | 72.1ms | 17.1ms | +315% |
+| Totale | 209.0ms | 214.8ms | 89.4ms | +134% |
+
+**Conclusione Test 1:**
+- **Crop NON migliorato significativamente** (90.6ms vs 92.5ms) - contesa GPU NON è la causa
+- **Camera FPS migliorato significativamente** (13.0 vs 9.0) - probabilmente dovuto al fix throttling
+- Il crop resta il collo di bottiglia principale (~90ms, ~43% del tempo totale)
+- `gap_from_dispose`: 536ms, 188ms, 466ms - variabile ma non estremo, indica che il dispose differito non è un problema critico
+
+La contesa GPU è esclusa come causa del crop lento. Il problema è intrinseco al CPU crop (`cropResizedFloat32`).
+
+### Test 4: Overhead di logging nella finestra di misurazione
+
+**Nuova ipotesi:**
+I console.log di diagnostica sono dentro la finestra temporale misurata. In `useMoveNetWorker.ts`, la misurazione del crop include:
+
+```typescript
+const tCropStart = performance.now()          // riga 446
+...
+console.log('[MoveNet CROP] pixelRect=', ...)  // riga 481 — DENTRO la finestra
+const tCropEnd = performance.now()             // riga 486
+const cropMs = tCropEnd - tCropStart
+```
+
+E più sotto:
+```typescript
+const tCpuCropStart = performance.now()        // riga 504
+const cropResult = cropResizedFloat32(...)     // riga 508 — il doppio loop vero e proprio
+...
+console.log('[MoveNet CROP] CPU resample applied=', ...)  // riga 541 — DENTRO la finestra
+const cpuCropMs = performance.now() - tCpuCropStart        // riga 546
+```
+
+Quindi `cropMs`/`totalCropMs` non misura solo la matematica del crop: include anche il costo di due console.log che ogni volta formattano stringhe (template literal con `.toFixed()`, concatenazioni) e attraversano il bridge worklet→console nativo. Su Reanimated, un `console.log` dentro un worklet non è gratis: è una chiamata JSI sincrona verso il thread nativo di logging, e con `__DEV__` attivo questo costo è reale.
+
+**Perché è rilevante per il confronto sync/async:**
+Se questi specifici log sono stati aggiunti durante il refactoring async (per debug) e non erano presenti — o erano meno numerosi — durante il test diagnostico sync della Phase 15 (crop=47.5ms), allora una parte del raddoppio del crop potrebbe essere semplicemente overhead di logging aggiunto, non contesa GPU né conseguenza architetturale dell'async.
+
+**Fix implementato:**
+Gate `__DEV__` su tutti i console.log del worker (righe 196, 213, 222-226, 252, 286, 387, 397, 434-449, 451, 505, 520, 574-579, 592). Questo esclude l'overhead di logging dalle misurazioni di performance.
+
+**Test in corso:**
+Rimisurare `cropMs`/`cpuCropMs` con i log gated. Se scende vicino a 47ms, il "mistero" del crop raddoppiato è chiuso senza bisogno di toccare delegate GPU o pool di buffer.
+
+### Risultati Test 4 (__DEV__ gate su console.log)
+
+**Metriche osservate:**
+```
+[MOVENET] input=192 fps=4.9 avg=204.5ms req/exec=24/24 crop=96.8ms resize=2.8ms run=66.0ms parse=0.3ms
+[PIPELINE] camFPS=10.0 recv=10 proc=0 drop=0 yoloExec=106 ballFrames=29 playerFrames=47 track=10 pose=24
+```
+
+**Confronto con test precedenti:**
+| Metrica | Test 4 (__DEV__ gated) | Test 1 (CPU-only) | GPU (prima) | Baseline sync |
+|---------|------------------------|-------------------|-------------|---------------|
+| Crop | 96.8ms | 90.6ms | 92.5ms | 47.5ms |
+| Run | 66.0ms | 70.9ms | 72.1ms | 17.1ms |
+| Totale | 204.5ms | 209.0ms | 214.8ms | 89.4ms |
+
+**Conclusione Test 4:**
+- **Crop NON migliorato** - anzi, è leggermente peggiorato (96.8ms vs 90.6ms/92.5ms)
+- L'overhead di logging NON è la causa del raddoppio del crop
+- I log sono ancora visibili perché `__DEV__` è true in ambiente di sviluppo
+- Il problema è intrinseco al CPU crop (`cropResizedFloat32`)
+
+**Risultato complessivo dei test:**
+1. **Test 2** - Bug throttling scoperto (1.4 FPS reali → fix implementato)
+2. **Test 1** - Contesa GPU esclusa come causa del crop lento
+3. **Test 4** - Overhead logging escluso come causa del crop lento
+4. **Test 3** - MoveNet confermato come collo di bottiglia per camera FPS
+
+Il crop resta a ~90-97ms, ~47% del tempo totale. La causa è intrinseca all'algoritmo CPU crop.
+
+### Risultati Test 3 (YOLO isolato)
+
+**Metriche osservate:**
+```
+[PIPELINE] camFPS=17.0 recv=17 proc=0 drop=0 yoloExec=202 ballFrames=56 playerFrames=77 track=10 pose=25
+[PERF][YOLO] fps=15.0 avg=66.8ms req/exec=101/202 resize=2.1ms run=52.8ms parse=11.8ms
+```
+
+**Confronto con test precedenti:**
+| Metrica | Test 3 (YOLO solo) | Test 4 (MoveNet ON) | Test 1 (CPU-only) | GPU (prima) |
+|---------|-------------------|---------------------|-------------------|-------------|
+| Camera FPS | 17.0 | 10.0 | 13.0 | 9.0 |
+| YOLO FPS | 15.0 | 14.8-15.0 | 14.8 | N/A |
+| YOLO avg | 66.8ms | 67.1-67.7ms | 66.3ms | N/A |
+
+**Conclusione Test 3:**
+- **Camera FPS migliorato significativamente** (17.0 vs 9.0-13.0) quando MoveNet è disabilitato
+- YOLO performance stabile (~15 FPS, ~67ms) in tutti i test
+- MoveNet è il collo di bottiglia principale per la camera FPS
+- Non è possibile misurare crop/resize MoveNet quando è disabilitato
+
+### Diagnosi finale
+
+**Risultato complessivo dei test:**
+1. **Test 2** - Bug throttling scoperto (1.4 FPS reali → fix implementato)
+2. **Test 1** - Contesa GPU esclusa come causa del crop lento
+3. **Test 4** - Overhead logging escluso come causa del crop lento
+4. **Test 3** - MoveNet confermato come collo di bottiglia per camera FPS
 
 **Conclusione:**
-L'approccio asincrono con `scheduleOnRN` non è la soluzione giusta per questo caso. Il crop CPU (92.5ms) e l'inferenza JS thread (72.1ms) sono troppo lenti. Potrebbe essere necessario:
-1. Tornare a `runSync` e accettare le performance attuali (~11 FPS)
-2. Considerare soluzioni alternative come GPU-based crop per ridurre il costo del crop
-3. Ridurre la frequenza MoveNet da 3 FPS a 1-2 FPS per ridurre l'impatto sulla pipeline
+- Il crop MoveNet resta a ~90-97ms, ~47% del tempo totale MoveNet
+- La causa è intrinseca all'algoritmo CPU crop (`cropResizedFloat32`)
+- La soluzione è implementare un crop nativo (GPU) come documentato nella "Strategia in due fasi"
+- Il fix throttling ha migliorato MoveNet FPS reali da 1.4 a ~3, ma il crop rimane il problema principale
+
+### Micro-benchmark isolato del loop
+
+Per chiudere la questione senza ambiguità, ho aggiunto un micro-benchmark che misura solo il corpo del doppio loop (righe 79-109), escludendo:
+- Setup (calcolo scale, offset, bounds)
+- Allocazione dell'array output
+- Log e altre operazioni
+
+**Modifiche implementate:**
+- `tLoopStart` e `tLoopEnd` attorno al doppio loop
+- `loopMs` calcolato e restituito da `cropResizedFloat32`
+- Log di `loopMs` nel worklet
+
+**Risultati del micro-benchmark:**
+```
+[MoveNet CROP] CPU resample applied= true inputElements= 110592 loopMs= 97.95
+[MoveNet CROP] CPU resample applied= true inputElements= 110592 loopMs= 92.24
+```
+
+**Confronto loopMs vs cropMs totale:**
+| Metrica | Valore |
+|---------|--------|
+| loopMs (loop puro) | 92.24-97.95ms |
+| cropMs totale | 95.6ms |
+| loopMs / cropMs | ~97% |
+
+**Conclusione definitiva:**
+Il loop puro costa praticamente tutto il crop time (~97%). Il costo è intrinseco al doppio loop (192×192 iterazioni con interpolazione bilineare) eseguito sul worklet thread JS engine, che ha meno JIT del thread JS principale.
+
+Il baseline di 47.5ms dalla Phase 15 era probabilmente misurato in condizioni diverse (altra sessione/device state), oppure il worklet thread JS engine ha performance diverse dal thread JS principale.
+
+**Raccomandazione:**
+Implementare un crop nativo (GPU) come documentato nella "Strategia in due fasi" per eliminare questo collo di bottiglia.
+
+### Ottimizzazione del loop CPU crop
+
+Durante il micro-benchmark ho identificato una ridondanza nel codice del loop che può essere eliminata:
+
+**Problema identificato:**
+Nel loop interno, `fx`, `x0`, `x1`, `wx` vengono ricalcolati per ogni pixel, anche se dipendono solo da `ox` (non da `oy`). Questo significa:
+- Chiamate Math attuali: 192 (ox) × 192 (oy) × 6 ≈ 221.000 chiamate
+- Chiamate Math necessarie: 192 × 6 = 1.152 chiamate
+- 99.5% del lavoro è ridondante
+
+**Fix implementato:**
+Precalcolare gli array `x0Arr`, `x1Arr`, `wxArr` fuori dal doppio loop:
+
+```typescript
+// Precompute x-coordinate calculations to avoid redundant Math calls in inner loop
+const x0Arr = new Int32Array(outputSize)
+const x1Arr = new Int32Array(outputSize)
+const wxArr = new Float32Array(outputSize)
+for (let ox = 0; ox < outputSize; ox++) {
+  const fx = squareCropX + ((ox + 0.5) / outputSize) * cropSize - 0.5
+  const fxFloor = Math.floor(fx)
+  x0Arr[ox] = Math.max(0, Math.min(sourceSize - 1, fxFloor))
+  x1Arr[ox] = Math.max(0, Math.min(sourceSize - 1, fxFloor + 1))
+  wxArr[ox] = Math.max(0, Math.min(1, fx - fxFloor))
+}
+```
+
+Nel loop interno:
+```typescript
+const x0 = x0Arr[ox]
+const x1 = x1Arr[ox]
+const wx = wxArr[ox]
+```
+
+**Risultato atteso:**
+Eliminazione di ~220.000 chiamate a funzione ridondanti su un runtime worklet interpretato (senza JIT), con un guadagno percentuale significativo poiché il costo sta nell'overhead delle chiamate, non nell'aritmetica.
+
+Questa ottimizzazione è a basso rischio (nessun cambio di comportamento, solo hoisting di calcoli invarianti) e vale a prescindere dal dibattito sync/async.
+
+**Risultato misurato:**
+```
+[MOVENET] input=192 fps=5.0 avg=201.5ms req/exec=62/62 crop=92.5ms resize=3.1ms run=66.9ms parse=0.3ms
+```
+
+**Confronto prima/dopo:**
+| Metrica | Prima | Dopo | Delta |
+|---------|-------|------|-------|
+| Crop | 95.6-96.8ms | 92.5ms | -3.1 to -4.3ms (-3.2% to -4.5%) |
+
+**Conclusione:**
+L'ottimizzazione ha prodotto un leggero miglioramento (~3-4%), ma non significativo come ci si aspettava. Questo suggerisce che:
+1. L'overhead delle chiamate Math non è il collo di bottiglia principale
+2. Il costo principale è nell'accesso agli array (source/output) e nell'aritmetica di interpolazione
+3. Il runtime worklet potrebbe avere qualche forma di ottimizzazione che riduce l'overhead delle chiamate Math
+
+L'ottimizzazione è mantenuta poiché è a basso rischio e fornisce un piccolo guadagno. La soluzione definitiva rimane il crop nativo (GPU).
+
+### Bug di tracking: feedback loop nel jump threshold
+
+Durante l'analisi dei log ho identificato un bug critico nel tracking del player bbox che può causare blocchi permanenti durante movimenti rapidi.
+
+**Problema identificato:**
+In `usePlayerCropManager.ts` (righe 116-127), il jump threshold confronta la nuova detection contro `smoothedX.value` invece di `bboxX.value`:
+
+```typescript
+const dx = Math.abs(playerBbox.x - smoothedX.value)  // ← smoothedX, non bboxX
+const dy = Math.abs(playerBbox.y - smoothedY.value)
+```
+
+Questo crea un feedback loop:
+1. `smoothedX` viene aggiornato ogni frame con EMA verso `bboxX`
+2. `bboxX` si aggiorna solo se la detection passa il filtro
+3. Se il giocatore si muove velocemente, `smoothedX` rimane indietro
+4. Le nuove detection vengono rifiutate perché "troppo lontane da smoothedX"
+5. `bboxX` non si aggiorna, quindi `smoothedX` resta bloccato
+6. L'unica via d'uscita è il TTL (750ms) che resetta tutto
+
+**Fix implementato:**
+Confrontare contro l'ultima posizione raw accettata (`bboxX.value`), non contro quella smoothed:
+
+```typescript
+const dx = Math.abs(playerBbox.x - bboxX.value)  // bboxX, non smoothedX
+const dy = Math.abs(playerBbox.y - bboxY.value)
+```
+
+**Rete di sicurezza aggiuntiva:**
+Contatore di rifiuti consecutivi che forza l'accettazione dopo 3 rifiuti, invece di aspettare il TTL di 750ms:
+
+```typescript
+const MAX_CONSECUTIVE_REJECTS = 3
+consecutiveRejects.value += 1
+if (consecutiveRejects.value < MAX_CONSECUTIVE_REJECTS) {
+  return // Reject
+}
+// Force accept after MAX_CONSECUTIVE_REJECTS - safety net to re-sync
+```
+
+Questo elimina il feedback loop e permette al sistema di ri-sincronizzarsi rapidamente con la realtà anche in scenari limite.
+
+**Conclusione parziale:**
+È vero che il log conferma camFPS=9.0 e run≈70ms (coerente con l'overhead di bridge, quello è spiegabile). Ma il salto del crop da 47ms a 92ms — che è metà del costo totale — resta un'anomalia non spiegata dal cambio sync→async. Prima di trarre conclusioni definitive, serve un test A/B controllato.
+
+**Test A/B controllato raccomandato:**
+Per avere un dato attendibile invece di fidarsi del confronto tra due sessioni diverse:
+1. Aggiungere un contatore/log in `runMoveNetInference` tipo `concurrentJSWork` per vedere se il crop è più lento proprio nei frame in cui c'è un'inferenza async ancora in volo
+2. Rifare il test A/B (flag sync/async) nella stessa sessione, stesso device, stesso riscaldamento, stessa scena — bastano 20-30 secondi ciascuno, invertendo l'ordine per escludere effetto "il telefono si scalda col tempo"
+
+### Diagnosi
+
+**SYNC vs ASYNC:**
+- ❌ **SYNC non è più il problema** - Nel sorgente attuale non usiamo `runSync()` per MoveNet
+- ✅ **ASYNC è già implementato** - La sequenza è `scheduleOnRN(runMoveNetInference, ...)` → `await poseModelInstance.run(...)`
+
+**CPU crop:**
+- ⚠️ **È il principale collo di bottiglia attuale** - 92ms (~43% del tempo totale)
+- ⚠️ **Implementazione subottimale** - full-frame resize + CPU bilinear resampling
+- ⚠️ **Qualità ridotta** - Crop da 192×192 compresso invece che da 1280×720 originale
+
+**Protezione contro code infinite:**
+```typescript
+if (!poseModelInstance || isProcessing.value || !enabled || !ENABLE_MOVENET) {
+    return
+}
+```
+✅ L'ASYNC non crea una coda infinita: finché un'inferenza è in corso, le successive vengono saltate.
+
+### Pipeline target
+
+**Attuale:**
+```
+Camera
+  │
+  └─ MoveNet
+       │
+       ├─ full resize 192 (1.8ms)
+       ├─ CPU crop 92 ms ← ❌ collo di bottiglia
+       └─ async run 72 ms
+```
+
+**Target:**
+```
+Camera
+  │
+  └─ MoveNet
+       │
+       ├─ REAL PLAYER CROP (nativo/GPU)
+       ├─ resize → 192
+       └─ async run ~72 ms
+```
+
+Se riuscissimo a portare il crop da ~92ms a <10-15ms, avremmo una riduzione enorme del tempo totale di MoveNet senza toccare il modello.
+
+### Conclusione
+
+La situazione reale del codice è:
+- ✅ **ASYNC già corretto** - Non serve tornare a `runSync()`
+- ❌ **CPU crop è il problema** - Costa 92ms, più dell'inferenza stessa
+- 🎯 **Il prossimo intervento deve essere sul crop**, non sull'inferenza
+
+Il crop CPU attuale è isolato nella funzione `cropResizedFloat32()`, quindi possiamo sostituire solo quella parte senza rimettere mano alla pipeline YOLO/Player Tracker/MoveNet.
+
+Possibili soluzioni
+
+#### vision-camera-cropper (2.x)
+**Compatibilità:**
+- VisionCamera V5 → >=2.0.0 ✅
+
+**Problema per il nostro caso:**
+`vision-camera-cropper` espone il crop come immagine con API orientate a:
+```typescript
+crop(frame, {
+  cropRegion,
+  includeImageBase64: true,
+})
+```
+Restituisce un output immagine/base64/path.
+
+Il nostro MoveNet richiede:
+```
+player crop
+    ↓
+192 × 192
+    ↓
+Float32Array
+    ↓
+await poseModelInstance.run([inputBuffer])
+```
+
+Introdotto `vision-camera-cropper` rischierebbe di sostituire il collo di bottiglia attuale (CPU crop ~92ms) con:
+```
+native crop
+    ↓
+conversione immagine
+    ↓
+estrazione/conversione Float32Array
+    ↓
+MoveNet
+```
+Non abbiamo la garanzia che il risultato nativo sia direttamente il buffer RGB Float32 192×192 che TFLite si aspetta.
+
+#### vision-camera-resize-plugin con crop (soluzione raccomandata)
+Il plugin `vision-camera-resize-plugin` già presente nel progetto supporta contemporaneamente crop e resize:
+```typescript
+resize(frame, {
+  scale: {
+    width: 192,
+    height: 192,
+  },
+  crop: {
+    x: ...,
+    y: ...,
+    width: ...,
+    height: ...,
+  },
+  pixelFormat: 'rgb',
+  dataType: 'float32',
+})
+```
+
+Il crop viene effettuato durante il resize nativo/GPU, invece di:
+```
+1280×720
+   ↓
+resize FULL FRAME → 192×192       ~1.8 ms
+   ↓
+cropResizedFloat32()              ~92 ms ← collo di bottiglia
+   ↓
+192×192 Float32Array
+   ↓
+MoveNet                           ~70 ms
+```
+
+Con crop nativo:
+```
+1280×720
+   ↓
+GPU/native crop del player
+   ↓
+native resize → 192×192
+   ↓
+Float32Array
+   ↓
+await poseModelInstance.run(...)
+```
+
+**Vantaggi:**
+- Elimina completamente `cropResizedFloat32()` (92ms)
+- Crop + resize in una sola operazione nativa/GPU
+- Restituisce direttamente Float32Array RGB
+- Plugin già presente nel progetto
+- Coerente con architettura VisionCamera V5 (supporta Metal/Vulkan)
+
+**Piano di implementazione:**
+Modifica isolata di `useMoveNetWorker.ts` usando il resize plugin con crop:
+- Mantenere Player bbox attuale
+- Mantenere padding 15%
+- Mantenere clamp
+- Mantenere output 192×192 RGB Float32
+- Mantenere `await poseModelInstance.run([inputBuffer])` (non tornare a runSync)
+- Mantenere `isProcessing` e throttling a 3 FPS
+- Rimuovere solo `cropResizedFloat32()`
+
+Questo dovrebbe essere il test più pulito per capire quanto dei ~215ms attuali possiamo recuperare senza toccare YOLO, PlayerTracker o MoveNet.
+
+#### Riduzione frequenza MoveNet
+Alternativa se crop nativo non è sufficiente: ridurre da 3 FPS a 1-2 FPS per ridurre l'impatto sulla pipeline.
+
+### Tabella comparativa soluzioni
+
+| Soluzione | V5 Crop nativo | 192×192 | Float32 diretto | Adatta a noi |
+|----------|----------------|---------|-----------------|--------------|
+| vision-camera-cropper 2.x | ✅ | ✅ | ⚠️ | ❌/⚠️ |
+| vision-camera-resize-plugin con crop | ⚠️ | ✅ | ✅ | ⚠️ (API V5 limitata) |
+| cropResizedFloat32() attuale | ✅ | ❌ | ✅ | ❌ (~92ms) |
+
+### Importante: Limitazione API V5 attuale
+Il plugin `vision-camera-resize-plugin` V5 attuale espone solo `resize(frame)` senza supporto diretto per il parametro `crop`, come documentato in questo stesso documento. Quindi non possiamo semplicemente chiamare:
+```typescript
+resize(frame, { crop: { x, y, width, height } })
+```
+
+### Strategia in due fasi
+
+#### Fase 1: Preparazione del codice per crop nativo
+Preparare `useMoveNetWorker.ts` per un crop nativo senza toccare l'inferenza ASYNC:
+
+**DA ELIMINARE:**
+- `cropResizedFloat32()` - Funzione completa di CPU bilinear resampling (~92ms)
+- Tutto il codice che usa `cropResizedFloat32()`:
+  ```typescript
+  const floatSource = ...
+  const cropResult = cropResizedFloat32(...)
+  const cpuCropMs = ...
+  ```
+
+**DA MANTENERE:**
+- `playerBbox` - Bounding box dal player tracker
+- `cropRegion` - Calcolo del rettangolo di crop con padding 15% e clamp
+- RGB Float32, 192×192 - Configurazione input MoveNet
+- `isProcessing` - Flag per evitare code infinite
+- Throttling a 3 FPS
+- `scheduleOnRN(runMoveNetInference, ...)` - Inferenza asincrona
+- `await poseModelInstance.run([inputBuffer])` - Non tornare a runSync()
+
+**DA CAMBIARE:**
+Sostituire il percorso attuale:
+```
+FULL FRAME resize → 192×192
+        +
+CPU crop (cropResizedFloat32)
+```
+con:
+```
+FRAME ORIGINALE
+      ↓
+SQUARE PLAYER CROP (geometria)
+      ↓
+NATIVE CROP + RESIZE (da implementare in Fase 2)
+      ↓
+192×192 RGB Float32
+```
+
+**Nuova funzione worklet: makeSquareCrop**
+Creare una funzione worklet semplice per calcolare il quadrato dal crop rettangolare:
+```typescript
+const makeSquareCrop = (
+  crop: {
+    cropX: number
+    cropY: number
+    cropWidth: number
+    cropHeight: number
+  },
+  frameWidth: number,
+  frameHeight: number,
+) => {
+  'worklet'
+
+  const size = Math.min(
+    Math.max(crop.cropWidth, crop.cropHeight),
+    frameWidth,
+    frameHeight,
+  )
+
+  let x = crop.cropX + (crop.cropWidth - size) * 0.5
+  let y = crop.cropY + (crop.cropHeight - size) * 0.5
+
+  x = Math.max(0, Math.min(frameWidth - size, x))
+  y = Math.max(0, Math.min(frameHeight - size, y))
+
+  return {
+    cropX: x,
+    cropY: y,
+    cropWidth: size,
+    cropHeight: size,
+  }
+}
+```
+
+Questa funzione fa solo geometria, nessun processamento immagine (costo trascurabile).
+
+**Aggiornamento telemetry:**
+- Rimuovere `cpuCropMs`
+- `totalCropMs = cropMs` (invece di `cropMs + cpuCropMs`)
+- Log aggiornato:
+  ```
+  [MoveNet CROP] source=PLAYER_CROP
+  [MoveNet CROP] native crop=true
+  [MoveNet CROP] cropRect=x=... y=... w=... h=...
+  [MoveNet Input] elements=110592
+  ```
+- Non più `CPU resample applied=true`
+
+#### Fase 2: Identificazione e implementazione API nativa
+Prima di implementare l'ultima riga (native crop + resize), identificare l'API V5 realmente disponibile nel progetto per fare crop+resize nativo.
+
+**Opzioni da investigare:**
+1. Verificare se `vision-camera-resize-plugin` V5 ha API non documentate per crop
+2. Investigare alternative native/VisionCamera V5 per crop+resize
+3. Valutare se è possibile estendere il plugin attuale
+4. Considerare soluzioni custom native (Android/iOS)
+
+**Blocco da implementare in Fase 2:**
+```typescript
+// QUI il crop + resize nativo
+resized = ... // API da identificare
+```
+
+### Conclusione
+La situazione reale del codice è:
+- ✅ **ASYNC già corretto** - Non serve tornare a `runSync()`
+- ❌ **CPU crop è il problema** - Costa 92ms, più dell'inferenza stessa
+- 🎯 **Il prossimo intervento deve essere sul crop**, non sull'inferenza
+- ⚠️ **API V5 limitata** - Non possiamo semplicemente passare crop a resize()
+
+**Piano d'azione:**
+1. Fase 1: Preparare `useMoveNetWorker.ts` eliminando `cropResizedFloat32()` e aggiungendo `makeSquareCrop()`
+2. Fase 2: Identificare l'API V5 disponibile per crop+resize nativo
+3. Fase 3: Implementare il crop+resize nativo
+4. Fase 4: Test e verifica del miglioramento performance

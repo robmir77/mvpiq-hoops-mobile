@@ -76,6 +76,19 @@ const cropResizedFloat32 = (
   const squareCropX = sourceCropX + (sourceCropW - cropSize) * 0.5
   const squareCropY = sourceCropY + (sourceCropH - cropSize) * 0.5
 
+  // Precompute x-coordinate calculations to avoid redundant Math calls in inner loop
+  // This eliminates ~220k redundant function calls (99.5% of x-side calculations)
+  const x0Arr = new Int32Array(outputSize)
+  const x1Arr = new Int32Array(outputSize)
+  const wxArr = new Float32Array(outputSize)
+  for (let ox = 0; ox < outputSize; ox++) {
+    const fx = squareCropX + ((ox + 0.5) / outputSize) * cropSize - 0.5
+    const fxFloor = Math.floor(fx)
+    x0Arr[ox] = Math.max(0, Math.min(sourceSize - 1, fxFloor))
+    x1Arr[ox] = Math.max(0, Math.min(sourceSize - 1, fxFloor + 1))
+    wxArr[ox] = Math.max(0, Math.min(1, fx - fxFloor))
+  }
+
   for (let oy = 0; oy < outputSize; oy++) {
     const fy = squareCropY + ((oy + 0.5) / outputSize) * cropSize - 0.5
     const y0 = Math.max(0, Math.min(sourceSize - 1, Math.floor(fy)))
@@ -83,10 +96,9 @@ const cropResizedFloat32 = (
     const wy = Math.max(0, Math.min(1, fy - Math.floor(fy)))
 
     for (let ox = 0; ox < outputSize; ox++) {
-      const fx = squareCropX + ((ox + 0.5) / outputSize) * cropSize - 0.5
-      const x0 = Math.max(0, Math.min(sourceSize - 1, Math.floor(fx)))
-      const x1 = Math.max(0, Math.min(sourceSize - 1, x0 + 1))
-      const wx = Math.max(0, Math.min(1, fx - Math.floor(fx)))
+      const x0 = x0Arr[ox]
+      const x1 = x1Arr[ox]
+      const wx = wxArr[ox]
 
       const src00 = (y0 * sourceSize + x0) * 3
       const src01 = (y0 * sourceSize + x1) * 3
@@ -132,6 +144,9 @@ export const useMoveNetWorker = (
   const telemetryParseMs = useSharedValue(0)
   const telemetryKeypointsConfidence = useSharedValue(0)
   const telemetryHasNewData = useSharedValue(false)
+
+  // Test 2: Track last dispose timestamp to measure gap before next resize
+  const lastDisposeTimestamp = useSharedValue(0)
 
   const selectedMoveNetModel = useMemo(
     () => getMoveNetModel(moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID),
@@ -189,7 +204,9 @@ export const useMoveNetWorker = (
 
       // Log raw output length for diagnostics (should be 51 for 17 keypoints * 3 values)
       const outputLength = output.length
-      console.log('[POSE RAW] outputLength=', outputLength)
+      if (__DEV__) {
+        console.log('[POSE RAW] outputLength=', outputLength)
+      }
 
       const tParseStart = performance.now()
       const keypoints = parseMoveNetOutput(output, 17)
@@ -204,14 +221,16 @@ export const useMoveNetWorker = (
         ? Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints 
         : 0
       
-      console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
+      if (__DEV__) {
+        console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
+      }
 
       // Transform keypoints from crop space back to frame space if crop was used
       let finalKeypoints = keypoints
       if (cropRegion && cropInfo && cropInfo.squareCropSize !== undefined) {
         // Log for debugging pose position issue
         const sampleKey = Object.keys(keypoints)[0] as keyof PoseKeypoints
-        if (sampleKey && keypoints[sampleKey]) {
+        if (__DEV__ && sampleKey && keypoints[sampleKey]) {
           console.log('[POSE TRANSFORM DEBUG] cropRegion:', `x=${cropRegion.cropX.toFixed(0)} y=${cropRegion.cropY.toFixed(0)} w=${cropRegion.cropWidth.toFixed(0)} h=${cropRegion.cropHeight.toFixed(0)}`)
           console.log('[POSE TRANSFORM DEBUG] squareCrop:', `x=${cropInfo.squareCropX?.toFixed(0)} y=${cropInfo.squareCropY?.toFixed(0)} size=${cropInfo.squareCropSize?.toFixed(0)}`)
           console.log('[POSE TRANSFORM DEBUG] frame size:', `${frameWidth}x${frameHeight}`)
@@ -241,7 +260,7 @@ export const useMoveNetWorker = (
           }
         }
         
-        if (sampleKey && finalKeypoints[sampleKey]) {
+        if (__DEV__ && sampleKey && finalKeypoints[sampleKey]) {
           console.log('[POSE TRANSFORM DEBUG] transformed keypoint:', `${sampleKey}= x=${finalKeypoints[sampleKey]!.x.toFixed(3)} y=${finalKeypoints[sampleKey]!.y.toFixed(3)}`)
         }
       }
@@ -272,6 +291,12 @@ export const useMoveNetWorker = (
       // Release GPUFrame after async operation completes
       if (resized) {
         try {
+          // Test 2: Log dispose timestamp to measure gap before next resize
+          const disposeTime = Date.now()
+          lastDisposeTimestamp.value = disposeTime
+          if (__DEV__) {
+            console.log('[MoveNet DISPOSE] timestamp=', disposeTime)
+          }
           resized.dispose()
         } catch (e) {
           // Ignore if already disposed
@@ -279,7 +304,7 @@ export const useMoveNetWorker = (
       }
 
       isProcessing.value = false
-      lastInferenceAt.value = Date.now()
+      // lastInferenceAt already updated at dispatch start (fix throttling bug)
     } catch (error) {
       console.error('[MoveNetWorker] Async inference error:', error)
       
@@ -370,7 +395,9 @@ export const useMoveNetWorker = (
     'worklet'
 
     if (!poseModelInstance || isProcessing.value || !enabled || !ENABLE_MOVENET) {
-      console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled, 'ENABLE_MOVENET=', ENABLE_MOVENET)
+      if (__DEV__) {
+        console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled, 'ENABLE_MOVENET=', ENABLE_MOVENET)
+      }
       return
     }
 
@@ -378,7 +405,9 @@ export const useMoveNetWorker = (
     const now = Date.now()
     const timeSinceLast = lastInferenceAt.value > 0 ? now - lastInferenceAt.value : MOVENET_INTERVAL_MS
     if (timeSinceLast < MOVENET_INTERVAL_MS) {
-      console.log('[MoveNet Throttle] Skip:', timeSinceLast, 'ms since last (need', MOVENET_INTERVAL_MS, 'ms)')
+      if (__DEV__) {
+        console.log('[MoveNet Throttle] Skip:', timeSinceLast, 'ms since last (need', MOVENET_INTERVAL_MS, 'ms)')
+      }
       return
     }
 
@@ -413,8 +442,10 @@ export const useMoveNetWorker = (
 
     const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
 
-    console.log('[MoveNet CROP] source=', poseSource, 'bboxValid=', hasValidPlayer)
-    if (!hasValidPlayer && bbox) {
+    if (__DEV__) {
+      console.log('[MoveNet CROP] source=', poseSource, 'bboxValid=', hasValidPlayer)
+    }
+    if (__DEV__ && !hasValidPlayer && bbox) {
       console.log('[MoveNet CROP] Rejection reason:', 
         bbox.confidence == null ? 'no_confidence' :
         bbox.confidence < PLAYER_CONFIDENCE_THRESH ? `conf_too_low (${bbox.confidence.toFixed(4)} < ${PLAYER_CONFIDENCE_THRESH})` :
@@ -428,11 +459,15 @@ export const useMoveNetWorker = (
         bbox.y + bbox.height > 1 ? `y_out_of_bounds (${(bbox.y + bbox.height).toFixed(3)} > 1)` :
         'unknown')
     }
-    if (hasValidPlayer && bbox) {
+    if (__DEV__ && hasValidPlayer && bbox) {
       console.log('[MoveNet CROP] normalized bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
     }
 
     isProcessing.value = true
+
+    // Fix throttling bug: Update lastInferenceAt at dispatch start, not at async completion
+    // This aligns the internal clock with the external clock in useShotTracker
+    lastInferenceAt.value = Date.now()
 
     // Capture frame dimensions before async operation to avoid use-after-free
     const frameWidth = frame.width
@@ -478,7 +513,9 @@ export const useMoveNetWorker = (
         cropRegion = { cropX, cropY, cropWidth, cropHeight }
         playerCropRegion.value = cropRegion
 
-        console.log('[MoveNet CROP] pixelRect=', `x=${Math.round(cropX)} y=${Math.round(cropY)} w=${Math.round(cropWidth)} h=${Math.round(cropHeight)}`)
+        if (__DEV__) {
+          console.log('[MoveNet CROP] pixelRect=', `x=${Math.round(cropX)} y=${Math.round(cropY)} w=${Math.round(cropWidth)} h=${Math.round(cropHeight)}`)
+        }
       } else {
         playerCropRegion.value = null
       }
@@ -487,6 +524,13 @@ export const useMoveNetWorker = (
       const cropMs = tCropEnd - tCropStart
 
       const tResizeStart = performance.now()
+
+      // Test 2: Log gap from last dispose to current resize
+      const resizeStartTime = Date.now()
+      const gapMs = lastDisposeTimestamp.value > 0 ? resizeStartTime - lastDisposeTimestamp.value : 0
+      if (__DEV__ && gapMs > 0) {
+        console.log('[MoveNet RESIZE] gap_from_dispose=', gapMs, 'ms')
+      }
 
       // V5 accepts only resize(frame). We therefore resize the full frame first
       // and perform the player crop/resample CPU-side on the Float32 tensor.
@@ -538,9 +582,13 @@ export const useMoveNetWorker = (
               squareCropSize,
             }
             
-            console.log('[MoveNet CROP] CPU resample applied=', true, 'inputElements=', inputSource.length)
+            if (__DEV__) {
+              console.log('[MoveNet CROP] CPU resample applied=', true, 'inputElements=', inputSource.length)
+            }
           } else {
-            console.log('[MoveNet CROP] CPU resample applied=', false, 'source=FULL_FRAME')
+            if (__DEV__) {
+              console.log('[MoveNet CROP] CPU resample applied=', false, 'source=FULL_FRAME')
+            }
           }
 
           const cpuCropMs = performance.now() - tCpuCropStart
@@ -552,7 +600,7 @@ export const useMoveNetWorker = (
             if (inputSource[i] > maxVal) maxVal = inputSource[i];
           }
 
-          if (telemetryHasNewData.value === false) { // log occasionally
+          if (__DEV__ && telemetryHasNewData.value === false) { // log occasionally
             console.log(`[MoveNet Input] Model expects dataType: ${poseModelInstance!.inputs[0].dataType}, shape: ${poseModelInstance!.inputs[0].shape}`)
             console.log(`[MoveNet Input] floatSource max sample value: ${maxVal}`)
           }
@@ -593,11 +641,11 @@ export const useMoveNetWorker = (
           // Ignore if already disposed
         }
       }
-      
+
       isProcessing.value = false
-      lastInferenceAt.value = Date.now()
+      // lastInferenceAt already updated at dispatch start (fix throttling bug)
     }
-  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData])
+  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {

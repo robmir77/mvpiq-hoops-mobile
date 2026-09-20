@@ -58,6 +58,8 @@ const DEFAULT_CONFIG: PlayerCropConfig = {
   maxJumpThreshold: 0.15, // Reject bbox jumps larger than 15% of frame
 }
 
+const MAX_CONSECUTIVE_REJECTS = 3 // Safety net: force accept after N consecutive rejects
+
 /**
  * Linear interpolation (pure worklet function)
  */
@@ -92,6 +94,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const lastSeenAt = useSharedValue(0)
   const detectedAt = useSharedValue(0)
   const hasBbox = useSharedValue(false)
+  const consecutiveRejects = useSharedValue(0) // Safety net: force accept after N consecutive rejects
 
   /**
    * Update player bbox with new detection
@@ -113,17 +116,27 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       }
 
       // Apply jump threshold filter (stability check)
-      if (hasBbox.value && smoothedX.value !== 0) {
-        const dx = Math.abs(playerBbox.x - smoothedX.value)
-        const dy = Math.abs(playerBbox.y - smoothedY.value)
+      // Compare against last accepted raw bbox (bboxX/Y), not smoothed value
+      // This prevents feedback loop where smoothed value lags behind and blocks legitimate updates
+      if (hasBbox.value && bboxX.value !== 0) {
+        const dx = Math.abs(playerBbox.x - bboxX.value)
+        const dy = Math.abs(playerBbox.y - bboxY.value)
         const jump = Math.sqrt(dx * dx + dy * dy)
 
         if (jump > cfg.maxJumpThreshold) {
-          // Bbox jumped too much - reject as noise
-          if (__DEV__) {
-            console.log('[PLAYER CROP] Rejected large jump:', jump.toFixed(3), 'threshold:', cfg.maxJumpThreshold, 'from:', smoothedX.value.toFixed(3), smoothedY.value.toFixed(3), 'to:', playerBbox.x.toFixed(3), playerBbox.y.toFixed(3))
+          // Safety net: force accept after N consecutive rejects to prevent permanent lockup
+          consecutiveRejects.value += 1
+          if (consecutiveRejects.value < MAX_CONSECUTIVE_REJECTS) {
+            // Bbox jumped too much - reject as noise
+            if (__DEV__) {
+              console.log('[PLAYER CROP] Rejected large jump:', jump.toFixed(3), 'threshold:', cfg.maxJumpThreshold, 'from:', bboxX.value.toFixed(3), bboxY.value.toFixed(3), 'to:', playerBbox.x.toFixed(3), playerBbox.y.toFixed(3), 'consecutiveRejects:', consecutiveRejects.value)
+            }
+            return
           }
-          return
+          // Force accept after MAX_CONSECUTIVE_REJECTS - safety net to re-sync
+          if (__DEV__) {
+            console.log('[PLAYER CROP] Force accepting after', consecutiveRejects.value, 'consecutive rejects - safety net re-sync')
+          }
         }
       }
 
@@ -136,6 +149,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       detectedAt.value = now
       lastSeenAt.value = now
       hasBbox.value = true
+      consecutiveRejects.value = 0 // Reset consecutive reject counter on successful accept
     }
     // If playerBbox is null, we don't update lastSeenAt - let it expire naturally
   }
