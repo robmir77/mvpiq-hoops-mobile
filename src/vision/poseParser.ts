@@ -6,7 +6,7 @@
 
 import type { PoseKeypoints } from './types'
 
-const SCORE_THRESHOLD = 0.3
+const SCORE_THRESHOLD = 0.03
 
 const KP_MAP: Record<number, string> = {
   5: 'leftShoulder',
@@ -27,20 +27,17 @@ export function parseMoveNetOutput(outputData: Float32Array, expectedKeypoints =
   'worklet'
 
   const keypoints: PoseKeypoints = {}
-
-  // Log first few values to see the scale
-  if (outputData.length > 0) {
-    console.log(`[PoseParser] Raw values (0-8): ${outputData[0]?.toFixed(2)}, ${outputData[1]?.toFixed(2)}, ${outputData[2]?.toFixed(2)}, ${outputData[3]?.toFixed(2)}, ${outputData[4]?.toFixed(2)}, ${outputData[5]?.toFixed(2)}`)
-  }
+  const scores: number[] = []
 
   // MoveNet output shape: [1, 1, 17, 3] -> flat Float32Array of 51 elements
   // Each keypoint: [y, x, score]
-  // Apply same coordinate transformation as ball detection: x/y swap + horizontal flip
   for (let i = 0; i < expectedKeypoints; i++) {
     const offset = i * 3
     const yNorm = outputData[offset]
     const xNorm = outputData[offset + 1]
     const score = outputData[offset + 2]
+
+    scores.push(score)
 
     if (score === undefined || score < SCORE_THRESHOLD) continue
 
@@ -50,6 +47,14 @@ export function parseMoveNetOutput(outputData: Float32Array, expectedKeypoints =
       (keypoints as any)[name] = { x: xNorm, y: yNorm, score }
     }
   }
+
+  // Calculate confidence statistics
+  const validCount = scores.filter(s => s >= SCORE_THRESHOLD).length
+  const avgConf = scores.reduce((a, b) => a + b, 0) / scores.length
+  const minConf = Math.min(...scores)
+  const maxConf = Math.max(...scores)
+
+  console.log(`[PoseParser] minConf=${SCORE_THRESHOLD.toFixed(2)} valid=${validCount}/${expectedKeypoints} avgConf=${avgConf.toFixed(2)} min=${minConf.toFixed(2)} max=${maxConf.toFixed(2)}`)
 
   return keypoints
 }
