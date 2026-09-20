@@ -3,7 +3,7 @@
 
 import { useRef, useCallback } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
-import { TrackingState } from '../types/workouts.types'
+import { TrackingState, VisionTrackState } from '../types/workouts.types'
 
 interface KalmanState {
     x: number; y: number
@@ -94,6 +94,19 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     const releasePointY = useSharedValue(0)
     const apexPointX = useSharedValue(0)
     const apexPointY = useSharedValue(0)
+
+    // Visual tracking state for debugging
+    const ballTrackState = useSharedValue<VisionTrackState>('LOST')
+    const playerTrackState = useSharedValue<VisionTrackState>('LOST')
+    const rimTrackState = useSharedValue<VisionTrackState>('LOST')
+    const ballTrackAge = useSharedValue(0) // Age in ms when predicted
+    const playerTrackAge = useSharedValue(0) // Age in ms when predicted
+    const rimTrackAge = useSharedValue(0) // Age in ms when predicted
+
+    // Rejected detection positions for visualization
+    const rejectedBallX = useSharedValue(0)
+    const rejectedBallY = useSharedValue(0)
+    const rejectedBallConfidence = useSharedValue(0)
     
     // Trajectory SharedValues (flat array: [x1, y1, x2, y2, ...])
     const trajectoryPoints = useSharedValue(new Float32Array(MAX_POINTS * 2).fill(0))
@@ -250,7 +263,8 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         frameTs: number,
         poseKeypoints?: any,
         sizeCategory?: 'small' | 'medium' | 'large' | null,
-        adaptThreshold?: number
+        adaptThreshold?: number,
+        rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
     ): TrackingState => {
         const current = state.current
 
@@ -278,6 +292,18 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             }
         }
 
+        // Handle rejected detections for visualization
+        if (rejectedBall) {
+            rejectedBallX.value = rejectedBall.x
+            rejectedBallY.value = rejectedBall.y
+            rejectedBallConfidence.value = rejectedBall.confidence
+            ballTrackState.value = 'REJECTED'
+        } else {
+            rejectedBallX.value = 0
+            rejectedBallY.value = 0
+            rejectedBallConfidence.value = 0
+        }
+
         if (ballDetection) {
             const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
             current.ballPosition = smoothed
@@ -286,12 +312,16 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             current.confidence   = ballDetection.confidence
             current.ballWidth    = ballDetection.width
             current.ballHeight   = ballDetection.height
-            
+
             // Update ball tracking TTL state
             ballLastSeenAt.current = frameTs
             ballTrackingValid.current = true
             lastBallWasDetected.current = true
-            
+
+            // Update visual tracking state
+            ballTrackState.value = 'DETECTED'
+            ballTrackAge.value = 0
+
             // Call telemetry callback for detection
             callbacks?.onBallDetected?.()
 
@@ -356,7 +386,11 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                 current.ballVelocity = null
                 current.ballPositionRaw = null
                 current.confidence = 0
-                
+
+                // Update visual tracking state to LOST
+                ballTrackState.value = 'LOST'
+                ballTrackAge.value = 0
+
                 // Reset Shared Values
                 ballX.value = 0
                 ballY.value = 0
@@ -367,10 +401,17 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                 // Predict position from last velocity
                 const predX = k.x + k.vx * dt
                 const predY = k.y + k.vy * dt
-                
+
                 current.ballPosition = { x: predX, y: predY }
                 current.ballVelocity = { vx: k.vx, vy: k.vy }
-                
+
+                // Update visual tracking state to PREDICTED
+                ballTrackState.value = 'PREDICTED'
+                ballTrackAge.value = ageMs
+
+                // Call telemetry callback for prediction
+                callbacks?.onBallPrediction?.(ageMs)
+
                 // Update Shared Values with prediction
                 ballX.value = predX
                 ballY.value = predY
@@ -544,6 +585,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         ballLastSeenAt.current = 0
         ballTrackingValid.current = false
         lastBallWasDetected.current = false
+        // Reset visual tracking state
+        ballTrackState.value = 'LOST'
+        ballTrackAge.value = 0
         // Reset Shared Values
         inFlight.value = false
         showShotTrail.value = false
@@ -567,6 +611,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         ballLastSeenAt.current = 0
         ballTrackingValid.current = false
         lastBallWasDetected.current = false
+        // Reset visual tracking state
+        ballTrackState.value = 'LOST'
+        ballTrackAge.value = 0
         state.current       = {
             ballPosition: null, ballPositionRaw: null, ballVelocity: null, hoopPosition: null,
             shotDetected: false, shotResult: null, trajectory: [], confidence: 0,
@@ -621,7 +668,16 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             playerHeight.value = pipelineSharedValues.playerHeight.value
             playerConfidence.value = pipelineSharedValues.playerConfidence?.value ?? 0
         }
-    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence])
+        // Copy visual tracking states from pipeline
+        if (pipelineSharedValues?.playerTrackState !== undefined) {
+            playerTrackState.value = pipelineSharedValues.playerTrackState.value
+            playerTrackAge.value = pipelineSharedValues.playerTrackAge?.value ?? 0
+        }
+        if (pipelineSharedValues?.rimTrackState !== undefined) {
+            rimTrackState.value = pipelineSharedValues.rimTrackState.value
+            rimTrackAge.value = pipelineSharedValues.rimTrackAge?.value ?? 0
+        }
+    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge, rimTrackState, rimTrackAge])
 
     const computeTrajectoryMetrics = useCallback((): {
         arcHeight: number; releaseAngle: number; smoothness: number
@@ -719,6 +775,17 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             // Trajectory SharedValues
             trajectoryPoints,
             trajectoryPointCount,
+            // Visual tracking state for debugging
+            ballTrackState,
+            playerTrackState,
+            rimTrackState,
+            ballTrackAge,
+            playerTrackAge,
+            rimTrackAge,
+            // Rejected detection positions
+            rejectedBallX,
+            rejectedBallY,
+            rejectedBallConfidence,
         },
     }
 }

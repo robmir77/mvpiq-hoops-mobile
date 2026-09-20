@@ -279,7 +279,13 @@ export const useShotTracker = (
     const playerWidth = useSharedValue(0)
     const playerHeight = useSharedValue(0)
     const playerConfidence = useSharedValue(0)
-    
+
+    // Visual tracking state for debugging
+    const playerTrackState = useSharedValue('LOST')
+    const playerTrackAge = useSharedValue(0)
+    const rimTrackState = useSharedValue('LOST')
+    const rimTrackAge = useSharedValue(0)
+
     // Debug rejection reasons from YOLO parser
     const ballRejectionReason = useSharedValue('')
     const rimRejectionReason = useSharedValue('')
@@ -477,7 +483,8 @@ export const useShotTracker = (
                             null
                     }
 
-                    return null
+                    // Return detection with null ball to enable Kalman prediction
+                    return detection
                 }
 
                 // Size continuity filter: fallback only when detection is invalid
@@ -487,6 +494,7 @@ export const useShotTracker = (
 
                 let filteredBall: typeof ball | null = ball
                 let filterReason: string | null = null
+                let rejectedBall: typeof ball | null = null
 
                 // Check if detection is invalid (zero dimensions or non-finite coordinates)
                 const isInvalid = !Number.isFinite(ball.x) || !Number.isFinite(ball.y) || ball.width <= 0 || ball.height <= 0
@@ -506,6 +514,7 @@ export const useShotTracker = (
                         // Too much time passed, skip fallback
                         filterReason = `Current detection invalid but too much time since last valid (${timeSinceLastValid.toFixed(0)}ms), not using fallback`
                         filteredBall = null
+                        rejectedBall = ball // Store rejected detection for visualization
                     }
                 }
 
@@ -674,13 +683,11 @@ export const useShotTracker = (
                 }
 
                 // Return detection with filtered bbox for TrackingEngine
-                if (!filteredBall) {
-                    return null
-                }
-
+                // Pass null ball to enable Kalman prediction when detection is filtered
                 return {
                     ...detection,
-                    ball: filteredBall
+                    ball: filteredBall ?? undefined,
+                    rejectedBall: rejectedBall ?? undefined
                 }
             },
             [
@@ -866,6 +873,9 @@ export const useShotTracker = (
                             playerWidth.value = currentPlayer.width
                             playerHeight.value = currentPlayer.height
                             playerConfidence.value = currentPlayer.confidence
+                            // Update visual tracking state
+                            playerTrackState.value = 'DETECTED'
+                            playerTrackAge.value = 0
                             // Check if the detection was accepted by the confidence filter
                             const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
                             if (trackedBbox) {
@@ -887,7 +897,7 @@ export const useShotTracker = (
 
                     if (moveNetDue) {
                         lastMoveNetInferenceAt.value = nowForMoveNet
-                        
+
                         // Get effective bbox from PlayerCropManager (time-based tracking)
                         const trackedBbox = playerCrop.getEffectiveBbox(nowForMoveNet)
                         if (trackedBbox) {
@@ -899,16 +909,24 @@ export const useShotTracker = (
                                 height: trackedBbox.bbox.height,
                                 confidence: trackedBbox.bbox.confidence,
                             }
+                            // Update visual tracking state
                             if (trackedBbox.isUsingLastBbox) {
+                                playerTrackState.value = 'PREDICTED'
+                                playerTrackAge.value = trackedBbox.ageMs
                                 scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
+                            } else {
+                                playerTrackState.value = 'DETECTED'
+                                playerTrackAge.value = 0
                             }
-                            
+
                             // Execute MoveNet only if bbox is available
                             moveNetWorker.processFrame(frame, timestamp)
                         } else {
                             moveNetWorker.playerBbox.value = null
                             // BBox expired: MoveNet still runs in FULL_FRAME fallback.
                             // This keeps Phase 10 operational while player YOLO is temporarily lost.
+                            playerTrackState.value = 'LOST'
+                            playerTrackAge.value = 0
                             scheduleOnRN(recordPlayerBboxExpired)
                             moveNetWorker.processFrame(frame, timestamp)
                         }
@@ -922,7 +940,20 @@ export const useShotTracker = (
                         debug: yoloWorker.latestResultDebug.value,
                         timestamp: yoloWorker.latestResultTimestamp.value
                     }
-                    
+
+                    // Update rim tracking state
+                    if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
+                        rimTrackState.value = 'DETECTED'
+                        rimTrackAge.value = 0
+                    } else if (rimFromCalibration) {
+                        // Using calibration point as fallback
+                        rimTrackState.value = 'PREDICTED'
+                        rimTrackAge.value = 0
+                    } else {
+                        rimTrackState.value = 'LOST'
+                        rimTrackAge.value = 0
+                    }
+
                     // Update rejection reasons from debug data
                     if (yoloResult.debug) {
                         ballRejectionReason.value = yoloResult.debug.ballRejectionReason || ''
@@ -1135,6 +1166,10 @@ export const useShotTracker = (
             playerConfidence,
             ballRejectionReason,
             rimRejectionReason,
+            playerTrackState,
+            playerTrackAge,
+            rimTrackState,
+            rimTrackAge,
         },
     }
 }

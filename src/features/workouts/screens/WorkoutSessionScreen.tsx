@@ -141,6 +141,13 @@ const RealtimeBallOverlay = React.memo(({
         playerConfidence: any
         ballRejectionReason: any
         rimRejectionReason: any
+        // Visual tracking state for debugging
+        ballTrackState: any
+        ballTrackAge: any
+        playerTrackState: any
+        playerTrackAge: any
+        rimTrackState: any
+        rimTrackAge: any
     }
     effectiveResolution: { width: number; height: number }
     poseKeypoints: any
@@ -210,6 +217,14 @@ const RealtimeBallOverlay = React.memo(({
     const ballKalmanOpacity = useDerivedValue(() => {
         const hasKalman = (sharedValues?.ballX.value ?? 0) > 0 && (sharedValues?.ballY.value ?? 0) > 0
         return hasKalman ? 1 : 0
+    })
+
+    // Ball color based on tracking state
+    const ballColor = useDerivedValue(() => {
+        const state = sharedValues?.ballTrackState?.value ?? 'LOST'
+        if (state === 'DETECTED') return '#FF9800' // Orange
+        if (state === 'PREDICTED') return '#F44336' // Red
+        return '#F44336' // Red (LOST)
     })
     const isMadeOpacity = useDerivedValue(() => {
         return sharedValues?.shotResult.value === 'MADE' ? 1 : 0
@@ -298,21 +313,29 @@ const RealtimeBallOverlay = React.memo(({
     })
     
     const hoopColor = useDerivedValue(() => {
-        const rejectionReason = sharedValues?.rimRejectionReason?.value ?? ''
-        return rejectionReason !== '' ? '#ef4444' : '#4ade80'
+        const state = sharedValues?.rimTrackState?.value ?? 'LOST'
+        if (state === 'DETECTED') return '#FF9800' // Orange
+        if (state === 'PREDICTED') return '#F44336' // Red
+        return '#F44336' // Red (LOST)
     })
     const hoopFillColor = useDerivedValue(() => {
-        const rejectionReason = sharedValues?.rimRejectionReason?.value ?? ''
-        return rejectionReason !== '' ? 'rgba(239,68,68,0.18)' : 'rgba(74,222,128,0.18)'
+        const state = sharedValues?.rimTrackState?.value ?? 'LOST'
+        if (state === 'DETECTED') return 'rgba(255,152,0,0.18)' // Orange
+        if (state === 'PREDICTED') return 'rgba(244,67,54,0.18)' // Red
+        return 'rgba(244,67,54,0.18)' // Red (LOST)
     })
     
     const playerColor = useDerivedValue(() => {
-        const playerConf = sharedValues?.playerConfidence?.value ?? 0
-        return playerConf < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE ? '#ef4444' : '#22c55e'
+        const state = sharedValues?.playerTrackState?.value ?? 'LOST'
+        if (state === 'DETECTED') return '#FF9800' // Orange
+        if (state === 'PREDICTED') return '#F44336' // Red
+        return '#F44336' // Red (LOST)
     })
     const playerFillColor = useDerivedValue(() => {
-        const playerConf = sharedValues?.playerConfidence?.value ?? 0
-        return playerConf < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'
+        const state = sharedValues?.playerTrackState?.value ?? 'LOST'
+        if (state === 'DETECTED') return 'rgba(255,152,0,0.2)' // Orange
+        if (state === 'PREDICTED') return 'rgba(244,67,54,0.2)' // Red
+        return 'rgba(244,67,54,0.2)' // Red (LOST)
     })
 
     // Skeleton segment colors
@@ -466,7 +489,7 @@ const RealtimeBallOverlay = React.memo(({
                         cx={ballXPx}
                         cy={ballYPx}
                         r={8}
-                        color="#ff0000"
+                        color={ballColor}
                     />
                 </Group>
 
@@ -639,6 +662,12 @@ const ReactOverlay = React.memo(({
         playerConfidence: any
         ballRejectionReason: any
         rimRejectionReason: any
+        ballTrackState: any
+        ballTrackAge: any
+        playerTrackState: any
+        playerTrackAge: any
+        rimTrackState: any
+        rimTrackAge: any
     }
     fpsMetrics?: { yoloFps: number; moveNetFps: number }
     effectiveResolution: { width: number; height: number }
@@ -718,11 +747,17 @@ const ReactOverlay = React.memo(({
         playerX: number
         playerY: number
         playerConfidence: number
+        ballTrackState?: string
+        ballTrackAge?: number
+        playerTrackState?: string
+        playerTrackAge?: number
+        rimTrackState?: string
+        rimTrackAge?: number
     }) => {
         setBallLabelVisible(data.showLabel)
         const mappedPos = mapNormalizedToCameraView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
         setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
-        
+
         let sizeLabel = ''
         if (data.ballSizeCategory === 'small') {
             sizeLabel = '🔴 PICCOLA'
@@ -731,26 +766,49 @@ const ReactOverlay = React.memo(({
         } else if (data.ballSizeCategory === 'large') {
             sizeLabel = '🟢 GRANDE'
         }
-        
+
+        // Add tracking state to ball label
+        let trackLabel = ''
+        if (data.ballTrackState) {
+            const stateEmoji = data.ballTrackState === 'DETECTED' ? '🟠' : data.ballTrackState === 'PREDICTED' ? '🔴' : '🔴'
+            const ageLabel = data.ballTrackState === 'PREDICTED' && data.ballTrackAge ? ` ${Math.round(data.ballTrackAge)}ms` : ''
+            trackLabel = `${stateEmoji} ${data.ballTrackState}${ageLabel}`
+        }
+
         const threshLabel = data.adaptiveThreshold ? `| Thresh: ${data.adaptiveThreshold.toFixed(3)}` : ''
-        setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}% ${sizeLabel} ${threshLabel}`)
-        
+        setBallLabelText(`🏀 ${Math.round(data.confidence * 100)}% ${sizeLabel} ${trackLabel} ${threshLabel}`)
+
         // Hoop label
         const showHoopLabel = data.hoopX > 0 && data.hoopY > 0
         setHoopLabelVisible(showHoopLabel)
         if (showHoopLabel) {
             const hoopPos = mapNormalizedToCameraView(data.hoopX, data.hoopY, effectiveResolution.width, effectiveResolution.height)
             setHoopLabelPos({ left: hoopPos.x - 32, top: hoopPos.y - 44 })
-            setHoopLabelText(`🏀 ${Math.round(data.hoopConfidence * 100)}%`)
+
+            // Add tracking state to hoop label
+            let rimTrackLabel = ''
+            if (data.rimTrackState) {
+                const stateEmoji = data.rimTrackState === 'DETECTED' ? '🟠' : data.rimTrackState === 'PREDICTED' ? '🔴' : '🔴'
+                rimTrackLabel = `${stateEmoji} ${data.rimTrackState}`
+            }
+            setHoopLabelText(`🏀 ${Math.round(data.hoopConfidence * 100)}% ${rimTrackLabel}`)
         }
-        
+
         // Player label
         const showPlayerLabel = data.playerX > 0 && data.playerY > 0
         setPlayerLabelVisible(showPlayerLabel)
         if (showPlayerLabel) {
             const playerPos = mapNormalizedToCameraView(data.playerX, data.playerY, effectiveResolution.width, effectiveResolution.height)
             setPlayerLabelPos({ left: playerPos.x - 32, top: playerPos.y - 44 })
-            setPlayerLabelText(`👤 ${Math.round(data.playerConfidence * 100)}%`)
+
+            // Add tracking state to player label
+            let playerTrackLabel = ''
+            if (data.playerTrackState) {
+                const stateEmoji = data.playerTrackState === 'DETECTED' ? '🟠' : data.playerTrackState === 'PREDICTED' ? '🔴' : '🔴'
+                const ageLabel = data.playerTrackState === 'PREDICTED' && data.playerTrackAge ? ` ${Math.round(data.playerTrackAge)}ms` : ''
+                playerTrackLabel = `${stateEmoji} ${data.playerTrackState}${ageLabel}`
+            }
+            setPlayerLabelText(`👤 ${Math.round(data.playerConfidence * 100)}% ${playerTrackLabel}`)
         }
         
         setPowerBadgeVisible(data.inFlight && shotPower > 0)
@@ -784,6 +842,12 @@ const ReactOverlay = React.memo(({
             playerX: sharedValues?.playerX.value ?? 0,
             playerY: sharedValues?.playerY.value ?? 0,
             playerConfidence: sharedValues?.playerConfidence?.value ?? 0,
+            ballTrackState: sharedValues?.ballTrackState?.value,
+            ballTrackAge: sharedValues?.ballTrackAge?.value,
+            playerTrackState: sharedValues?.playerTrackState?.value,
+            playerTrackAge: sharedValues?.playerTrackAge?.value,
+            rimTrackState: sharedValues?.rimTrackState?.value,
+            rimTrackAge: sharedValues?.rimTrackAge?.value,
         }),
         (current) => {
             const now = Date.now()

@@ -4,6 +4,9 @@ export type SessionStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED'
 export type ShotResult = 'MADE' | 'MISS' | 'BLOCKED' | 'AIRBALL'
 export type CourtZone = 'PAINT' | 'MID_RANGE' | 'THREE_POINT' | 'CORNER'
 
+// Visual tracking state for debugging
+export type VisionTrackState = 'DETECTED' | 'PREDICTED' | 'LOST' | 'REJECTED'
+
 // Session
 export interface WorkoutSession {
     id: string
