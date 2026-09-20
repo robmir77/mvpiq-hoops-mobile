@@ -22,11 +22,17 @@ export const YOLO_CONFIG = {
 
 // Camera Configuration
 export const CAMERA_CONFIG = {
-  DEFAULT_RESOLUTION: { width: 1280, height: 720 }, // Default camera resolution
+  DEFAULT_RESOLUTION: { width: 3840, height: 2160 }, // Default camera resolution (4K)
   DEFAULT_FPS: 30, // Default camera frame rate
   DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
   DEFAULT_ZOOM: 1, // Default camera zoom level
   MIN_RESOLUTION: { width: 1280, height: 720 }, // Minimum acceptable resolution for workout sessions
+} as const;
+
+// Model Configuration
+export const MODEL_CONFIG = {
+  DEFAULT_YOLO_MODEL_ID: 'best_512_float16', // Default YOLO model
+  DEFAULT_MOVENET_MODEL_ID: 'movenet_lightning_192_int8', // Default MoveNet model
 } as const;
 
 // Court Dimensions (meters)

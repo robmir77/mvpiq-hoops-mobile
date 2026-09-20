@@ -2010,6 +2010,16 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     yoloFps={fpsMetrics.yoloFps}
                     moveNetFps={fpsMetrics.moveNetFps}
                     debugMode={debugMode}
+                    cameraConfig={{
+                        resolution: effectiveResolution,
+                        fps: effectiveFps,
+                        zoom: effectiveZoom,
+                    }}
+                    modelConfig={{
+                        yoloModel: effectiveYoloModelId,
+                        moveNetModel: effectiveMoveNetModelId,
+                        moveNetResolution: effectivePoseResolution,
+                    }}
                 />
 
                 <View style={styles.guideH} pointerEvents="none" />

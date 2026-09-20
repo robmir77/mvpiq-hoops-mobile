@@ -9,6 +9,7 @@
 
 import * as FileSystem from 'expo-file-system/legacy'
 import { Asset } from 'expo-asset'
+import { MODEL_CONFIG } from '@/config/appConfig'
 
 export interface MoveNetModelConfig {
   id: string
@@ -91,7 +92,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
   // },
 ]
 
-export const DEFAULT_YOLO_MODEL_ID = 'best_512_int8'
+export const DEFAULT_YOLO_MODEL_ID = MODEL_CONFIG.DEFAULT_YOLO_MODEL_ID
 
 // MoveNet model registry. Keep the model input size here so the camera
 // resizer and the TFLite input buffer can never drift apart.
@@ -114,7 +115,7 @@ export const MOVENET_MODELS: MoveNetModelConfig[] = [
   },
 ]
 
-export const DEFAULT_MOVENET_MODEL_ID = 'movenet_lightning_192_int8'
+export const DEFAULT_MOVENET_MODEL_ID = MODEL_CONFIG.DEFAULT_MOVENET_MODEL_ID
 
 // MoveNet model URI - loaded separately
 let moveNetModelUri: string | null = null

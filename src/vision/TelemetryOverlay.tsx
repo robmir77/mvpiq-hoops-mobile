@@ -15,9 +15,19 @@ interface TelemetryOverlayProps {
   yoloFps?: number
   moveNetFps?: number
   debugMode?: boolean
+  cameraConfig?: {
+    resolution?: { width: number; height: number }
+    fps?: number
+    zoom?: number
+  }
+  modelConfig?: {
+    yoloModel?: string
+    moveNetModel?: string
+    moveNetResolution?: number
+  }
 }
 
-export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, debugMode = false }) => {
+export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, debugMode = false, cameraConfig, modelConfig }) => {
   const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ fps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
   const [ballMetrics, setBallMetrics] = useState<BallDetectionMetrics>({
     framesProcessed: 0,
@@ -212,6 +222,50 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               <View style={styles.row}>
                 <Text style={styles.label}>Parse:</Text>
                 <Text style={styles.value}>{moveNetMetrics.parseMs.toFixed(1)}ms</Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>CAMERA</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>Res:</Text>
+                <Text style={styles.value}>{cameraConfig?.resolution ? `${cameraConfig.resolution.width}×${cameraConfig.resolution.height}` : 'N/A'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>FPS:</Text>
+                <Text style={styles.value}>{cameraConfig?.fps ?? 'N/A'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Zoom:</Text>
+                <Text style={styles.value}>{cameraConfig?.zoom ? `${cameraConfig.zoom.toFixed(1)}x` : 'N/A'}</Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>MODELS</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>YOLO:</Text>
+                <Text style={styles.value}>{modelConfig?.yoloModel ?? 'N/A'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>MoveNet:</Text>
+                <Text style={styles.value}>{modelConfig?.moveNetModel ?? 'N/A'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Pose Res:</Text>
+                <Text style={styles.value}>{modelConfig?.moveNetResolution ?? 'N/A'}</Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>SYSTEM</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>CPU:</Text>
+                <Text style={styles.value}>N/A</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>RAM:</Text>
+                <Text style={styles.value}>N/A</Text>
               </View>
             </View>
 
