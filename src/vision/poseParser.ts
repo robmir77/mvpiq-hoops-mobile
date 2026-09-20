@@ -6,7 +6,7 @@
 
 import type { PoseKeypoints } from './types'
 
-const SCORE_THRESHOLD = 0.15
+const SCORE_THRESHOLD = 0.3
 
 const KP_MAP: Record<number, string> = {
   5: 'leftShoulder',

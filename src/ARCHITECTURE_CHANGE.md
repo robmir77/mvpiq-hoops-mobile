@@ -40,8 +40,8 @@ YOLO Parser
 - **Safety Net**: Force accept dopo 3 rifiuti consecutivi
 
 #### 4. MoveNet Pose Estimation
-- **Modello**: `movenet_lightning_192_int8.tflite` o `320_int8`
-- **Risoluzione**: 192×192 o 320×320
+- **Modello**: `movenet_lightning_192_int8.tflite`
+- **Risoluzione**: 192×192
 - **Frequenza**: 3 FPS (throttled)
 - **Preprocessing**: Full-frame resize → CPU crop (92ms) → Float32
 - **Inferenza**: Asincrona su JS thread (~70ms)
@@ -143,12 +143,6 @@ Cambio di `effectiveResolution` quando calibration veniva caricato causava remou
 Trasformazione `x: 1 - yNorm, y: xNorm` causava deformazione della pose.
 
 **Soluzione**: Usare direttamente `x: xNorm, y: yNorm` (MoveNet output è [y, x, score]).
-
-### MoveNet 320 Model: Preloading
-
-Solo il modello 192×192 veniva pre-caricato, causando errore quando selezionato 320×320.
-
-**Soluzione**: Pre-caricare tutti i modelli MoveNet (192 e 320) all'avvio dell'app.
 
 ## Architettura Dettagliata
 

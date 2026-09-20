@@ -1169,7 +1169,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         style={styles.picker}
                                     >
                                         <Picker.Item label="192 × 192" value={192} />
-                                        <Picker.Item label="320 × 320" value={320} />
                                     </Picker>
                                 </View>
                                 <Text style={styles.configHint}>

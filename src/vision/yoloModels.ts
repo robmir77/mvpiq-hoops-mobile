@@ -105,14 +105,6 @@ export const MOVENET_MODELS: MoveNetModelConfig[] = [
     outputKeypoints: 17,
     asset: require('../../assets/models/movenet_lightning_192_int8.tflite'),
   },
-  {
-    id: 'movenet_lightning_320_int8',
-    fileName: 'movenet_lightning_320_int8.tflite',
-    label: 'MoveNet Lightning · INT8 · 320',
-    inputSize: 320,
-    outputKeypoints: 17,
-    asset: require('../../assets/models/movenet_lightning_320_int8.tflite'),
-  },
 ]
 
 export const DEFAULT_MOVENET_MODEL_ID = MODEL_CONFIG.DEFAULT_MOVENET_MODEL_ID
@@ -162,7 +154,7 @@ export async function preloadModelAssets(): Promise<void> {
     }
   }
 
-  // Also preload MoveNet model
+  // Preload MoveNet model
   try {
     const moveNetModel = getMoveNetModel()
     if (!moveNetModel) throw new Error('No MoveNet model configured')
