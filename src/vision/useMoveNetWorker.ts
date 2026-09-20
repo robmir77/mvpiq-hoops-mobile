@@ -40,81 +40,45 @@ interface PoseWorkerResult {
 
 
 /**
- * CPU-side crop/resample used with react-native-vision-camera-resizer V5.
- * V5 resize() only accepts the frame, so the frame is first resized to the
- * configured square and the player crop is then extracted from that tensor.
- * This keeps the implementation worklet-safe and avoids the deprecated V4 API.
+ * Converts the calculated player crop into a square crop.
+ *
+ * IMPORTANT:
+ * This function only calculates geometry.
+ * It does NOT perform image cropping/resizing.
+ *
+ * The actual native crop+resize will be implemented in the next phase,
+ * after verifying the real VisionCamera V5 API available in this project.
  */
-const cropResizedFloat32 = (
-  source: Float32Array,
-  sourceSize: number,
+const makeSquareCrop = (
+  crop: {
+    cropX: number
+    cropY: number
+    cropWidth: number
+    cropHeight: number
+  },
   frameWidth: number,
   frameHeight: number,
-  crop: { cropX: number; cropY: number; cropWidth: number; cropHeight: number },
-  outputSize: number,
-): { output: Float32Array; squareCropX: number; squareCropY: number; cropSize: number } => {
+) => {
   'worklet'
 
-  const output = new Float32Array(outputSize * outputSize * 3)
+  const size = Math.min(
+    Math.max(crop.cropWidth, crop.cropHeight),
+    frameWidth,
+    frameHeight,
+  )
 
-  // The V5 resizer uses `contain`: the camera image is centered inside the
-  // square tensor. Map the original-frame crop into that tensor first.
-  const scale = Math.min(sourceSize / frameWidth, sourceSize / frameHeight)
-  const contentWidth = frameWidth * scale
-  const contentHeight = frameHeight * scale
-  const offsetX = (sourceSize - contentWidth) * 0.5
-  const offsetY = (sourceSize - contentHeight) * 0.5
+  let x = crop.cropX + (crop.cropWidth - size) * 0.5
+  let y = crop.cropY + (crop.cropHeight - size) * 0.5
 
-  // Calculate the crop in the source (resized) image
-  const sourceCropX = offsetX + crop.cropX * scale
-  const sourceCropY = offsetY + crop.cropY * scale
-  const sourceCropW = Math.max(1, crop.cropWidth * scale)
-  const sourceCropH = Math.max(1, crop.cropHeight * scale)
+  x = Math.max(0, Math.min(frameWidth - size, x))
+  y = Math.max(0, Math.min(frameHeight - size, y))
 
-  // Maintain aspect ratio: make the crop square by adding padding
-  const cropSize = Math.max(sourceCropW, sourceCropH)
-  const squareCropX = sourceCropX + (sourceCropW - cropSize) * 0.5
-  const squareCropY = sourceCropY + (sourceCropH - cropSize) * 0.5
-
-  // Precompute x-coordinate calculations to avoid redundant Math calls in inner loop
-  // This eliminates ~220k redundant function calls (99.5% of x-side calculations)
-  const x0Arr = new Int32Array(outputSize)
-  const x1Arr = new Int32Array(outputSize)
-  const wxArr = new Float32Array(outputSize)
-  for (let ox = 0; ox < outputSize; ox++) {
-    const fx = squareCropX + ((ox + 0.5) / outputSize) * cropSize - 0.5
-    const fxFloor = Math.floor(fx)
-    x0Arr[ox] = Math.max(0, Math.min(sourceSize - 1, fxFloor))
-    x1Arr[ox] = Math.max(0, Math.min(sourceSize - 1, fxFloor + 1))
-    wxArr[ox] = Math.max(0, Math.min(1, fx - fxFloor))
+  return {
+    cropX: x,
+    cropY: y,
+    cropWidth: size,
+    cropHeight: size,
   }
-
-  for (let oy = 0; oy < outputSize; oy++) {
-    const fy = squareCropY + ((oy + 0.5) / outputSize) * cropSize - 0.5
-    const y0 = Math.max(0, Math.min(sourceSize - 1, Math.floor(fy)))
-    const y1 = Math.max(0, Math.min(sourceSize - 1, y0 + 1))
-    const wy = Math.max(0, Math.min(1, fy - Math.floor(fy)))
-
-    for (let ox = 0; ox < outputSize; ox++) {
-      const x0 = x0Arr[ox]
-      const x1 = x1Arr[ox]
-      const wx = wxArr[ox]
-
-      const src00 = (y0 * sourceSize + x0) * 3
-      const src01 = (y0 * sourceSize + x1) * 3
-      const src10 = (y1 * sourceSize + x0) * 3
-      const src11 = (y1 * sourceSize + x1) * 3
-      const dst = (oy * outputSize + ox) * 3
-
-      for (let c = 0; c < 3; c++) {
-        const top = source[src00 + c] * (1 - wx) + source[src01 + c] * wx
-        const bottom = source[src10 + c] * (1 - wx) + source[src11 + c] * wx
-        output[dst + c] = top * (1 - wy) + bottom * wy
-      }
-    }
-  }
-
-  return { output, squareCropX, squareCropY, cropSize }
 }
 
 export const useMoveNetWorker = (
@@ -185,6 +149,7 @@ export const useMoveNetWorker = (
     inputBuffer: ArrayBuffer,
     cropInfo: PlayerCropResult | null,
     cropRegion: { cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null,
+    usingPlayerCrop: boolean,
     frameWidth: number,
     frameHeight: number,
     timestamp: number,
@@ -227,7 +192,12 @@ export const useMoveNetWorker = (
 
       // Transform keypoints from crop space back to frame space if crop was used
       let finalKeypoints = keypoints
-      if (cropRegion && cropInfo && cropInfo.squareCropSize !== undefined) {
+      if (
+        usingPlayerCrop &&
+        cropRegion &&
+        cropInfo &&
+        cropInfo.squareCropSize !== undefined
+      ) {
         // Log for debugging pose position issue
         const sampleKey = Object.keys(keypoints)[0] as keyof PoseKeypoints
         if (__DEV__ && sampleKey && keypoints[sampleKey]) {
@@ -440,7 +410,7 @@ export const useMoveNetWorker = (
       bbox.x + bbox.width <= 1 + BOUNDARY_TOLERANCE &&
       bbox.y + bbox.height <= 1 + BOUNDARY_TOLERANCE
 
-    const poseSource = hasValidPlayer ? "PLAYER_CROP" : "FULL_FRAME"
+    const poseSource = hasValidPlayer ? "PLAYER_CROP_GEOMETRY" : "FULL_FRAME"
 
     if (__DEV__) {
       console.log('[MoveNet CROP] source=', poseSource, 'bboxValid=', hasValidPlayer)
@@ -475,6 +445,7 @@ export const useMoveNetWorker = (
 
     let resized: any = null
     let cropInfo: PlayerCropResult | null = null
+    let usingPlayerCrop = false
     const t0 = performance.now()
 
     try {
@@ -510,11 +481,28 @@ export const useMoveNetWorker = (
         cropWidth = Math.max(minCropSize, cropWidth)
         cropHeight = Math.max(minCropSize, cropHeight)
 
-        cropRegion = { cropX, cropY, cropWidth, cropHeight }
-        playerCropRegion.value = cropRegion
+        const squareCrop = makeSquareCrop(
+          {
+            cropX,
+            cropY,
+            cropWidth,
+            cropHeight,
+          },
+          frame.width,
+          frame.height,
+        )
+
+        cropRegion = squareCrop
+        playerCropRegion.value = squareCrop
 
         if (__DEV__) {
-          console.log('[MoveNet CROP] pixelRect=', `x=${Math.round(cropX)} y=${Math.round(cropY)} w=${Math.round(cropWidth)} h=${Math.round(cropHeight)}`)
+          console.log(
+            '[MoveNet CROP] squareRect=',
+            `x=${Math.round(squareCrop.cropX)} ` +
+            `y=${Math.round(squareCrop.cropY)} ` +
+            `w=${Math.round(squareCrop.cropWidth)} ` +
+            `h=${Math.round(squareCrop.cropHeight)}`
+          )
         }
       } else {
         playerCropRegion.value = null
@@ -545,31 +533,9 @@ export const useMoveNetWorker = (
         const floatSource = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (floatSource.length === poseInputElements) {
-          const tCpuCropStart = performance.now()
-          let inputSource = floatSource
+          const inputSource = floatSource
 
           if (cropRegion) {
-            const cropResult = cropResizedFloat32(
-              floatSource,
-              poseInputSize,
-              frame.width,
-              frame.height,
-              cropRegion,
-              poseInputSize,
-            )
-            inputSource = cropResult.output
-            
-            // Calculate padding info for inverse transformation
-            const scale = Math.min(poseInputSize / frame.width, poseInputSize / frame.height)
-            const sourceCropW = Math.max(1, cropRegion.cropWidth * scale)
-            const sourceCropH = Math.max(1, cropRegion.cropHeight * scale)
-            const cropSize = Math.max(sourceCropW, sourceCropH)
-            
-            // Convert square crop coordinates back to frame space
-            const squareCropX = (cropResult.squareCropX - (poseInputSize - frame.width * scale) * 0.5) / scale
-            const squareCropY = (cropResult.squareCropY - (poseInputSize - frame.height * scale) * 0.5) / scale
-            const squareCropSize = cropResult.cropSize / scale
-            
             cropInfo = {
               cropX: cropRegion.cropX,
               cropY: cropRegion.cropY,
@@ -577,24 +543,49 @@ export const useMoveNetWorker = (
               cropHeight: cropRegion.cropHeight,
               isValid: true,
               isUsingLastBbox: false,
-              squareCropX,
-              squareCropY,
-              squareCropSize,
+              squareCropX: cropRegion.cropX,
+              squareCropY: cropRegion.cropY,
+              squareCropSize: cropRegion.cropWidth,
             }
-            
+
             if (__DEV__) {
-              console.log('[MoveNet CROP] CPU resample applied=', true, 'inputElements=', inputSource.length)
-            }
-          } else {
-            if (__DEV__) {
-              console.log('[MoveNet CROP] CPU resample applied=', false, 'source=FULL_FRAME')
+              console.log(
+                '[MoveNet CROP] geometry prepared=',
+                `x=${Math.round(cropRegion.cropX)} ` +
+                `y=${Math.round(cropRegion.cropY)} ` +
+                `size=${Math.round(cropRegion.cropWidth)}`
+              )
             }
           }
 
-          const cpuCropMs = performance.now() - tCpuCropStart
-          // cropMs includes crop-region calculation + actual CPU extraction.
-          const totalCropMs = cropMs + cpuCropMs
-        
+          if (__DEV__) {
+            console.log(
+              '[MoveNet CROP] geometryOnly=',
+              !!cropRegion,
+              'nativeCropApplied=',
+              usingPlayerCrop,
+              'inputElements=',
+              inputSource.length,
+            )
+          }
+
+          const totalCropMs = cropMs
+
+          // Buffer size validation
+          if (inputSource.length !== poseInputElements) {
+            console.error(
+              '[MoveNet Input] Invalid input length:',
+              inputSource.length,
+              'expected:',
+              poseInputElements,
+            )
+
+            resized.dispose()
+            resized = null
+            isProcessing.value = false
+            return
+          }
+
           let maxVal = 0;
           for (let i = 0; i < inputSource.length; i+=100) {
             if (inputSource[i] > maxVal) maxVal = inputSource[i];
@@ -626,7 +617,7 @@ export const useMoveNetWorker = (
           }
 
           // ASYNC: Run inference on JS thread (Promises are not worklet-safe)
-          scheduleOnRN(runMoveNetInference, inputBuffer, cropInfo, cropRegion, frameWidth, frameHeight, timestamp, t0, totalCropMs, resizeMs, resized)
+          scheduleOnRN(runMoveNetInference, inputBuffer, cropInfo, cropRegion, usingPlayerCrop, frameWidth, frameHeight, timestamp, t0, totalCropMs, resizeMs, resized)
         }
       }
 

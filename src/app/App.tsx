@@ -5,9 +5,11 @@ import { Platform } from 'react-native'
 import AppNavigator from '@/app/navigation/AppNavigator'
 import AppProviders from '@/app/providers/AppProviders'
 import { preloadModelAssets } from '@/vision/yoloModels'
+import { useKeepAlive } from '@/shared/api/keepAliveService'
 
 export default function App() {
     const [assetsLoaded, setAssetsLoaded] = useState(false)
+    const { start: startKeepAlive, stop: stopKeepAlive } = useKeepAlive()
 
     useEffect(() => {
         preloadModelAssets().then(() => {
@@ -17,6 +19,15 @@ export default function App() {
             setAssetsLoaded(true) // Continue anyway to not block the app
         })
     }, [])
+
+    useEffect(() => {
+        if (assetsLoaded) {
+            startKeepAlive()
+        }
+        return () => {
+            stopKeepAlive()
+        }
+    }, [assetsLoaded, startKeepAlive, stopKeepAlive])
 
     if (!assetsLoaded) {
         return (
