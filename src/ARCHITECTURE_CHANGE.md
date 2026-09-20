@@ -1101,3 +1101,398 @@ preloadModelAssets()
 - L'utente può selezionare qualsiasi risoluzione (192 o 320) senza errori di caricamento
 - Il modello di default (192) mantiene il suo URI nella variabile `moveNetModelUri`
 - Ogni modello ha il proprio `fileUri` memorizzato nell'oggetto di configurazione
+
+## Phase 15: Performance Bottleneck Diagnostics - MoveNet Impact
+
+### Obiettivo
+Identificare il collo di bottiglia principale nella pipeline di vision attraverso un test diagnostico controllato che disabiliti temporaneamente MoveNet mantenendo attivo YOLO, tracking e calcolo della player BBox.
+
+### Metodologia
+
+#### 1. Flag diagnostico ENABLE_MOVENET
+Aggiunto flag `const ENABLE_MOVENET = false` in `useMoveNetWorker.ts` per disabilitare l'esecuzione di MoveNet senza modificare l'architettura della pipeline.
+
+#### 2. Punto di intervento
+Il flag è stato inserito nel controllo early return di `processFrame`:
+```typescript
+if (!poseModelInstance || isProcessing.value || !enabled || !ENABLE_MOVENET) {
+  console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled, 'ENABLE_MOVENET=', ENABLE_MOVENET)
+  return
+}
+```
+
+#### 3. Cosa rimane attivo durante il test
+- Camera frame capture
+- YOLO detection (512×512 INT8)
+- YOLO parser
+- BallTracker
+- PlayerTracker
+- Player BBox calculation
+- Player crop calculation (ma non eseguito)
+- Overlay/telemetry
+
+#### 4. Cosa viene disabilitato
+- MoveNet crop (47.5 ms)
+- MoveNet resize (2.3 ms)
+- MoveNet runSync (17.1 ms)
+- MoveNet parsing (0.1 ms)
+
+### Risultati del test
+
+#### Metriche con MoveNet attivo (baseline)
+```
+camFPS: 11.0
+YOLO fps: 15.3
+YOLO avg: 65.4 ms
+YOLO resize: 1.7 ms
+YOLO run: 51.4 ms
+YOLO parse: 12.2 ms
+MoveNet fps: 11.2
+MoveNet avg: 89.4 ms
+MoveNet crop: 47.5 ms
+MoveNet resize: 2.3 ms
+MoveNet run: 17.1 ms
+MoveNet parse: 0.1 ms
+```
+
+#### Metriche con MoveNet disabilitato (ENABLE_MOVENET = false)
+```
+camFPS: 29.0  (+163%)
+YOLO fps: 15.3 (nessun cambiamento)
+YOLO avg: 65.3 ms (nessun cambiamento)
+YOLO resize: 1.7 ms (nessun cambiamento)
+YOLO run: 51.3 ms (nessun cambiamento)
+YOLO parse: 12.2 ms (nessun cambiamento)
+MoveNet fps: 0 (disabilitato)
+```
+
+### Analisi dei risultati
+
+#### 1. Conferma del collo di bottiglia
+La camera FPS è più che raddoppiata (11 → 29 FPS, +163%) quando MoveNet è stato disabilitato, mentre YOLO ha mantenuto esattamente le stesse performance. Questo conferma che:
+- **YOLO non è il collo di bottiglia**: Le performance YOLO sono rimaste invariate
+- **MoveNet è il collo di bottiglia principale**: La sua esecuzione blocca significativamente il camera frame processor
+
+#### 2. Costo di MoveNet
+Il costo totale di MoveNet è di circa 89.4 ms, ripartito come:
+- Crop: 47.5 ms (53% del totale)
+- Resize: 2.3 ms (3% del totale)
+- runSync: 17.1 ms (19% del totale)
+- Parsing: 0.1 ms (trascurabile)
+
+Il crop da solo costa quasi quanto l'intera inferenza YOLO (51.3 ms).
+
+#### 3. Problema architetturale
+La pipeline è seriale e sincrona:
+```
+Camera Frame
+    ↓
+YOLO runSync (51.3 ms)
+    ↓
+YOLO parsing (12.2 ms)
+    ↓
+Tracking
+    ↓
+Player crop calculation
+    ↓
+MoveNet crop (47.5 ms)
+    ↓
+MoveNet resize (2.3 ms)
+    ↓
+MoveNet runSync (17.1 ms)
+    ↓
+MoveNet parsing (0.1 ms)
+```
+
+Quando `runSync()` viene eseguito sul camera thread, blocca l'elaborazione dei frame successivi. Il tempo totale di elaborazione (~125 ms) supera ampiamente l'intervallo tra frame a 30 FPS (~33 ms), causando drop e riduzione della camera FPS.
+
+### Conclusioni
+
+#### 1. Il collo di bottiglia è architetturale, non del modello
+- Cambiare la risoluzione YOLO (512 → 320 o 640) non risolverebbe il problema
+- Cambiare la risoluzione MoveNet (192 → 320) peggiorerebbe la situazione
+- Il problema è l'esecuzione sincrona seriale sul camera thread
+
+#### 2. Il crop MoveNet è costoso quanto l'inferenza
+- Il crop CPU (47.5 ms) costa quasi quanto YOLO runSync (51.3 ms)
+- L'inferenza MoveNet stessa (17.1 ms) è relativamente veloce
+- Ottimizzare solo l'inferenza non sarebbe sufficiente
+
+#### 3. La pipeline non scala
+- Con YOLO solo: ~15 FPS
+- Con YOLO + MoveNet: ~11 FPS
+- Senza MoveNet: ~29 FPS (camera limit)
+
+### Possibili soluzioni future
+
+#### Opzione 1: MoveNet su thread separato (runAsync)
+- Eseguire MoveNet in modo asincrono su un worker thread separato
+- Non bloccare il camera frame processor
+- Richiede gestione della concorrenza e sincronizzazione dei risultati
+
+#### Opzione 2: Ottimizzazione crop GPU-based
+- Sostituire il crop CPU con un crop GPU-based
+- Ridurre il costo del crop da 47.5 ms a valori significativamente inferiori
+- Potrebbe richiedere codice nativo o plugin specifici
+
+#### Opzione 3: Riduzione frequenza MoveNet
+- Attualmente: 3 FPS (intervallo 333 ms)
+- Ridurre a 1-2 FPS potrebbe ridurre l'impatto sulla pipeline
+- Compromesso tra fluidità della pose e performance della camera
+
+#### Opzione 4: Skip crop quando bbox stabile
+- Riutilizzare l'ultimo crop quando la BBox del player è stabile
+- Evitare il crop costoso su frame consecutivi
+- Richiede logica di stabilità della BBox
+
+### Prossima raccomandazione
+Prima di implementare una delle soluzioni sopra, raccomando di:
+1. Misurare l'impatto della riduzione della frequenza MoveNet (da 3 FPS a 1-2 FPS)
+2. Valutare se la pose a 1-2 FPS è sufficiente per l'uso case dell'applicazione
+3. Se non sufficiente, procedere con l'Opzione 1 (runAsync) o Opzione 2 (GPU crop)
+
+## Phase 16: Implementazione runAsync per MoveNet
+
+### Obiettivo
+Convertire l'inferenza MoveNet da sincrona (`runSync`) ad asincrona (`run()`) per evitare il blocco del camera frame processor e migliorare la camera FPS.
+
+### Motivazione
+I test diagnostici della Phase 15 hanno mostrato che MoveNet è il collo di bottiglia principale:
+- Con MoveNet attivo: camFPS ~11 FPS
+- Con MoveNet disabilitato: camFPS ~29 FPS (+163%)
+- Il problema è architetturale: l'esecuzione sincrona seriale blocca il camera thread
+
+### Modifiche implementate
+
+#### 1. Riattivazione MoveNet
+- `ENABLE_MOVENET = false` → `ENABLE_MOVENET = true`
+
+#### 2. Conversione runSync → run()
+**Prima:**
+```typescript
+const tRunStart = performance.now()
+const outputs = poseModelInstance!.runSync([inputBuffer])
+const tRunEnd = performance.now()
+const runMs = tRunEnd - tRunStart
+// ... parsing e post-processing sincroni
+```
+
+**Dopo:**
+```typescript
+const tRunStart = performance.now()
+poseModelInstance!.run([inputBuffer]).then((outputs: ArrayBuffer[]) => {
+  const tRunEnd = performance.now()
+  const runMs = tRunEnd - tRunStart
+  // ... parsing e post-processing nel callback asincrono
+}).catch((error: any) => {
+  // Gestione errori
+})
+```
+
+#### 3. Ristrutturazione processFrame
+- Preprocessing (crop, resize, CPU crop, conversione dataType) eseguito sincronamente
+- Inferenza eseguita asincronamente con `run()`
+- Tutto il codice dipendente da `outputs` spostato dentro la continuation:
+  - Parsing output
+  - Calcolo joint angles
+  - Transform keypoints (crop → frame space)
+  - Aggiornamento SharedValues
+  - Telemetry
+- `isProcessing.value = false` eseguito solo quando l'inferenza asincrona termina
+- `resized.dispose()` spostato dopo il completamento dell'operazione asincrona (sia in `.then()` che in `.catch()`)
+- Rimosso `finally` perché con async sarebbe eseguito prematuramente
+
+#### 4. Fix use-after-free
+**Problema identificato:**
+Con l'operazione asincrona, `processFrame()` ritorna prima che la Promise abbia terminato. Nel frattempo `useShotTracker` esegue `frame.dispose()`. Il callback asincrono potrebbe ancora tentare di accedere a `frame.width` e `frame.height`, causando un crash.
+
+**Soluzione implementata:**
+Salvataggio delle dimensioni del frame prima dell'operazione asincrona:
+```typescript
+isProcessing.value = true
+
+// Capture frame dimensions before async operation to avoid use-after-free
+const frameWidth = frame.width
+const frameHeight = frame.height
+```
+
+Sostituzione degli usi di `frame.width/height` nel callback asincrono:
+```typescript
+// Log
+console.log('[POSE TRANSFORM DEBUG] frame size:', `${frameWidth}x${frameHeight}`)
+
+// Transform keypoints
+finalKeypoints[key] = {
+  ...keypoints[key]!,
+  x: pixelX / frameWidth,
+  y: pixelY / frameHeight,
+}
+```
+
+### Architettura risultante
+```
+Frame N
+  │
+  ├─ crop calculation (sync)
+  ├─ resize (sync)
+  ├─ CPU crop (sync)
+  ├─ inputBuffer preparation (sync)
+  ├─ isProcessing = true
+  │
+  └─ run() async ────────────────────────┐
+                                       │
+Frame N ritorna                         │
+  │                                    │
+  └─ frame.dispose()                    │
+                                       │
+                                 risultato MoveNet
+                                       │
+                                       ├─ parse
+                                       ├─ angles
+                                       ├─ transform (usa frameWidth/frameHeight salvati)
+                                       ├─ SharedValues
+                                       ├─ telemetry
+                                       ├─ resized.dispose()
+                                       ├─ isProcessing = false
+                                       └─ lastInferenceAt = Date.now()
+```
+
+### Comportamento
+- Il Frame Processor può continuare a ricevere frame mentre MoveNet elabora
+- `isProcessing` impedisce di lanciare una seconda inferenza mentre la prima è ancora in corso
+- Frame successivi vengono saltati (`[MoveNet] Skip: ... isProcessing=true`) finché l'inferenza corrente non termina
+- Le dimensioni del frame sono salvate come numeri semplici, sicuri da usare nel callback asincrono
+
+### Protezione contro code infinite
+Il controllo `isProcessing.value` all'inizio di `processFrame()` impedisce di lanciare una seconda inferenza MoveNet mentre la prima è ancora in corso:
+```
+Frame 100
+   │
+   └─ MoveNet async ────────────────┐
+                                   │
+Frame 101 ── skip                   │
+Frame 102 ── skip                   │
+Frame 103 ── skip                   │
+                                   ▼
+                               risultato
+                                   │
+                            isProcessing=false
+```
+
+### Risultato atteso
+- Camera FPS dovrebbe migliorare significativamente (da ~11 FPS verso ~29 FPS come nel test diagnostico)
+- MoveNet continua a operare a 3 FPS (frequenza invariata)
+- Nessun crash da use-after-free grazie al salvataggio delle dimensioni del frame
+
+### Problema riscontrato: Promises non worklet-safe
+**Sintomo:**
+Dopo l'implementazione iniziale con `poseModelInstance!.run([inputBuffer]).then(...)`, l'app crashava senza mai mostrare `[POSE RAW]` o `[POSE RESULT]`. Il log mostrava che `isProcessing` rimaneva `true` ma l'inferenza non completava mai.
+
+**Causa:**
+Le Promises (`.then()`) non sono worklet-safe in Reanimated. Il callback asincrono non viene mai eseguito quando chiamato da un worklet, causando il crash dell'applicazione.
+
+**Soluzione implementata:**
+Utilizzo di `scheduleOnRN` per eseguire l'inferenza MoveNet sul JS thread:
+
+1. **Creata funzione `runMoveNetInference` con `createRunOnJS`**:
+   ```typescript
+   const runMoveNetInference = createRunOnJS(async (
+     inputBuffer: ArrayBuffer,
+     cropInfo: PlayerCropResult | null,
+     cropRegion: { cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null,
+     frameWidth: number,
+     frameHeight: number,
+     timestamp: number,
+     t0: number,
+     totalCropMs: number,
+     resizeMs: number,
+     resized: any
+   ) => {
+     // ... inferenza, parsing, post-processing
+   })
+   ```
+
+2. **Sostituito `.then()` con `scheduleOnRN` nel worklet**:
+   ```typescript
+   // Prima (non worklet-safe):
+   poseModelInstance!.run([inputBuffer]).then((outputs: ArrayBuffer[]) => { ... })
+   
+   // Dopo (worklet-safe):
+   scheduleOnRN(runMoveNetInference, inputBuffer, cropInfo, cropRegion, frameWidth, frameHeight, timestamp, t0, totalCropMs, resizeMs, resized)
+   ```
+
+3. **Aggiunto dipendenze al worklet**:
+   - `runMoveNetInference`
+   - Tutte le SharedValues di telemetry
+
+### Architettura finale aggiornata
+```
+Frame N (Worklet)
+  │
+  ├─ crop calculation (sync)
+  ├─ resize (sync)
+  ├─ CPU crop (sync)
+  ├─ inputBuffer preparation (sync)
+  ├─ isProcessing = true
+  │
+  └─ scheduleOnRN(runMoveNetInference) ────────────────┐
+                                                   │
+Frame N ritorna (Worklet)                           │
+  │                                                │
+  └─ frame.dispose()                               │
+                                                   │
+                                         JS Thread:
+                                                   │
+                                         await run() async
+                                                   │
+                                         parse
+                                                   │
+                                         angles
+                                                   │
+                                         transform (usa frameWidth/frameHeight salvati)
+                                                   │
+                                         SharedValues
+                                                   │
+                                         telemetry
+                                                   │
+                                         resized.dispose()
+                                                   │
+                                         isProcessing = false
+                                                   │
+                                         lastInferenceAt = Date.now()
+```
+
+### Note importanti
+- L'inferenza MoveNet viene eseguita sul JS thread, non sul worklet thread
+- Questo è necessario perché le Promises non sono supportate nei worklet Reanimated
+- Il preprocessing rimane nel worklet per evitare bridge crossings non necessari
+- Il worklet ritorna immediatamente dopo `scheduleOnRN`, non blocca il camera frame processor
+
+### Risultati del test
+**Metriche osservate:**
+```
+[MOVENET] input=192 fps=4.7 avg=214.8ms req/exec=36/36 crop=92.5ms resize=1.8ms run=72.1ms parse=0.3ms
+[PIPELINE] camFPS=9.0 recv=9 proc=0 drop=0 yoloExec=228 ballFrames=33 playerFrames=107 track=5 pose=36
+```
+
+**Confronto con test diagnostico (runSync):**
+```
+MoveNet avg: 89.4 ms (crop: 47.5ms, resize: 2.3ms, run: 17.1ms, parse: 0.1ms)
+camFPS: 11.0
+```
+
+**Analisi dei risultati:**
+1. **Camera FPS peggiorato**: 9.0 FPS vs 11.0 FPS con runSync (-18%)
+2. **MoveNet FPS sopra target**: 4.7 FPS invece di 3 FPS target
+3. **Costo inferenza aumentato**: run=72.1ms vs run=17.1ms (test diagnostico) - eseguire sul JS thread è ~4x più lento
+4. **Crop ancora costoso**: crop=92.5ms vs 47.5ms (test diagnostico) - il crop CPU rimane il collo di bottiglia principale
+5. **Costo totale MoveNet**: 214.8ms vs 89.4ms (test diagnostico) - +140%
+
+**Problema identificato:**
+Eseguire l'inferenza MoveNet sul JS thread via `scheduleOnRN` è significativamente più lento del worklet thread. Il bridge crossing e l'overhead del JS thread hanno peggiorato le performance invece di migliorarle.
+
+**Conclusione:**
+L'approccio asincrono con `scheduleOnRN` non è la soluzione giusta per questo caso. Il crop CPU (92.5ms) e l'inferenza JS thread (72.1ms) sono troppo lenti. Potrebbe essere necessario:
+1. Tornare a `runSync` e accettare le performance attuali (~11 FPS)
+2. Considerare soluzioni alternative come GPU-based crop per ridurre il costo del crop
+3. Ridurre la frequenza MoveNet da 3 FPS a 1-2 FPS per ridurre l'impatto sulla pipeline

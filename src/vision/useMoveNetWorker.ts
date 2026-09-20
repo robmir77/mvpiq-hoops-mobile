@@ -20,6 +20,9 @@ const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the re
 const MOVENET_TARGET_FPS = 3 // Target 3 FPS for MoveNet
 const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
 
+// DIAGNOSTIC FLAG: Disable MoveNet execution to measure YOLO + tracking + crop calculation performance
+const ENABLE_MOVENET = true
+
 // Validation thresholds for player bbox (worklet-safe inline checks)
 // Aligned with YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
 const PLAYER_CONFIDENCE_THRESH = 0.005
@@ -162,6 +165,138 @@ export const useMoveNetWorker = (
     ? poseModel.model
     : null
 
+  // Run MoveNet inference on JS thread (Promises are not worklet-safe)
+  const runMoveNetInference = useCallback(async (
+    inputBuffer: ArrayBuffer,
+    cropInfo: PlayerCropResult | null,
+    cropRegion: { cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null,
+    frameWidth: number,
+    frameHeight: number,
+    timestamp: number,
+    t0: number,
+    totalCropMs: number,
+    resizeMs: number,
+    resized: any
+  ) => {
+    try {
+      const tRunStart = performance.now()
+      const outputs = await poseModelInstance!.run([inputBuffer])
+      const tRunEnd = performance.now()
+      const runMs = tRunEnd - tRunStart
+      
+      // The MoveNet INT8 model outputs a Float32 tensor for keypoints
+      const output = new Float32Array(outputs[0])
+
+      // Log raw output length for diagnostics (should be 51 for 17 keypoints * 3 values)
+      const outputLength = output.length
+      console.log('[POSE RAW] outputLength=', outputLength)
+
+      const tParseStart = performance.now()
+      const keypoints = parseMoveNetOutput(output, 17)
+      const angles = computeJointAngles(keypoints)
+      const tParseEnd = performance.now()
+      const parseMs = tParseEnd - tParseStart
+
+      // Enhanced logging with valid keypoints
+      const keypointsCount = Object.keys(keypoints).length
+      const validKeypoints = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).length
+      const avgConfidence = validKeypoints > 0 
+        ? Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints 
+        : 0
+      
+      console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
+
+      // Transform keypoints from crop space back to frame space if crop was used
+      let finalKeypoints = keypoints
+      if (cropRegion && cropInfo && cropInfo.squareCropSize !== undefined) {
+        // Log for debugging pose position issue
+        const sampleKey = Object.keys(keypoints)[0] as keyof PoseKeypoints
+        if (sampleKey && keypoints[sampleKey]) {
+          console.log('[POSE TRANSFORM DEBUG] cropRegion:', `x=${cropRegion.cropX.toFixed(0)} y=${cropRegion.cropY.toFixed(0)} w=${cropRegion.cropWidth.toFixed(0)} h=${cropRegion.cropHeight.toFixed(0)}`)
+          console.log('[POSE TRANSFORM DEBUG] squareCrop:', `x=${cropInfo.squareCropX?.toFixed(0)} y=${cropInfo.squareCropY?.toFixed(0)} size=${cropInfo.squareCropSize?.toFixed(0)}`)
+          console.log('[POSE TRANSFORM DEBUG] frame size:', `${frameWidth}x${frameHeight}`)
+          console.log('[POSE TRANSFORM DEBUG] raw keypoint:', `${sampleKey}= x=${keypoints[sampleKey]!.x.toFixed(3)} y=${keypoints[sampleKey]!.y.toFixed(3)}`)
+        }
+        
+        // PoseKeypoints is an object with named properties, not an array
+        // Transform from square crop space (with padding) back to frame space
+        finalKeypoints = {} as PoseKeypoints
+        const keyNames = Object.keys(keypoints) as Array<keyof PoseKeypoints>
+        for (const key of keyNames) {
+          if (keypoints[key]) {
+            // First: map from 0-1 (square crop) to pixel coordinates in square crop
+            const squareCropX = cropInfo.squareCropX || 0
+            const squareCropY = cropInfo.squareCropY || 0
+            const squareCropSize = cropInfo.squareCropSize || cropRegion.cropWidth
+            
+            const pixelX = squareCropX + keypoints[key]!.x * squareCropSize
+            const pixelY = squareCropY + keypoints[key]!.y * squareCropSize
+            
+            // Then: normalize to frame space
+            finalKeypoints[key] = {
+              ...keypoints[key]!,
+              x: pixelX / frameWidth,
+              y: pixelY / frameHeight,
+            }
+          }
+        }
+        
+        if (sampleKey && finalKeypoints[sampleKey]) {
+          console.log('[POSE TRANSFORM DEBUG] transformed keypoint:', `${sampleKey}= x=${finalKeypoints[sampleKey]!.x.toFixed(3)} y=${finalKeypoints[sampleKey]!.y.toFixed(3)}`)
+        }
+      }
+
+      const t2 = performance.now()
+
+      latestResultKeypoints.value = finalKeypoints
+      latestResultAngles.value = angles
+      latestResultTimestamp.value = timestamp
+      latestCropInfo.value = cropInfo
+
+      const inferenceTime = t2 - t0
+      const calculatedFps = 1000 / inferenceTime
+
+      if (calculatedFps > 0) {
+        fps.value = calculatedFps
+      }
+
+      // Write telemetry to SharedValues (worklet-safe)
+      telemetryInferenceTime.value = inferenceTime
+      telemetryCropMs.value = totalCropMs
+      telemetryResizeMs.value = resizeMs
+      telemetryRunMs.value = runMs
+      telemetryParseMs.value = parseMs
+      telemetryKeypointsConfidence.value = finalKeypoints ? Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).length : 0
+      telemetryHasNewData.value = true
+
+      // Release GPUFrame after async operation completes
+      if (resized) {
+        try {
+          resized.dispose()
+        } catch (e) {
+          // Ignore if already disposed
+        }
+      }
+
+      isProcessing.value = false
+      lastInferenceAt.value = Date.now()
+    } catch (error) {
+      console.error('[MoveNetWorker] Async inference error:', error)
+      
+      // Release GPUFrame on error
+      if (resized) {
+        try {
+          resized.dispose()
+        } catch (e) {
+          // Ignore if already disposed
+        }
+      }
+      
+      isProcessing.value = false
+      lastInferenceAt.value = Date.now()
+    }
+  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, fps, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, lastInferenceAt])
+
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
 
@@ -234,8 +369,8 @@ export const useMoveNetWorker = (
   const processFrame = useCallback((frame: any, timestamp: number) => {
     'worklet'
 
-    if (!poseModelInstance || isProcessing.value || !enabled) {
-      console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled)
+    if (!poseModelInstance || isProcessing.value || !enabled || !ENABLE_MOVENET) {
+      console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled, 'ENABLE_MOVENET=', ENABLE_MOVENET)
       return
     }
 
@@ -299,11 +434,15 @@ export const useMoveNetWorker = (
 
     isProcessing.value = true
 
+    // Capture frame dimensions before async operation to avoid use-after-free
+    const frameWidth = frame.width
+    const frameHeight = frame.height
+
     let resized: any = null
     let cropInfo: PlayerCropResult | null = null
+    const t0 = performance.now()
 
     try {
-      const t0 = performance.now()
       const tCropStart = performance.now()
 
       // Calculate crop region when bbox is valid
@@ -361,183 +500,92 @@ export const useMoveNetWorker = (
         // Convert to Float32Array (resizer outputs float32 in range 0-255)
         const floatSource = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
-          if (floatSource.length === poseInputElements) {
-            const tCpuCropStart = performance.now()
-            let inputSource = floatSource
+        if (floatSource.length === poseInputElements) {
+          const tCpuCropStart = performance.now()
+          let inputSource = floatSource
 
-            if (cropRegion) {
-              const cropResult = cropResizedFloat32(
-                floatSource,
-                poseInputSize,
-                frame.width,
-                frame.height,
-                cropRegion,
-                poseInputSize,
-              )
-              inputSource = cropResult.output
-              
-              // Calculate padding info for inverse transformation
-              const scale = Math.min(poseInputSize / frame.width, poseInputSize / frame.height)
-              const sourceCropW = Math.max(1, cropRegion.cropWidth * scale)
-              const sourceCropH = Math.max(1, cropRegion.cropHeight * scale)
-              const cropSize = Math.max(sourceCropW, sourceCropH)
-              
-              // Convert square crop coordinates back to frame space
-              const squareCropX = (cropResult.squareCropX - (poseInputSize - frame.width * scale) * 0.5) / scale
-              const squareCropY = (cropResult.squareCropY - (poseInputSize - frame.height * scale) * 0.5) / scale
-              const squareCropSize = cropResult.cropSize / scale
-              
-              cropInfo = {
-                cropX: cropRegion.cropX,
-                cropY: cropRegion.cropY,
-                cropWidth: cropRegion.cropWidth,
-                cropHeight: cropRegion.cropHeight,
-                isValid: true,
-                isUsingLastBbox: false,
-                squareCropX,
-                squareCropY,
-                squareCropSize,
-              }
-              
-              console.log('[MoveNet CROP] CPU resample applied=', true, 'inputElements=', inputSource.length)
-            } else {
-              console.log('[MoveNet CROP] CPU resample applied=', false, 'source=FULL_FRAME')
-            }
-
-            const cpuCropMs = performance.now() - tCpuCropStart
-            // cropMs includes crop-region calculation + actual CPU extraction.
-            const totalCropMs = cropMs + cpuCropMs
-          
-            let maxVal = 0;
-            for (let i = 0; i < inputSource.length; i+=100) {
-              if (inputSource[i] > maxVal) maxVal = inputSource[i];
-            }
-
-            if (telemetryHasNewData.value === false) { // log occasionally
-              console.log(`[MoveNet Input] Model expects dataType: ${poseModelInstance!.inputs[0].dataType}, shape: ${poseModelInstance!.inputs[0].shape}`)
-              console.log(`[MoveNet Input] floatSource max sample value: ${maxVal}`)
-            }
-
-            let inputBuffer: ArrayBuffer;
-            const needsScaling = maxVal <= 1.0 && maxVal > 0;
-
-            if (poseModelInstance!.inputs[0].dataType === 'uint8') {
-              const uint8Source = new Uint8Array(inputSource.length)
-              for (let i = 0; i < inputSource.length; i++) {
-                uint8Source[i] = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
-              }
-              inputBuffer = uint8Source.buffer as ArrayBuffer
-            } else if (poseModelInstance!.inputs[0].dataType === 'int8') {
-              const int8Source = new Int8Array(inputSource.length)
-              for (let i = 0; i < inputSource.length; i++) {
-                let val = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
-                int8Source[i] = val - 128
-              }
-              inputBuffer = int8Source.buffer as ArrayBuffer
-            } else {
-              inputBuffer = inputSource.buffer as ArrayBuffer
-            }
-
-          const tRunStart = performance.now()
-          const outputs = poseModelInstance!.runSync([inputBuffer])
-          const tRunEnd = performance.now()
-          const runMs = tRunEnd - tRunStart
-          
-          // The MoveNet INT8 model outputs a Float32 tensor for keypoints
-          const output = new Float32Array(outputs[0] as ArrayBufferLike)
-
-          // Log raw output length for diagnostics (should be 51 for 17 keypoints * 3 values)
-          const outputLength = output.length
-          console.log('[POSE RAW] outputLength=', outputLength)
-
-          const tParseStart = performance.now()
-          const keypoints = parseMoveNetOutput(output, 17)
-          const angles = computeJointAngles(keypoints)
-          const tParseEnd = performance.now()
-          const parseMs = tParseEnd - tParseStart
-
-          // Enhanced logging with valid keypoints
-          const keypointsCount = Object.keys(keypoints).length
-          const validKeypoints = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).length
-          const avgConfidence = validKeypoints > 0 
-            ? Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints 
-            : 0
-          
-          console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
-
-          // Transform keypoints from crop space back to frame space if crop was used
-          let finalKeypoints = keypoints
-          if (cropRegion && cropInfo && cropInfo.squareCropSize !== undefined) {
-            // Log for debugging pose position issue
-            const sampleKey = Object.keys(keypoints)[0] as keyof PoseKeypoints
-            if (sampleKey && keypoints[sampleKey]) {
-              console.log('[POSE TRANSFORM DEBUG] cropRegion:', `x=${cropRegion.cropX.toFixed(0)} y=${cropRegion.cropY.toFixed(0)} w=${cropRegion.cropWidth.toFixed(0)} h=${cropRegion.cropHeight.toFixed(0)}`)
-              console.log('[POSE TRANSFORM DEBUG] squareCrop:', `x=${cropInfo.squareCropX?.toFixed(0)} y=${cropInfo.squareCropY?.toFixed(0)} size=${cropInfo.squareCropSize?.toFixed(0)}`)
-              console.log('[POSE TRANSFORM DEBUG] frame size:', `${frame.width}x${frame.height}`)
-              console.log('[POSE TRANSFORM DEBUG] raw keypoint:', `${sampleKey}= x=${keypoints[sampleKey]!.x.toFixed(3)} y=${keypoints[sampleKey]!.y.toFixed(3)}`)
+          if (cropRegion) {
+            const cropResult = cropResizedFloat32(
+              floatSource,
+              poseInputSize,
+              frame.width,
+              frame.height,
+              cropRegion,
+              poseInputSize,
+            )
+            inputSource = cropResult.output
+            
+            // Calculate padding info for inverse transformation
+            const scale = Math.min(poseInputSize / frame.width, poseInputSize / frame.height)
+            const sourceCropW = Math.max(1, cropRegion.cropWidth * scale)
+            const sourceCropH = Math.max(1, cropRegion.cropHeight * scale)
+            const cropSize = Math.max(sourceCropW, sourceCropH)
+            
+            // Convert square crop coordinates back to frame space
+            const squareCropX = (cropResult.squareCropX - (poseInputSize - frame.width * scale) * 0.5) / scale
+            const squareCropY = (cropResult.squareCropY - (poseInputSize - frame.height * scale) * 0.5) / scale
+            const squareCropSize = cropResult.cropSize / scale
+            
+            cropInfo = {
+              cropX: cropRegion.cropX,
+              cropY: cropRegion.cropY,
+              cropWidth: cropRegion.cropWidth,
+              cropHeight: cropRegion.cropHeight,
+              isValid: true,
+              isUsingLastBbox: false,
+              squareCropX,
+              squareCropY,
+              squareCropSize,
             }
             
-            // PoseKeypoints is an object with named properties, not an array
-            // Transform from square crop space (with padding) back to frame space
-            finalKeypoints = {} as PoseKeypoints
-            const keyNames = Object.keys(keypoints) as Array<keyof PoseKeypoints>
-            for (const key of keyNames) {
-              if (keypoints[key]) {
-                // First: map from 0-1 (square crop) to pixel coordinates in square crop
-                const squareCropX = cropInfo.squareCropX || 0
-                const squareCropY = cropInfo.squareCropY || 0
-                const squareCropSize = cropInfo.squareCropSize || cropRegion.cropWidth
-                
-                const pixelX = squareCropX + keypoints[key]!.x * squareCropSize
-                const pixelY = squareCropY + keypoints[key]!.y * squareCropSize
-                
-                // Then: normalize to frame space
-                finalKeypoints[key] = {
-                  ...keypoints[key]!,
-                  x: pixelX / frame.width,
-                  y: pixelY / frame.height,
-                }
-              }
-            }
-            
-            if (sampleKey && finalKeypoints[sampleKey]) {
-              console.log('[POSE TRANSFORM DEBUG] transformed keypoint:', `${sampleKey}= x=${finalKeypoints[sampleKey]!.x.toFixed(3)} y=${finalKeypoints[sampleKey]!.y.toFixed(3)}`)
-            }
+            console.log('[MoveNet CROP] CPU resample applied=', true, 'inputElements=', inputSource.length)
+          } else {
+            console.log('[MoveNet CROP] CPU resample applied=', false, 'source=FULL_FRAME')
           }
 
-          const t2 = performance.now()
-
-          latestResultKeypoints.value = finalKeypoints
-          latestResultAngles.value = angles
-          latestResultTimestamp.value = timestamp
-          latestCropInfo.value = cropInfo
-
-          const inferenceTime = t2 - t0
-          const calculatedFps = 1000 / inferenceTime
-
-          if (calculatedFps > 0) {
-            fps.value = calculatedFps
+          const cpuCropMs = performance.now() - tCpuCropStart
+          // cropMs includes crop-region calculation + actual CPU extraction.
+          const totalCropMs = cropMs + cpuCropMs
+        
+          let maxVal = 0;
+          for (let i = 0; i < inputSource.length; i+=100) {
+            if (inputSource[i] > maxVal) maxVal = inputSource[i];
           }
 
-          // Write telemetry to SharedValues (worklet-safe)
-          telemetryInferenceTime.value = inferenceTime
-          telemetryCropMs.value = totalCropMs
-          telemetryResizeMs.value = resizeMs
-          telemetryRunMs.value = runMs
-          telemetryParseMs.value = parseMs
-          telemetryKeypointsConfidence.value = finalKeypoints ? Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).length : 0
-          telemetryHasNewData.value = true
+          if (telemetryHasNewData.value === false) { // log occasionally
+            console.log(`[MoveNet Input] Model expects dataType: ${poseModelInstance!.inputs[0].dataType}, shape: ${poseModelInstance!.inputs[0].shape}`)
+            console.log(`[MoveNet Input] floatSource max sample value: ${maxVal}`)
+          }
 
-          isProcessing.value = false
-          lastInferenceAt.value = Date.now()
-          return
+          let inputBuffer: ArrayBuffer;
+          const needsScaling = maxVal <= 1.0 && maxVal > 0;
+
+          if (poseModelInstance!.inputs[0].dataType === 'uint8') {
+            const uint8Source = new Uint8Array(inputSource.length)
+            for (let i = 0; i < inputSource.length; i++) {
+              uint8Source[i] = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
+            }
+            inputBuffer = uint8Source.buffer as ArrayBuffer
+          } else if (poseModelInstance!.inputs[0].dataType === 'int8') {
+            const int8Source = new Int8Array(inputSource.length)
+            for (let i = 0; i < inputSource.length; i++) {
+              let val = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
+              int8Source[i] = val - 128
+            }
+            inputBuffer = int8Source.buffer as ArrayBuffer
+          } else {
+            inputBuffer = inputSource.buffer as ArrayBuffer
+          }
+
+          // ASYNC: Run inference on JS thread (Promises are not worklet-safe)
+          scheduleOnRN(runMoveNetInference, inputBuffer, cropInfo, cropRegion, frameWidth, frameHeight, timestamp, t0, totalCropMs, resizeMs, resized)
         }
       }
 
     } catch (error) {
       console.error('[MoveNetWorker] Error processing frame:', error)
-    } finally {
-      // Dispose GPUFrame to release GPU resources
+      
+      // Release GPUFrame on sync error (before async)
       if (resized) {
         try {
           resized.dispose()
@@ -545,10 +593,11 @@ export const useMoveNetWorker = (
           // Ignore if already disposed
         }
       }
+      
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox])
+  }, [poseModelInstance, rgbResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
