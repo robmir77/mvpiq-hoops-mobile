@@ -236,14 +236,12 @@ export const useYoloWorker = (
             const MIN_BBOX_SIZE_NORMALIZED = 0.0001
             const MAX_BBOX_SIZE_NORMALIZED = 0.06
             const COURT_MARGIN = 0.1
-            const MIN_CONFIDENCE = 0.3
 
             const isValidSize = bboxSizeNormalized >= MIN_BBOX_SIZE_NORMALIZED && bboxSizeNormalized <= MAX_BBOX_SIZE_NORMALIZED
             const isInCourt = ball.x >= COURT_MARGIN && ball.x <= 1 - COURT_MARGIN &&
                             ball.y >= COURT_MARGIN && ball.y <= 1 - COURT_MARGIN
-            const hasMinConfidence = ball.confidence >= MIN_CONFIDENCE
 
-            if (isValidSize && isInCourt && hasMinConfidence) {
+            if (isValidSize && isInCourt) {
               validBall = ball
             }
           }

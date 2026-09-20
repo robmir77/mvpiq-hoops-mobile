@@ -41,12 +41,10 @@ export class ShotDetector {
   // Update trajectory with new ball position
   updateTrajectory(ball: BallDetection['ball']): void {
     if (!ball) return
-    
-    const centerX = ball.x + ball.width / 2
-    const centerY = ball.y + ball.height / 2
-    
-    this.trajectory.push({ x: centerX, y: centerY, t: Date.now() })
-    
+
+    // Parser already returns x/y as center coordinates
+    this.trajectory.push({ x: ball.x, y: ball.y, t: Date.now() })
+
     // Keep only last 30 points (1 second at 30fps)
     if (this.trajectory.length > 30) {
       this.trajectory.shift()

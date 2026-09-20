@@ -44,15 +44,16 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_320_float16.tflite"),
   },
-  {
-    id: "best_320_int8",
-    fileName: "best_320_int8.tflite",
-    label: "best · 320 · INT8",
-    inputSize: 320,
-    outputDetections: 2100,
-    precision: 'int8',
-    asset: require("../../assets/models/best_320_int8.tflite"),
-  },
+  // Commented out - INT8 models are less precise with no performance benefit
+  // {
+  //   id: "best_320_int8",
+  //   fileName: "best_320_int8.tflite",
+  //   label: "best · 320 · INT8",
+  //   inputSize: 320,
+  //   outputDetections: 2100,
+  //   precision: 'int8',
+  //   asset: require("../../assets/models/best_320_int8.tflite"),
+  // },
   {
     id: "best_512_float16",
     fileName: "best_512_float16.tflite",
@@ -62,15 +63,16 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_512_float16.tflite"),
   },
-  {
-    id: "best_512_int8",
-    fileName: "best_512_int8.tflite",
-    label: "best · 512 · INT8",
-    inputSize: 512,
-    outputDetections: 5376,
-    precision: 'int8',
-    asset: require("../../assets/models/best_512_int8.tflite"),
-  },
+  // Commented out - INT8 models are less precise with no performance benefit
+  // {
+  //   id: "best_512_int8",
+  //   fileName: "best_512_int8.tflite",
+  //   label: "best · 512 · INT8",
+  //   inputSize: 512,
+  //   outputDetections: 5376,
+  //   precision: 'int8',
+  //   asset: require("../../assets/models/best_512_int8.tflite"),
+  // },
   {
     id: "best_640_float16",
     fileName: "best_640_float16.tflite",
@@ -80,7 +82,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_640_float16.tflite"),
   },
-  // Commented out - model fails to load
+  // Commented out - INT8 models are less precise with no performance benefit
   // {
   //   id: "best_640_int8",
   //   fileName: "best_640_int8.tflite",

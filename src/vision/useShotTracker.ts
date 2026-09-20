@@ -488,8 +488,8 @@ export const useShotTracker = (
                 let filteredBall: typeof ball | null = ball
                 let filterReason: string | null = null
 
-                // Check if detection is invalid (zero dimensions)
-                const isInvalid = ball.width === 0 || ball.height === 0 || ball.x === 0 || ball.y === 0
+                // Check if detection is invalid (zero dimensions or non-finite coordinates)
+                const isInvalid = !Number.isFinite(ball.x) || !Number.isFinite(ball.y) || ball.width <= 0 || ball.height <= 0
 
                 if (isInvalid && lastBallWidth.value > 0 && lastBallHeight.value > 0) {
                     // Fallback to previous valid detection
@@ -934,22 +934,20 @@ export const useShotTracker = (
                         timestamp: moveNetWorker.latestResultTimestamp.value
                     }
 
-                    // Process YOLO result if available
-                    if (yoloResult.ball) {
-                        perfYoloBallDetected.value += 1
+                    // Process YOLO result - send every result even without ball to enable Kalman prediction
+                    perfYoloBallDetected.value += (yoloResult.ball ? 1 : 0)
 
-                        const detection: BallDetection = {
-                            ball: yoloResult.ball,
-                            rim: yoloResult.rim ?? undefined,
-                            timestamp: yoloResult.timestamp
-                        }
+                    const detection: BallDetection = {
+                        ball: yoloResult.ball ?? undefined,
+                        rim: yoloResult.rim ?? undefined,
+                        timestamp: yoloResult.timestamp
+                    }
 
-                        // Emit via bridge
-                        const now = Date.now()
-                        if (now - lastRNDispatch.value >= 16) {
-                            lastRNDispatch.value = now
-                            scheduleOnRN(emitBallDetection, detection)
-                        }
+                    // Emit via bridge
+                    const now = Date.now()
+                    if (now - lastRNDispatch.value >= 16) {
+                        lastRNDispatch.value = now
+                        scheduleOnRN(emitBallDetection, detection)
                     }
 
                     // Process player detection for telemetry

@@ -30,8 +30,10 @@ YOLO Parser
 
 #### 2. Ball Tracking
 - **TTL**: 500ms (time-based)
-- **Kalman Prediction**: Eseguita anche durante gap YOLO
+- **Kalman Prediction**: Eseguita anche durante gap YOLO (ogni frame viene inviato anche senza detection)
 - **Telemetria**: `ballDetected`, `ballPrediction`, `ballTrackingExpired`
+- **Parser**: x/y sono già centro della palla (ShotDetector usa direttamente ball.x/ball.y)
+- **Confidence**: Threshold gestito dal parser (nessun secondo filtro fisso nel worker)
 
 #### 3. Player Tracking
 - **TTL**: 750ms (time-based)
