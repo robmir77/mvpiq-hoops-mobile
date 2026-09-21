@@ -1032,18 +1032,6 @@ const ReactOverlay = React.memo(({
                 </View>
             )}
 
-            {fpsMetrics && (
-                <View pointerEvents="none" style={ovStyles.fpsPanel}>
-                    <Text style={ovStyles.fpsTitle}>📊 FPS</Text>
-                    <Text style={ovStyles.fpsText}>
-                        YOLO: {fpsMetrics?.yoloFps ?? 0}
-                    </Text>
-                    <Text style={ovStyles.fpsText}>
-                        MoveNet: {fpsMetrics?.moveNetFps ?? 0}
-                    </Text>
-                </View>
-            )}
-
             {jointAngles && (
                 <View pointerEvents="none" style={ovStyles.bioPanel}>
                     {releaseAngle != null && (
@@ -1329,9 +1317,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         selectedResolution ?? (calibration?.cameraResolution ?? CAMERA_CONFIG.DEFAULT_RESOLUTION)
     )
     const effectiveResolution = effectiveResolutionRef.current
-    const effectiveFps = selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS
+    const [effectiveFps, setEffectiveFps] = useState(selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS)
     const effectivePoseResolution = selectedPoseResolution ?? CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION
-    const effectiveYoloModelId = yoloModelId ?? DEFAULT_YOLO_MODEL_ID
+    const [effectiveYoloModelId, setEffectiveYoloModelId] = useState(yoloModelId ?? DEFAULT_YOLO_MODEL_ID)
     const effectiveMoveNetModelId = moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID
     const effectiveZoom = zoom ?? CAMERA_CONFIG.DEFAULT_ZOOM
 
@@ -1339,6 +1327,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         () => [{ fps: effectiveFps }],
         [effectiveFps]
     )
+
+    // Get available FPS from device (will be updated after device is available)
+    const availableFps = React.useMemo(() => [30, 24, 20, 15], [])
 
     const [isEnding, setIsEnding]           = useState(false)
     const [isRecording, setIsRecording]     = useState(false)
@@ -1358,9 +1349,26 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [ballEnabled, setBallEnabled] = useState(true)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
+    const [adaptiveFps, setAdaptiveFps] = useState<number>(effectiveFps)
     const [showTelemetry, setShowTelemetry] = useState(true)
     const [debugMode, setDebugMode] = useState(false)
     const cameraViewRef = useRef<View>(null)
+
+    // Sync effectiveFps with adaptive FPS from useAdaptivePerformance
+    useEffect(() => {
+        if (adaptiveFps !== effectiveFps) {
+            console.log('[WorkoutSession] Updating camera FPS:', effectiveFps, '→', adaptiveFps)
+            setEffectiveFps(adaptiveFps)
+        }
+    }, [adaptiveFps, effectiveFps])
+
+    // Debug: log adaptive FPS periodically
+    useEffect(() => {
+        const interval = setInterval(() => {
+            console.log('[AdaptivePerf Debug] adaptiveFps:', adaptiveFps, 'effectiveFps:', effectiveFps)
+        }, 5000) // Log every 5 seconds
+        return () => clearInterval(interval)
+    }, [adaptiveFps, effectiveFps])
 
     // Lifecycle diagnostic: if ShotTracker reports UNMOUNT during an active
     // session, this tells us whether the whole WorkoutSessionScreen also
@@ -1739,6 +1747,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         resetShotTracking,
         yoloFps,
         moveNetFps,
+        currentFps,
+        currentModelId,
         sharedValues: pipelineSharedValues,
     } = useCameraPipeline(
         handleBallDetection,
@@ -1757,7 +1767,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         effectiveResolution,
         effectiveFps,
         effectivePoseResolution,
-        effectiveMoveNetModelId
+        effectiveMoveNetModelId,
+        availableFps
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
@@ -1775,6 +1786,16 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             }
         }
     }, [pipelineSharedValues, tracking])
+
+    // Update adaptive FPS from SharedValue (avoid reading .value during render)
+    useEffect(() => {
+        if (currentFps) {
+            const interval = setInterval(() => {
+                setAdaptiveFps(currentFps.value)
+            }, 500) // Update every 500ms
+            return () => clearInterval(interval)
+        }
+    }, [currentFps])
 
     // Update FPS metrics every second from worker SharedValues
     useEffect(() => {
@@ -2072,6 +2093,25 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     rimFromDetection={rimFromDetection}
                     cameraMode={cameraMode}
                 />
+
+                {/* Adaptive FPS overlay */}
+                {fpsMetrics && (
+                    <View pointerEvents="none" style={{
+                        position: 'absolute',
+                        top: 10,
+                        right: 10,
+                        backgroundColor: 'rgba(0,0,0,0.7)',
+                        padding: 8,
+                        borderRadius: 8,
+                    }}>
+                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>📊 FPS</Text>
+                        <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {adaptiveFps}</Text>
+                        <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
+                        <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
+                        <Text style={{ color: '#9ca3af', fontSize: 8 }}>Model: {effectiveYoloModelId}</Text>
+                        <Text style={{ color: '#9ca3af', fontSize: 8 }}>Frames: {fpsMetrics?.pipelineProcessed ?? 0}</Text>
+                    </View>
+                )}
 
                 {/* Telemetry overlay */}
                 <TelemetryOverlay

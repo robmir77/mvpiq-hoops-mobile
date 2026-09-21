@@ -4,7 +4,7 @@
 import { AppState, AppStateStatus } from 'react-native'
 import { API_BASE_URL } from '@/config/appConfig'
 
-const KEEP_ALIVE_INTERVAL_MS = 10 * 60 * 1000 // 10 minuti
+const KEEP_ALIVE_INTERVAL_MS = 2 * 60 * 1000 // 2 minuti (ridotto da 10 per mantenere backend attivo)
 
 let intervalId: number | null = null
 let isRunning = false
@@ -14,13 +14,19 @@ let isRunning = false
  */
 const pingBackend = async (): Promise<void> => {
   try {
-    const response = await fetch(API_BASE_URL, {
+    // Usa l'endpoint /health specifico per il keep-alive
+    const healthCheckUrl = API_BASE_URL.endsWith('/')
+      ? `${API_BASE_URL}health`
+      : `${API_BASE_URL}/health`
+
+    const response = await fetch(healthCheckUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
+      cache: 'no-cache', // Evita cache per mantenere connessione attiva
     })
-    
+
     if (__DEV__) {
       console.log('[KeepAlive] Backend ping successful:', response.status)
     }
@@ -54,7 +60,7 @@ export const startKeepAlive = (): void => {
   }, KEEP_ALIVE_INTERVAL_MS)
 
   if (__DEV__) {
-    console.log('[KeepAlive] Started - will ping backend every 10 minutes')
+    console.log('[KeepAlive] Started - will ping backend every 2 minutes')
   }
 }
 

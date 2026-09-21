@@ -15,6 +15,7 @@ import { ShotDetector } from './shotDetector'
 import { useYoloWorker } from './useYoloWorker'
 import { useMoveNetWorker } from './useMoveNetWorker'
 import { usePlayerCropManager } from './usePlayerCropManager'
+import { useAdaptivePerformance } from './useAdaptivePerformance'
 
 import type {
     BallDetection,
@@ -100,7 +101,10 @@ export const useShotTracker = (
     selectedResolution?: { width: number; height: number } | null,
     selectedFps?: number | null,
     selectedPoseResolution?: number,
-    moveNetModelId?: string
+    moveNetModelId?: string,
+
+    // Adaptive performance
+    availableFps?: number[]
 ) => {
 
     // Mount-instance diagnostic: detect concurrent hook mounts by logging unique IDs
@@ -195,6 +199,20 @@ export const useShotTracker = (
 
     // Player crop manager (worklet-compatible hook)
     const playerCrop = usePlayerCropManager()
+
+    // Adaptive performance management
+    const {
+        recordYoloPerformance,
+        evaluateAndAdapt,
+        getCurrentFps,
+        getCurrentModel,
+        currentFps: adaptiveFps,
+        currentModelIndex: adaptiveModelIndex,
+    } = useAdaptivePerformance({
+        initialFps: selectedFps || 30,
+        initialModelId: yoloModelId || 'best_512_float16',
+        availableFps: availableFps || [30, 24, 20, 15],
+    })
 
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
@@ -810,14 +828,8 @@ export const useShotTracker = (
                         return
                     }
 
-                    // Model readiness
-                    const yoloReady = yoloWorker.isReady.value
-                    const poseReady = moveNetWorker.isReady.value
-
-                    if (!yoloReady && !poseReady) {
-                        return
-                    }
-
+                    // REMOVED: Model readiness check - we now run YOLO every frame regardless of ready state
+                    // The adaptive performance system will handle scaling if performance is poor
                     const frameWidth = frame.width
                     const frameHeight = frame.height
 
@@ -834,32 +846,41 @@ export const useShotTracker = (
                     const trackedBbox = playerCrop.getEffectiveBbox(nowForMoveNet)
 
                     const moveNetDue =
-                        poseReady &&
                         poseEnabledShared.value &&
                         timeSinceLastMoveNet >= MOVENET_INTERVAL_MS &&
                         trackedBbox !== null &&
                         (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
 
-                    // YOLO: frame-based scheduling (PERFORMANCE TEST: disabled stability-based throttling)
-                    const currentSkip = YOLO_FRAME_SKIP
-                    const yoloDue =
-                        yoloReady &&
-                        ballEnabledShared.value &&
-                        currentFrame % currentSkip === 0
+                    // YOLO: run every frame (no throttling)
+                    const yoloDue = ballEnabledShared.value
 
                     // Log throttling (DEV only)
                     if (__DEV__) {
-                        if (poseReady && poseEnabledShared.value && !moveNetDue) {
+                        if (poseEnabledShared.value && !moveNetDue) {
                             console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
-                        }
-                        if (yoloReady && ballEnabledShared.value && !yoloDue) {
-                            console.log(`[YOLO Throttle] Skip: frame=${currentFrame}, skip=${currentSkip}, stable=${isBallStable.value}`)
                         }
                     }
 
                     // Execute YOLO and MoveNet (independent throttling per model)
                     if (yoloDue) {
+                        const yoloStartTime = Date.now()
                         yoloWorker.processFrame(frame, timestamp, currentFrame)
+                        const yoloEndTime = Date.now()
+                        const yoloInferenceTime = yoloEndTime - yoloStartTime
+
+                        // Record YOLO performance for adaptive management
+                        const yoloSuccess = yoloWorker.latestResultBall.value !== null || 
+                                           yoloWorker.latestResultPlayer.value !== null
+                        recordYoloPerformance(
+                            yoloWorker.fps.value,
+                            yoloSuccess,
+                            yoloInferenceTime
+                        )
+
+                        // Evaluate adaptation every ~100 frames
+                        if (currentFrame % 100 === 0) {
+                            evaluateAndAdapt()
+                        }
                         
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
@@ -1151,6 +1172,8 @@ export const useShotTracker = (
         resetShotTracking,
         yoloFps: yoloWorker.fps,
         moveNetFps: moveNetWorker.fps,
+        currentFps: adaptiveFps,
+        currentModelIndex: adaptiveModelIndex,
         exportTelemetrySummary,
         logTelemetrySummary,
         resetTelemetry,

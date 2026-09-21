@@ -284,6 +284,66 @@ Keypoints trasformati (se crop attivo)
 - Sostituire `rgbResizer.resize(frame)` con API crop+resize nativo
 - Impostare `usingPlayerCrop = true` quando crop nativo attivo
 
+## Adaptive Performance Management
+
+### Nuovo Sistema di Gestione Adattiva (Implementato)
+
+**Hook**: `useAdaptivePerformance` (worklet-safe con SharedValues)
+
+**Obiettivo**: Gestire automaticamente le performance della camera e del modello YOLO durante le sessioni di workout per prevenire il degrado delle FPS.
+
+**Problema risolto**: Il vecchio sistema basato su `isReady` causava un degrado progressivo delle FPS (da 16 FPS a 8 FPS) indipendentemente dallo stato di MoveNet.
+
+**Nuovo approccio**:
+- YOLO viene eseguito su ogni frame (senza throttling basato su `isReady`)
+- Sistema adattivo monitora le performance YOLO e scala FPS/modello dinamicamente
+- FPS camera scalati automaticamente: 30 → 24 → 20 → 15 (minimo)
+- Modello YOLO scalato automaticamente: 640 → 512 → 320 (se FPS minimo non sufficiente)
+- Sistema completamente bidirezionale: scala down quando performance scarse, scala up quando performance buone
+
+**Architettura**:
+```
+YOLO Execution (ogni frame)
+    ↓
+recordYoloPerformance(fps, success, inferenceTime)
+    ↓
+Performance Metrics (window 3s)
+    ↓
+evaluateAndAdapt (ogni 100 frame)
+    ↓
+Se performance scarse:
+    1. scaleDownFps() → 30→24→20→15
+    2. Se FPS minimo → scaleDownModel() → 640→512→320
+Se performance buone:
+    1. scaleUpModel() → 320→512→640
+    2. Se modello max → scaleUpFps() → 15→20→24→30
+```
+
+**Thresholds**:
+- `TARGET_YOLO_FPS`: 10 FPS (minimo accettabile)
+- `TARGET_YOLO_SUCCESS_RATE`: 60% (minimo tasso di successo)
+- `ADAPTATION_WINDOW_MS`: 3000ms (finestra di valutazione)
+- `MIN_ADAPTATION_INTERVAL_MS`: 5000ms (minimo tempo tra adattamenti)
+
+**Shared Values**:
+- `currentFps`: FPS camera corrente
+- `currentModelIndex`: Indice del modello YOLO corrente
+- `perfWindowStart`, `perfYoloFpsSum`, `perfYoloFpsCount`: Metriche performance
+- `perfFramesProcessed`, `perfFramesFailed`, `perfInferenceTimeSum`: Statistiche esecuzione
+
+**Overlay FPS**:
+Il sistema mostra in tempo reale:
+- Camera FPS (corrente adattivo)
+- YOLO FPS
+- MoveNet FPS
+- Modello YOLO attivo
+
+**Note importanti**:
+- Il sistema usa solo SharedValues per comunicazione worklet-JS (no `scheduleOnRN` nei worklet)
+- L'adattamento è completamente automatico e trasparente per l'utente
+- Il sistema garantisce che YOLO venga sempre eseguito su ogni frame
+- Il modello viene scalato solo se nemmeno 15 FPS sono sufficienti
+
 ## Future Improvements
 
 ### 1. Native Crop+Resize per MoveNet
