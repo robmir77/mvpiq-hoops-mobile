@@ -11,13 +11,13 @@ La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera p
 ```
 Camera Frame (1280×720 @ 30 FPS)
     ↓
-YOLO Detection (512×512 INT8)
+YOLO Detection (512×512 INT8) - OGNI FRAME
     ↓
 YOLO Parser
     ↓
     ├── Ball → BallTracker (TTL 500ms) → Kalman Prediction
     ├── Hoop → RimTracker (TTL 500ms)
-    └── Player → PlayerTracker (TTL 750ms) → MoveNet (192×192)
+    └── Player → PlayerTracker (TTL 750ms) → MoveNet (192×192) SOLO SE BBOX DISPONIBILE
 ```
 
 ### Componenti Principali
@@ -26,11 +26,13 @@ YOLO Parser
 - **Modello**: `best_512_int8.tflite`
 - **Risoluzione**: 512×512 INT8
 - **Output**: Bounding boxes per ball, hoop, player
-- **Performance**: ~15 FPS, ~65ms per inferenza
+- **Performance**: Eseguito su ogni frame (YOLO_FRAME_SKIP = 1)
+- **Throttling**: Disabilitato per massima precisione
 
 #### 2. Ball Tracking
 - **TTL**: 500ms (time-based)
 - **Kalman Prediction**: Eseguita anche durante gap YOLO (ogni frame viene inviato anche senza detection)
+- **Stati Visuali**: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
 - **Telemetria**: `ballDetected`, `ballPrediction`, `ballTrackingExpired`
 - **Parser**: x/y sono già centro della palla (ShotDetector usa direttamente ball.x/ball.y)
 - **Confidence**: Threshold gestito dal parser (nessun secondo filtro fisso nel worker)
@@ -40,13 +42,20 @@ YOLO Parser
 - **Smoothing**: EMA su coordinate bbox
 - **Jump Threshold**: 0.15 per filtrare detection spurie
 - **Safety Net**: Force accept dopo 3 rifiuti consecutivi
+- **Stati Visuali**: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
 
 #### 4. MoveNet Pose Estimation
 - **Modello**: `movenet_lightning_192_int8.tflite`
 - **Risoluzione**: 192×192
 - **Frequenza**: 3 FPS (throttled)
+- **Condizione esecuzione**: Solo se player bbox disponibile (trackedBbox !== null)
 - **Preprocessing**: Full-frame resize → CPU crop (92ms) → Float32
 - **Inferenza**: Asincrona su JS thread (~70ms)
+
+#### 5. Rim Tracking
+- **TTL**: 500ms (time-based)
+- **Stati Visuali**: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+- **Fallback**: Usa calibration point quando YOLO non rileva
 
 ### Configurazione Globale
 
@@ -78,6 +87,32 @@ export const COURT_CONFIG = {
 } as const
 ```
 
+### Visual Tracking State System
+
+Per debug sul campo, ogni oggetto tracciato ha uno stato visuale esplicito:
+
+**VisionTrackState**: `'DETECTED' | 'PREDICTED' | 'LOST' | 'REJECTED'`
+
+**Ball**:
+- DETECTED 🟠: YOLO vede la palla, mostra confidence
+- PREDICTED 🔴: YOLO perde la palla, Kalman continua (mostra age in ms)
+- LOST 🔴: TTL scaduto (>500ms), tracking invalidato
+
+**Player**:
+- DETECTED 🟠: YOLO vede il player, mostra confidence
+- PREDICTED 🔴: YOLO perde il player, usa last bbox (mostra age in ms)
+- LOST 🔴: TTL scaduto (>750ms), MoveNet non esegue
+
+**Rim**:
+- DETECTED 🟠: YOLO vede il canestro
+- PREDICTED 🔴: Usa calibration point come fallback
+- LOST 🔴: Nessuna detection né calibration
+
+**SharedValues per stati visuali**:
+- `ballTrackState`, `ballTrackAge`
+- `playerTrackState`, `playerTrackAge`
+- `rimTrackState`, `rimTrackAge`
+
 ## Performance Analysis
 
 ### Bottleneck Principale: MoveNet CPU Crop
@@ -98,19 +133,27 @@ Il crop CPU (`cropResizedFloat32`) percorre tutti i 192×192 pixel con interpola
 
 | Configurazione | Camera FPS | YOLO FPS | MoveNet FPS |
 |----------------|------------|----------|-------------|
-| YOLO + MoveNet | ~10 FPS | ~15 FPS | ~3 FPS |
-| YOLO solo | ~17 FPS | ~15 FPS | N/A |
+| YOLO + MoveNet | ~10 FPS | ~30 FPS (ogni frame) | ~3 FPS (solo con bbox) |
+| YOLO solo | ~17 FPS | ~30 FPS | N/A |
 | MoveNet disabilitato | ~29 FPS | N/A | N/A |
 
 MoveNet riduce la camera FPS di ~40% quando attivo, principalmente a causa del crop CPU.
 
 ### Ottimizzazioni Implementate
 
-1. **Hoisting calcoli invarianti**: Precalcolo di x0Arr/x1Arr/wxArr fuori dal doppio loop per eliminare ~220.000 chiamate Math ridondanti
+1. **YOLO su ogni frame**: `YOLO_FRAME_SKIP = 1` per massima precisione
+   - **Risultato**: YOLO eseguito a ~30 FPS invece di ~15 FPS
+   - **Trade-off**: Maggiore carico CPU ma tracking più preciso
+
+2. **MoveNet condizionale**: Esecuzione solo se player bbox disponibile
+   - **Risultato**: MoveNet non esegue quando player perso, riducendo spreco risorse
+   - **Nota**: MoveNet riprende automaticamente quando player rilevato di nuovo
+
+3. **Hoisting calcoli invarianti**: Precalcolo di x0Arr/x1Arr/wxArr fuori dal doppio loop per eliminare ~220.000 chiamate Math ridondanti
    - **Risultato**: Miglioramento ~3-4% (da 96.8ms a 92.5ms)
    - **Conclusione**: L'overhead delle chiamate Math non è il collo di bottiglia principale
 
-2. **Fix throttling**: Spostamento aggiornamento `lastInferenceAt` all'inizio del dispatch invece che alla fine dell'async
+4. **Fix throttling**: Spostamento aggiornamento `lastInferenceAt` all'inizio del dispatch invece che alla fine dell'async
    - **Risultato**: MoveNet FPS reali da 1.4 a ~3 FPS
    - **Nota**: Questo aumenta il carico sulla pipeline, quindi non migliora necessariamente la camera FPS
 
@@ -167,8 +210,8 @@ Trasformazione `x: 1 - yNorm, y: xNorm` causava deformazione della pose.
 
 **Comportamento**:
 - Player rilevato con confidence ≥ 0.005 → BBox aggiornato
-- Player perso → BBox persiste per 750ms
-- BBox scaduto (>750ms) → MoveNet non esegue
+- Player perso → BBox persiste per 750ms (PREDICTED)
+- BBox scaduto (>750ms) → MoveNet non esegue (LOST)
 - Jump threshold 0.15 con safety net (3 rifiuti consecutivi)
 
 ### Ball Tracking
@@ -185,9 +228,18 @@ Trasformazione `x: 1 - yNorm, y: xNorm` causava deformazione della pose.
 - `predictFrame()` - Prediction durante gap YOLO
 
 **Comportamento**:
-- Ball rilevato → `ballLastSeenAt` aggiornato
-- Ball perso → Kalman PREDICT esegue (fino a 500ms)
-- TTL scaduto (>500ms) → Tracking invalidato
+- Ball rilevato → `ballTrackState = 'DETECTED'`
+- Ball perso → Kalman PREDICT esegue, `ballTrackState = 'PREDICTED'` (fino a 500ms)
+- TTL scaduto (>500ms) → Tracking invalidato, `ballTrackState = 'LOST'`
+
+### Rim Tracking
+
+**Hook**: `useShotTracker` (inline nel frame processor)
+
+**Comportamento**:
+- Rim rilevato da YOLO con confidence > 0.15 → `rimTrackState = 'DETECTED'`
+- Rim perso ma calibration disponibile → `rimTrackState = 'PREDICTED'`
+- Nessuna detection né calibration → `rimTrackState = 'LOST'`
 
 ### MoveNet Pipeline
 
@@ -270,6 +322,8 @@ Keypoints trasformati (se crop attivo)
 - Colori dinamici: verde (valido), rosso (scartato)
 - Overlay labels con confidence percentuale
 - Skia drawing con coordinate real-time
+- **Stati visuali**: Etichette con emoji e stato (DETECTED/PREDICTED/LOST)
+- **Age tracking**: Mostra tempo in ms quando in stato PREDICTED
 
 ### Telemetria
 
@@ -291,5 +345,8 @@ La pipeline di vision attuale è funzionalmente completa con:
 - ✅ Configurazione centralizzata
 - ✅ Telemetria completa
 - ✅ Debug overlay dettagliato
+- ✅ Stati visuali espliciti per debug sul campo
+- ✅ YOLO eseguito su ogni frame per massima precisione
+- ✅ MoveNet eseguito solo quando player bbox disponibile
 
 Il principale collo di bottiglia è il crop CPU di MoveNet (~92ms). La soluzione è implementare un crop nativo (GPU) per eliminare questo costo e migliorare significativamente la camera FPS.

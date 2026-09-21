@@ -31,6 +31,7 @@ import {
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
 import { telemetryLogger } from './telemetry'
+import { YOLO_CONFIG } from '@/config/appConfig'
 
 
 // AI throttling
@@ -836,7 +837,8 @@ export const useShotTracker = (
                         poseReady &&
                         poseEnabledShared.value &&
                         timeSinceLastMoveNet >= MOVENET_INTERVAL_MS &&
-                        trackedBbox !== null
+                        trackedBbox !== null &&
+                        (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
 
                     // YOLO: frame-based scheduling (PERFORMANCE TEST: disabled stability-based throttling)
                     const currentSkip = YOLO_FRAME_SKIP
