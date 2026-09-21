@@ -336,15 +336,16 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             ballSizeCategory.value = sizeCategory ?? null
             adaptiveThreshold.value = adaptThreshold ?? 0
 
-            if (__DEV__) {
-              console.log('[TrackingEngine] Shared Values updated:', {
-                ballX: ballDetection.x.toFixed(3),
-                ballY: ballDetection.y.toFixed(3),
-                ballWidth: (ballDetection.width || 0).toFixed(3),
-                ballHeight: (ballDetection.height || 0).toFixed(3),
-                confidence: ballDetection.confidence.toFixed(3)
-              })
-            }
+            // PERFORMANCE TEST: disabled logging to reduce bridge overhead
+            // if (__DEV__) {
+            //   console.log('[TrackingEngine] Shared Values updated:', {
+            //     ballX: ballDetection.x.toFixed(3),
+            //     ballY: ballDetection.y.toFixed(3),
+            //     ballWidth: (ballDetection.width || 0).toFixed(3),
+            //     ballHeight: (ballDetection.height || 0).toFixed(3),
+            //     confidence: ballDetection.confidence.toFixed(3)
+            //   })
+            // }
 
             // Ring buffer insert (O(1))
             trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }

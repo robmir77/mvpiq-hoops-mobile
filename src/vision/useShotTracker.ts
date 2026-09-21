@@ -35,8 +35,9 @@ import { telemetryLogger } from './telemetry'
 
 // AI throttling
 
-const YOLO_FRAME_SKIP = 1
-const YOLO_FRAME_SKIP_STABLE = 3 // Throttle YOLO when ball is stable
+const YOLO_FRAME_SKIP = 1 // Run YOLO on every frame (currentFrame % 1 === 0 always true)
+// PERFORMANCE TEST: disabled frame skip adaptability
+// const YOLO_FRAME_SKIP_STABLE = 3 // Throttle YOLO when ball is stable
 const BALL_STABILITY_THRESHOLD = 0.02 // Position change threshold (2%)
 const BALL_STABILITY_FRAMES = 5 // Consecutive frames to consider stable
 
@@ -828,13 +829,17 @@ export const useShotTracker = (
                     const lastMoveNet = lastMoveNetInferenceAt.value
                     const timeSinceLastMoveNet = lastMoveNet > 0 ? nowForMoveNet - lastMoveNet : MOVENET_INTERVAL_MS
 
+                    // Get effective bbox from PlayerCropManager (time-based tracking)
+                    const trackedBbox = playerCrop.getEffectiveBbox(nowForMoveNet)
+
                     const moveNetDue =
                         poseReady &&
                         poseEnabledShared.value &&
-                        timeSinceLastMoveNet >= MOVENET_INTERVAL_MS
+                        timeSinceLastMoveNet >= MOVENET_INTERVAL_MS &&
+                        trackedBbox !== null
 
-                    // YOLO: frame-based scheduling with stability-based throttling
-                    const currentSkip = isBallStable.value ? YOLO_FRAME_SKIP_STABLE : YOLO_FRAME_SKIP
+                    // YOLO: frame-based scheduling (PERFORMANCE TEST: disabled stability-based throttling)
+                    const currentSkip = YOLO_FRAME_SKIP
                     const yoloDue =
                         yoloReady &&
                         ballEnabledShared.value &&
@@ -856,9 +861,10 @@ export const useShotTracker = (
                         
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
-                        if (__DEV__) {
-                            console.log('[PlayerCrop] currentPlayer (raw YOLO):', currentPlayer)
-                        }
+                        // PERFORMANCE TEST: disabled logging to reduce bridge overhead
+                        // if (__DEV__) {
+                        //     console.log('[PlayerCrop] currentPlayer (raw YOLO):', currentPlayer)
+                        // }
                         if (currentPlayer) {
                             playerCrop.update({
                                 x: currentPlayer.x,
@@ -898,38 +904,26 @@ export const useShotTracker = (
                     if (moveNetDue) {
                         lastMoveNetInferenceAt.value = nowForMoveNet
 
-                        // Get effective bbox from PlayerCropManager (time-based tracking)
-                        const trackedBbox = playerCrop.getEffectiveBbox(nowForMoveNet)
-                        if (trackedBbox) {
-                            // Pass effective bbox to MoveNet (YOLO provides center coordinates)
-                            moveNetWorker.playerBbox.value = {
-                                x: trackedBbox.bbox.x,
-                                y: trackedBbox.bbox.y,
-                                width: trackedBbox.bbox.width,
-                                height: trackedBbox.bbox.height,
-                                confidence: trackedBbox.bbox.confidence,
-                            }
-                            // Update visual tracking state
-                            if (trackedBbox.isUsingLastBbox) {
-                                playerTrackState.value = 'PREDICTED'
-                                playerTrackAge.value = trackedBbox.ageMs
-                                scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
-                            } else {
-                                playerTrackState.value = 'DETECTED'
-                                playerTrackAge.value = 0
-                            }
-
-                            // Execute MoveNet only if bbox is available
-                            moveNetWorker.processFrame(frame, timestamp)
-                        } else {
-                            moveNetWorker.playerBbox.value = null
-                            // BBox expired: MoveNet still runs in FULL_FRAME fallback.
-                            // This keeps Phase 10 operational while player YOLO is temporarily lost.
-                            playerTrackState.value = 'LOST'
-                            playerTrackAge.value = 0
-                            scheduleOnRN(recordPlayerBboxExpired)
-                            moveNetWorker.processFrame(frame, timestamp)
+                        // Pass effective bbox to MoveNet (YOLO provides center coordinates)
+                        moveNetWorker.playerBbox.value = {
+                            x: trackedBbox.bbox.x,
+                            y: trackedBbox.bbox.y,
+                            width: trackedBbox.bbox.width,
+                            height: trackedBbox.bbox.height,
+                            confidence: trackedBbox.bbox.confidence,
                         }
+                        // Update visual tracking state
+                        if (trackedBbox.isUsingLastBbox) {
+                            playerTrackState.value = 'PREDICTED'
+                            playerTrackAge.value = trackedBbox.ageMs
+                            scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
+                        } else {
+                            playerTrackState.value = 'DETECTED'
+                            playerTrackAge.value = 0
+                        }
+
+                        // Execute MoveNet only if bbox is available
+                        moveNetWorker.processFrame(frame, timestamp)
                     }
 
                     // Process worker results (get latest available from shared values)

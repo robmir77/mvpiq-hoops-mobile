@@ -179,7 +179,7 @@ export function parseYoloOutputInt8(
       }
       TENSOR_SIZE = 512
     }
-    
+
     if (__DEV__) {
       console.log('[YOLO PARSER] TENSOR_SIZE:', TENSOR_SIZE, 'nDetections:', nDetections)
     }
@@ -398,7 +398,7 @@ export function parseYoloOutputInt8(
         aspect: aspectRatio.toFixed(2),
       })
     }
-    
+
     if (__DEV__) {
       console.log('[YOLO PARSER RESULT]', {
         ball: bestBall ? `x=${bestBall.x.toFixed(3)} y=${bestBall.y.toFixed(3)} conf=${bestBall.confidence.toFixed(3)}` : 'null',

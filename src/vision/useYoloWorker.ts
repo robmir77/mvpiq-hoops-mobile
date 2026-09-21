@@ -251,7 +251,7 @@ export const useYoloWorker = (
           latestResultRim.value = rim
           latestResultDebug.value = debug
           latestResultTimestamp.value = timestamp
-          
+
           const inferenceTime = t2 - t0
           const calculatedFps = 1000 / inferenceTime
           if (calculatedFps > 0) {

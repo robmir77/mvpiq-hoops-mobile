@@ -1763,10 +1763,16 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
     resetShotTrackingRef.current = resetShotTracking
 
-    // Update player bbox from pipeline shared values
+    // Update player bbox from pipeline shared values (throttled to reduce overhead)
+    const lastUpdateRef = useRef(0)
     useEffect(() => {
         if (pipelineSharedValues) {
-            tracking.updatePlayerFromPipeline(pipelineSharedValues)
+            const now = Date.now()
+            // Throttle to max 30 updates per second
+            if (now - lastUpdateRef.current > 33) {
+                lastUpdateRef.current = now
+                tracking.updatePlayerFromPipeline(pipelineSharedValues)
+            }
         }
     }, [pipelineSharedValues, tracking])
 
