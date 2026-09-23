@@ -2109,7 +2109,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
                         <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
                         <Text style={{ color: '#9ca3af', fontSize: 8 }}>Model: {effectiveYoloModelId}</Text>
-                        <Text style={{ color: '#9ca3af', fontSize: 8 }}>Frames: {fpsMetrics?.pipelineProcessed ?? 0}</Text>
                     </View>
                 )}
 

@@ -62,6 +62,9 @@ export const useAdaptivePerformance = ({
   const lastAdaptationAt = useRef(0)
   const isAdapting = useSharedValue(false)
 
+  // Debug: log when hook is called
+  console.log('[AdaptivePerf] Hook called - initializing')
+
   // Record YOLO performance (called from worklet)
   const recordYoloPerformance = useCallback((fps: number, success: boolean, inferenceTime: number) => {
     'worklet'
@@ -206,22 +209,13 @@ export const useAdaptivePerformance = ({
 
     const metrics = getPerformanceMetrics()
 
-    // Log frame count for debugging
-    console.log(`[AdaptivePerf] evaluateAndAdapt called: framesProcessed=${metrics.framesProcessed}, yoloFps=${metrics.yoloFps.toFixed(1)}`)
-
     // Need minimum samples to make decision
     if (metrics.framesProcessed < 30) {
-      console.log(`[AdaptivePerf] Not enough frames (${metrics.framesProcessed} < 30), skipping adaptation`)
       return
     }
 
     isAdapting.value = true
     lastAdaptationAt.current = now
-
-    // Log current state for debugging
-    const currentFpsVal = currentFps.value
-    const currentModelIndexVal = currentModelIndex.value
-    console.log(`[AdaptivePerf] Current state: currentFps=${currentFpsVal}, modelIndex=${currentModelIndexVal}, yoloFps=${metrics.yoloFps.toFixed(1)}, successRate=${(metrics.yoloSuccessRate * 100).toFixed(1)}%`)
 
     if (shouldScaleDown(metrics)) {
       // First try to scale down FPS
@@ -255,6 +249,18 @@ export const useAdaptivePerformance = ({
   // Get current state
   const getCurrentFps = useCallback(() => currentFps.value, [currentFps])
   const getCurrentModel = useCallback(() => YOLO_MODEL_TIERS[currentModelIndex.value], [currentModelIndex])
+
+  // Debug: monitor SharedValues outside worklet
+  useEffect(() => {
+    console.log('[AdaptivePerf] Hook initialized')
+    const interval = setInterval(() => {
+      console.log(`[AdaptivePerf Monitor] framesProcessed=${perfFramesProcessed.value}, currentFps=${currentFps.value}, modelIndex=${currentModelIndex.value}`)
+    }, 5000) // Log every 5 seconds
+    return () => {
+      clearInterval(interval)
+      console.log('[AdaptivePerf] Hook cleanup')
+    }
+  }, [])
 
   return {
     recordYoloPerformance,

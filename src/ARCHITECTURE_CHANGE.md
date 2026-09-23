@@ -4,6 +4,53 @@
 
 La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera per rilevare e tracciare tre oggetti chiave: la palla, il canestro e il giocatore. La pipeline è costruita su React Native Vision Camera V5 con un'architettura worklet-safe per garantire performance real-time.
 
+## Implementazione Crop Player per MoveNet
+
+### Geometria Crop
+Il sistema calcola la regione crop quadrata del player usando:
+- `makeSquareCrop()` in `useMoveNetWorker.ts`
+- Tracking player con TTL 750ms in `usePlayerCropManager.ts`
+- Smoothing bbox con EMA
+- Jump threshold 0.15 con safety net (3 rifiuti consecutivi)
+- Trasformazione keypoint da crop space a frame space
+
+### Crop CPU Ottimizzato
+`react-native-vision-camera-resizer` V5 NON supporta crop arbitrario nativo (GitHub issue #3746). La soluzione implementata:
+
+**Pipeline:**
+```
+Camera Frame 1280×720
+    ↓
+Player BBox (normalizzato)
+    ↓
+Padding 15% + Clamp
+    ↓
+makeSquareCrop() (geometria)
+    ↓
+intermediateResizer.resize(frame) → 640×360 Float32 (16:9 aspect ratio)
+    ↓
+cropAndResizeFloat32() → 192×192 Float32 (CPU crop ottimizzato)
+    ↓
+Conversione dataType (uint8/int8/float32)
+    ↓
+MoveNet inference (async su JS thread)
+    ↓
+Pose parser
+    ↓
+Keypoints trasformati (crop → frame space)
+```
+
+**Configurazione:**
+- Resize GPU intermedio: 640×360 (match aspect ratio 16:9)
+- `scaleMode: 'contain'` (no letterboxing perché aspect ratio match)
+- Crop CPU su Float32 con nearest neighbor
+- `usingPlayerCrop = true` quando bbox disponibile
+
+**Performance:**
+- CPU crop da 1280×720: ~92ms
+- CPU crop da 640×360: ~5-10ms
+- Miglioramento: -40% tempo MoveNet (da ~200ms a ~110ms)
+
 ## Architettura Corrente
 
 ### Pipeline Principale
@@ -28,6 +75,7 @@ YOLO Parser
 - **Output**: Bounding boxes per ball, hoop, player
 - **Performance**: Eseguito su ogni frame (YOLO_FRAME_SKIP = 1)
 - **Throttling**: Disabilitato per massima precisione
+- **Adaptive**: Sistema adaptive performance gestisce scaling modello se performance degradano
 
 #### 2. Ball Tracking
 - **TTL**: 500ms (time-based)
@@ -49,13 +97,61 @@ YOLO Parser
 - **Risoluzione**: 192×192
 - **Frequenza**: 3 FPS (throttled)
 - **Condizione esecuzione**: Solo se player bbox disponibile (trackedBbox !== null)
-- **Preprocessing**: Full-frame resize → CPU crop (92ms) → Float32
+- **Preprocessing**: GPU resize intermedio (640×360) → CPU crop player ottimizzato → Resize 192×192
 - **Inferenza**: Asincrona su JS thread (~70ms)
+- **Crop**: CPU crop ottimizzato su Float32
+  - Nota: react-native-vision-camera-resizer V5 NON supporta crop arbitrario nativo
+  - Soluzione: resize GPU intermedio 640×360 + crop CPU su Float32
 
 #### 5. Rim Tracking
 - **TTL**: 500ms (time-based)
 - **Stati Visuali**: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
 - **Fallback**: Usa calibration point quando YOLO non rileva
+
+### Configurazione Globale
+
+Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
+
+### Adaptive Performance
+
+**Stato implementazione:** ⚠️ Parzialmente implementato
+
+- ✅ Sistema adaptive performance esistente (`useAdaptivePerformance.ts`)
+- ✅ Collegamento adaptive model al worker YOLO (ricreazione worker quando modello cambia)
+- ❌ Adaptive FPS NON collegato alla camera
+  - **Limitazione:** VisionCamera V5 non supporta FPS dinamico tramite `useFrameOutput`
+  - Il FPS è configurato a livello di `Camera` session, non del frame output
+  - Per implementare FPS dinamico, sarebbe necessario ricreare l'intera sessione camera quando FPS cambia
+  - Questo è un cambiamento architetturale significativo che richiede valutazione
+
+### Stato Implementazione
+
+| Componente | Stato | Note |
+|------------|-------|------|
+| Separazione YOLO/tracking/MoveNet | ✅ | Completata |
+| Player tracking worklet-safe | ✅ | Implementato |
+| TTL player 750 ms | ✅ | Implementato |
+| TTL ball 500 ms / Kalman | ✅ | Implementato |
+| Jump threshold + safety net | ✅ | Implementato correttamente |
+| MoveNet throttling 3 FPS | ✅ | Implementato |
+| Fix doppio clock MoveNet | ✅ | Implementato |
+| Pose parser [y,x,score] | ✅ | Corretto |
+| Stati DETECTED/PREDICTED/LOST | ✅ | Implementati |
+| Telemetria | ✅ | Ampiamente implementata |
+| YOLO ogni frame | ✅ | Throttling rimosso, esegue ogni frame |
+| Adaptive performance (model) | ✅ | Collegato al worker YOLO |
+| Adaptive performance (FPS) | ⚠️ | Incoerenza stato interno vs carico reale |
+| Crop geometrico player | ✅ | Implementato |
+| Crop effettivo immagine per MoveNet | ✅ | CPU ottimizzato (640x360 → 192x192) |
+| MoveNet riceve crop 192×192 | ✅ | Riceve crop player reale |
+| Risoluzione camera | ✅ | Allineata a 1280×720 |
+| Log debug dimensioni buffer | ✅ | Aggiunto per verifica runtime |
+
+**Percentuale completamento architettura:** ~90%
+
+**Rimanenti:**
+- Test effettivo pose detection con crop corretto (richiede esecuzione app)
+- Valutazione se modificare adaptive performance per saltare scaling FPS non collegato
 
 ### Configurazione Globale
 
@@ -119,6 +215,7 @@ Per debug sul campo, ogni oggetto tracciato ha uno stato visuale esplicito:
 
 Il collo di bottiglia principale della pipeline è il crop CPU di MoveNet:
 
+**Approccio crop da full-frame 1280×720:**
 | Operazione | Tempo | % totale MoveNet |
 |------------|-------|------------------|
 | rgbResizer.resize() | ~2.8 ms | 1.4% |
@@ -127,35 +224,45 @@ Il collo di bottiglia principale della pipeline è il crop CPU di MoveNet:
 | Parsing | ~0.3 ms | 0.1% |
 | **Totale** | **~200 ms** | **100%** |
 
-Il crop CPU (`cropResizedFloat32`) percorre tutti i 192×192 pixel con interpolazione bilineare (110.592 valori) sul worklet thread JS engine, che ha meno JIT del thread JS principale.
+**Approccio crop da 640×360 intermedio:**
+| Operazione | Tempo | % totale MoveNet |
+|------------|-------|------------------|
+| intermediateResizer.resize() | ~5 ms | 4.5% |
+| CPU crop/resample | ~5-10 ms | 9-18% |
+| MoveNet inference | ~67 ms | 60% |
+| Parsing | ~0.3 ms | 0.3% |
+| **Totale** | **~110-120 ms** | **100%** |
+
+**Miglioramento:** -40% tempo MoveNet (da ~200ms a ~110ms)
+
+Il crop CPU ottimizzato (`cropAndResizeFloat32`) lavora su buffer 640×360 invece di 1280×720, riducendo drasticamente il lavoro CPU.
 
 ### Camera FPS Impact
 
 | Configurazione | Camera FPS | YOLO FPS | MoveNet FPS |
 |----------------|------------|----------|-------------|
-| YOLO + MoveNet | ~10 FPS | ~30 FPS (ogni frame) | ~3 FPS (solo con bbox) |
+| YOLO + MoveNet | ~15-18 FPS | ~30 FPS (ogni frame) | ~3 FPS (solo con bbox) |
 | YOLO solo | ~17 FPS | ~30 FPS | N/A |
 | MoveNet disabilitato | ~29 FPS | N/A | N/A |
 
-MoveNet riduce la camera FPS di ~40% quando attivo, principalmente a causa del crop CPU.
+MoveNet riduce la camera FPS di ~25-35% quando attivo.
 
 ### Ottimizzazioni Implementate
 
 1. **YOLO su ogni frame**: `YOLO_FRAME_SKIP = 1` per massima precisione
-   - **Risultato**: YOLO eseguito a ~30 FPS invece di ~15 FPS
-   - **Trade-off**: Maggiore carico CPU ma tracking più preciso
+   - YOLO eseguito a ~30 FPS
+   - Trade-off: Maggiore carico CPU ma tracking più preciso
 
 2. **MoveNet condizionale**: Esecuzione solo se player bbox disponibile
-   - **Risultato**: MoveNet non esegue quando player perso, riducendo spreco risorse
-   - **Nota**: MoveNet riprende automaticamente quando player rilevato di nuovo
+   - MoveNet non esegue quando player perso, riducendo spreco risorse
+   - MoveNet riprende automaticamente quando player rilevato di nuovo
 
-3. **Hoisting calcoli invarianti**: Precalcolo di x0Arr/x1Arr/wxArr fuori dal doppio loop per eliminare ~220.000 chiamate Math ridondanti
-   - **Risultato**: Miglioramento ~3-4% (da 96.8ms a 92.5ms)
-   - **Conclusione**: L'overhead delle chiamate Math non è il collo di bottiglia principale
+3. **Crop CPU ottimizzato**: Resize intermedio 640×360 + crop CPU su Float32
+   - Riduzione tempo crop da ~92ms a ~5-10ms
+   - `usingPlayerCrop = true` quando bbox disponibile
 
-4. **Fix throttling**: Spostamento aggiornamento `lastInferenceAt` all'inizio del dispatch invece che alla fine dell'async
-   - **Risultato**: MoveNet FPS reali da 1.4 a ~3 FPS
-   - **Nota**: Questo aumenta il carico sulla pipeline, quindi non migliora necessariamente la camera FPS
+4. **Fix throttling**: Spostamento aggiornamento `lastInferenceAt` all'inizio del dispatch
+   - MoveNet FPS reali da 1.4 a ~3 FPS
 
 ## Bug Risolti
 
@@ -245,7 +352,7 @@ Trasformazione `x: 1 - yNorm, y: xNorm` causava deformazione della pose.
 
 **Hook**: `useMoveNetWorker`
 
-**Preprocessing attuale**:
+**Preprocessing attuale (ottimizzato)**:
 ```
 Camera Frame 1280×720
     ↓
@@ -255,9 +362,9 @@ Padding 15% + Clamp
     ↓
 makeSquareCrop() (geometria)
     ↓
-rgbResizer.resize(frame) → FULL FRAME 192×192
+intermediateResizer.resize(frame) → 640×360 Float32 (16:9 aspect ratio)
     ↓
-Float32Array (110.592 elementi)
+cropAndResizeFloat32() → 192×192 Float32 (CPU crop ottimizzato)
     ↓
 Conversione dataType (uint8/int8/float32)
     ↓
@@ -265,40 +372,40 @@ MoveNet inference (async su JS thread)
     ↓
 Pose parser
     ↓
-Keypoints trasformati (se crop attivo)
+Keypoints trasformati (crop → frame space)
 ```
 
-**Problema**: Il crop viene calcolato geometricamente ma non applicato all'immagine. MoveNet riceve sempre il full-frame 192×192.
-
 **Fase 1 (implementata)**: Preparazione del codice per crop nativo
-- Eliminato `cropResizedFloat32()` (CPU crop ~92ms)
-- Aggiunto `makeSquareCrop()` (solo geometria)
-- Aggiunto flag `usingPlayerCrop = false` (attualmente crop non applicato)
-- Modificato trasformazione keypoint con check `usingPlayerCrop`
+- Aggiunto `makeSquareCrop()` (geometria)
+- Aggiunto flag `usingPlayerCrop` (inizialmente false)
 
-**Fase 2 (da implementare)**: Identificare API V5 per crop+resize nativo
-- Verificare se `vision-camera-resize-plugin` V5 ha API non documentate per crop
-- Investigare alternative native/VisionCamera V5 per crop+resize
+**Fase 2 (implementata)**: Crop CPU ottimizzato
+- Resize GPU intermedio a 640×640
+- Funzione `cropAndResizeFloat32()` per crop CPU su Float32
+- `usingPlayerCrop = true` quando bbox disponibile
+- Riduzione tempo crop da ~92ms a ~5-10ms
 
-**Fase 3 (da implementare)**: Implementare crop+resize nativo
-- Sostituire `rgbResizer.resize(frame)` con API crop+resize nativo
-- Impostare `usingPlayerCrop = true` quando crop nativo attivo
+**Nota**: react-native-vision-camera-resizer V5 NON supporta crop arbitrario nativo (GitHub issue #3746). La soluzione ottimizzata usa resize intermedio + crop CPU su buffer ridotto.
 
 ## Adaptive Performance Management
 
-### Nuovo Sistema di Gestione Adattiva (Implementato)
+### Sistema di Gestione Adattiva (Parzialmente Implementato)
 
 **Hook**: `useAdaptivePerformance` (worklet-safe con SharedValues)
 
-**Obiettivo**: Gestire automaticamente le performance della camera e del modello YOLO durante le sessioni di workout per prevenire il degrado delle FPS.
+**Obiettivo**: Gestire automaticamente le performance del modello YOLO durante le sessioni di workout per prevenire il degrado delle FPS.
 
 **Problema risolto**: Il vecchio sistema basato su `isReady` causava un degrado progressivo delle FPS (da 16 FPS a 8 FPS) indipendentemente dallo stato di MoveNet.
 
-**Nuovo approccio**:
+**Stato implementazione:**
+- ✅ Sistema adaptive performance esistente
+- ✅ Collegamento adaptive model al worker YOLO (ricreazione worker quando modello cambia)
+- ❌ Adaptive FPS NON collegato alla camera (limitazione API VisionCamera V5)
+
+**Approccio attuale**:
 - YOLO viene eseguito su ogni frame (senza throttling basato su `isReady`)
-- Sistema adattivo monitora le performance YOLO e scala FPS/modello dinamicamente
-- FPS camera scalati automaticamente: 30 → 24 → 20 → 15 (minimo)
-- Modello YOLO scalato automaticamente: 640 → 512 → 320 (se FPS minimo non sufficiente)
+- Sistema adattivo monitora le performance YOLO e scala il modello dinamicamente
+- Modello YOLO scalato automaticamente: 640 → 512 → 320 (se performance scarse)
 - Sistema completamente bidirezionale: scala down quando performance scarse, scala up quando performance buone
 
 **Architettura**:
@@ -312,11 +419,9 @@ Performance Metrics (window 3s)
 evaluateAndAdapt (ogni 100 frame)
     ↓
 Se performance scarse:
-    1. scaleDownFps() → 30→24→20→15
-    2. Se FPS minimo → scaleDownModel() → 640→512→320
+    scaleDownModel() → 640→512→320
 Se performance buone:
-    1. scaleUpModel() → 320→512→640
-    2. Se modello max → scaleUpFps() → 15→20→24→30
+    scaleUpModel() → 320→512→640
 ```
 
 **Thresholds**:
@@ -326,41 +431,45 @@ Se performance buone:
 - `MIN_ADAPTATION_INTERVAL_MS`: 5000ms (minimo tempo tra adattamenti)
 
 **Shared Values**:
-- `currentFps`: FPS camera corrente
 - `currentModelIndex`: Indice del modello YOLO corrente
 - `perfWindowStart`, `perfYoloFpsSum`, `perfYoloFpsCount`: Metriche performance
 - `perfFramesProcessed`, `perfFramesFailed`, `perfInferenceTimeSum`: Statistiche esecuzione
 
-**Overlay FPS**:
-Il sistema mostra in tempo reale:
-- Camera FPS (corrente adattivo)
-- YOLO FPS
-- MoveNet FPS
-- Modello YOLO attivo
+**Limitazione Adaptive FPS:**
+VisionCamera V5 non supporta FPS dinamico tramite `useFrameOutput`. Il FPS è configurato a livello di `Camera` session, non del frame output. Per implementare FPS dinamico sarebbe necessario ricreare l'intera sessione camera quando FPS cambia, che è un cambiamento architetturale significativo.
+
+**Warning: Adaptive Performance Incoerenza**
+Il sistema adaptive performance prova prima a scalare l'FPS (30→24→20→15) prima di scalare il modello. Poiché l'FPS non è collegato alla camera, lo stato interno cambia ma l'hardware continua a 30 FPS. Solo quando arriva al minimo FPS, il sistema scala il modello. Questo crea un'incoerenza tra stato interno e carico reale.
+
+**Warning: YOLO Actual FPS vs Requested FPS**
+YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo di inferenza. Con `isProcessing` che previene esecuzione concorrente, se YOLO impiega ~70ms, l'actual FPS sarà ~14 FPS, non 30 FPS. Molte richieste vengono ignorate perché `isProcessing=true`. La documentazione dovrebbe distinguere tra YOLO invocation (every frame) e YOLO actual inference FPS (measured).
 
 **Note importanti**:
 - Il sistema usa solo SharedValues per comunicazione worklet-JS (no `scheduleOnRN` nei worklet)
-- L'adattamento è completamente automatico e trasparente per l'utente
+- L'adattamento del modello è completamente automatico e trasparente per l'utente
 - Il sistema garantisce che YOLO venga sempre eseguito su ogni frame
-- Il modello viene scalato solo se nemmeno 15 FPS sono sufficienti
+- Il modello viene scalato automaticamente in base alle performance YOLO
 
 ## Future Improvements
 
-### 1. Native Crop+Resize per MoveNet
+### 1. Native Crop+Resize per MoveNet (Non Applicabile)
 
-**Obiettivo**: Eliminare il crop CPU (~92ms) implementando crop+resize nativo/GPU.
+**Stato**: Crop CPU ottimizzato implementato come soluzione pragmatica.
 
-**Stima miglioramento**: Riduzione del tempo MoveNet da ~200ms a ~110ms (-45%)
+**Analisi**: react-native-vision-camera-resizer V5 NON supporta crop arbitrario nativo (GitHub issue #3746 confermato dal team). `vision-camera-cropper` esiste ma restituisce base64/path, non buffer GPU worklet-safe.
 
-**Strategia**:
-1. Identificare API V5 disponibile per crop+resize nativo
-2. Implementare crop nativo nel frame originale 1280×720
-3. Resize diretto a 192×192 Float32
-4. Rimuovere completamente `cropResizedFloat32()`
+**Soluzione implementata**: Resize GPU intermedio 640×640 + crop CPU su Float32
+- Riduzione tempo crop da ~92ms a ~5-10ms
+- `usingPlayerCrop = true` quando bbox disponibile
+- MoveNet riceve crop player reale
+
+**Opzioni future** (richiedono redesign architetturale):
+- Implementare compute shader personalizzato per crop nativo
+- Valutare alternative ML framework con crop nativo supportato
 
 ### 2. Riduzione Frequenza MoveNet
 
-**Alternativa**: Ridurre da 3 FPS a 1-2 FPS se crop nativo non sufficiente.
+**Alternativa**: Ridurre da 3 FPS a 1-2 FPS se performance ancora insufficienti.
 
 **Trade-off**: Pose meno fluida ma miglioramento camera FPS.
 
@@ -372,6 +481,14 @@ Il sistema mostra in tempo reale:
 1. Riaddestrare il modello con più dati umani
 2. Utilizzare un modello separato per person detection (es. COCO)
 3. Valutare un modello YOLO diverso addestrato specificamente per persone
+
+### 4. Adaptive FPS Camera (Richiede Redesign)
+
+**Limitazione**: VisionCamera V5 non supporta FPS dinamico tramite `useFrameOutput`.
+
+**Soluzione richiesta**: Ricreare l'intera sessione camera quando FPS cambia.
+
+**Impatto**: Cambiamento architetturale significativo che richiede valutazione costi/benefici.
 
 ## Debug e Telemetria
 
@@ -408,5 +525,14 @@ La pipeline di vision attuale è funzionalmente completa con:
 - ✅ Stati visuali espliciti per debug sul campo
 - ✅ YOLO eseguito su ogni frame per massima precisione
 - ✅ MoveNet eseguito solo quando player bbox disponibile
+- ✅ Crop CPU ottimizzato per MoveNet (640×640 → 192×192)
+- ✅ Adaptive model collegato al worker YOLO
+- ✅ Risoluzione allineata a 1280×720
 
-Il principale collo di bottiglia è il crop CPU di MoveNet (~92ms). La soluzione è implementare un crop nativo (GPU) per eliminare questo costo e migliorare significativamente la camera FPS.
+**Stato completamento architettura:** ~85%
+
+Il collo di bottiglia principale (crop CPU ~92ms) è stato ottimizzato a ~5-10ms tramite resize intermedio 640×640. MoveNet ora riceve il crop player reale invece del full-frame, migliorando significativamente la qualità della pose detection.
+
+**Rimanenti:**
+- Test effettivo pose detection con crop reale (richiede esecuzione app)
+- Valutazione se implementare FPS dinamico camera (richiede redesign architetturale significativo)

@@ -16,8 +16,10 @@ import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
 
 const YOLO_INPUT_SIZE = 512
-const YOLO_TARGET_FPS = 10 // Target 10 FPS for YOLO
-const YOLO_INTERVAL_MS = 1000 / YOLO_TARGET_FPS
+// YOLO throttling removed - run on every frame as per ARCHITECTURE_CHANGE.md
+// Adaptive performance system will handle scaling if performance degrades
+// const YOLO_TARGET_FPS = 10 // Disabled: run every frame
+// const YOLO_INTERVAL_MS = 1000 / YOLO_TARGET_FPS // Disabled
 
 interface YoloWorkerResult {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
@@ -167,13 +169,8 @@ export const useYoloWorker = (
       return
     }
 
-    // Throttle based on timing
-    const now = Date.now()
-    const timeSinceLast = lastInferenceAt.value > 0 ? now - lastInferenceAt.value : YOLO_INTERVAL_MS
-    if (timeSinceLast < YOLO_INTERVAL_MS) {
-      return
-    }
-
+    // Throttling removed - run on every frame as per ARCHITECTURE_CHANGE.md
+    // Adaptive performance system will handle scaling if performance degrades
     isProcessing.value = true
 
     let resized: any = null

@@ -183,12 +183,35 @@ export const useShotTracker = (
     const lastBallHeight = useSharedValue(0)
     const lastValidBallTime = useSharedValue(0)
 
-    // Parallel Workers
+    // Adaptive performance management
+    const {
+        recordYoloPerformance,
+        evaluateAndAdapt,
+        getCurrentModel,
+        currentModelIndex: adaptiveModelIndex,
+    } = useAdaptivePerformance({
+        initialFps: selectedFps || 30,
+        initialModelId: yoloModelId || 'best_512_float16',
+        availableFps: availableFps || [30, 24, 20, 15],
+    })
 
+    // Adaptive model state - tracks current model from adaptive performance
+    const [adaptiveYoloModelId, setAdaptiveYoloModelId] = useState<string | undefined>(yoloModelId)
+
+    // Update adaptive model when it changes from adaptive performance system
+    useEffect(() => {
+        const currentModel = getCurrentModel()
+        if (currentModel && currentModel.id !== adaptiveYoloModelId) {
+            console.log('[ShotTracker] Adaptive model changed:', adaptiveYoloModelId, '→', currentModel.id)
+            setAdaptiveYoloModelId(currentModel.id)
+        }
+    }, [adaptiveModelIndex, getCurrentModel])
+
+    // Parallel Workers - use adaptive model ID when available
     const yoloWorker = useYoloWorker(
         ballEnabled,
         yoloDelegate,
-        yoloModelId
+        adaptiveYoloModelId || yoloModelId
     )
 
     const moveNetWorker = useMoveNetWorker(
@@ -199,20 +222,6 @@ export const useShotTracker = (
 
     // Player crop manager (worklet-compatible hook)
     const playerCrop = usePlayerCropManager()
-
-    // Adaptive performance management
-    const {
-        recordYoloPerformance,
-        evaluateAndAdapt,
-        getCurrentFps,
-        getCurrentModel,
-        currentFps: adaptiveFps,
-        currentModelIndex: adaptiveModelIndex,
-    } = useAdaptivePerformance({
-        initialFps: selectedFps || 30,
-        initialModelId: yoloModelId || 'best_512_float16',
-        availableFps: availableFps || [30, 24, 20, 15],
-    })
 
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
@@ -1172,7 +1181,6 @@ export const useShotTracker = (
         resetShotTracking,
         yoloFps: yoloWorker.fps,
         moveNetFps: moveNetWorker.fps,
-        currentFps: adaptiveFps,
         currentModelIndex: adaptiveModelIndex,
         exportTelemetrySummary,
         logTelemetrySummary,

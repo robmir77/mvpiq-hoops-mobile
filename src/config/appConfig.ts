@@ -22,7 +22,7 @@ export const YOLO_CONFIG = {
 
 // Camera Configuration
 export const CAMERA_CONFIG = {
-  DEFAULT_RESOLUTION: { width: 3840, height: 2160 }, // Default camera resolution (4K)
+  DEFAULT_RESOLUTION: { width: 1280, height: 720 }, // Default camera resolution (720p) - aligned with ARCHITECTURE_CHANGE.md
   DEFAULT_FPS: 30, // Default camera frame rate
   DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
   DEFAULT_ZOOM: 1, // Default camera zoom level
