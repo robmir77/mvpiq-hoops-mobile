@@ -27,7 +27,7 @@ export interface YoloModelConfig {
   label: string
   inputSize: number
   outputDetections: number
-  precision: 'float16' | 'int8'
+  precision: 'float16'
   asset: any
   fileUri?: string
 }

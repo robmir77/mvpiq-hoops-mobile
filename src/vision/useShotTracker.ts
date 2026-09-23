@@ -149,6 +149,10 @@ export const useShotTracker = (
     const frameCounter =
         useSharedValue(0)
 
+    // Guard: prevents duplicate onFrame processing (useFrameOutput calls onFrame twice per frame)
+    const lastProcessedFrameCounter =
+        useSharedValue(0)
+
     // Reentrancy guard: prevents concurrent onFrame invocations
     const isProcessingFrame =
         useSharedValue(false)
@@ -845,6 +849,13 @@ export const useShotTracker = (
                 const currentFrame =
                     frameCounter.value
 
+                // Guard: useFrameOutput calls onFrame twice for each frame, skip duplicate processing
+                if (currentFrame === lastProcessedFrameCounter.value) {
+                    frame.dispose()
+                    return
+                }
+                lastProcessedFrameCounter.value = currentFrame
+
                 try {
                     // Global enable
                     if (!enabledShared.value) {
@@ -899,6 +910,9 @@ export const useShotTracker = (
                             yoloSuccess,
                             yoloInferenceTime
                         )
+
+                        // Count frame as processed
+                        perfFramesProcessed.value += 1
 
                         // Evaluate adaptation every ~100 frames
                         if (currentFrame % 100 === 0) {

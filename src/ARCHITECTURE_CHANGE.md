@@ -4,6 +4,271 @@
 
 La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera per rilevare e tracciare tre oggetti chiave: la palla, il canestro e il giocatore. La pipeline è costruita su React Native Vision Camera V5 con un'architettura worklet-safe per garantire performance real-time.
 
+## Architecture Gaps & Action Plan
+
+**Stato attuale:** L'architettura direzionale è corretta (YOLO → tracking → crop player → MoveNet → pose → shot tracking), ma ci sono 10 punti strutturali da chiudere prima di considerare l'implementazione completa.
+
+### Visione Architetturale Target
+
+```
+                    MVPIQ VISION ARCHITECTURE
+                              │
+             ┌────────────────┴────────────────┐
+             │                                 │
+       DETECTION LAYER                    TRACKING LAYER
+             │                                 │
+        YOLO 320/512/640                    Ball
+             │                              Player
+             │                               Rim
+             ▼                                 │
+        detections                             ▼
+                                      tracked objects
+             │
+             └──────────────┬──────────────────┘
+                            │
+                            ▼
+                     POSE ESTIMATION
+                            │
+                     Player crop
+                            │
+                       MoveNet 192
+                            │
+                            ▼
+                         Pose
+                            │
+                            ▼
+                  BASKETBALL ENGINE
+                            │
+                 ┌──────────┼──────────┐
+                 ▼          ▼          ▼
+             trajectory   shot       biomechanics
+                          detect
+                            │
+                       MADE/MISS
+```
+
+### P0 - Priorità Critica (Da sistemare subito)
+
+#### P0-1: ❌ Uniformare PLAYER_CROP_MIN_CONFIDENCE
+**Problema:** Ci sono due threshold diversi per la stessa cosa:
+- `appConfig.ts`: `PLAYER_CROP_MIN_CONFIDENCE: 0.05` (5%)
+- `usePlayerCropManager.ts`: `PLAYER_CROP_MIN_CONFIDENCE: 0.005` (0.5%)
+- `useShotTracker.ts`: Usa `YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE`
+
+**Azione:** Centralizzare in un'unica fonte: `YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE` e rimuovere il duplicato da `usePlayerCropManager.ts`.
+
+#### P0-2: ✅ Correggere modello YOLO nel documento
+**Risolto:** I modelli INT8 sono stati rimossi dall'architettura:
+- Codice: `DEFAULT_YOLO_MODEL_ID: 'best_512_float16'`
+- Registry: Solo modelli Float16 (INT8 non offrono vantaggi)
+
+**YOLO model ladder attuale:**
+```
+best_640_float16
+best_512_float16  ← default
+best_320_float16
+```
+I modelli INT8 sono stati rimossi completamente (nessun guadagno prestazioni/precisione).
+
+#### P0-3: ❌ Correggere dimensione resize MoveNet
+**Problema:** Documento dice "640×640" ma codice calcola:
+```
+1280 × 720
+       ↓
+640 × 360  (INTERMEDIATE_RESIZE_SIZE / max(frameWidth, frameHeight))
+```
+
+**Azione:** Correggere tutte le occorrenze di "640×640" in "640×360" nel documento.
+
+#### P0-4: ❌ Verificare adaptive FPS → Camera riconfigurazione
+**Problema:** Il documento dice "Adaptive FPS NON collegato alla camera" ma:
+- `useAdaptivePerformance` modifica `currentFps`
+- `WorkoutSessionScreen` sincronizza `adaptiveFps` con `effectiveFps`
+- `effectiveFps` viene propagato alla configurazione Camera
+
+**Domanda aperta:** Il cambio di `effectiveFps` durante la sessione provoca effettivamente la riconfigurazione della Camera?
+
+**Test richiesto:**
+```
+30 FPS
+  ↓
+degrado YOLO
+  ↓
+adaptive → 24
+  ↓
+Camera realmente passa a 24?
+  ↓
+YOLO actual FPS?
+  ↓
+camera actual FPS?
+```
+
+#### P0-5: ❌ Misurare actual YOLO FPS vs camera FPS
+**Problema:** Documento dice "YOLO eseguito su ogni frame" ma questo è tecnicamente vero solo come invocation, non come inference.
+
+**Distinzione da documentare:**
+```
+Camera FPS: 30 FPS
+YOLO requested FPS: 30 FPS (ogni frame)
+YOLO actual inference FPS: ~14-18 FPS (dipende da tempo inferenza ~60-70ms)
+MoveNet actual FPS: ~3 FPS (throttled)
+```
+
+### P1 - Architettura (Formalizzazione)
+
+#### P1-1: ⚠️ Formalizzare Vision Pipeline (useShotTracker)
+**Obiettivo:** Definire esplicitamente `useShotTracker` come "Vision Pipeline Layer"
+
+**Responsabilità:**
+- Camera frame acquisition
+- YOLO detection
+- Ball/Player/Rim detection
+- Player crop management
+- MoveNet pose estimation
+- Adaptive performance
+- Kalman prediction (base)
+
+#### P1-2: ⚠️ Formalizzare Basketball Intelligence (useTrackingEngine)
+**Obiettivo:** Definire esplicitamente `useTrackingEngine` come "Basketball Intelligence Layer"
+
+**Responsabilità:**
+- Advanced Kalman tracking
+- Ball trajectory analysis
+- Release point detection
+- Apex detection
+- Shot detection (MADE/MISS/AIRBALL)
+- Shot quality metrics
+
+**Separazione architetturale:**
+```
+Vision Layer (useShotTracker)
+  ↓
+Detection + Basic Tracking
+  ↓
+Basketball Intelligence Layer (useTrackingEngine)
+  ↓
+Shot Analysis + Basketball Logic
+```
+
+#### P1-3: ❌ Definire Frame Scheduler
+**Problema:** Attualmente abbiamo concetti separati senza coordinamento:
+- YOLO worker
+- MoveNet throttle
+- isProcessing
+- adaptive performance
+- camera FPS
+- player/ball TTL
+
+**Azione:** Formalizzare un scheduler centralizzato:
+```
+                 FRAME SCHEDULER
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+        YOLO        MoveNet       Tracking
+      priority 1   priority 2    every frame
+          │            │
+      14-18 FPS       3 FPS
+```
+
+#### P1-4: ❌ Definire Tracking Policies
+**Obiettivo:** Documentare esplicitamente le politiche di tracking per Ball/Player/Rim
+
+**Ball Tracking Policy:**
+```
+Target: Ball
+Detection: YOLO
+Tracking: Kalman prediction
+TTL: 500 ms
+Fallback: Prediction durante gap YOLO
+```
+
+**Player Tracking Policy:**
+```
+Target: Player
+Detection: YOLO
+Tracking: EMA smoothing
+TTL: 750 ms
+Fallback: Last bbox durante gap YOLO
+Jump threshold: 0.15 con safety net (3 rifiuti consecutivi)
+```
+
+**Rim Tracking Policy:**
+```
+Target: Rim
+Detection: YOLO
+Tracking: Best-confidence locking
+TTL: 500 ms
+Fallback: Calibration point
+Note: Aggiorna solo se confidence > lastRimConfidence
+```
+
+### P2 - Validazione (Test End-to-End)
+
+#### P2-1: ❌ Definire matrice test
+**Obiettivo:** Creare una matrice di test strutturata come Definition of Done
+
+**Test A — Ball:**
+- Ball ferma
+- Ball veloce
+- Ball parzialmente occlusa
+- Ball fuori frame
+- Ball rientra
+
+**Test B — Player:**
+- Player fermo
+- Player movimento laterale
+- Player salto
+- Player fuori detection
+- Player rientra
+
+**Test C — MoveNet:**
+- Player bbox valida
+- Player bbox predicted
+- Player bbox persa
+- Crop vicino al bordo
+- Crop molto piccolo
+
+**Test D — Performance:**
+- 30 FPS camera
+- YOLO actual FPS
+- MoveNet FPS
+- Camera FPS
+- CPU
+- RAM
+- Battery
+
+**Test E — Shot:**
+- Release
+- Apex
+- Descending
+- Made
+- Miss
+- Airball
+
+### Note Aggiuntive
+
+#### Rim Tracking: Best-Confidence Locking
+**Strategia attuale:**
+```
+nuovo rim
+confidence > lastRimConfidence
+        ↓
+accetta
+```
+
+**Rischio:** Funziona se camera è completamente stabile, ma può creare problemi:
+```
+Rim confidence:
+0.40
+0.60
+0.80
+0.75 ← posizione migliore ma confidence inferiore
+```
+Il sistema mantiene il vecchio rim. Non è vero "tracking", è "best-confidence locking".
+
+**Futuro:** Considerare `confidence + positional stability` invece di solo confidence.
+
 ## Implementazione Crop Player per MoveNet
 
 ### Geometria Crop
@@ -53,6 +318,129 @@ Keypoints trasformati (crop → frame space)
 
 ## Architettura Corrente
 
+### Vision Pipeline Layer (useShotTracker)
+
+**Responsabilità:**
+- Camera frame acquisition tramite `useFrameOutput`
+- YOLO detection (ball, player, rim) su ogni frame
+- Ball/Player/Rim detection parsing e filtering
+- Player crop management (TTL 750ms, EMA smoothing, jump threshold)
+- MoveNet pose estimation (throttled a 3 FPS)
+- Adaptive performance management (scaling modello YOLO)
+- Kalman prediction base per ball tracking
+- Frame scheduler coordination (YOLO + MoveNet throttling)
+
+**Separazione responsabilità:**
+```
+Vision Pipeline Layer (useShotTracker)
+  ↓
+Detection + Basic Tracking
+  ↓
+Basketball Intelligence Layer (useTrackingEngine)
+  ↓
+Shot Analysis + Basketball Logic
+```
+
+**Nota:** useShotTracker gestisce la pipeline di vision "grezza" (YOLO → detection → tracking base → pose), mentre useTrackingEngine gestisce l'intelligenza basketball (trajectory analysis, shot detection, MADE/MISS/AIRBALL).
+
+### Basketball Intelligence Layer (useTrackingEngine)
+
+**Responsabilità:**
+- Advanced Kalman tracking per ball position prediction
+- Ball trajectory analysis (release point, apex, descending)
+- Shot detection logic (MADE/MISS/AIRBALL classification)
+- Release point detection
+- Apex detection
+- Shot quality metrics
+- Ball state management (DETECTED/PREDICTED/LOST)
+
+**Separazione architetturale:**
+```
+Vision Layer (useShotTracker)
+  ↓
+Detection + Basic Tracking
+  ↓
+Basketball Intelligence Layer (useTrackingEngine)
+  ↓
+Shot Analysis + Basketball Logic
+```
+
+**Nota:** useTrackingEngine riceve le detection grezze da useShotTracker e applica logica basketball-specifica per analizzare trajectory, detect shot events e classificare MADE/MISS/AIRBALL.
+
+### Frame Scheduler
+
+**Stato attuale:** Concetti separati senza coordinamento centralizzato:
+- YOLO worker (ogni frame)
+- MoveNet throttle (3 FPS, time-based)
+- isProcessing guard
+- adaptive performance
+- camera FPS
+- player/ball TTL
+
+**Architettura target:**
+```
+                 FRAME SCHEDULER
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+        YOLO        MoveNet       Tracking
+      priority 1   priority 2    every frame
+          │            │
+      14-18 FPS       3 FPS
+```
+
+**Comportamento attuale:**
+- **YOLO**: Eseguito su ogni frame ricevuto dalla camera (30 FPS richiesti, ~14-18 FPS actual a causa del tempo di inferenza)
+- **MoveNet**: Throttled a 3 FPS tramite time-based scheduling (ogni ~333ms)
+- **Tracking**: Eseguito ogni frame per Kalman prediction
+
+**Metriche FPS:**
+```
+Camera FPS: 30 FPS
+YOLO requested FPS: 30 FPS (ogni frame)
+YOLO actual inference FPS: ~14-18 FPS (dipende da tempo inferenza ~60-70ms)
+MoveNet actual FPS: ~3 FPS (throttled)
+```
+
+**Nota:** La distinzione tra "requested FPS" e "actual inference FPS" è fondamentale per capire dove viene spesa CPU/GPU. YOLO viene richiesto su ogni frame, ma l'actual FPS è limitato dal tempo di inferenza.
+
+### Tracking Policies
+
+**Ball Tracking Policy:**
+```
+Target: Ball
+Detection: YOLO
+Tracking: Kalman prediction
+TTL: 500 ms
+Fallback: Prediction durante gap YOLO
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+```
+
+**Player Tracking Policy:**
+```
+Target: Player
+Detection: YOLO
+Tracking: EMA smoothing
+TTL: 750 ms
+Fallback: Last bbox durante gap YOLO
+Jump threshold: 0.15 con safety net (3 rifiuti consecutivi)
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+Confidence threshold: 5% (YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE)
+```
+
+**Rim Tracking Policy:**
+```
+Target: Rim
+Detection: YOLO
+Tracking: Best-confidence locking
+TTL: 500 ms
+Fallback: Calibration point
+Update rule: Aggiorna solo se confidence > lastRimConfidence
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+Confidence threshold: 10% (YOLO_CONFIG.RIM_CONF_THRESHOLD)
+Note: Non è vero "tracking", è "best-confidence locking" per camera stabile
+```
+
 ### Pipeline Principale
 
 ```
@@ -70,8 +458,9 @@ YOLO Parser
 ### Componenti Principali
 
 #### 1. YOLO Detection
-- **Modello**: `best_512_int8.tflite`
-- **Risoluzione**: 512×512 INT8
+- **Modello**: `best_512_float16.tflite` (default)
+- **Risoluzione**: 512×512 FP16
+- **Model ladder**: best_640_float16 → best_512_float16 → best_320_float16
 - **Output**: Bounding boxes per ball, hoop, player
 - **Performance**: Eseguito su ogni frame (YOLO_FRAME_SKIP = 1)
 - **Throttling**: Disabilitato per massima precisione
@@ -387,7 +776,7 @@ Keypoints trasformati (crop → frame space)
 - Aggiunto flag `usingPlayerCrop` (inizialmente false)
 
 **Fase 2 (implementata)**: Crop CPU ottimizzato
-- Resize GPU intermedio a 640×640
+- Resize GPU intermedio a 640×360
 - Funzione `cropAndResizeFloat32()` per crop CPU su Float32
 - `usingPlayerCrop = true` quando bbox disponibile
 - Riduzione tempo crop da ~92ms a ~5-10ms
@@ -474,7 +863,7 @@ YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo d
 
 **Analisi**: react-native-vision-camera-resizer V5 NON supporta crop arbitrario nativo (GitHub issue #3746 confermato dal team). `vision-camera-cropper` esiste ma restituisce base64/path, non buffer GPU worklet-safe.
 
-**Soluzione implementata**: Resize GPU intermedio 640×640 + crop CPU su Float32
+**Soluzione implementata**: Resize GPU intermedio 640×360 + crop CPU su Float32
 - Riduzione tempo crop da ~92ms a ~5-10ms
 - `usingPlayerCrop = true` quando bbox disponibile
 - MoveNet riceve crop player reale
@@ -491,7 +880,7 @@ YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo d
 
 ### 3. Modello YOLO Migliorato per Player Detection
 
-**Problema attuale**: Il modello `best_512_int8.tflite` produce confidence player estremamente basse (0.0001-0.0003).
+**Problema attuale**: Il modello `best_512_float16.tflite` produce confidence player basse (0.05-0.12).
 
 **Soluzioni**:
 1. Riaddestrare il modello con più dati umani
@@ -541,13 +930,13 @@ La pipeline di vision attuale è funzionalmente completa con:
 - ✅ Stati visuali espliciti per debug sul campo
 - ✅ YOLO eseguito su ogni frame per massima precisione
 - ✅ MoveNet eseguito solo quando player bbox disponibile
-- ✅ Crop CPU ottimizzato per MoveNet (640×640 → 192×192)
+- ✅ Crop CPU ottimizzato per MoveNet (640×360 → 192×192)
 - ✅ Adaptive model collegato al worker YOLO
 - ✅ Risoluzione allineata a 1280×720
 
 **Stato completamento architettura:** ~85%
 
-Il collo di bottiglia principale (crop CPU ~92ms) è stato ottimizzato a ~5-10ms tramite resize intermedio 640×640. MoveNet ora riceve il crop player reale invece del full-frame, migliorando significativamente la qualità della pose detection.
+Il collo di bottiglia principale (crop CPU ~92ms) è stato ottimizzato a ~5-10ms tramite resize intermedio 640×360. MoveNet ora riceve il crop player reale invece del full-frame, migliorando significativamente la qualità della pose detection.
 
 **Rimanenti:**
 - Test effettivo pose detection con crop reale (richiede esecuzione app)

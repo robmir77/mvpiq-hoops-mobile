@@ -6,11 +6,7 @@
 // Uses Reanimated SharedValues for worklet compatibility
 
 import { useSharedValue } from 'react-native-reanimated'
-
-// Import YOLO config for threshold
-const YOLO_CONFIG = {
-  PLAYER_CROP_MIN_CONFIDENCE: 0.005
-}
+import { YOLO_CONFIG } from '@/config/appConfig'
 
 export interface PlayerCropConfig {
   paddingPercent: number // Padding around bbox (default 0.15 = 15%)

@@ -6,7 +6,6 @@ import { useSharedValue } from 'react-native-reanimated'
 import { useResizer } from 'react-native-vision-camera-resizer'
 import { useTensorflowModel } from 'react-native-fast-tflite'
 import { parseYoloOutputFloat16 } from './yoloParserFloat16'
-import { parseYoloOutputInt8 } from './yoloParserInt8'
 import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
@@ -47,13 +46,15 @@ export const useYoloWorker = (
   const fps = useSharedValue(0)
 
   const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
+    if (__DEV__) {
+      console.log('[YoloWorker] recordTelemetry called', { frameCounter, requested, executed })
+    }
     if (requested) telemetryLogger.recordYoloRequested()
     if (executed) {
       telemetryLogger.recordYoloExecuted()
       if (frameCounter !== undefined) telemetryLogger.recordYoloProcessedFrame(frameCounter)
     }
     telemetryLogger.recordYoloInference(inferenceTime)
-    telemetryLogger.incrementYoloExecuted()
     if (resizeMs !== undefined) telemetryLogger.recordYoloResize(resizeMs)
     if (runMs !== undefined) telemetryLogger.recordYoloRun(runMs)
     if (parseMs !== undefined) telemetryLogger.recordYoloParse(parseMs)
@@ -165,7 +166,14 @@ export const useYoloWorker = (
   const processFrame = useCallback((frame: any, timestamp: number, frameCounter?: number) => {
     'worklet'
 
+    if (__DEV__) {
+      console.log('[YoloWorker] processFrame called', { frameCounter, isProcessing: isProcessing.value, enabled })
+    }
+
     if (!yoloModelInstance || isProcessing.value || !enabled) {
+      if (__DEV__) {
+        console.log('[YoloWorker] processFrame skipped', { hasModel: !!yoloModelInstance, isProcessing: isProcessing.value, enabled })
+      }
       return
     }
 
@@ -196,26 +204,14 @@ export const useYoloWorker = (
           const rawOutput = outputs[0] as ArrayBufferLike
 
 
-          // Use appropriate parser based on model precision
+          // Parse YOLO output (Float16 only - INT8 models removed)
           const tParseStart = performance.now()
-          let ball, player, rim, debug
-          if (selectedYoloModel?.precision === 'int8') {
-            // INT8 model outputs Float32 tensors, no dequantization needed
-            const output = new Float32Array(rawOutput)
-            const result = parseYoloOutputInt8(output, 0.005, frame.width, frame.height, 0.005)
-            ball = result.ball
-            player = result.player
-            rim = result.rim
-            debug = result.debug
-          } else {
-            // Float16 model outputs raw logits, use same threshold as INT8
-            const output = new Float32Array(rawOutput)
-            const result = parseYoloOutputFloat16(output, 0.005, frame.width, frame.height, 0.005)
-            ball = result.ball
-            player = result.player
-            rim = result.rim
-            debug = result.debug
-          }
+          const output = new Float32Array(rawOutput)
+          const result = parseYoloOutputFloat16(output, 0.005, frame.width, frame.height, 0.005)
+          const ball = result.ball
+          const player = result.player
+          const rim = result.rim
+          const debug = result.debug
           const tParseEnd = performance.now()
           const parseMs = tParseEnd - tParseStart
 

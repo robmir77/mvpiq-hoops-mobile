@@ -87,6 +87,16 @@ export const useAdaptivePerformance = ({
     if (!success) {
       perfFramesFailed.value++
     }
+
+    if (__DEV__ && perfFramesProcessed.value % 50 === 0) {
+      console.log('[AdaptivePerf] Record:', {
+        fps,
+        success,
+        inferenceTime,
+        framesProcessed: perfFramesProcessed.value,
+        avgFps: perfYoloFpsSum.value / perfYoloFpsCount.value,
+      })
+    }
   }, [])
 
   // Get current performance metrics
@@ -202,10 +212,23 @@ export const useAdaptivePerformance = ({
   const evaluateAndAdapt = useCallback(() => {
     'worklet'
 
-    if (isAdapting.value) return
+    if (__DEV__) {
+      console.log('[AdaptivePerf] evaluateAndAdapt called')
+    }
+
+    if (isAdapting.value) {
+      if (__DEV__) {
+        console.log('[AdaptivePerf] Skipped: isAdapting=true')
+      }
+      return
+    }
 
     const now = Date.now()
-    if (now - lastAdaptationAt.current < MIN_ADAPTATION_INTERVAL_MS) {
+    const timeSinceLastAdapt = now - lastAdaptationAt.current
+    if (timeSinceLastAdapt < MIN_ADAPTATION_INTERVAL_MS) {
+      if (__DEV__) {
+        console.log('[AdaptivePerf] Skipped: too soon', { timeSinceLastAdapt, MIN_ADAPTATION_INTERVAL_MS })
+      }
       return
     }
 
@@ -213,11 +236,26 @@ export const useAdaptivePerformance = ({
 
     // Need minimum samples to make decision
     if (metrics.framesProcessed < 30) {
+      if (__DEV__) {
+        console.log('[AdaptivePerf] Skipped: not enough samples', { framesProcessed: metrics.framesProcessed })
+      }
       return
     }
 
     isAdapting.value = true
     lastAdaptationAt.current = now
+
+    if (__DEV__) {
+      console.log('[AdaptivePerf] Evaluation:', {
+        targetFps: currentFps.value,
+        yoloFps: metrics.yoloFps,
+        fpsRatio: currentFps.value > 0 ? metrics.yoloFps / currentFps.value : 0,
+        successRate: metrics.yoloSuccessRate,
+        scaleDownThreshold: SCALE_DOWN_THRESHOLD,
+        shouldScaleDown: shouldScaleDown(metrics),
+        shouldScaleUp: shouldScaleUp(metrics),
+      })
+    }
 
     if (shouldScaleDown(metrics)) {
       // First try to scale down FPS

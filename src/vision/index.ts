@@ -5,7 +5,6 @@
 
 export * from './types'
 export * from './yoloParserFloat16'
-export * from './yoloParserInt8'
 export * from './yoloModels'
 export * from './telemetry'
 export * from './poseParser'
