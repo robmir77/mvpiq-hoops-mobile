@@ -19,8 +19,9 @@ const YOLO_MODEL_TIERS: YoloModelConfig[] = [
 // FPS tiers (ordered by performance, high to low)
 const FPS_TIERS = [30, 24, 20, 15]
 
-// Performance thresholds
-const TARGET_YOLO_FPS = 10 // Minimum acceptable YOLO FPS
+// Performance thresholds (percentage-based)
+const SCALE_DOWN_THRESHOLD = 0.8 // Scale down if FPS < 80% of target
+const SCALE_UP_THRESHOLD = 0.95 // Scale up if FPS >= 95% of target
 const TARGET_YOLO_SUCCESS_RATE = 0.6 // Minimum successful inference rate (60%)
 const ADAPTATION_WINDOW_MS = 3000 // Time window for performance evaluation
 const MIN_ADAPTATION_INTERVAL_MS = 5000 // Minimum time between adaptations
@@ -61,9 +62,6 @@ export const useAdaptivePerformance = ({
 
   const lastAdaptationAt = useRef(0)
   const isAdapting = useSharedValue(false)
-
-  // Debug: log when hook is called
-  console.log('[AdaptivePerf] Hook called - initializing')
 
   // Record YOLO performance (called from worklet)
   const recordYoloPerformance = useCallback((fps: number, success: boolean, inferenceTime: number) => {
@@ -119,14 +117,18 @@ export const useAdaptivePerformance = ({
   // Check if we should scale down (performance is poor)
   const shouldScaleDown = useCallback((metrics: PerformanceMetrics): boolean => {
     'worklet'
-    return metrics.yoloFps < TARGET_YOLO_FPS || metrics.yoloSuccessRate < TARGET_YOLO_SUCCESS_RATE
-  }, [])
+    const targetFps = currentFps.value
+    const fpsRatio = targetFps > 0 ? metrics.yoloFps / targetFps : 0
+    return fpsRatio < SCALE_DOWN_THRESHOLD || metrics.yoloSuccessRate < TARGET_YOLO_SUCCESS_RATE
+  }, [currentFps])
 
   // Check if we should scale up (performance is good)
   const shouldScaleUp = useCallback((metrics: PerformanceMetrics): boolean => {
     'worklet'
-    return metrics.yoloFps >= TARGET_YOLO_FPS * 1.5 && metrics.yoloSuccessRate >= TARGET_YOLO_SUCCESS_RATE * 1.1
-  }, [])
+    const targetFps = currentFps.value
+    const fpsRatio = targetFps > 0 ? metrics.yoloFps / targetFps : 0
+    return fpsRatio >= SCALE_UP_THRESHOLD && metrics.yoloSuccessRate >= TARGET_YOLO_SUCCESS_RATE
+  }, [currentFps])
 
   // Scale down FPS
   const scaleDownFps = useCallback(() => {

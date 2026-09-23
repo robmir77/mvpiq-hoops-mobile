@@ -319,6 +319,10 @@ export const useShotTracker = (
     const ballRejectionReason = useSharedValue('')
     const rimRejectionReason = useSharedValue('')
 
+    // Rim tracking: only update if confidence is higher than previous
+    const lastRimConfidence = useSharedValue(0)
+    const lastRimPosition = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
+
     const detectionHistory =
         useRef<
             Array<{
@@ -603,10 +607,20 @@ export const useShotTracker = (
                     detection.rim.confidence >
                     RIM_CONFIDENCE_THRESHOLD
                 ) {
-
-                    onRimDetectionRef.current?.(
-                        detection.rim
-                    )
+                    // Only update rim if confidence is higher than previous
+                    // This keeps rim stable since camera is typically stationary
+                    if (detection.rim.confidence > lastRimConfidence.value) {
+                        lastRimConfidence.value = detection.rim.confidence
+                        lastRimPosition.value = {
+                            x: detection.rim.x,
+                            y: detection.rim.y,
+                            width: detection.rim.width,
+                            height: detection.rim.height
+                        }
+                        onRimDetectionRef.current?.(
+                            detection.rim
+                        )
+                    }
                 }
 
                 if (

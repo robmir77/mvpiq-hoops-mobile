@@ -6,11 +6,11 @@ export const YOLO_CONFIG = {
   BALL_CONF_THRESHOLD: 0.005, // Minimum confidence for ball detection (0.5%)
 
   // Player detection thresholds
-  PLAYER_CONF_THRESHOLD: 0.005, // Minimum confidence for player detection in YOLO parser (0.5%)
-  PLAYER_CROP_MIN_CONFIDENCE: 0.005, // Minimum confidence for player crop manager (0.5%)
+  PLAYER_CONF_THRESHOLD: 0.05, // Minimum confidence for player detection in YOLO parser (5%)
+  PLAYER_CROP_MIN_CONFIDENCE: 0.05, // Minimum confidence for player crop manager (5%)
 
   // Rim detection thresholds
-  RIM_CONF_THRESHOLD: 0.005, // Minimum confidence for rim detection (0.5%)
+  RIM_CONF_THRESHOLD: 0.1, // Minimum confidence for rim detection (10%)
 
   // NMS threshold
   NMS_IOU_THRESHOLD: 0.4, // IoU threshold for non-maximum suppression

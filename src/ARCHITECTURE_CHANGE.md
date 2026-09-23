@@ -160,9 +160,9 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 ```typescript
 export const YOLO_CONFIG = {
   BALL_CONF_THRESHOLD: 0.005,           // 0.5%
-  PLAYER_CONF_THRESHOLD: 0.005,         // 0.5%
-  PLAYER_CROP_MIN_CONFIDENCE: 0.005,   // 0.5%
-  RIM_CONF_THRESHOLD: 0.005,            // 0.5%
+  PLAYER_CONF_THRESHOLD: 0.05,         // 5%
+  PLAYER_CROP_MIN_CONFIDENCE: 0.05,   // 5%
+  RIM_CONF_THRESHOLD: 0.1,            // 10%
   NMS_IOU_THRESHOLD: 0.4,
   PLAYER_MIN_WIDTH: 0.05,              // 5% del frame
   PLAYER_MIN_HEIGHT: 0.1,              // 10% del frame
@@ -345,8 +345,15 @@ Trasformazione `x: 1 - yNorm, y: xNorm` causava deformazione della pose.
 
 **Comportamento**:
 - Rim rilevato da YOLO con confidence > 0.15 → `rimTrackState = 'DETECTED'`
+- **Aggiornamento solo se confidence maggiore**: Il rim viene aggiornato solo se la nuova detection ha confidence superiore alla precedente. Questo mantiene il rim stabile poiché la camera è tipicamente ferma.
 - Rim perso ma calibration disponibile → `rimTrackState = 'PREDICTED'`
 - Nessuna detection né calibration → `rimTrackState = 'LOST'`
+
+**Logica di stabilità**:
+- `lastRimConfidence`: Traccia l'ultima confidence accettata
+- `lastRimPosition`: Traccia l'ultima posizione accettata
+- Una nuova detection rim viene accettata solo se `detection.rim.confidence > lastRimConfidence.value`
+- Questo previene fluttuazioni del canestro quando la camera è stabile
 
 ### MoveNet Pipeline
 
@@ -424,11 +431,20 @@ Se performance buone:
     scaleUpModel() → 320→512→640
 ```
 
-**Thresholds**:
-- `TARGET_YOLO_FPS`: 10 FPS (minimo accettabile)
+**Thresholds (percentuali rispetto al target FPS corrente)**:
+- `SCALE_DOWN_THRESHOLD`: 80% (scala giù se FPS < 80% del target)
+- `SCALE_UP_THRESHOLD`: 95% (scala su se FPS >= 95% del target)
 - `TARGET_YOLO_SUCCESS_RATE`: 60% (minimo tasso di successo)
 - `ADAPTATION_WINDOW_MS`: 3000ms (finestra di valutazione)
 - `MIN_ADAPTATION_INTERVAL_MS`: 5000ms (minimo tempo tra adattamenti)
+
+**Logica adattamento**:
+- Il sistema calcola il ratio `yoloFps / currentFps` (target FPS corrente)
+- Se ratio < 80% → scala giù (prima FPS, poi modello se FPS già al minimo)
+- Se ratio >= 95% → scala su (prima modello, poi FPS se modello già al massimo)
+- Esempio con target FPS = 30:
+  - Scala giù se YOLO FPS < 24 (30 * 0.8)
+  - Scala su se YOLO FPS >= 28.5 (30 * 0.95)
 
 **Shared Values**:
 - `currentModelIndex`: Indice del modello YOLO corrente
