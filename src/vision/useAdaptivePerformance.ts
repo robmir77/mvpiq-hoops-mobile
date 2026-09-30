@@ -261,18 +261,22 @@ export const useAdaptivePerformance = ({
       // First try to scale down FPS
       const fpsScaled = scaleDownFps()
 
+      // TEMPORARILY DISABLED: Model switching to isolate the issue
       // If FPS is already at minimum, scale down model
-      if (!fpsScaled) {
-        scaleDownModel()
-      }
+      // if (!fpsScaled) {
+      //   scaleDownModel()
+      // }
     } else if (shouldScaleUp(metrics)) {
+      // TEMPORARILY DISABLED: Model switching to isolate the issue
       // First try to scale up model
-      const modelScaled = scaleUpModel()
+      // const modelScaled = scaleUpModel()
 
       // If model is already at maximum, scale up FPS
-      if (!modelScaled) {
-        scaleUpFps()
-      }
+      // if (!modelScaled) {
+      //   scaleUpFps()
+      // }
+      // Instead, only scale up FPS
+      scaleUpFps()
     }
 
     // Reset performance window after adaptation

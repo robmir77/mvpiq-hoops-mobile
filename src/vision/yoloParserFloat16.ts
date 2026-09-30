@@ -174,10 +174,11 @@ export function parseYoloOutputFloat16(
     }
 
     // Determine input size from number of detections
-    // 512x512: 5376 anchors, 640x640: 8400 anchors, 320x320: 2100 anchors
+    // 640x640: 8400 anchors, 512x512: 5376 anchors, 416x416: 3549 anchors, 320x320: 2100 anchors
     if (nDetections === 8400) TENSOR_SIZE = 640
-    else if (nDetections === 2100) TENSOR_SIZE = 320
     else if (nDetections === 5376) TENSOR_SIZE = 512
+    else if (nDetections === 3549) TENSOR_SIZE = 416
+    else if (nDetections === 2100) TENSOR_SIZE = 320
 
     // Calculate letterboxing parameters based on dynamic TENSOR_SIZE and frame resolution
     const SCALE = Math.min(TENSOR_SIZE / effectiveFrameWidth, TENSOR_SIZE / effectiveFrameHeight)

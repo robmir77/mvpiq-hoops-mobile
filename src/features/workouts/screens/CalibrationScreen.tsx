@@ -839,6 +839,21 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const meta = MODE_META[cameraMode]
 
+    // Log device info for GPU capability testing
+    useEffect(() => {
+        try {
+            const constants = require('react-native').Platform.constants
+            const deviceInfo = Platform.OS === 'android'
+                ? `Android ${constants.Release} / ${constants.Model} / ${constants.Manufacturer}`
+                : `iOS ${constants.systemVersion} / ${constants.Model}`
+            console.log('[GPU Capability Test] Device Info:', deviceInfo)
+            console.log('[GPU Capability Test] Testing YOLO models with current default:', DEFAULT_YOLO_MODEL_ID)
+            console.log('[GPU Capability Test] Available YOLO models:', YOLO_MODELS.map(m => m.id).join(', '))
+        } catch (e) {
+            console.warn('[GPU Capability Test] Failed to get device info:', e)
+        }
+    }, [])
+
     if (!hasPermission) {
         return (
             <View style={[styles.container, styles.center]}>

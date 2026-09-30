@@ -44,16 +44,15 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_320_float16.tflite"),
   },
-  // Commented out - INT8 models are less precise with no performance benefit
-  // {
-  //   id: "best_320_int8",
-  //   fileName: "best_320_int8.tflite",
-  //   label: "best · 320 · INT8",
-  //   inputSize: 320,
-  //   outputDetections: 2100,
-  //   precision: 'int8',
-  //   asset: require("../../assets/models/best_320_int8.tflite"),
-  // },
+  {
+    id: "best_416_float16",
+    fileName: "best_416_float16.tflite",
+    label: "best · 416 · FP16",
+    inputSize: 416,
+    outputDetections: 3549,
+    precision: 'float16',
+    asset: require("../../assets/models/best_416_float16.tflite"),
+  },
   {
     id: "best_512_float16",
     fileName: "best_512_float16.tflite",
@@ -63,16 +62,6 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_512_float16.tflite"),
   },
-  // Commented out - INT8 models are less precise with no performance benefit
-  // {
-  //   id: "best_512_int8",
-  //   fileName: "best_512_int8.tflite",
-  //   label: "best · 512 · INT8",
-  //   inputSize: 512,
-  //   outputDetections: 5376,
-  //   precision: 'int8',
-  //   asset: require("../../assets/models/best_512_int8.tflite"),
-  // },
   {
     id: "best_640_float16",
     fileName: "best_640_float16.tflite",
@@ -82,16 +71,6 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_640_float16.tflite"),
   },
-  // Commented out - INT8 models are less precise with no performance benefit
-  // {
-  //   id: "best_640_int8",
-  //   fileName: "best_640_int8.tflite",
-  //   label: "best · 640 · INT8",
-  //   inputSize: 640,
-  //   outputDetections: 8400,
-  //   precision: 'int8',
-  //   asset: require("../../assets/models/best_640_int8.tflite"),
-  // },
 ]
 
 export const DEFAULT_YOLO_MODEL_ID = MODEL_CONFIG.DEFAULT_YOLO_MODEL_ID
@@ -128,6 +107,7 @@ async function copyAssetToFile(asset: any, fileName: string): Promise<string> {
   const fileInfo = await FileSystem.getInfoAsync(destUri)
   if (fileInfo.exists) {
     console.log('[YoloModels] File already exists:', destUri)
+    console.log('[YoloModels] File info:', fileInfo)
     return destUri
   }
 
@@ -141,6 +121,7 @@ async function copyAssetToFile(asset: any, fileName: string): Promise<string> {
   })
 
   console.log('[YoloModels] Copied asset to:', destUri)
+
   return destUri
 }
 
@@ -150,9 +131,12 @@ export async function preloadModelAssets(): Promise<void> {
 
   for (const model of YOLO_MODELS) {
     try {
+      console.log('[YoloModels] Loading model:', model.fileName)
       model.fileUri = await copyAssetToFile(model.asset, model.fileName)
+      console.log('[YoloModels] Model loaded:', model.fileName, 'URI:', model.fileUri)
     } catch (error) {
       console.error('[YoloModels] Failed to copy model:', model.fileName, error)
+      throw error // Re-throw to prevent silent failures
     }
   }
 

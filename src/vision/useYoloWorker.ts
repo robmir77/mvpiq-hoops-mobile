@@ -127,6 +127,16 @@ export const useYoloWorker = (
     ? yoloModel.model
     : null
 
+  // Debug log for model state
+  useEffect(() => {
+    console.log('[YoloWorker] MODEL STATE', {
+      model: selectedYoloModel?.fileName,
+      state: yoloModel.state,
+      hasModel: !!yoloModel.model,
+      error: yoloModel.state === 'error' ? yoloModel.error : null,
+    })
+  }, [yoloModel.state, yoloModel.model, selectedYoloModel?.fileName])
+
   useEffect(() => {
     const isLoaded = yoloModel.state === 'loaded' && yoloModel.model != null
     isReady.value = isLoaded
@@ -193,12 +203,30 @@ export const useYoloWorker = (
 
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
+        console.log('[YoloWorker] INPUT DEBUG', {
+          model: selectedYoloModel?.fileName,
+          configuredInputSize: yoloInputSize,
+          expectedElements: yoloInputElements,
+          actualElements: source.length,
+          expectedShape: [1, yoloInputSize, yoloInputSize, 3],
+          actualBytes: source.byteLength,
+        })
+
         if (source.length === yoloInputElements) {
           // Pass buffer directly without slice() to avoid unnecessary copy
           const inputBuffer = source.buffer as ArrayBuffer
 
           const tRunStart = performance.now()
+          console.log('[YoloWorker] BEFORE runSync', {
+            model: selectedYoloModel?.fileName,
+            inputSize: yoloInputSize,
+            inputBytes: inputBuffer.byteLength,
+          })
           const outputs = yoloModelInstance!.runSync([inputBuffer])
+          console.log('[YoloWorker] AFTER runSync', {
+            outputs: outputs?.length,
+            outputBytes: outputs?.[0]?.byteLength,
+          })
           const tRunEnd = performance.now()
           const runMs = tRunEnd - tRunStart
           const rawOutput = outputs[0] as ArrayBufferLike

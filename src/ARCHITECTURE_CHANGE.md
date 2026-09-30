@@ -59,16 +59,17 @@ La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera p
 
 #### P0-2: ✅ Correggere modello YOLO nel documento
 **Risolto:** I modelli INT8 sono stati rimossi dall'architettura:
-- Codice: `DEFAULT_YOLO_MODEL_ID: 'best_512_float16'`
+- Codice: `DEFAULT_YOLO_MODEL_ID: 'best_320_float16'`
 - Registry: Solo modelli Float16 (INT8 non offrono vantaggi)
 
 **YOLO model ladder attuale:**
 ```
 best_640_float16
-best_512_float16  ← default
-best_320_float16
+best_512_float16
+best_416_float16
+best_320_float16  ← default (più compatibile cross-device)
 ```
-I modelli INT8 sono stati rimossi completamente (nessun guadagno prestazioni/precisione).
+I modelli INT8 sono stati rimossi completamente (nessun guadagno prestazioni/precisione). Il modello 320 è stato impostato come default per massima compatibilità cross-device dopo aver identificato problemi con il modello 416 su alcuni dispositivi (es. Galaxy S21 Ultra).
 
 #### P0-3: ❌ Correggere dimensione resize MoveNet
 **Problema:** Documento dice "640×640" ma codice calcola:
@@ -458,13 +459,13 @@ YOLO Parser
 ### Componenti Principali
 
 #### 1. YOLO Detection
-- **Modello**: `best_512_float16.tflite` (default)
-- **Risoluzione**: 512×512 FP16
-- **Model ladder**: best_640_float16 → best_512_float16 → best_320_float16
+- **Modello**: `best_320_float16.tflite` (default - più compatibile cross-device)
+- **Risoluzione**: 320×320 FP16
+- **Model ladder**: best_640_float16 → best_512_float16 → best_416_float16 → best_320_float16
 - **Output**: Bounding boxes per ball, hoop, player
 - **Performance**: Eseguito su ogni frame (YOLO_FRAME_SKIP = 1)
 - **Throttling**: Disabilitato per massima precisione
-- **Adaptive**: Sistema adaptive performance gestisce scaling modello se performance degradano
+- **Adaptive**: Sistema adaptive performance gestisce scaling modello se performance degradano (model switching temporaneamente disabilitato per debugging)
 
 #### 2. Ball Tracking
 - **TTL**: 500ms (time-based)
@@ -872,7 +873,58 @@ YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo d
 - Implementare compute shader personalizzato per crop nativo
 - Valutare alternative ML framework con crop nativo supportato
 
-### 2. Riduzione Frequenza MoveNet
+### 2. GPU Capability Test per YOLO Resolutions
+
+**Stato**: Implementato ma limitato - verifica solo registry assets, non inferenza reale.
+
+**Problema**: Il modello YOLO 416 non funziona su alcuni dispositivi (es. Galaxy S21 Ultra), mentre 320, 512 e 640 funzionano correttamente. La compatibilità GPU dipende dal modello TFLite + operatori + delegate + GPU/driver, non semplicemente dalla risoluzione.
+
+**Soluzione implementata**: `useGpuCapabilityTest.ts` - Hook che verifica che i modelli siano registrati nel registry e abbiano asset validi.
+
+**Limitazione**: Poiché `useTensorflowModel` è un hook React, non può essere chiamato dentro una funzione async per testare l'inferenza. Il test attuale verifica solo:
+- Modello presente nel registry
+- Asset reference valido
+
+**Approccio alternativo per test reale**:
+Per testare realmente l'inferenza GPU, aggiungere una modalità di test nel worker YOLO che:
+1. Cicla attraverso le risoluzioni (320, 352, 384, 416, 448, 480, 512, 544, 576, 608, 640)
+2. Per ogni risoluzione:
+   - Carica il modello
+   - Esegue inferenza su frame reali
+   - Logga: MODEL STATE, INPUT DEBUG, BEFORE runSync, AFTER runSync
+   - Registra: success/failure, tempo inferenza, errori
+3. Genera tabella finale delle risoluzioni supportate
+
+**Log attuali già presenti in useYoloWorker.ts**:
+- `[YoloWorker] MODEL STATE` - mostra stato caricamento (loaded/error)
+- `[YoloWorker] INPUT DEBUG` - mostra dimensioni input
+- `[YoloWorker] BEFORE runSync` / `[YoloWorker] AFTER runSync` - mostra esecuzione inferenza
+
+**Problema Model Switching Dinamico**:
+Il test ha rivelato che il problema non è la risoluzione 416 in sé, ma il cambio dinamico del modello TFLite durante il lifecycle del worker/component. Quando AdaptivePerf cambia modello:
+1. Componenti vengono smontati
+2. Componenti vengono rimontati
+3. AdaptivePerf sceglie nuovo modello
+4. useTensorflowModel() deve reinizializzare interpreter + GPU delegate
+5. Questo processo può fallire su alcune combinazioni dispositivo/modello
+
+**Dispositivo testato**: Samsung Galaxy S21 Ultra 5G (SM-G998B)
+- SoC: Exynos 2100 (5nm)
+- GPU: ARM Mali-G78 MP14 (version 3.2)
+- RAM: 12 GB LPDDR5
+- Android: 15 (API 35)
+
+**Nota**: La GPU Mali-G78 può avere compatibilità diversa rispetto ad Adreno (Snapdragon 888), il che spiega perché alcune risoluzioni (es. 416) potrebbero non funzionare su questo dispositivo specifico.
+
+**Soluzione temporanea**: Model switching disabilitato in `useAdaptivePerformance.ts` (solo FPS scaling attivo) per isolare il problema.
+
+**Prossimi passi**:
+1. Testare l'app con model switching disabilitato per confermare stabilità
+2. Se stabile, implementare test manuale delle risoluzioni cambiando il modello in `yoloModels.ts` e controllando i log
+3. Identificare la massima risoluzione stabile supportata dal dispositivo
+4. Rimuovere il modello 416 dal registry se confermato incompatibile
+
+### 3. Riduzione Frequenza MoveNet
 
 **Alternativa**: Ridurre da 3 FPS a 1-2 FPS se performance ancora insufficienti.
 
