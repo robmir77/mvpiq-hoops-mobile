@@ -45,6 +45,15 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     asset: require("../../assets/models/best_320_float16.tflite"),
   },
   {
+    id: "best_384_float16",
+    fileName: "best_384_float16.tflite",
+    label: "best · 384 · FP16",
+    inputSize: 384,
+    outputDetections: 3024,
+    precision: 'float16',
+    asset: require("../../assets/models/best_384_float16.tflite"),
+  },
+  {
     id: "best_416_float16",
     fileName: "best_416_float16.tflite",
     label: "best · 416 · FP16",
