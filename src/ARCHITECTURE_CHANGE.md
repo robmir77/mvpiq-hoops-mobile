@@ -66,10 +66,11 @@ La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera p
 ```
 best_640_float16
 best_512_float16
-best_416_float16
+best_448_float16
+best_384_float16
 best_320_float16  ← default (più compatibile cross-device)
 ```
-I modelli INT8 sono stati rimossi completamente (nessun guadagno prestazioni/precisione). Il modello 320 è stato impostato come default per massima compatibilità cross-device dopo aver identificato problemi con il modello 416 su alcuni dispositivi (es. Galaxy S21 Ultra).
+I modelli INT8 sono stati rimossi completamente (nessun guadagno prestazioni/precisione). Il modello 320 è stato impostato come default per massima compatibilità cross-device.
 
 #### P0-3: ❌ Correggere dimensione resize MoveNet
 **Problema:** Documento dice "640×640" ma codice calcola:
@@ -473,7 +474,6 @@ YOLO Parser
 |--------------|-------|-------------------|-----------------|-------|
 | best_320     | 320   | 2100              | 10-37 (variable)| Highly unstable, starts high then drops to 10-12 |
 | best_384     | 384   | 3024              | 15-28 (variable)| Starts high then drops to 10-12 |
-| best_416     | 416   | 3549              | N/A             | Non-functional, removed from registry |
 | best_448     | 448   | 4116              | 12-21 (variable)| Starts high then drops to 9-11 |
 | best_512     | 512   | 5376              | 8-10 (variable) | Starts high then drops to 6-8 |
 | best_640     | 640   | 8400              | 5-7 (stable)    | Stable but low FPS |
@@ -481,7 +481,6 @@ YOLO Parser
 **Recommendations:**
 - best_640 is the only model showing stable performance (5-7 FPS consistent)
 - All other models (320, 384, 448, 512) show instability (start high then drop to 6-12 FPS)
-- best_416 is non-functional and has been removed from the registry
 - Performance degradation pattern consistent across lower resolution models
 - Trade-off: best_640 offers stability but at lower FPS (5-7)
 - For production: consider best_640 if stability is prioritized over FPS, or investigate root cause of degradation in other models
@@ -896,7 +895,7 @@ YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo d
 
 **Stato**: Implementato ma limitato - verifica solo registry assets, non inferenza reale.
 
-**Problema**: Il modello YOLO 416 non funziona su alcuni dispositivi (es. Galaxy S21 Ultra), mentre 320, 512 e 640 funzionano correttamente. La compatibilità GPU dipende dal modello TFLite + operatori + delegate + GPU/driver, non semplicemente dalla risoluzione.
+**Problema**: Alcuni modelli YOLO non funzionano su alcuni dispositivi (es. Galaxy S21 Ultra), mentre 320, 384, 448, 512 e 640 funzionano correttamente. La compatibilità GPU dipende dal modello TFLite + operatori + delegate + GPU/driver, non semplicemente dalla risoluzione.
 
 **Soluzione implementata**: `useGpuCapabilityTest.ts` - Hook che verifica che i modelli siano registrati nel registry e abbiano asset validi.
 
@@ -906,7 +905,7 @@ YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo d
 
 **Approccio alternativo per test reale**:
 Per testare realmente l'inferenza GPU, aggiungere una modalità di test nel worker YOLO che:
-1. Cicla attraverso le risoluzioni (320, 352, 384, 416, 448, 480, 512, 544, 576, 608, 640)
+1. Cicla attraverso le risoluzioni (320, 352, 384, 448, 512, 544, 576, 608, 640)
 2. Per ogni risoluzione:
    - Carica il modello
    - Esegue inferenza su frame reali
@@ -933,7 +932,7 @@ Il test ha rivelato che il problema non è la risoluzione 416 in sé, ma il camb
 - RAM: 12 GB LPDDR5
 - Android: 15 (API 35)
 
-**Nota**: La GPU Mali-G78 può avere compatibilità diversa rispetto ad Adreno (Snapdragon 888), il che spiega perché alcune risoluzioni (es. 416) potrebbero non funzionare su questo dispositivo specifico.
+**Nota**: La GPU Mali-G78 può avere compatibilità diversa rispetto ad Adreno (Snapdragon 888), il che spiega perché alcune risoluzioni potrebbero non funzionare su questo dispositivo specifico.
 
 **Soluzione temporanea**: Model switching disabilitato in `useAdaptivePerformance.ts` (solo FPS scaling attivo) per isolare il problema.
 
@@ -941,7 +940,6 @@ Il test ha rivelato che il problema non è la risoluzione 416 in sé, ma il camb
 1. Testare l'app con model switching disabilitato per confermare stabilità
 2. Se stabile, implementare test manuale delle risoluzioni cambiando il modello in `yoloModels.ts` e controllando i log
 3. Identificare la massima risoluzione stabile supportata dal dispositivo
-4. Rimuovere il modello 416 dal registry se confermato incompatibile
 
 ### 3. Riduzione Frequenza MoveNet
 

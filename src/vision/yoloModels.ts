@@ -53,16 +53,6 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     precision: 'float16',
     asset: require("../../assets/models/best_384_float16.tflite"),
   },
-  // Commented out - replaced with 448
-  // {
-  //   id: "best_416_float16",
-  //   fileName: "best_416_float16.tflite",
-  //   label: "best · 416 · FP16",
-  //   inputSize: 416,
-  //   outputDetections: 3549,
-  //   precision: 'float16',
-  //   asset: require("../../assets/models/best_416_float16.tflite"),
-  // },
   {
     id: "best_448_float16",
     fileName: "best_448_float16.tflite",
