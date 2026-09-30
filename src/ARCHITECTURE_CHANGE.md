@@ -459,13 +459,32 @@ YOLO Parser
 ### Componenti Principali
 
 #### 1. YOLO Detection
-- **Modello**: `best_320_float16.tflite` (default - più compatibile cross-device)
-- **Risoluzione**: 320×320 FP16
-- **Model ladder**: best_640_float16 → best_512_float16 → best_416_float16 → best_320_float16
+- **Modello**: `best_384_float16.tflite` (default - miglior equilibrio stabilità/performance)
+- **Risoluzione**: 384×384 FP16
+- **Model ladder**: best_640_float16 → best_512_float16 → best_448_float16 → best_384_float16 → best_320_float16
 - **Output**: Bounding boxes per ball, hoop, player
 - **Performance**: Eseguito su ogni frame (YOLO_FRAME_SKIP = 1)
 - **Throttling**: Disabilitato per massima precisione
 - **Adaptive**: Sistema adaptive performance gestisce scaling modello se performance degradano (model switching temporaneamente disabilitato per debugging)
+
+**MODEL PERFORMANCE BENCHMARK (Samsung SM-G998B, Android 15, GPU delegate)**
+
+| Model        | Input | Output Detections | FPS Range       | Notes |
+|--------------|-------|-------------------|-----------------|-------|
+| best_320     | 320   | 2100              | 10-37 (variable)| Highly unstable, starts high then drops to 10-12 |
+| best_384     | 384   | 3024              | 15-28 (variable)| Starts high then drops to 10-12 |
+| best_416     | 416   | 3549              | N/A             | Non-functional, removed from registry |
+| best_448     | 448   | 4116              | 12-21 (variable)| Starts high then drops to 9-11 |
+| best_512     | 512   | 5376              | 8-10 (variable) | Starts high then drops to 6-8 |
+| best_640     | 640   | 8400              | 5-7 (stable)    | Stable but low FPS |
+
+**Recommendations:**
+- best_640 is the only model showing stable performance (5-7 FPS consistent)
+- All other models (320, 384, 448, 512) show instability (start high then drop to 6-12 FPS)
+- best_416 is non-functional and has been removed from the registry
+- Performance degradation pattern consistent across lower resolution models
+- Trade-off: best_640 offers stability but at lower FPS (5-7)
+- For production: consider best_640 if stability is prioritized over FPS, or investigate root cause of degradation in other models
 
 #### 2. Ball Tracking
 - **TTL**: 500ms (time-based)

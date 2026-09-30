@@ -31,7 +31,7 @@ export const CAMERA_CONFIG = {
 
 // Model Configuration
 export const MODEL_CONFIG = {
-  DEFAULT_YOLO_MODEL_ID: 'best_320_float16', // Default YOLO model (320 is most compatible across devices)
+  DEFAULT_YOLO_MODEL_ID: 'best_384_float16', // Default YOLO model (384 offers best balance of stability and performance)
   DEFAULT_MOVENET_MODEL_ID: 'movenet_lightning_192_int8', // Default MoveNet model
 } as const;
 
