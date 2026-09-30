@@ -35,11 +35,6 @@ import { telemetryLogger } from './telemetry'
 import { YOLO_CONFIG } from '@/config/appConfig'
 
 
-// AI throttling
-
-const YOLO_FRAME_SKIP = 1 // Run YOLO on every frame (currentFrame % 1 === 0 always true)
-// PERFORMANCE TEST: disabled frame skip adaptability
-// const YOLO_FRAME_SKIP_STABLE = 3 // Throttle YOLO when ball is stable
 const BALL_STABILITY_THRESHOLD = 0.02 // Position change threshold (2%)
 const BALL_STABILITY_FRAMES = 5 // Consecutive frames to consider stable
 

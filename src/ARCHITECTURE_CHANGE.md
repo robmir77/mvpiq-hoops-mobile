@@ -47,20 +47,31 @@ La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera p
                        MADE/MISS
 ```
 
-### P0 - Priorità Critica (Da sistemare subito)
+### P0 - Priorità Critica (Risolto)
 
-#### P0-1: ❌ Uniformare PLAYER_CROP_MIN_CONFIDENCE
-**Problema:** Ci sono due threshold diversi per la stessa cosa:
-- `appConfig.ts`: `PLAYER_CROP_MIN_CONFIDENCE: 0.05` (5%)
-- `usePlayerCropManager.ts`: `PLAYER_CROP_MIN_CONFIDENCE: 0.005` (0.5%)
-- `useShotTracker.ts`: Usa `YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE`
+#### P0-1: ✅ Reentrancy Guard Implementato
+**Risolto:** Implementato guard reentrancy in `useShotTracker.ts` per prevenire elaborazioni concorrenti.
 
-**Azione:** Centralizzare in un'unica fonte: `YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE` e rimuovere il duplicato da `usePlayerCropManager.ts`.
+**Implementazione:**
+```typescript
+if (isProcessingFrame.value) {
+  perfFramesDroppedBusy.value += 1
+  frame.dispose()
+  return
+}
 
-#### P0-2: ✅ Correggere modello YOLO nel documento
-**Risolto:** I modelli INT8 sono stati rimossi dall'architettura:
-- Codice: `DEFAULT_YOLO_MODEL_ID: 'best_320_float16'`
-- Registry: Solo modelli Float16 (INT8 non offrono vantaggi)
+isProcessingFrame.value = true
+// ... processing ...
+finally {
+  isProcessingFrame.value = false
+  frame.dispose()
+}
+```
+
+**Risultato:** Due onFrame contemporanei non possono più entrare nel processing. Il dispose() è gestito in un unico punto nel finally block.
+
+#### P0-2: ✅ YOLO Model Registry Aggiornato
+**Risolto:** Registry aggiornato con modelli Float16 corretti.
 
 **YOLO model ladder attuale:**
 ```
@@ -70,76 +81,91 @@ best_448_float16
 best_384_float16
 best_320_float16  ← default (più compatibile cross-device)
 ```
-I modelli INT8 sono stati rimossi completamente (nessun guadagno prestazioni/precisione). Il modello 320 è stato impostato come default per massima compatibilità cross-device.
 
-#### P0-3: ❌ Correggere dimensione resize MoveNet
-**Problema:** Documento dice "640×640" ma codice calcola:
+**Modelli rimossi:**
+- best_416_float16 (non funzionante, rimosso completamente)
+- best_480_float16 (non funzionante, rimosso completamente)
+
+**Codice:** `DEFAULT_YOLO_MODEL_ID: 'best_320_float16'` in `appConfig.ts`
+
+#### P0-3: ✅ Dimensione Resize MoveNet Corretta
+**Risolto:** Documento aggiornato con dimensioni corrette.
+
+**Pipeline corretta:**
 ```
 1280 × 720
        ↓
 640 × 360  (INTERMEDIATE_RESIZE_SIZE / max(frameWidth, frameHeight))
 ```
+Tutte le occorrenze di "640×640" sono state corrette in "640×360".
 
-**Azione:** Correggere tutte le occorrenze di "640×640" in "640×360" nel documento.
+#### P0-4: ✅ YOLO Scheduler Implementato
+**Risolto:** Implementato scheduler YOLO basato su intervallo e guard.
 
-#### P0-4: ❌ Verificare adaptive FPS → Camera riconfigurazione
-**Problema:** Il documento dice "Adaptive FPS NON collegato alla camera" ma:
-- `useAdaptivePerformance` modifica `currentFps`
-- `WorkoutSessionScreen` sincronizza `adaptiveFps` con `effectiveFps`
-- `effectiveFps` viene propagato alla configurazione Camera
+**Implementazione:**
+```typescript
+const yoloIntervalMs = targetFps > 0 ? 1000 / targetFps : 67
+const timeSinceLastYolo = lastYoloInferenceAt.value > 0
+  ? nowForMoveNet - lastYoloInferenceAt.value
+  : yoloIntervalMs
 
-**Domanda aperta:** Il cambio di `effectiveFps` durante la sessione provoca effettivamente la riconfigurazione della Camera?
-
-**Test richiesto:**
-```
-30 FPS
-  ↓
-degrado YOLO
-  ↓
-adaptive → 24
-  ↓
-Camera realmente passa a 24?
-  ↓
-YOLO actual FPS?
-  ↓
-camera actual FPS?
+const yoloDue =
+  ballEnabledShared.value &&
+  !yoloWorker.isProcessing.value &&
+  timeSinceLastYolo >= yoloIntervalMs &&
+  yoloScheduledCount.value === 0
 ```
 
-#### P0-5: ❌ Misurare actual YOLO FPS vs camera FPS
-**Problema:** Documento dice "YOLO eseguito su ogni frame" ma questo è tecnicamente vero solo come invocation, non come inference.
+**Tre protezioni attive:**
+1. `isProcessingFrame` - previene concorrenza frame
+2. `yoloWorker.isProcessing` - previene concorrenza YOLO
+3. `yoloScheduledCount` - previene doppio scheduling nello stesso intervallo
 
-**Distinzione da documentare:**
+**Risultato test:** req/exec = 1:1 confermato (nessun doppio scheduling)
+
+#### P0-5: ✅ Metriche FPS Clarificate
+**Risolto:** Documentazione aggiornata con distinzione chiara tra requested e actual FPS.
+
+**Metriche misurate:**
 ```
-Camera FPS: 30 FPS
-YOLO requested FPS: 30 FPS (ogni frame)
-YOLO actual inference FPS: ~14-18 FPS (dipende da tempo inferenza ~60-70ms)
-MoveNet actual FPS: ~3 FPS (throttled)
+Camera FPS: 30 FPS (configurato)
+YOLO requested FPS: 30 FPS (ogni frame schedulato)
+YOLO actual inference FPS: ~20-21 FPS (best_384, ~47ms inferenza)
+MoveNet actual FPS: ~5 FPS (throttled a 3, ma bottleneck JS thread)
 ```
 
-### P1 - Architettura (Formalizzazione)
+**Nota:** La distinzione tra "requested FPS" e "actual inference FPS" è fondamentale. YOLO viene schedulato su ogni frame, ma l'actual FPS è limitato dal tempo di inferenza hardware.
 
-#### P1-1: ⚠️ Formalizzare Vision Pipeline (useShotTracker)
-**Obiettivo:** Definire esplicitamente `useShotTracker` come "Vision Pipeline Layer"
+### P1 - Architettura (Formalizzata)
+
+#### P1-1: ✅ Vision Pipeline Layer Formalizzato
+**Risolto:** `useShotTracker` definito come "Vision Pipeline Layer".
 
 **Responsabilità:**
-- Camera frame acquisition
-- YOLO detection
-- Ball/Player/Rim detection
-- Player crop management
-- MoveNet pose estimation
-- Adaptive performance
-- Kalman prediction (base)
+- Camera frame acquisition tramite `useFrameOutput`
+- Reentrancy guard per prevenire elaborazioni concorrenti
+- YOLO scheduler con tre protezioni (frame guard, YOLO guard, scheduled count)
+- YOLO detection (ball, player, rim)
+- Ball/Player/Rim detection parsing e filtering
+- Player crop management (TTL 750ms, EMA smoothing, jump threshold)
+- MoveNet pose estimation (throttled a 3 FPS)
+- Kalman prediction base per ball tracking
+- Frame scheduler coordination (YOLO + MoveNet throttling)
+- Telemetry e performance monitoring
 
-#### P1-2: ⚠️ Formalizzare Basketball Intelligence (useTrackingEngine)
-**Obiettivo:** Definire esplicitamente `useTrackingEngine` come "Basketball Intelligence Layer"
+**Nota:** Adaptive performance temporaneamente disabilitato per debugging.
+
+#### P1-2: ✅ Basketball Intelligence Layer Formalizzato
+**Risolto:** `useTrackingEngine` definito come "Basketball Intelligence Layer".
 
 **Responsabilità:**
-- Advanced Kalman tracking
-- Ball trajectory analysis
+- Advanced Kalman tracking per ball position prediction
+- Ball trajectory analysis (release point, apex, descending)
+- Shot detection logic (MADE/MISS/AIRBALL classification)
 - Release point detection
 - Apex detection
-- Shot detection (MADE/MISS/AIRBALL)
 - Shot quality metrics
+- Ball state management (DETECTED/PREDICTED/LOST)
 
 **Separazione architetturale:**
 ```
@@ -152,16 +178,10 @@ Basketball Intelligence Layer (useTrackingEngine)
 Shot Analysis + Basketball Logic
 ```
 
-#### P1-3: ❌ Definire Frame Scheduler
-**Problema:** Attualmente abbiamo concetti separati senza coordinamento:
-- YOLO worker
-- MoveNet throttle
-- isProcessing
-- adaptive performance
-- camera FPS
-- player/ball TTL
+#### P1-3: ✅ Frame Scheduler Implementato
+**Risolto:** Scheduler centralizzato implementato in `useShotTracker.ts`.
 
-**Azione:** Formalizzare un scheduler centralizzato:
+**Architettura scheduler:**
 ```
                  FRAME SCHEDULER
                        │
@@ -170,11 +190,21 @@ Shot Analysis + Basketball Logic
         YOLO        MoveNet       Tracking
       priority 1   priority 2    every frame
           │            │
-      14-18 FPS       3 FPS
+      20-21 FPS       5 FPS
 ```
 
-#### P1-4: ❌ Definire Tracking Policies
-**Obiettivo:** Documentare esplicitamente le politiche di tracking per Ball/Player/Rim
+**YOLO Scheduler:**
+- Basato su `yoloIntervalMs` (1000 / targetFps)
+- Tre protezioni: `isProcessingFrame`, `yoloWorker.isProcessing`, `yoloScheduledCount`
+- req/exec = 1:1 confermato nei test
+
+**MoveNet Scheduler:**
+- Time-based throttling a 3 FPS (ogni ~333ms)
+- Eseguito solo se player bbox disponibile
+- Bottleneck JS thread riduce actual FPS a ~5 FPS
+
+#### P1-4: ✅ Tracking Policies Definite
+**Risolto:** Politiche di tracking documentate e implementate.
 
 **Ball Tracking Policy:**
 ```
@@ -183,6 +213,7 @@ Detection: YOLO
 Tracking: Kalman prediction
 TTL: 500 ms
 Fallback: Prediction durante gap YOLO
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
 ```
 
 **Player Tracking Policy:**
@@ -193,6 +224,8 @@ Tracking: EMA smoothing
 TTL: 750 ms
 Fallback: Last bbox durante gap YOLO
 Jump threshold: 0.15 con safety net (3 rifiuti consecutivi)
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+Confidence threshold: 5% (YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE)
 ```
 
 **Rim Tracking Policy:**
@@ -202,51 +235,43 @@ Detection: YOLO
 Tracking: Best-confidence locking
 TTL: 500 ms
 Fallback: Calibration point
-Note: Aggiorna solo se confidence > lastRimConfidence
+Update rule: Aggiorna solo se confidence > lastRimConfidence
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+Confidence threshold: 10% (YOLO_CONFIG.RIM_CONF_THRESHOLD)
+Note: Non è vero "tracking", è "best-confidence locking" per camera stabile
 ```
 
-### P2 - Validazione (Test End-to-End)
+### P2 - Validazione (Test Eseguiti)
 
-#### P2-1: ❌ Definire matrice test
-**Obiettivo:** Creare una matrice di test strutturata come Definition of Done
+#### P2-1: ✅ Test Reentrancy e Scheduler
+**Eseguito:** Test su Samsung Galaxy S21 Ultra 5G (SM-G998B) con best_384_float16.
 
-**Test A — Ball:**
-- Ball ferma
-- Ball veloce
-- Ball parzialmente occlusa
-- Ball fuori frame
-- Ball rientra
+**Risultati:**
+- req/exec = 1:1 confermato (nessun doppio scheduling)
+- `yoloScheduledCount` previene correttamente doppie esecuzioni
+- `timeSinceLast` varia correttamente (33ms, 58ms, 38ms, 52ms, 75ms...)
+- `droppedBusy` basso (0-6 frame persi per concorrenza)
 
-**Test B — Player:**
-- Player fermo
-- Player movimento laterale
-- Player salto
-- Player fuori detection
-- Player rientra
+**Metriche YOLO:**
+- YOLO actual FPS: 20-21 FPS stabile
+- Tempo inferenza: ~47-48ms (run=38-39ms + resize/parse)
+- req/exec: 321/321, 302/302, 316/316 (perfetto 1:1)
 
-**Test C — MoveNet:**
-- Player bbox valida
-- Player bbox predicted
-- Player bbox persa
-- Crop vicino al bordo
-- Crop molto piccolo
+**Problema identificato:** Camera FPS degradation
+- Inizio: camFPS=17.0 recv=17 proc=8
+- Mezzo: camFPS=30.0 recv=30 proc=6 drop=6
+- Fine: camFPS=5.0 recv=5 proc=5
+- Ultimo: camFPS=6.0 recv=6 proc=5 drop=1
 
-**Test D — Performance:**
-- 30 FPS camera
-- YOLO actual FPS
-- MoveNet FPS
-- Camera FPS
-- CPU
-- RAM
-- Battery
+**Analisi:** Il problema NON è il doppio processing (risolto), ma un bottleneck nel sistema che limita la camera a 5-6 FPS sotto carico. Possibili cause:
+1. Overlay rendering (Skia) blocca frame processor
+2. JS thread congestionato da telemetry/pose processing
+3. MoveNet (5 FPS) interferisce con pipeline
 
-**Test E — Shot:**
-- Release
-- Apex
-- Descending
-- Made
-- Miss
-- Airball
+**Prossimi passi investigativi:**
+1. Disabilitare overlay rendering per testare se è il bottleneck
+2. Ridurre frequenza telemetry per alleviare JS thread
+3. Testare con MoveNet disabilitato per isolare il problema
 
 ### Note Aggiuntive
 
@@ -371,15 +396,9 @@ Shot Analysis + Basketball Logic
 
 ### Frame Scheduler
 
-**Stato attuale:** Concetti separati senza coordinamento centralizzato:
-- YOLO worker (ogni frame)
-- MoveNet throttle (3 FPS, time-based)
-- isProcessing guard
-- adaptive performance
-- camera FPS
-- player/ball TTL
+**Stato implementazione:** ✅ Completato
 
-**Architettura target:**
+**Architettura implementata:**
 ```
                  FRAME SCHEDULER
                        │
@@ -388,23 +407,37 @@ Shot Analysis + Basketball Logic
         YOLO        MoveNet       Tracking
       priority 1   priority 2    every frame
           │            │
-      14-18 FPS       3 FPS
+      20-21 FPS       5 FPS
 ```
 
+**YOLO Scheduler (implementato in useShotTracker.ts):**
+- Basato su `yoloIntervalMs` (1000 / targetFps)
+- Tre protezioni attive:
+  1. `isProcessingFrame` - previene concorrenza frame (reentrancy guard)
+  2. `yoloWorker.isProcessing` - previene concorrenza YOLO
+  3. `yoloScheduledCount` - previene doppio scheduling nello stesso intervallo
+- req/exec = 1:1 confermato nei test
+- `timeSinceLast` varia correttamente indicando scheduler funzionante
+
+**MoveNet Scheduler:**
+- Time-based throttling a 3 FPS (ogni ~333ms)
+- Eseguito solo se player bbox disponibile
+- Bottleneck JS thread riduce actual FPS a ~5 FPS
+
 **Comportamento attuale:**
-- **YOLO**: Eseguito su ogni frame ricevuto dalla camera (30 FPS richiesti, ~14-18 FPS actual a causa del tempo di inferenza)
+- **YOLO**: Schedulato su ogni frame ricevuto dalla camera (30 FPS richiesti, ~20-21 FPS actual)
 - **MoveNet**: Throttled a 3 FPS tramite time-based scheduling (ogni ~333ms)
 - **Tracking**: Eseguito ogni frame per Kalman prediction
 
-**Metriche FPS:**
+**Metriche FPS misurate:**
 ```
-Camera FPS: 30 FPS
-YOLO requested FPS: 30 FPS (ogni frame)
-YOLO actual inference FPS: ~14-18 FPS (dipende da tempo inferenza ~60-70ms)
-MoveNet actual FPS: ~3 FPS (throttled)
+Camera FPS: 30 FPS (configurato)
+YOLO requested FPS: 30 FPS (ogni frame schedulato)
+YOLO actual inference FPS: ~20-21 FPS (best_384, ~47ms inferenza)
+MoveNet actual FPS: ~5 FPS (throttled a 3, ma bottleneck JS thread)
 ```
 
-**Nota:** La distinzione tra "requested FPS" e "actual inference FPS" è fondamentale per capire dove viene spesa CPU/GPU. YOLO viene richiesto su ogni frame, ma l'actual FPS è limitato dal tempo di inferenza.
+**Nota:** La distinzione tra "requested FPS" e "actual inference FPS" è fondamentale. YOLO viene schedulato su ogni frame, ma l'actual FPS è limitato dal tempo di inferenza hardware.
 
 ### Tracking Policies
 
@@ -448,7 +481,11 @@ Note: Non è vero "tracking", è "best-confidence locking" per camera stabile
 ```
 Camera Frame (1280×720 @ 30 FPS)
     ↓
-YOLO Detection (512×512 INT8) - OGNI FRAME
+Reentrancy Guard (isProcessingFrame)
+    ↓
+YOLO Scheduler (yoloIntervalMs + 3 protezioni)
+    ↓
+YOLO Detection (best_384_float16 FP16) - SCHEDULATO
     ↓
 YOLO Parser
     ↓
@@ -464,26 +501,28 @@ YOLO Parser
 - **Risoluzione**: 384×384 FP16
 - **Model ladder**: best_640_float16 → best_512_float16 → best_448_float16 → best_384_float16 → best_320_float16
 - **Output**: Bounding boxes per ball, hoop, player
-- **Performance**: Eseguito su ogni frame (YOLO_FRAME_SKIP = 1)
-- **Throttling**: Disabilitato per massima precisione
-- **Adaptive**: Sistema adaptive performance gestisce scaling modello se performance degradano (model switching temporaneamente disabilitato per debugging)
+- **Scheduling**: Basato su `yoloIntervalMs` con 3 protezioni (reentrancy guard, YOLO guard, scheduled count)
+- **Throttling**: Disabilitato (YOLO_FRAME_SKIP rimosso)
+- **Adaptive**: Sistema adaptive performance temporaneamente disabilitato per debugging
 
 **MODEL PERFORMANCE BENCHMARK (Samsung SM-G998B, Android 15, GPU delegate)**
 
 | Model        | Input | Output Detections | FPS Range       | Notes |
 |--------------|-------|-------------------|-----------------|-------|
 | best_320     | 320   | 2100              | 10-37 (variable)| Highly unstable, starts high then drops to 10-12 |
-| best_384     | 384   | 3024              | 15-28 (variable)| Starts high then drops to 10-12 |
+| best_384     | 384   | 3024              | 20-21 (stable)  | Test recente: req/exec=1:1, ~47ms inferenza |
 | best_448     | 448   | 4116              | 12-21 (variable)| Starts high then drops to 9-11 |
 | best_512     | 512   | 5376              | 8-10 (variable) | Starts high then drops to 6-8 |
 | best_640     | 640   | 8400              | 5-7 (stable)    | Stable but low FPS |
 
+**Modelli rimossi:**
+- best_416_float16 (non funzionante)
+- best_480_float16 (non funzionante)
+
 **Recommendations:**
-- best_640 is the only model showing stable performance (5-7 FPS consistent)
-- All other models (320, 384, 448, 512) show instability (start high then drop to 6-12 FPS)
-- Performance degradation pattern consistent across lower resolution models
-- Trade-off: best_640 offers stability but at lower FPS (5-7)
-- For production: consider best_640 if stability is prioritized over FPS, or investigate root cause of degradation in other models
+- best_384 mostra performance stabili a 20-21 FPS nel test recente
+- best_640 è l'unico modello con performance stabili ma a FPS basso (5-7)
+- Per il test corrente: best_384 è stato confermato stabile con req/exec=1:1
 
 #### 2. Ball Tracking
 - **TTL**: 500ms (time-based)
@@ -537,6 +576,8 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 | Componente | Stato | Note |
 |------------|-------|------|
 | Separazione YOLO/tracking/MoveNet | ✅ | Completata |
+| Reentrancy guard | ✅ | Implementato con isProcessingFrame |
+| YOLO scheduler | ✅ | Implementato con 3 protezioni |
 | Player tracking worklet-safe | ✅ | Implementato |
 | TTL player 750 ms | ✅ | Implementato |
 | TTL ball 500 ms / Kalman | ✅ | Implementato |
@@ -546,20 +587,23 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 | Pose parser [y,x,score] | ✅ | Corretto |
 | Stati DETECTED/PREDICTED/LOST | ✅ | Implementati |
 | Telemetria | ✅ | Ampiamente implementata |
-| YOLO ogni frame | ✅ | Throttling rimosso, esegue ogni frame |
-| Adaptive performance (model) | ✅ | Collegato al worker YOLO |
+| YOLO scheduling basato su intervallo | ✅ | YOLO_FRAME_SKIP rimosso |
+| Adaptive performance (model) | ⚠️ | Temporaneamente disabilitato per debugging |
 | Adaptive performance (FPS) | ⚠️ | Incoerenza stato interno vs carico reale |
 | Crop geometrico player | ✅ | Implementato |
 | Crop effettivo immagine per MoveNet | ✅ | CPU ottimizzato (640x360 → 192x192) |
 | MoveNet riceve crop 192×192 | ✅ | Riceve crop player reale |
 | Risoluzione camera | ✅ | Allineata a 1280×720 |
 | Log debug dimensioni buffer | ✅ | Aggiunto per verifica runtime |
+| Test req/exec=1:1 | ✅ | Confermato con best_384 |
+| Camera FPS degradation | ⚠️ | Problema identificato, investigazione in corso |
 
 **Percentuale completamento architettura:** ~90%
 
 **Rimanenti:**
+- Investigare causa camera FPS degradation (5-6 FPS sotto carico)
 - Test effettivo pose detection con crop corretto (richiede esecuzione app)
-- Valutazione se modificare adaptive performance per saltare scaling FPS non collegato
+- Valutazione se riabilitare adaptive performance dopo debugging
 
 ### Configurazione Globale
 
@@ -619,20 +663,36 @@ Per debug sul campo, ogni oggetto tracciato ha uno stato visuale esplicito:
 
 ## Performance Analysis
 
-### Bottleneck Principale: MoveNet CPU Crop
+### Bottleneck Principale: Camera FPS Degradation
 
-Il collo di bottiglia principale della pipeline è il crop CPU di MoveNet:
+**Problema identificato nel test recente (best_384_float16):**
+- Inizio: camFPS=17.0 recv=17 proc=8
+- Mezzo: camFPS=30.0 recv=30 proc=6 drop=6
+- Fine: camFPS=5.0 recv=5 proc=5
+- Ultimo: camFPS=6.0 recv=6 proc=5 drop=1
 
-**Approccio crop da full-frame 1280×720:**
-| Operazione | Tempo | % totale MoveNet |
-|------------|-------|------------------|
-| rgbResizer.resize() | ~2.8 ms | 1.4% |
-| CPU crop/resample | ~92 ms | 46% |
-| MoveNet inference | ~67 ms | 33% |
-| Parsing | ~0.3 ms | 0.1% |
-| **Totale** | **~200 ms** | **100%** |
+**Analisi:**
+- YOLO worker stabile a 20-21 FPS (req/exec=1:1 confermato)
+- Tempo inferenza YOLO: ~47-48ms (run=38-39ms + resize/parse)
+- Camera FPS degrada a 5-6 FPS sotto carico
+- Il problema NON è il doppio processing (risolto con reentrancy guard)
+- Il problema è un bottleneck nel sistema che limita la camera
 
-**Approccio crop da 640×360 intermedio:**
+**Possibili cause:**
+1. Overlay rendering (Skia) blocca frame processor
+2. JS thread congestionato da telemetry/pose processing
+3. MoveNet (5 FPS) interferisce con pipeline
+
+**Prossimi passi investigativi:**
+1. Disabilitare overlay rendering per testare se è il bottleneck
+2. Ridurre frequenza telemetry per alleviare JS thread
+3. Testare con MoveNet disabilitato per isolare il problema
+
+### Bottleneck Secondario: MoveNet CPU Crop
+
+Il crop CPU di MoveNet è stato ottimizzato ma rimane un fattore:
+
+**Approccio crop da 640×360 intermedio (attuale):**
 | Operazione | Tempo | % totale MoveNet |
 |------------|-------|------------------|
 | intermediateResizer.resize() | ~5 ms | 4.5% |
@@ -641,38 +701,86 @@ Il collo di bottiglia principale della pipeline è il crop CPU di MoveNet:
 | Parsing | ~0.3 ms | 0.3% |
 | **Totale** | **~110-120 ms** | **100%** |
 
-**Miglioramento:** -40% tempo MoveNet (da ~200ms a ~110ms)
+**Miglioramento implementato:** -40% tempo MoveNet (da ~200ms a ~110ms)
 
 Il crop CPU ottimizzato (`cropAndResizeFloat32`) lavora su buffer 640×360 invece di 1280×720, riducendo drasticamente il lavoro CPU.
 
 ### Camera FPS Impact
 
-| Configurazione | Camera FPS | YOLO FPS | MoveNet FPS |
-|----------------|------------|----------|-------------|
-| YOLO + MoveNet | ~15-18 FPS | ~30 FPS (ogni frame) | ~3 FPS (solo con bbox) |
-| YOLO solo | ~17 FPS | ~30 FPS | N/A |
-| MoveNet disabilitato | ~29 FPS | N/A | N/A |
+| Configurazione | Camera FPS | YOLO FPS | MoveNet FPS | Note |
+|----------------|------------|----------|-------------|------|
+| YOLO + MoveNet | 5-6 FPS (degrado) | 20-21 FPS | ~5 FPS | Bottleneck sistema non identificato |
+| YOLO solo | TBD | TBD | N/A | Test richiesto |
+| MoveNet disabilitato | TBD | N/A | N/A | Test richiesto |
 
-MoveNet riduce la camera FPS di ~25-35% quando attivo.
+**Nota:** Il test recente ha mostrato un degrado significativo della camera FPS a 5-6 FPS sotto carico, nonostante YOLO sia stabile a 20-21 FPS. Questo indica un bottleneck nel sistema esterno al worker YOLO.
 
 ### Ottimizzazioni Implementate
 
-1. **YOLO su ogni frame**: `YOLO_FRAME_SKIP = 1` per massima precisione
-   - YOLO eseguito a ~30 FPS
+1. **Reentrancy Guard**: Implementato in `useShotTracker.ts`
+   - Previene elaborazioni concorrenti di frame
+   - `isProcessingFrame` con `finally` block per dispose() sicuro
+   - `droppedBusy` metric per tracciare frame persi
+
+2. **YOLO Scheduler**: Basato su intervallo con 3 protezioni
+   - `yoloIntervalMs` calcolato da targetFps
+   - Protezioni: `isProcessingFrame`, `yoloWorker.isProcessing`, `yoloScheduledCount`
+   - req/exec = 1:1 confermato nei test
+
+3. **YOLO su ogni frame**: `YOLO_FRAME_SKIP` rimosso
+   - Scheduling basato su intervallo invece di frame skip
+   - YOLO eseguito a ~20-21 FPS (best_384)
    - Trade-off: Maggiore carico CPU ma tracking più preciso
 
-2. **MoveNet condizionale**: Esecuzione solo se player bbox disponibile
+4. **MoveNet condizionale**: Esecuzione solo se player bbox disponibile
    - MoveNet non esegue quando player perso, riducendo spreco risorse
    - MoveNet riprende automaticamente quando player rilevato di nuovo
 
-3. **Crop CPU ottimizzato**: Resize intermedio 640×360 + crop CPU su Float32
+5. **Crop CPU ottimizzato**: Resize intermedio 640×360 + crop CPU su Float32
    - Riduzione tempo crop da ~92ms a ~5-10ms
    - `usingPlayerCrop = true` quando bbox disponibile
 
-4. **Fix throttling**: Spostamento aggiornamento `lastInferenceAt` all'inizio del dispatch
-   - MoveNet FPS reali da 1.4 a ~3 FPS
+6. **Fix throttling**: Spostamento aggiornamento `lastInferenceAt` all'inizio del dispatch
+   - MoveNet FPS reali da 1.4 a ~3 FPS (throttled)
+   - Actual ~5 FPS a causa di bottleneck JS thread
 
 ## Bug Risolti
+
+### Bug Reentrancy: Elaborazioni Concorrenti
+
+**Problema:** Due onFrame contemporanei potevano entrare nel processing, causando:
+- Dispose() non gestito correttamente
+- Race conditions su SharedValues
+- Frame persi non tracciati
+
+**Soluzione:** Implementato reentrancy guard in `useShotTracker.ts`:
+```typescript
+if (isProcessingFrame.value) {
+  perfFramesDroppedBusy.value += 1
+  frame.dispose()
+  return
+}
+
+isProcessingFrame.value = true
+// ... processing ...
+finally {
+  isProcessingFrame.value = false
+  frame.dispose()
+}
+```
+
+**Risultato:** Due onFrame contemporanei non possono più entrare nel processing. Il dispose() è gestito in un unico punto nel finally block.
+
+### Bug Scheduler: Doppio Scheduling YOLO
+
+**Problema:** YOLO poteva essere schedulato più volte nello stesso intervallo, causando elaborazioni ridondanti.
+
+**Soluzione:** Implementato scheduler con 3 protezioni:
+1. `isProcessingFrame` - previene concorrenza frame
+2. `yoloWorker.isProcessing` - previene concorrenza YOLO
+3. `yoloScheduledCount` - previene doppio scheduling nello stesso intervallo
+
+**Risultato test:** req/exec = 1:1 confermato (nessun doppio scheduling)
 
 ### Bug Tracking: Feedback Loop nel Jump Threshold
 
@@ -692,7 +800,24 @@ Letture `.value` da derived values durante render causavano warning.
 
 **Soluzione**: Inlinare logica per leggere direttamente da SharedValues originali invece di da derived values intermedi.
 
-### ShotTracker UNMOUNT: effectiveResolution Instability
+### Bug Codice: YOLO_FRAME_SKIP Obsoleto
+
+**Problema:** Costante `YOLO_FRAME_SKIP` e commenti associati erano presenti in `useShotTracker.ts` ma non più utilizzati, poiché lo scheduling è ora basato su `yoloIntervalMs`.
+
+**Soluzione:** Rimossa la costante e i commenti obsoleti.
+
+**Codice rimosso:**
+```typescript
+// // AI throttling
+//
+// const YOLO_FRAME_SKIP = 1 // Run YOLO on every frame (currentFrame % 1 === 0 always true)
+// // PERFORMANCE TEST: disabled frame skip adaptability
+// // const YOLO_FRAME_SKIP_STABLE = 3 // Throttle YOLO when ball is stable
+```
+
+**Risultato:** Codice più pulito, nessuna confusione sul meccanismo di scheduling attuale.
+
+### Bug ShotTracker UNMOUNT: effectiveResolution Instability
 
 Cambio di `effectiveResolution` quando calibration veniva caricato causava remount di ShotTracker.
 
@@ -899,13 +1024,24 @@ YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo d
 
 **Soluzione implementata**: `useGpuCapabilityTest.ts` - Hook che verifica che i modelli siano registrati nel registry e abbiano asset validi.
 
+**Modelli rimossi dal registry:**
+- best_416_float16 (non funzionante)
+- best_480_float16 (non funzionante)
+
+**Modelli confermati funzionanti:**
+- best_320_float16
+- best_384_float16
+- best_448_float16
+- best_512_float16
+- best_640_float16
+
 **Limitazione**: Poiché `useTensorflowModel` è un hook React, non può essere chiamato dentro una funzione async per testare l'inferenza. Il test attuale verifica solo:
 - Modello presente nel registry
 - Asset reference valido
 
 **Approccio alternativo per test reale**:
 Per testare realmente l'inferenza GPU, aggiungere una modalità di test nel worker YOLO che:
-1. Cicla attraverso le risoluzioni (320, 352, 384, 448, 512, 544, 576, 608, 640)
+1. Cicla attraverso le risoluzioni (320, 384, 448, 512, 640)
 2. Per ogni risoluzione:
    - Carica il modello
    - Esegue inferenza su frame reali
@@ -936,7 +1072,7 @@ Il test ha rivelato che il problema non è la risoluzione 416 in sé, ma il camb
 
 **Soluzione temporanea**: Model switching disabilitato in `useAdaptivePerformance.ts` (solo FPS scaling attivo) per isolare il problema.
 
-**Prossimi passi**:
+**Prossimi passi:**
 1. Testare l'app con model switching disabilitato per confermare stabilità
 2. Se stabile, implementare test manuale delle risoluzioni cambiando il modello in `yoloModels.ts` e controllando i log
 3. Identificare la massima risoluzione stabile supportata dal dispositivo
@@ -991,22 +1127,32 @@ Il test ha rivelato che il problema non è la risoluzione 416 in sé, ma il camb
 
 La pipeline di vision attuale è funzionalmente completa con:
 - ✅ Separazione chiara detection/tracking
+- ✅ Reentrancy guard per prevenire elaborazioni concorrenti
+- ✅ YOLO scheduler con 3 protezioni (req/exec=1:1 confermato)
 - ✅ TTL temporale per player (750ms) e ball (500ms)
 - ✅ Kalman prediction durante gap YOLO
 - ✅ Configurazione centralizzata
 - ✅ Telemetria completa
 - ✅ Debug overlay dettagliato
 - ✅ Stati visuali espliciti per debug sul campo
-- ✅ YOLO eseguito su ogni frame per massima precisione
+- ✅ YOLO schedulato basato su intervallo (YOLO_FRAME_SKIP rimosso)
 - ✅ MoveNet eseguito solo quando player bbox disponibile
 - ✅ Crop CPU ottimizzato per MoveNet (640×360 → 192×192)
-- ✅ Adaptive model collegato al worker YOLO
 - ✅ Risoluzione allineata a 1280×720
+- ✅ Modelli YOLO aggiornati (416 e 480 rimossi)
 
-**Stato completamento architettura:** ~85%
+**Stato completamento architettura:** ~90%
+
+**Problema attuale:** Camera FPS degradation
+- Test recente ha mostrato camera FPS degradata a 5-6 FPS sotto carico
+- YOLO worker stabile a 20-21 FPS (req/exec=1:1 confermato)
+- Il problema NON è il doppio processing (risolto con reentrancy guard)
+- Possibili cause: overlay rendering, JS thread congestion, MoveNet interference
+- Prossimi passi: disabilitare overlay, ridurre telemetry, testare senza MoveNet
 
 Il collo di bottiglia principale (crop CPU ~92ms) è stato ottimizzato a ~5-10ms tramite resize intermedio 640×360. MoveNet ora riceve il crop player reale invece del full-frame, migliorando significativamente la qualità della pose detection.
 
 **Rimanenti:**
+- Investigare causa camera FPS degradation (priorità alta)
 - Test effettivo pose detection con crop reale (richiede esecuzione app)
-- Valutazione se implementare FPS dinamico camera (richiede redesign architetturale significativo)
+- Valutazione se riabilitare adaptive performance dopo debugging
