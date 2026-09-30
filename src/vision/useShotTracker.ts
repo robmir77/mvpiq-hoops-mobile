@@ -146,16 +146,13 @@ export const useShotTracker = (
 
     // Shared values
 
-    const frameCounter =
-        useSharedValue(0)
-
-    // Guard: prevents duplicate onFrame processing (useFrameOutput calls onFrame twice per frame)
-    const lastProcessedFrameCounter =
-        useSharedValue(0)
-
     // Reentrancy guard: prevents concurrent onFrame invocations
     const isProcessingFrame =
         useSharedValue(false)
+
+    // Frame counter for logging purposes only
+    const frameCounter =
+        useSharedValue(0)
 
     // Fatal error guard: stops processing after a critical error (e.g. TypedArray corruption)
     const hasFatalError =
@@ -172,6 +169,10 @@ export const useShotTracker = (
     const perfFramesDroppedBusy = useSharedValue(0)
     const lastMoveNetInferenceAt = useSharedValue(0)
 
+    // Explicit YOLO scheduler: track when YOLO should run next
+    const lastYoloInferenceAt = useSharedValue(0)
+    const yoloScheduledCount = useSharedValue(0)
+
     // Detection tracking for telemetry (sampled once per second)
     const perfYoloBallDetected = useSharedValue(0)
     const perfTrackingAccepted = useSharedValue(0)
@@ -187,35 +188,35 @@ export const useShotTracker = (
     const lastBallHeight = useSharedValue(0)
     const lastValidBallTime = useSharedValue(0)
 
-    // Adaptive performance management
-    const {
-        recordYoloPerformance,
-        evaluateAndAdapt,
-        getCurrentModel,
-        currentModelIndex: adaptiveModelIndex,
-    } = useAdaptivePerformance({
-        initialFps: selectedFps || 30,
-        initialModelId: yoloModelId || 'best_512_float16',
-        availableFps: availableFps || [30, 24, 20, 15],
-    })
+    // TEMPORARILY DISABLED: Adaptive performance for deterministic debugging
+    // const {
+    //     recordYoloPerformance,
+    //     evaluateAndAdapt,
+    //     getCurrentModel,
+    //     currentModelIndex: adaptiveModelIndex,
+    // } = useAdaptivePerformance({
+    //     initialFps: selectedFps || 30,
+    //     initialModelId: yoloModelId || 'best_512_float16',
+    //     availableFps: availableFps || [30, 24, 20, 15],
+    // })
 
-    // Adaptive model state - tracks current model from adaptive performance
-    const [adaptiveYoloModelId, setAdaptiveYoloModelId] = useState<string | undefined>(yoloModelId)
+    // TEMPORARILY DISABLED: Adaptive model state
+    // const [adaptiveYoloModelId, setAdaptiveYoloModelId] = useState<string | undefined>(yoloModelId)
 
-    // Update adaptive model when it changes from adaptive performance system
-    useEffect(() => {
-        const currentModel = getCurrentModel()
-        if (currentModel && currentModel.id !== adaptiveYoloModelId) {
-            console.log('[ShotTracker] Adaptive model changed:', adaptiveYoloModelId, '→', currentModel.id)
-            setAdaptiveYoloModelId(currentModel.id)
-        }
-    }, [adaptiveModelIndex, getCurrentModel])
+    // TEMPORARILY DISABLED: Update adaptive model when it changes
+    // useEffect(() => {
+    //     const currentModel = getCurrentModel()
+    //     if (currentModel && currentModel.id !== adaptiveYoloModelId) {
+    //         console.log('[ShotTracker] Adaptive model changed:', adaptiveYoloModelId, '→', currentModel.id)
+    //         setAdaptiveYoloModelId(currentModel.id)
+    //     }
+    // }, [adaptiveModelIndex, getCurrentModel])
 
-    // Parallel Workers - use adaptive model ID when available
+    // Parallel Workers - use selected model ID directly (no adaptive performance)
     const yoloWorker = useYoloWorker(
         ballEnabled,
         yoloDelegate,
-        adaptiveYoloModelId || yoloModelId
+        yoloModelId
     )
 
     const moveNetWorker = useMoveNetWorker(
@@ -272,6 +273,9 @@ export const useShotTracker = (
 
     const rimEnabledShared =
         useSharedValue(rimEnabled)
+
+    const selectedFpsShared =
+        useSharedValue(selectedFps ?? 30)
 
     // Pipeline telemetry callback (runs on JS thread)
     const updatePipelineTelemetry = useCallback((
@@ -386,6 +390,13 @@ export const useShotTracker = (
             ballEnabled
 
     }, [ballEnabled])
+
+    useEffect(() => {
+
+        selectedFpsShared.value =
+            selectedFps ?? 30
+
+    }, [selectedFps])
 
     useEffect(() => {
 
@@ -843,18 +854,18 @@ export const useShotTracker = (
                     return
                 }
 
-                // Workers have internal processing guards (no global guard needed)
-                frameCounter.value += 1
-
-                const currentFrame =
-                    frameCounter.value
-
-                // Guard: useFrameOutput calls onFrame twice for each frame, skip duplicate processing
-                if (currentFrame === lastProcessedFrameCounter.value) {
+                // Reentrancy guard: prevents concurrent onFrame invocations
+                if (isProcessingFrame.value) {
+                    perfFramesDroppedBusy.value += 1
                     frame.dispose()
                     return
                 }
-                lastProcessedFrameCounter.value = currentFrame
+
+                isProcessingFrame.value = true
+
+                // Increment frame counter for logging
+                frameCounter.value += 1
+                const currentFrame = frameCounter.value
 
                 try {
                     // Global enable
@@ -885,8 +896,17 @@ export const useShotTracker = (
                         trackedBbox !== null &&
                         (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
 
-                    // YOLO: run every frame (no throttling)
-                    const yoloDue = ballEnabledShared.value
+                    // YOLO: explicit scheduler - only run when not busy and scheduled time reached
+                    // Use configured FPS to calculate interval
+                    const targetFps = selectedFpsShared.value
+                    const yoloIntervalMs = targetFps > 0 ? 1000 / targetFps : 67
+                    const timeSinceLastYolo = lastYoloInferenceAt.value > 0 ? nowForMoveNet - lastYoloInferenceAt.value : yoloIntervalMs
+                    // Reset scheduled count when interval has passed (allows next YOLO execution)
+                    if (timeSinceLastYolo >= yoloIntervalMs && yoloScheduledCount.value > 0) {
+                        yoloScheduledCount.value = 0
+                    }
+                    // Only run YOLO if enough time has passed AND we haven't already scheduled one in this interval
+                    const yoloDue = ballEnabledShared.value && !yoloWorker.isProcessing.value && timeSinceLastYolo >= yoloIntervalMs && yoloScheduledCount.value === 0
 
                     // Log throttling (DEV only)
                     if (__DEV__) {
@@ -897,27 +917,36 @@ export const useShotTracker = (
 
                     // Execute YOLO and MoveNet (independent throttling per model)
                     if (yoloDue) {
+                        if (__DEV__) {
+                            console.log('[YOLO SCHEDULER] Executing YOLO', { frame: currentFrame, timeSinceLast: timeSinceLastYolo.toFixed(0), interval: yoloIntervalMs.toFixed(1) })
+                        }
                         const yoloStartTime = Date.now()
                         yoloWorker.processFrame(frame, timestamp, currentFrame)
                         const yoloEndTime = Date.now()
                         const yoloInferenceTime = yoloEndTime - yoloStartTime
 
+                        // Schedule next YOLO inference with target interval
+                        lastYoloInferenceAt.value = yoloEndTime
+                        yoloScheduledCount.value = 1
+
+                        // TEMPORARILY DISABLED: Adaptive performance to isolate YOLO degradation issue
                         // Record YOLO performance for adaptive management
-                        const yoloSuccess = yoloWorker.latestResultBall.value !== null || 
-                                           yoloWorker.latestResultPlayer.value !== null
-                        recordYoloPerformance(
-                            yoloWorker.fps.value,
-                            yoloSuccess,
-                            yoloInferenceTime
-                        )
+                        // const yoloSuccess = yoloWorker.latestResultBall.value !== null || 
+                        //                    yoloWorker.latestResultPlayer.value !== null
+                        // recordYoloPerformance(
+                        //     yoloWorker.fps.value,
+                        //     yoloSuccess,
+                        //     yoloInferenceTime
+                        // )
 
                         // Count frame as processed
                         perfFramesProcessed.value += 1
 
+                        // TEMPORARILY DISABLED: Adaptive performance evaluation
                         // Evaluate adaptation every ~100 frames
-                        if (currentFrame % 100 === 0) {
-                            evaluateAndAdapt()
-                        }
+                        // if (currentFrame % 100 === 0) {
+                        //     evaluateAndAdapt()
+                        // }
                         
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
@@ -1119,6 +1148,9 @@ export const useShotTracker = (
 
                 } finally {
 
+                    // Reset reentrancy guard
+                    isProcessingFrame.value = false
+
                     // Camera frame is disposed exactly once.
                     frame.dispose()
                 }
@@ -1128,7 +1160,7 @@ export const useShotTracker = (
                 hasFatalError,
                 perfFramesReceived,
                 perfFramesProcessed,
-                frameCounter,
+                isProcessingFrame,
                 ballEnabledShared,
                 poseEnabledShared,
                 yoloWorker,
@@ -1208,8 +1240,9 @@ export const useShotTracker = (
         isModelReady,
         resetShotTracking,
         yoloFps: yoloWorker.fps,
+        yoloThroughputFps: yoloWorker.throughputFps,
         moveNetFps: moveNetWorker.fps,
-        currentModelIndex: adaptiveModelIndex,
+        currentModelIndex: -1, // TEMPORARILY DISABLED: adaptiveModelIndex
         exportTelemetrySummary,
         logTelemetrySummary,
         resetTelemetry,

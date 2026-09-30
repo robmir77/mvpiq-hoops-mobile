@@ -31,7 +31,8 @@ interface YoloWorkerResult {
 export const useYoloWorker = (
   enabled: boolean = true,
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
-  yoloModelId?: string
+  yoloModelId?: string,
+  yoloScheduledCount?: { value: number } // Shared value for scheduler coordination
 ) => {
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
@@ -43,12 +44,12 @@ export const useYoloWorker = (
   const isProcessing = useSharedValue(false)
 
   const isReady = useSharedValue(false)
-  const fps = useSharedValue(0)
+  const fps = useSharedValue(0) // Theoretical FPS based on single inference time
+  const throughputFps = useSharedValue(0) // Actual throughput (inferences per second)
+  const inferenceCount = useSharedValue(0)
+  const throughputWindowStart = useSharedValue(0)
 
   const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
-    if (__DEV__) {
-      console.log('[YoloWorker] recordTelemetry called', { frameCounter, requested, executed })
-    }
     if (requested) telemetryLogger.recordYoloRequested()
     if (executed) {
       telemetryLogger.recordYoloExecuted()
@@ -176,14 +177,7 @@ export const useYoloWorker = (
   const processFrame = useCallback((frame: any, timestamp: number, frameCounter?: number) => {
     'worklet'
 
-    if (__DEV__) {
-      console.log('[YoloWorker] processFrame called', { frameCounter, isProcessing: isProcessing.value, enabled })
-    }
-
     if (!yoloModelInstance || isProcessing.value || !enabled) {
-      if (__DEV__) {
-        console.log('[YoloWorker] processFrame skipped', { hasModel: !!yoloModelInstance, isProcessing: isProcessing.value, enabled })
-      }
       return
     }
 
@@ -203,30 +197,12 @@ export const useYoloWorker = (
 
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
-        console.log('[YoloWorker] INPUT DEBUG', {
-          model: selectedYoloModel?.fileName,
-          configuredInputSize: yoloInputSize,
-          expectedElements: yoloInputElements,
-          actualElements: source.length,
-          expectedShape: [1, yoloInputSize, yoloInputSize, 3],
-          actualBytes: source.byteLength,
-        })
-
         if (source.length === yoloInputElements) {
           // Pass buffer directly without slice() to avoid unnecessary copy
           const inputBuffer = source.buffer as ArrayBuffer
 
           const tRunStart = performance.now()
-          console.log('[YoloWorker] BEFORE runSync', {
-            model: selectedYoloModel?.fileName,
-            inputSize: yoloInputSize,
-            inputBytes: inputBuffer.byteLength,
-          })
           const outputs = yoloModelInstance!.runSync([inputBuffer])
-          console.log('[YoloWorker] AFTER runSync', {
-            outputs: outputs?.length,
-            outputBytes: outputs?.[0]?.byteLength,
-          })
           const tRunEnd = performance.now()
           const runMs = tRunEnd - tRunStart
           const rawOutput = outputs[0] as ArrayBufferLike
@@ -279,6 +255,21 @@ export const useYoloWorker = (
             fps.value = calculatedFps
           }
 
+          // Calculate actual throughput (inferences per second over time window)
+          const now = Date.now()
+          if (throughputWindowStart.value === 0) {
+            throughputWindowStart.value = now
+            inferenceCount.value = 1
+          } else {
+            inferenceCount.value += 1
+            const windowDuration = now - throughputWindowStart.value
+            if (windowDuration >= 1000) { // Update every second
+              throughputFps.value = (inferenceCount.value / windowDuration) * 1000
+              throughputWindowStart.value = now
+              inferenceCount.value = 0
+            }
+          }
+
           scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, frameCounter, resizeMs, runMs, parseMs, true, true)
 
         }
@@ -296,8 +287,12 @@ export const useYoloWorker = (
       }
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
+      // Reset scheduled count to allow next YOLO execution
+      if (yoloScheduledCount) {
+        yoloScheduledCount.value = 0
+      }
     }
-  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, fps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt])
+  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, fps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt, yoloScheduledCount])
 
   const getLatestResult = useCallback((): YoloWorkerResult | null => {
     if (latestResultBall.value === null && latestResultTimestamp.value === 0) {
@@ -326,7 +321,9 @@ export const useYoloWorker = (
     getLatestResult,
     reset,
     isReady,
+    isProcessing,
     fps,
+    throughputFps,
     latestResultBall,
     latestResultPlayer,
     latestResultRim,

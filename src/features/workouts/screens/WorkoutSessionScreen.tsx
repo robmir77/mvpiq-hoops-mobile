@@ -2195,7 +2195,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         disabled={isPaused || isEnding}
                         labelOn="🧍 Pose"
                         labelOff="🧍 Pose"
-                        onPress={() => setPoseEnabled(!poseEnabled)}
+                        onPress={() => {
+                            const newValue = !poseEnabled
+                            console.log('[WorkoutSession] Pose toggle:', { from: poseEnabled, to: newValue })
+                            setPoseEnabled(newValue)
+                        }}
                     />
                     <ToggleButton
                         active={rimDetectionEnabled}
