@@ -8,6 +8,186 @@ La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera p
 **Stato architettura:** ~87% completato
 **Problema attuale:** Camera FPS degradation sotto carico (5-6 FPS con YOLO attivo)
 
+## Camera Zoom Architecture (Ottobre 2026)
+
+### Vecchio Approccio (Rimosso)
+Lo zoom era configurato durante la calibrazione della camera e passato come parametro attraverso la pipeline:
+
+**Flusso dati:**
+```
+WorkoutSetupScreen
+    ↓ (zoom: 1)
+CalibrationScreen
+    ↓ (zoom configurato via UI +/-)
+WorkoutSessionScreen
+    ↓ (zoom passato come route param)
+useCameraPipeline
+    ↓ (zoom passato come parametro)
+useShotTracker
+    ↓ (zoom passato come parametro)
+useMoveNetWorker
+    ↓ (zoom usato per trasformazioni coordinate)
+```
+
+**Problemi:**
+- Zoom configurato una volta sola durante calibrazione, non modificabile durante workout
+- Complessità inutile nel passaggio del parametro tra schermate
+- Trasformazioni coordinate zoom in YOLO/MoveNet (overhead computazionale)
+- UI controlli zoom (+/-) in CalibrationScreen
+
+### Nuovo Approccio (Implementato)
+Lo zoom è gestito localmente durante il workout tramite pinch-to-zoom gesture:
+
+**Flujo dati:**
+```
+WorkoutSessionScreen
+    ↓
+PinchGestureHandler (react-native-gesture-handler)
+    ↓
+Zoom locale (state: zoom, baseZoom)
+    ↓
+Camera component (zoom prop dinamico)
+```
+
+**Caratteristiche:**
+- Zoom modificabile dinamicamente durante l'allenamento
+- Gestito localmente in WorkoutSessionScreen
+- Overlay indicatore mostra percentuale zoom durante gesture
+- Limiti zoom basati su valori reali device (device.minZoom, device.maxZoom)
+- Nessuna trasformazione coordinate nella pipeline vision
+
+### Modifiche Implementate
+
+#### 1. CalibrationScreen.tsx
+**Rimosso:**
+- UI controlli zoom (+/- buttons)
+- Stato zoom (`zoom`, `setZoom`)
+- Funzioni `handleZoomIn`, `handleZoomOut`
+- Parametro zoom dal componente Camera
+- Parametro zoom dai route params (ricezione e invio)
+- Stili correlati allo zoom
+- Log `initialZoom` dai console.log
+
+#### 2. WorkoutSetupScreen.tsx
+**Rimosso:**
+- Parametro `zoom: 1` dai parametri di navigazione verso Calibration
+
+#### 3. WorkoutSessionScreen.tsx
+**Aggiunto:**
+- Import `GestureHandlerRootView`, `PinchGestureHandler`, `State` da `react-native-gesture-handler`
+- Stato locale `zoom`, `baseZoom`, `isZooming`
+- Gestore `onPinchGestureEvent` per pinch-to-zoom con clamping
+- Gestore `onPinchHandlerStateChange` per tracciare stato gesture
+- `PinchGestureHandler` avvolge il componente Camera
+- `GestureHandlerRootView` avvolge l'intera schermata (richiesto per gesture)
+- Overlay indicatore zoom (mostra percentuale durante gesture)
+- Stili `zoomIndicator`, `zoomIndicatorText`
+
+**Rimosso:**
+- Parametro zoom dai route params
+- `effectiveZoom` e `clampedZoom` (ora gestiti localmente)
+- Passaggio zoom a `useCameraPipeline`
+- Passaggio zoom a `TelemetryOverlay`
+
+#### 4. useCameraPipeline.ts
+**Rimosso:**
+- Parametro `zoom` dalla firma del hook
+- Passaggio zoom a `useShotTracker`
+- Log zoom nei console.log
+
+#### 5. useShotTracker.ts
+**Rimosso:**
+- Parametro `zoom` dalla firma del hook
+- `zoomShared` (useSharedValue)
+- Logica trasformazione zoom `transformZoom()`
+- Logica trasformazione inversa `inverseTransformZoom()`
+- Trasformazioni zoom su YOLO results (ball, player, rim)
+- Trasformazioni zoom su player bbox per MoveNet
+- Effetto `useEffect` per aggiornare `zoomShared`
+- Passaggio zoom a `useMoveNetWorker`
+
+#### 6. useMoveNetWorker.ts
+**Rimosso:**
+- Parametro `zoom` dalla firma del hook
+- `zoomShared` (useSharedValue)
+- Trasformazioni zoom su keypoints MoveNet
+- Effetto `useEffect` per aggiornare `zoomShared`
+- Dipendenza `zoomShared` nel worklet principale
+
+#### 7. TelemetryOverlay.tsx
+**Rimosso:**
+- Campo `zoom` da `cameraConfig`
+- Display zoom nell'overlay UI
+
+#### 8. appConfig.ts
+**Rimosso:**
+- `DEFAULT_ZOOM: 1` da `CAMERA_CONFIG`
+
+### Impatto sulla Pipeline Vision
+
+**Coordinate System:**
+- Le coordinate YOLO/MoveNet lavorano sempre sul frame originale (no zoom)
+- Lo zoom è puramente visivo a livello di camera component
+- Nessuna trasformazione coordinate richiesta nella pipeline
+- Semplificazione del codice e riduzione overhead computazionale
+
+**Performance:**
+- Rimozione trasformazioni zoom riduce overhead nel frame processor
+- Coordinate più semplici e dirette
+- Meno operazioni matematiche per frame
+
+**User Experience:**
+- Zoom modificabile in tempo reale durante workout
+- Feedback visivo immediato (overlay percentuale)
+- Limiti zoom automatici basati su device capabilities
+
+### Gestione Gesture Pinch-to-Zoom
+
+**Implementazione:**
+```typescript
+const [zoom, setZoom] = useState(1)
+const [baseZoom, setBaseZoom] = useState(1)
+const [isZooming, setIsZooming] = useState(false)
+
+const onPinchGestureEvent = (event: any) => {
+    if (event.nativeEvent.scale !== undefined) {
+        const minZoom = device?.minZoom ?? 1
+        const maxZoom = device?.maxZoom ?? 5
+        const newZoom = Math.max(minZoom, Math.min(maxZoom, baseZoom * event.nativeEvent.scale))
+        setZoom(newZoom)
+    }
+}
+
+const onPinchHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.state === State.BEGAN) {
+        setBaseZoom(zoom)
+        setIsZooming(true)
+    } else if (event.nativeEvent.state === State.END) {
+        setBaseZoom(zoom)
+        setIsZooming(false)
+    }
+}
+```
+
+**Caratteristiche:**
+- `baseZoom` permette gesture incrementali (ogni pinch parte dal valore corrente)
+- `isZooming` controlla visibilità overlay indicatore
+- Clamping ai limiti reali device (minZoom, maxZoom)
+- Zoom applicato solo quando camera è attiva e non in pausa
+
+### Note Tecniche
+
+**Gesture Handler Root View:**
+- `GestureHandlerRootView` deve avvolgere l'intera schermata per far funzionare i gesture
+- Questo è un requisito di `react-native-gesture-handler`
+- L'errore "PinchGestureHandler must be used as a descendant of GestureHandlerRootView" è stato risolto avvolgendo il return di WorkoutSessionScreen
+
+**Limiti Zoom:**
+- `minZoom`: `device?.minZoom ?? 1` (default 1 se non disponibile)
+- `maxZoom`: `device?.maxZoom ?? 5` (default 5 se non disponibile)
+- I limiti sono calcolati dinamicamente dentro `onPinchGestureEvent` dove `device` è disponibile
+- Nessun limite artificiale fisso (precedentemente limitato a 5)
+
 ## Architecture Gaps & Action Plan
 
 **Stato attuale:** L'architettura direzionale è corretta (YOLO → tracking → crop player → MoveNet → pose → shot tracking), ma ci sono 10 punti strutturali da chiudere prima di considerare l'implementazione completa.
@@ -915,6 +1095,7 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 | TEST 1 (YOLO isolato) | ✅ | Completato - Diagnosi aggiornata con 6 scoperte critiche |
 | TEST 1A (Senza logging hot path) | ⏳ | Proposto - Prossimo passo prioritario |
 | Camera FPS degradation | ⚠️ | Diagnosi aggiornata: 3 cause identificate |
+| Camera zoom refactoring | ✅ | Completato - Pinch-to-zoom implementato in WorkoutSessionScreen |
 
 **Percentuale completamento architettura:** ~87%
 
@@ -958,7 +1139,6 @@ export const CAMERA_CONFIG = {
   DEFAULT_RESOLUTION: { width: 1280, height: 720 },
   DEFAULT_FPS: 30,
   DEFAULT_POSE_RESOLUTION: 192,
-  DEFAULT_ZOOM: 1,
   MIN_RESOLUTION: { width: 1280, height: 720 },
 } as const
 
