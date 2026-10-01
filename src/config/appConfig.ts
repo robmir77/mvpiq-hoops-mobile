@@ -25,7 +25,7 @@ export const CAMERA_CONFIG = {
   DEFAULT_RESOLUTION: { width: 1280, height: 720 }, // Default camera resolution (720p) - aligned with ARCHITECTURE_CHANGE.md
   DEFAULT_FPS: 30, // Default camera frame rate
   DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
-  DEFAULT_ZOOM: 1, // Default camera zoom level
+  DEFAULT_ZOOM: 1, // Default camera zoom level (1 = 100% = no zoom)
   MIN_RESOLUTION: { width: 640, height: 360 }, // Minimum acceptable resolution for workout sessions (allows 360p for smaller YOLO models)
 } as const;
 
@@ -48,9 +48,9 @@ export const TEST_CONFIG = {
   // TEST 1: YOLO isolato con telemetria 1s (DEV)
   // Obiettivo: Misurare correlazione tra camera throughput e tempo reale inferenza YOLO durante degrado progressivo
   ENABLE_YOLO: true,
-  ENABLE_MOVENET: false,
-  ENABLE_TELEMETRY_OVERLAY: false,
-  ENABLE_DEBUG_OVERLAY: false,
+  ENABLE_MOVENET: true,
+  ENABLE_TELEMETRY_OVERLAY: true,
+  ENABLE_DEBUG_OVERLAY: true,
   // YOLO target FPS: undefined = no throttling, run on every frame to observe natural degradation
   // This allows us to see the true correlation between camera FPS and YOLO inference time
   YOLO_TARGET_FPS: undefined,

@@ -102,8 +102,21 @@ export const useShotTracker = (
     moveNetModelId?: string,
 
     // Adaptive performance
-    availableFps?: number[]
+    availableFps?: number[],
 ) => {
+    console.log('[useShotTracker] Received params:', {
+        selectedResolution,
+        selectedFps,
+        selectedPoseResolution,
+        yoloModelId,
+        moveNetModelId,
+        yoloDelegate,
+        poseDelegate,
+        enabled,
+        poseEnabled,
+        ballEnabled,
+        rimEnabled,
+    })
 
     // Mount-instance diagnostic: detect concurrent hook mounts by logging unique IDs
 
@@ -1104,7 +1117,6 @@ export const useShotTracker = (
                     if (moveNetDue) {
                         lastMoveNetInferenceAt.value = nowForMoveNet
 
-                        // Pass effective bbox to MoveNet (YOLO provides center coordinates)
                         moveNetWorker.playerBbox.value = {
                             x: trackedBbox.bbox.x,
                             y: trackedBbox.bbox.y,
@@ -1127,10 +1139,14 @@ export const useShotTracker = (
                     }
 
                     // Process worker results (get latest available from shared values)
+                    const rawBall = yoloWorker.latestResultBall.value
+                    const rawPlayer = yoloWorker.latestResultPlayer.value
+                    const rawRim = yoloWorker.latestResultRim.value
+
                     const yoloResult = {
-                        ball: yoloWorker.latestResultBall.value,
-                        player: yoloWorker.latestResultPlayer.value,
-                        rim: yoloWorker.latestResultRim.value,
+                        ball: rawBall ? { ...rawBall } : null,
+                        player: rawPlayer ? { ...rawPlayer } : null,
+                        rim: rawRim ? { ...rawRim } : null,
                         debug: yoloWorker.latestResultDebug.value,
                         timestamp: yoloWorker.latestResultTimestamp.value
                     }
