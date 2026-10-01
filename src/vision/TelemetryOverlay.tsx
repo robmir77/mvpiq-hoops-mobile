@@ -24,6 +24,10 @@ interface TelemetryOverlayProps {
     yoloModel?: string
     moveNetModel?: string
     moveNetResolution?: number
+    fpsMin?: number
+    fpsMax?: number
+    epochs?: number
+    usageMinutes?: number
   }
 }
 
@@ -247,6 +251,24 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.label}>YOLO:</Text>
                 <Text style={styles.value}>{modelConfig?.yoloModel ?? 'N/A'}</Text>
               </View>
+              {modelConfig?.fpsMin && modelConfig?.fpsMax && (
+                <View style={styles.row}>
+                  <Text style={styles.label}>FPS Range:</Text>
+                  <Text style={styles.value}>{modelConfig.fpsMin}-{modelConfig.fpsMax}</Text>
+                </View>
+              )}
+              {modelConfig?.epochs && (
+                <View style={styles.row}>
+                  <Text style={styles.label}>Epoche:</Text>
+                  <Text style={styles.value}>{modelConfig.epochs}</Text>
+                </View>
+              )}
+              {modelConfig?.usageMinutes !== undefined && (
+                <View style={styles.row}>
+                  <Text style={styles.label}>Utilizzo:</Text>
+                  <Text style={styles.value}>{modelConfig.usageMinutes} min</Text>
+                </View>
+              )}
               <View style={styles.row}>
                 <Text style={styles.label}>MoveNet:</Text>
                 <Text style={styles.value}>{modelConfig?.moveNetModel ?? 'N/A'}</Text>
@@ -317,31 +339,19 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
             </View>
 
-            <View style={styles.row}>
-              <Text style={styles.label}>Ball Detection:</Text>
-              <Text style={[styles.value, { color: ballMetrics.detectionRate > 50 ? '#4ade80' : '#fbbf24' }]}>
-                {ballMetrics.detectionRate.toFixed(1)}%
-              </Text>
-            </View>
+            {modelConfig?.fpsMin && modelConfig?.fpsMax && (
+              <View style={styles.row}>
+                <Text style={styles.label}>Range:</Text>
+                <Text style={styles.value}>{modelConfig.fpsMin}-{modelConfig.fpsMax}</Text>
+              </View>
+            )}
 
-            <View style={styles.row}>
-              <Text style={styles.label}>FP Rate:</Text>
-              <Text style={[styles.value, { color: fpMetrics.fpRate > 10 ? '#ef4444' : '#4ade80' }]}>
-                {fpMetrics.fpRate.toFixed(1)}%
-              </Text>
-            </View>
-
-            <View style={styles.row}>
-              <Text style={styles.label}>Stabilità:</Text>
-              <Text style={[styles.value, { color: bboxMetrics.stability > 80 ? '#4ade80' : '#fbbf24' }]}>
-                {bboxMetrics.stability.toFixed(0)}%
-              </Text>
-            </View>
-
-            <View style={styles.row}>
-              <Text style={styles.label}>Batteria:</Text>
-              <Text style={styles.value}>N/A</Text>
-            </View>
+            {modelConfig?.usageMinutes !== undefined && (
+              <View style={styles.row}>
+                <Text style={styles.label}>Utilizzo:</Text>
+                <Text style={styles.value}>{modelConfig.usageMinutes} min</Text>
+              </View>
+            )}
           </>
         )}
       </View>

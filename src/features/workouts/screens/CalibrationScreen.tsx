@@ -1104,7 +1104,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         {YOLO_MODELS.map(model => (
                                             <Picker.Item
                                                 key={model.id}
-                                                label={`${model.label} · input ${model.inputSize}×${model.inputSize}`}
+                                                label={`${model.label} · input ${model.inputSize}×${model.inputSize} · FPS ${model.fpsMin}-${model.fpsMax}`}
                                                 value={model.id}
                                             />
                                         ))}
@@ -1120,6 +1120,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         : '—'}
                                     {' · precisione '}
                                     {YOLO_MODELS.find(m => m.id === selectedYoloModelId)?.precision.toUpperCase() ?? '—'}
+                                    {' · FPS '}
+                                    {YOLO_MODELS.find(m => m.id === selectedYoloModelId)
+                                        ? `${YOLO_MODELS.find(m => m.id === selectedYoloModelId)!.fpsMin}-${YOLO_MODELS.find(m => m.id === selectedYoloModelId)!.fpsMax}`
+                                        : '—'}
+                                    {' · epoche '}
+                                    {YOLO_MODELS.find(m => m.id === selectedYoloModelId)?.epochs ?? '—'}
+                                    {' · utilizzo '}
+                                    {YOLO_MODELS.find(m => m.id === selectedYoloModelId)?.usageMinutes ?? '0'} min
                                 </Text>
                             </View>
 

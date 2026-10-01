@@ -30,6 +30,10 @@ export interface YoloModelConfig {
   precision: 'float16'
   asset: any
   fileUri?: string
+  fpsMin?: number
+  fpsMax?: number
+  epochs?: number
+  usageMinutes?: number
 }
 
 // GENERATED ENTRIES - do not edit manually.
@@ -43,6 +47,10 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 2100,
     precision: 'float16',
     asset: require("../../assets/models/best_320_float16.tflite"),
+    fpsMin: 10,
+    fpsMax: 37,
+    epochs: 50,
+    usageMinutes: 0,
   },
   {
     id: "best_384_float16",
@@ -52,6 +60,10 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 3024,
     precision: 'float16',
     asset: require("../../assets/models/best_384_float16.tflite"),
+    fpsMin: 20,
+    fpsMax: 21,
+    epochs: 50,
+    usageMinutes: 0,
   },
   {
     id: "best_448_float16",
@@ -61,6 +73,10 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 4116,
     precision: 'float16',
     asset: require("../../assets/models/best_448_float16.tflite"),
+    fpsMin: 12,
+    fpsMax: 21,
+    epochs: 5,
+    usageMinutes: 0,
   },
   {
     id: "best_512_float16",
@@ -70,6 +86,10 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 5376,
     precision: 'float16',
     asset: require("../../assets/models/best_512_float16.tflite"),
+    fpsMin: 8,
+    fpsMax: 10,
+    epochs: 40,
+    usageMinutes: 0,
   },
   {
     id: "best_640_float16",
@@ -79,6 +99,10 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     outputDetections: 8400,
     precision: 'float16',
     asset: require("../../assets/models/best_640_float16.tflite"),
+    fpsMin: 5,
+    fpsMax: 7,
+    epochs: 30,
+    usageMinutes: 0,
   },
 ]
 

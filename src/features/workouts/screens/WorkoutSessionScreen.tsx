@@ -2128,6 +2128,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         yoloModel: effectiveYoloModelId,
                         moveNetModel: effectiveMoveNetModelId,
                         moveNetResolution: effectivePoseResolution,
+                        fpsMin: getYoloModel(effectiveYoloModelId)?.fpsMin,
+                        fpsMax: getYoloModel(effectiveYoloModelId)?.fpsMax,
+                        epochs: getYoloModel(effectiveYoloModelId)?.epochs,
+                        usageMinutes: getYoloModel(effectiveYoloModelId)?.usageMinutes,
                     }}
                 />
 
