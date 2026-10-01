@@ -6,6 +6,9 @@
 // Format: standard YOLOv8 TFLite [x, y, w, h, conf, cls] per detection
 // Requires grid/stride decoding for proper coordinate extraction
 
+// TEST 1A: Disable hot path logging for performance testing
+const TEST_1A_DISABLE_HOT_PATH_LOGS = true
+
 import { YOLO_CONFIG } from '@/config/appConfig'
 
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
@@ -365,7 +368,7 @@ export function parseYoloOutputFloat16(
     }
 
     // Log raw values of best ball detection for diagnostic
-    if (__DEV__ && bestBallRaw && bestBall) {
+    if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS && bestBallRaw && bestBall) {
       console.log('[YOLO PARSER RAW] Best ball detection raw values:', {
         cxRaw: bestBallRaw.cxRaw?.toFixed(6) ?? 'undefined',
         cyRaw: bestBallRaw.cyRaw?.toFixed(6) ?? 'undefined',
@@ -385,7 +388,7 @@ export function parseYoloOutputFloat16(
     }
 
     // Log player geometry for diagnostic
-    if (__DEV__ && bestPlayer) {
+    if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS && bestPlayer) {
       const aspectRatio = bestPlayer.height / bestPlayer.width
       console.log('[PLAYER GEOMETRY]', {
         conf: bestPlayer.confidence.toFixed(6),
@@ -396,7 +399,7 @@ export function parseYoloOutputFloat16(
     }
 
     // Diagnostic logging to understand output format (raw logits vs probabilities)
-    if (__DEV__) {
+    if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
       const sigmoid = (x: number) => 1 / (1 + Math.exp(-x))
       console.log('[YOLO SCORE DIAGNOSTIC]', {
         ballRawMin: maxBallScore.toFixed(6),

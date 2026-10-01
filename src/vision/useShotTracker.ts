@@ -4,6 +4,9 @@
 // Both YOLO and MoveNet run entirely in the Frame Processor Worklet.
 // Only processed results (BallDetection, PoseResult, ShotEvent) cross to JS.
 
+// TEST 1A: Disable hot path logging for performance testing
+const TEST_1A_DISABLE_HOT_PATH_LOGS = true
+
 import { useRef, useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { useFrameOutput } from 'react-native-vision-camera'
@@ -31,7 +34,7 @@ import {
     incrementYoloFps,
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
-import { telemetryLogger } from './telemetry'
+import { telemetryLogger, type DiagnosticWindowSnapshot } from './telemetry'
 import { YOLO_CONFIG, TEST_CONFIG } from '@/config/appConfig'
 
 
@@ -157,11 +160,23 @@ export const useShotTracker = (
     const lastRNDispatch =
         useSharedValue(0)
 
-    // Throughput instrumentation (sampled once per second)
+    // One-second diagnostic window. These counters are reset after every emitted window;
+    // cumulative telemetry remains in telemetryLogger for the final workout summary.
     const perfLastLogAt = useSharedValue(0)
     const perfFramesReceived = useSharedValue(0)
     const perfFramesProcessed = useSharedValue(0)
     const perfFramesDroppedBusy = useSharedValue(0)
+    const perfFrameDurationTotal = useSharedValue(0)
+    const perfFrameDurationMax = useSharedValue(0)
+    const perfYoloRequested = useSharedValue(0)
+    const perfYoloExecuted = useSharedValue(0)
+    const perfYoloBusySkipped = useSharedValue(0)
+    const perfYoloInferenceTotal = useSharedValue(0)
+    const perfYoloInferenceMin = useSharedValue(0)
+    const perfYoloInferenceMax = useSharedValue(0)
+    const perfYoloResizeTotal = useSharedValue(0)
+    const perfYoloRunTotal = useSharedValue(0)
+    const perfYoloParseTotal = useSharedValue(0)
     const lastMoveNetInferenceAt = useSharedValue(0)
 
     // Explicit YOLO scheduler: track when YOLO should run next
@@ -297,6 +312,11 @@ export const useShotTracker = (
         telemetryLogger.logBboxStability()
         telemetryLogger.logPlayerTrackingMetrics()
         telemetryLogger.logBallTrackingMetrics()
+    }, [])
+
+
+    const recordDiagnosticWindow = useCallback((snapshot: DiagnosticWindowSnapshot) => {
+        telemetryLogger.recordDiagnosticWindow(snapshot)
     }, [])
 
 
@@ -680,11 +700,13 @@ export const useShotTracker = (
                     const MAX_RIM_DISTANCE = 0.1
                     if (distance > MAX_RIM_DISTANCE) {
                         filteredRim = undefined
-                        console.log('[ShotTracker] Rejected rim detection: too far from calibration', {
-                            detected: { x: detection.rim.x.toFixed(3), y: detection.rim.y.toFixed(3) },
-                            calibration: { x: rimFromCalibration.x.toFixed(3), y: rimFromCalibration.y.toFixed(3) },
-                            distance: distance.toFixed(3)
-                        })
+                        if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+                            console.log('[ShotTracker] Rejected rim detection: too far from calibration', {
+                                detected: { x: detection.rim.x.toFixed(3), y: detection.rim.y.toFixed(3) },
+                                calibration: { x: rimFromCalibration.x.toFixed(3), y: rimFromCalibration.y.toFixed(3) },
+                                distance: distance.toFixed(3)
+                            })
+                        }
                     }
                 }
 
@@ -852,11 +874,90 @@ export const useShotTracker = (
                 // Reentrancy guard: prevents concurrent onFrame invocations
                 if (isProcessingFrame.value) {
                     perfFramesDroppedBusy.value += 1
+                    // Busy frames are still part of the camera-throughput window.
+                    // Flush here as well because no finally block will run for this frame.
+                    // The helper is defined below the guard, so only update counters here.
                     frame.dispose()
                     return
                 }
 
                 isProcessingFrame.value = true
+                perfFramesProcessed.value += 1
+                const frameStartTime = performance.now()
+
+                // Emit exactly one diagnostic record per ~1s window. The snapshot is
+                // intentionally based on current-window counters, not cumulative averages.
+                const maybeFlushDiagnosticWindow = (now: number) => {
+                    'worklet'
+
+                    if (perfLastLogAt.value === 0) {
+                        perfLastLogAt.value = now
+                        return
+                    }
+
+                    const windowMs = now - perfLastLogAt.value
+                    if (windowMs < 1000) {
+                        return
+                    }
+
+                    const yoloExecuted = perfYoloExecuted.value
+                    const snapshot: DiagnosticWindowSnapshot = {
+                        windowMs,
+                        cameraFps: perfFramesReceived.value / (windowMs / 1000),
+                        received: perfFramesReceived.value,
+                        processed: perfFramesProcessed.value,
+                        droppedBusy: perfFramesDroppedBusy.value,
+                        onFrameAvgMs: perfFramesProcessed.value > 0
+                            ? perfFrameDurationTotal.value / perfFramesProcessed.value
+                            : 0,
+                        onFrameMaxMs: perfFrameDurationMax.value,
+                        yoloRequested: perfYoloRequested.value,
+                        yoloExecuted,
+                        yoloBusySkipped: perfYoloBusySkipped.value,
+                        yoloFps: yoloExecuted / (windowMs / 1000),
+                        yoloAvgMs: yoloExecuted > 0
+                            ? perfYoloInferenceTotal.value / yoloExecuted
+                            : 0,
+                        yoloMinMs: perfYoloInferenceMin.value,
+                        yoloMaxMs: perfYoloInferenceMax.value,
+                        yoloResizeAvgMs: yoloExecuted > 0
+                            ? perfYoloResizeTotal.value / yoloExecuted
+                            : 0,
+                        yoloRunAvgMs: yoloExecuted > 0
+                            ? perfYoloRunTotal.value / yoloExecuted
+                            : 0,
+                        yoloParseAvgMs: yoloExecuted > 0
+                            ? perfYoloParseTotal.value / yoloExecuted
+                            : 0,
+                    }
+
+                    scheduleOnRN(
+                        updatePipelineTelemetry,
+                        snapshot.cameraFps,
+                        snapshot.received,
+                        snapshot.processed,
+                        snapshot.droppedBusy,
+                        perfTrackingAccepted.value
+                    )
+                    scheduleOnRN(recordDiagnosticWindow, snapshot)
+
+                    perfLastLogAt.value = now
+                    perfFramesReceived.value = 0
+                    perfFramesProcessed.value = 0
+                    perfFramesDroppedBusy.value = 0
+                    perfFrameDurationTotal.value = 0
+                    perfFrameDurationMax.value = 0
+                    perfYoloRequested.value = 0
+                    perfYoloExecuted.value = 0
+                    perfYoloBusySkipped.value = 0
+                    perfYoloInferenceTotal.value = 0
+                    perfYoloInferenceMin.value = 0
+                    perfYoloInferenceMax.value = 0
+                    perfYoloResizeTotal.value = 0
+                    perfYoloRunTotal.value = 0
+                    perfYoloParseTotal.value = 0
+                    perfTrackingAccepted.value = 0
+                }
 
                 // Increment frame counter for logging
                 frameCounter.value += 1
@@ -903,6 +1004,10 @@ export const useShotTracker = (
                     // Only run YOLO if enough time has passed AND we haven't already scheduled one in this interval
                     const yoloDue = ballEnabledShared.value && !yoloWorker.isProcessing.value && timeSinceLastYolo >= yoloIntervalMs && yoloScheduledCount.value === 0
 
+                    if (ballEnabledShared.value && timeSinceLastYolo >= yoloIntervalMs && yoloWorker.isProcessing.value) {
+                        perfYoloBusySkipped.value += 1
+                    }
+
                     // Log throttling (DEV only)
                     if (__DEV__) {
                         if (poseEnabledShared.value && !moveNetDue) {
@@ -912,13 +1017,27 @@ export const useShotTracker = (
 
                     // Execute YOLO and MoveNet (independent throttling per model)
                     if (yoloDue) {
-                        if (__DEV__) {
+                        if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
                             console.log('[YOLO SCHEDULER] Executing YOLO', { frame: currentFrame, timeSinceLast: timeSinceLastYolo.toFixed(0), interval: yoloIntervalMs.toFixed(1) })
                         }
-                        const yoloStartTime = Date.now()
+                        perfYoloRequested.value += 1
+                        const yoloExecutionCountBefore = yoloWorker.executionCount.value
                         yoloWorker.processFrame(frame, timestamp, currentFrame)
                         const yoloEndTime = Date.now()
-                        const yoloInferenceTime = yoloEndTime - yoloStartTime
+                        const yoloExecutedNow = yoloWorker.executionCount.value > yoloExecutionCountBefore
+
+                        if (yoloExecutedNow) {
+                            const yoloInferenceTime = yoloWorker.lastInferenceMs.value
+                            perfYoloExecuted.value += 1
+                            perfYoloInferenceTotal.value += yoloInferenceTime
+                            perfYoloInferenceMin.value = perfYoloInferenceMin.value === 0
+                                ? yoloInferenceTime
+                                : Math.min(perfYoloInferenceMin.value, yoloInferenceTime)
+                            perfYoloInferenceMax.value = Math.max(perfYoloInferenceMax.value, yoloInferenceTime)
+                            perfYoloResizeTotal.value += yoloWorker.lastResizeMs.value
+                            perfYoloRunTotal.value += yoloWorker.lastRunMs.value
+                            perfYoloParseTotal.value += yoloWorker.lastParseMs.value
+                        }
 
                         // Schedule next YOLO inference with target interval
                         lastYoloInferenceAt.value = yoloEndTime
@@ -933,9 +1052,6 @@ export const useShotTracker = (
                         //     yoloSuccess,
                         //     yoloInferenceTime
                         // )
-
-                        // Count frame as processed
-                        perfFramesProcessed.value += 1
 
                         // TEMPORARILY DISABLED: Adaptive performance evaluation
                         // Evaluate adaptation every ~100 frames
@@ -1080,40 +1196,7 @@ export const useShotTracker = (
                         }
                     }
 
-                    const perfNow = Date.now()
-                    if (
-                        perfLastLogAt.value === 0 ||
-                        perfNow - perfLastLogAt.value >= 1000
-                    ) {
-                        // Log pipeline performance (DEV only)
-                        if (__DEV__) {
-                            console.log(
-                                `[PIPE PERF] received:${perfFramesReceived.value} ` +
-                                `processed:${perfFramesProcessed.value} ` +
-                                `droppedBusy:${perfFramesDroppedBusy.value}`
-                            )
-                        }
 
-                        // Calculate camera FPS from received frames (1-second interval)
-                        const cameraFPS = perfFramesReceived.value / 1.0
-                        
-                        // Update telemetry pipeline metrics
-                        scheduleOnRN(
-                            updatePipelineTelemetry,
-                            cameraFPS,
-                            perfFramesReceived.value,
-                            perfFramesProcessed.value,
-                            perfFramesDroppedBusy.value,
-                            perfTrackingAccepted.value
-                        )
-
-                        perfLastLogAt.value = perfNow
-                        perfFramesReceived.value = 0
-                        perfFramesProcessed.value = 0
-                        perfFramesDroppedBusy.value = 0
-                        perfYoloBallDetected.value = 0
-                        perfTrackingAccepted.value = 0
-                    }
 
                 } catch (error) {
 
@@ -1143,6 +1226,11 @@ export const useShotTracker = (
 
                 } finally {
 
+                    const frameDurationMs = performance.now() - frameStartTime
+                    perfFrameDurationTotal.value += frameDurationMs
+                    perfFrameDurationMax.value = Math.max(perfFrameDurationMax.value, frameDurationMs)
+                    maybeFlushDiagnosticWindow(Date.now())
+
                     // Reset reentrancy guard
                     isProcessingFrame.value = false
 
@@ -1155,6 +1243,22 @@ export const useShotTracker = (
                 hasFatalError,
                 perfFramesReceived,
                 perfFramesProcessed,
+                perfFramesDroppedBusy,
+                perfFrameDurationTotal,
+                perfFrameDurationMax,
+                perfYoloRequested,
+                perfYoloExecuted,
+                perfYoloBusySkipped,
+                perfYoloInferenceTotal,
+                perfYoloInferenceMin,
+                perfYoloInferenceMax,
+                perfYoloResizeTotal,
+                perfYoloRunTotal,
+                perfYoloParseTotal,
+                perfLastLogAt,
+                recordDiagnosticWindow,
+                updatePipelineTelemetry,
+                perfTrackingAccepted,
                 isProcessingFrame,
                 ballEnabledShared,
                 poseEnabledShared,

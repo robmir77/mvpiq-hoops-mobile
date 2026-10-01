@@ -2,7 +2,7 @@
 // YOLO worker for ball/hoop/player detection with independent timing.
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
-import { useSharedValue } from 'react-native-reanimated'
+import { useSharedValue, SharedValue } from 'react-native-reanimated'
 import { useResizer } from 'react-native-vision-camera-resizer'
 import { useTensorflowModel } from 'react-native-fast-tflite'
 import { parseYoloOutputFloat16 } from './yoloParserFloat16'
@@ -28,6 +28,26 @@ interface YoloWorkerResult {
   timestamp: number
 }
 
+interface YoloWorkerReturn {
+  processFrame: (frame: any, timestamp: number, frameCounter?: number) => void
+  getLatestResult: () => YoloWorkerResult | null
+  reset: () => void
+  isReady: SharedValue<boolean>
+  isProcessing: SharedValue<boolean>
+  lastInferenceMs: SharedValue<number>
+  lastResizeMs: SharedValue<number>
+  lastRunMs: SharedValue<number>
+  lastParseMs: SharedValue<number>
+  executionCount: SharedValue<number>
+  fps: SharedValue<number>
+  throughputFps: SharedValue<number>
+  latestResultBall: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
+  latestResultPlayer: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
+  latestResultRim: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
+  latestResultDebug: SharedValue<any>
+  latestResultTimestamp: SharedValue<number>
+}
+
 export const useYoloWorker = (
   enabled: boolean = true,
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
@@ -48,6 +68,12 @@ export const useYoloWorker = (
   const throughputFps = useSharedValue(0) // Actual throughput (inferences per second)
   const inferenceCount = useSharedValue(0)
   const throughputWindowStart = useSharedValue(0)
+  // Last synchronous YOLO stage timings, exposed to the frame processor for 1s diagnostics.
+  const lastInferenceMs = useSharedValue(0)
+  const lastResizeMs = useSharedValue(0)
+  const lastRunMs = useSharedValue(0)
+  const lastParseMs = useSharedValue(0)
+  const executionCount = useSharedValue(0)
 
   const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
     if (requested) telemetryLogger.recordYoloRequested()
@@ -251,6 +277,11 @@ export const useYoloWorker = (
           latestResultTimestamp.value = timestamp
 
           const inferenceTime = t2 - t0
+          lastInferenceMs.value = inferenceTime
+          lastResizeMs.value = resizeMs
+          lastRunMs.value = runMs
+          lastParseMs.value = parseMs
+          executionCount.value += 1
           const calculatedFps = 1000 / inferenceTime
           if (calculatedFps > 0) {
             fps.value = calculatedFps
@@ -323,6 +354,11 @@ export const useYoloWorker = (
     reset,
     isReady,
     isProcessing,
+    lastInferenceMs,
+    lastResizeMs,
+    lastRunMs,
+    lastParseMs,
+    executionCount,
     fps,
     throughputFps,
     latestResultBall,
@@ -330,5 +366,5 @@ export const useYoloWorker = (
     latestResultRim,
     latestResultDebug,
     latestResultTimestamp,
-  }
+  } as YoloWorkerReturn
 }
