@@ -1375,7 +1375,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const onPinchGestureEvent = (event: any) => {
         if (event.nativeEvent.scale !== undefined) {
             const minZoom = device?.minZoom ?? 1
-            const maxZoom = Math.min(device?.maxZoom ?? 5, 5)
+            const maxZoom = device?.maxZoom ?? 5
             const newZoom = Math.max(minZoom, Math.min(maxZoom, baseZoom * event.nativeEvent.scale))
             setZoom(newZoom)
         }
