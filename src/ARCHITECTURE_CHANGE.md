@@ -83,10 +83,12 @@ best_320_float16  ← default (più compatibile cross-device)
 ```
 
 **Modelli rimossi:**
-- best_416_float16 (non funzionante, rimosso completamente)
-- best_480_float16 (non funzionante, rimosso completamente)
+- best_416_float16 (risoluzione incompatibile, rimosso completamente)
+- best_480_float16 (risoluzione incompatibile, rimosso completamente)
 
-**Codice:** `DEFAULT_YOLO_MODEL_ID: 'best_320_float16'` in `appConfig.ts`
+**Codice:** `DEFAULT_YOLO_MODEL_ID: 'best_384_float16'` in `appConfig.ts` (384 offre miglior equilibrio stabilità/performance)
+
+**Nota:** Adaptive Performance YOLO_MODEL_TIERS include solo: 640 → 512 → 320 (manca 448 e 384)
 
 #### P0-3: ✅ Dimensione Resize MoveNet Corretta
 **Risolto:** Documento aggiornato con dimensioni corrette.
@@ -499,25 +501,26 @@ YOLO Parser
 #### 1. YOLO Detection
 - **Modello**: `best_384_float16.tflite` (default - miglior equilibrio stabilità/performance)
 - **Risoluzione**: 384×384 FP16
-- **Model ladder**: best_640_float16 → best_512_float16 → best_448_float16 → best_384_float16 → best_320_float16
+- **Model ladder in yoloModels.ts**: best_640_float16 → best_512_float16 → best_448_float16 → best_384_float16 → best_320_float16
+- **Model ladder in useAdaptivePerformance.ts**: best_640_float16 → best_512_float16 → best_320_float16 (MANCA 448 e 384)
 - **Output**: Bounding boxes per ball, hoop, player
 - **Scheduling**: Basato su `yoloIntervalMs` con 3 protezioni (reentrancy guard, YOLO guard, scheduled count)
 - **Throttling**: Disabilitato (YOLO_FRAME_SKIP rimosso)
-- **Adaptive**: Sistema adaptive performance temporaneamente disabilitato per debugging
+- **Adaptive**: Sistema adaptive performance completamente disabilitato per debugging (TEMPORARILY DISABLED in useShotTracker.ts)
 
 **MODEL PERFORMANCE BENCHMARK (Samsung SM-G998B, Android 15, GPU delegate)**
 
 | Model        | Input | Output Detections | FPS Range       | Notes |
 |--------------|-------|-------------------|-----------------|-------|
-| best_320     | 320   | 2100              | 10-37 (variable)| Highly unstable, starts high then drops to 10-12 |
-| best_384     | 384   | 3024              | 20-21 (stable)  | Test recente: req/exec=1:1, ~47ms inferenza |
-| best_448     | 448   | 4116              | 12-21 (variable)| Starts high then drops to 9-11 |
-| best_512     | 512   | 5376              | 8-10 (variable) | Starts high then drops to 6-8 |
-| best_640     | 640   | 8400              | 5-7 (stable)    | Stable but low FPS |
+| best_320     | 320   | 2100              | 10-37 (variable)| Highly unstable, starts high then drops to 10-12, 50 epoche |
+| best_384     | 384   | 3024              | 20-21 (stable)  | Test recente: req/exec=1:1, ~47ms inferenza, 50 epoche |
+| best_448     | 448   | 4116              | 12-21 (variable)| Starts high then drops to 9-11, 5 epoche |
+| best_512     | 512   | 5376              | 8-10 (variable) | Starts high then drops to 6-8, 40 epoche |
+| best_640     | 640   | 8400              | 5-7 (stable)    | Stable but low FPS, 30 epoche |
 
 **Modelli rimossi:**
-- best_416_float16 (non funzionante)
-- best_480_float16 (non funzionante)
+- best_416_float16 (risoluzione incompatibile, rimosso)
+- best_480_float16 (risoluzione incompatibile, rimosso)
 
 **Recommendations:**
 - best_384 mostra performance stabili a 20-21 FPS nel test recente
@@ -561,15 +564,17 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 
 ### Adaptive Performance
 
-**Stato implementazione:** ⚠️ Parzialmente implementato
+**Stato implementazione:** ❌ Completamente disabilitato per debugging
 
-- ✅ Sistema adaptive performance esistente (`useAdaptivePerformance.ts`)
-- ✅ Collegamento adaptive model al worker YOLO (ricreazione worker quando modello cambia)
+- ❌ Sistema adaptive performance esistente (`useAdaptivePerformance.ts`) ma TEMPORARILY DISABLED in `useShotTracker.ts`
+- ❌ Collegamento adaptive model al worker YOLO disabilitato (commentato)
 - ❌ Adaptive FPS NON collegato alla camera
   - **Limitazione:** VisionCamera V5 non supporta FPS dinamico tramite `useFrameOutput`
   - Il FPS è configurato a livello di `Camera` session, non del frame output
   - Per implementare FPS dinamico, sarebbe necessario ricreare l'intera sessione camera quando FPS cambia
   - Questo è un cambiamento architetturale significativo che richiede valutazione
+
+**Codice:** Tutti i riferimenti a `useAdaptivePerformance` sono commentati con `TEMPORARILY DISABLED` in `useShotTracker.ts` (righe 186-208, 927-943, 1240)
 
 ### Stato Implementazione
 
@@ -588,8 +593,8 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 | Stati DETECTED/PREDICTED/LOST | ✅ | Implementati |
 | Telemetria | ✅ | Ampiamente implementata |
 | YOLO scheduling basato su intervallo | ✅ | YOLO_FRAME_SKIP rimosso |
-| Adaptive performance (model) | ⚠️ | Temporaneamente disabilitato per debugging |
-| Adaptive performance (FPS) | ⚠️ | Incoerenza stato interno vs carico reale |
+| Adaptive performance (model) | ❌ | Completamente disabilitato per debugging |
+| Adaptive performance (FPS) | ❌ | Completamente disabilitato per debugging |
 | Crop geometrico player | ✅ | Implementato |
 | Crop effettivo immagine per MoveNet | ✅ | CPU ottimizzato (640x360 → 192x192) |
 | MoveNet riceve crop 192×192 | ✅ | Riceve crop player reale |
@@ -598,12 +603,13 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 | Test req/exec=1:1 | ✅ | Confermato con best_384 |
 | Camera FPS degradation | ⚠️ | Problema identificato, investigazione in corso |
 
-**Percentuale completamento architettura:** ~90%
+**Percentuale completamento architettura:** ~85%
 
 **Rimanenti:**
 - Investigare causa camera FPS degradation (5-6 FPS sotto carico)
 - Test effettivo pose detection con crop corretto (richiede esecuzione app)
 - Valutazione se riabilitare adaptive performance dopo debugging
+- Correggere YOLO_MODEL_TIERS in useAdaptivePerformance per includere 448 e 384
 
 ### Configurazione Globale
 
@@ -929,7 +935,7 @@ Keypoints trasformati (crop → frame space)
 
 ## Adaptive Performance Management
 
-### Sistema di Gestione Adattiva (Parzialmente Implementato)
+### Sistema di Gestione Adattiva (Completamente Disabilitato)
 
 **Hook**: `useAdaptivePerformance` (worklet-safe con SharedValues)
 
@@ -938,15 +944,26 @@ Keypoints trasformati (crop → frame space)
 **Problema risolto**: Il vecchio sistema basato su `isReady` causava un degrado progressivo delle FPS (da 16 FPS a 8 FPS) indipendentemente dallo stato di MoveNet.
 
 **Stato implementazione:**
-- ✅ Sistema adaptive performance esistente
-- ✅ Collegamento adaptive model al worker YOLO (ricreazione worker quando modello cambia)
+- ❌ Sistema adaptive performance esistente ma TEMPORARILY DISABLED in `useShotTracker.ts`
+- ❌ Collegamento adaptive model al worker YOLO disabilitato
 - ❌ Adaptive FPS NON collegato alla camera (limitazione API VisionCamera V5)
 
 **Approccio attuale**:
 - YOLO viene eseguito su ogni frame (senza throttling basato su `isReady`)
-- Sistema adattivo monitora le performance YOLO e scala il modello dinamicamente
-- Modello YOLO scalato automaticamente: 640 → 512 → 320 (se performance scarse)
-- Sistema completamente bidirezionale: scala down quando performance scarse, scala up quando performance buone
+- Sistema adattivo monitora le performance YOLO e scala il modello dinamicamente (DISABILITATO)
+- Modello YOLO scalato automaticamente: 640 → 512 → 320 (se performance scarse) - DISABILITATO
+- Sistema completamente bidirezionale: scala down quando performance scarse, scala up quando performance buone - DISABILITATO
+
+**YOLO_MODEL_TIERS in useAdaptivePerformance.ts**:
+```typescript
+const YOLO_MODEL_TIERS: YoloModelConfig[] = [
+  YOLO_MODELS.find(m => m.id === 'best_640_float16')!,
+  YOLO_MODELS.find(m => m.id === 'best_512_float16')!,
+  YOLO_MODELS.find(m => m.id === 'best_320_float16')!, // MANCA 448 e 384
+].filter(Boolean)
+```
+
+**Nota:** La ladder in useAdaptivePerformance non include best_448_float16 e best_384_float16, mentre yoloModels.ts ha la lista completa.
 
 **Architettura**:
 ```
@@ -990,14 +1007,17 @@ VisionCamera V5 non supporta FPS dinamico tramite `useFrameOutput`. Il FPS è co
 **Warning: Adaptive Performance Incoerenza**
 Il sistema adaptive performance prova prima a scalare l'FPS (30→24→20→15) prima di scalare il modello. Poiché l'FPS non è collegato alla camera, lo stato interno cambia ma l'hardware continua a 30 FPS. Solo quando arriva al minimo FPS, il sistema scala il modello. Questo crea un'incoerenza tra stato interno e carico reale.
 
+**ATTUALMENTE DISABILITATO**: Questo problema non è più presente poiché adaptive performance è completamente disabilitato.
+
 **Warning: YOLO Actual FPS vs Requested FPS**
 YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo di inferenza. Con `isProcessing` che previene esecuzione concorrente, se YOLO impiega ~70ms, l'actual FPS sarà ~14 FPS, non 30 FPS. Molte richieste vengono ignorate perché `isProcessing=true`. La documentazione dovrebbe distinguere tra YOLO invocation (every frame) e YOLO actual inference FPS (measured).
 
 **Note importanti**:
 - Il sistema usa solo SharedValues per comunicazione worklet-JS (no `scheduleOnRN` nei worklet)
-- L'adattamento del modello è completamente automatico e trasparente per l'utente
+- L'adattamento del modello è completamente automatico e trasparente per l'utente (QUANDO ATTIVO)
 - Il sistema garantisce che YOLO venga sempre eseguito su ogni frame
-- Il modello viene scalato automaticamente in base alle performance YOLO
+- Il modello viene scalato automaticamente in base alle performance YOLO (QUANDO ATTIVO)
+- **ATTUALMENTE DISABILITATO**: Tutti i riferimenti a adaptive performance sono commentati in useShotTracker.ts
 
 ## Future Improvements
 
@@ -1025,8 +1045,8 @@ YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo d
 **Soluzione implementata**: `useGpuCapabilityTest.ts` - Hook che verifica che i modelli siano registrati nel registry e abbiano asset validi.
 
 **Modelli rimossi dal registry:**
-- best_416_float16 (non funzionante)
-- best_480_float16 (non funzionante)
+- best_416_float16 (risoluzione incompatibile)
+- best_480_float16 (risoluzione incompatibile)
 
 **Modelli confermati funzionanti:**
 - best_320_float16
@@ -1141,7 +1161,7 @@ La pipeline di vision attuale è funzionalmente completa con:
 - ✅ Risoluzione allineata a 1280×720
 - ✅ Modelli YOLO aggiornati (416 e 480 rimossi)
 
-**Stato completamento architettura:** ~90%
+**Stato completamento architettura:** ~85%
 
 **Problema attuale:** Camera FPS degradation
 - Test recente ha mostrato camera FPS degradata a 5-6 FPS sotto carico
@@ -1156,3 +1176,4 @@ Il collo di bottiglia principale (crop CPU ~92ms) è stato ottimizzato a ~5-10ms
 - Investigare causa camera FPS degradation (priorità alta)
 - Test effettivo pose detection con crop reale (richiede esecuzione app)
 - Valutazione se riabilitare adaptive performance dopo debugging
+- Correggere YOLO_MODEL_TIERS in useAdaptivePerformance per includere 448 e 384
