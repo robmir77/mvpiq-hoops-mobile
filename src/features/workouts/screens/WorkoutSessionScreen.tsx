@@ -1352,7 +1352,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [adaptiveFps, setAdaptiveFps] = useState<number>(effectiveFps)
     const [showTelemetry, setShowTelemetry] = useState(true)
     const [debugMode, setDebugMode] = useState(false)
+    const [usageMinutes, setUsageMinutes] = useState(0)
     const cameraViewRef = useRef<View>(null)
+    const usageMinutesTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     // Sync effectiveFps with adaptive FPS from useAdaptivePerformance
     useEffect(() => {
@@ -1361,6 +1363,27 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setEffectiveFps(adaptiveFps)
         }
     }, [adaptiveFps, effectiveFps])
+
+    // Track usage minutes when recording is active
+    useEffect(() => {
+        if (isRecording) {
+            setUsageMinutes(0)
+            usageMinutesTimerRef.current = setInterval(() => {
+                setUsageMinutes(prev => prev + 1)
+            }, 60000) // Update every minute
+        } else {
+            if (usageMinutesTimerRef.current) {
+                clearInterval(usageMinutesTimerRef.current)
+                usageMinutesTimerRef.current = null
+            }
+        }
+        return () => {
+            if (usageMinutesTimerRef.current) {
+                clearInterval(usageMinutesTimerRef.current)
+                usageMinutesTimerRef.current = null
+            }
+        }
+    }, [isRecording])
 
     // Debug: log adaptive FPS periodically
     useEffect(() => {
@@ -2131,7 +2154,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         fpsMin: getYoloModel(effectiveYoloModelId)?.fpsMin,
                         fpsMax: getYoloModel(effectiveYoloModelId)?.fpsMax,
                         epochs: getYoloModel(effectiveYoloModelId)?.epochs,
-                        usageMinutes: getYoloModel(effectiveYoloModelId)?.usageMinutes,
+                        usageMinutes: usageMinutes,
                     }}
                 />
 

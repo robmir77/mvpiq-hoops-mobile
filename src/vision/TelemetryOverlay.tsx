@@ -94,34 +94,38 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     console.log('[TelemetryOverlay] Visible:', visible)
     const interval = setInterval(() => {
       if (!visible) return
-      
+
       const yoloPerf = telemetryLogger.getYoloPerfMetrics()
       const bboxMetrics = telemetryLogger.getBboxStabilityMetrics()
       const fpMetrics = telemetryLogger.getFalsePositiveMetrics()
       const pipelineMetrics = telemetryLogger.getPipelineMetrics()
       const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
-      
+
       console.log('[TelemetryOverlay] Updating metrics:', {
         yoloFps: yoloPerf.fps.toFixed(1),
+        yoloMinMs: yoloPerf.minMs.toFixed(1),
+        yoloMaxMs: yoloPerf.maxMs.toFixed(1),
+        yoloSamples: yoloPerf.samples,
         detectionRate: telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed).detectionRate.toFixed(1),
-        pipelineProcessed: pipelineMetrics.processed
+        pipelineProcessed: pipelineMetrics.processed,
+        usageMinutes: modelConfig?.usageMinutes
       })
-      
+
       setYoloPerf(yoloPerf)
       setBboxMetrics(bboxMetrics)
       setFpMetrics(fpMetrics)
       setPipelineMetrics(pipelineMetrics)
       setMoveNetMetrics(moveNetMetrics)
-      
+
       // Ball metrics needs framesProcessed
       setBallMetrics(telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed))
-      
+
       // Player metrics
       setPlayerMetrics(telemetryLogger.getPlayerDetectionMetrics(pipelineMetrics.processed))
     }, 500)
 
     return () => clearInterval(interval)
-  }, [visible])
+  }, [visible, modelConfig?.usageMinutes])
 
   if (!visible) {
     console.log('[TelemetryOverlay] Not rendering - visible is false')
@@ -158,8 +162,18 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
               </View>
               <View style={styles.row}>
+                <Text style={styles.label}>FPS Range:</Text>
+                <Text style={styles.value}>
+                  {yoloPerf.maxMs > 0 ? (1000 / yoloPerf.maxMs).toFixed(1) : '0.0'}-{yoloPerf.minMs > 0 ? (1000 / yoloPerf.minMs).toFixed(1) : '0.0'}
+                </Text>
+              </View>
+              <View style={styles.row}>
                 <Text style={styles.label}>Avg:</Text>
                 <Text style={styles.value}>{yoloPerf.avgMs.toFixed(1)}ms</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Min/Max:</Text>
+                <Text style={styles.value}>{yoloPerf.minMs.toFixed(1)}/{yoloPerf.maxMs.toFixed(1)}ms</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Resize:</Text>
@@ -339,12 +353,12 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
             </View>
 
-            {modelConfig?.fpsMin && modelConfig?.fpsMax && (
-              <View style={styles.row}>
-                <Text style={styles.label}>Range:</Text>
-                <Text style={styles.value}>{modelConfig.fpsMin}-{modelConfig.fpsMax}</Text>
-              </View>
-            )}
+            <View style={styles.row}>
+              <Text style={styles.label}>FPS Range:</Text>
+              <Text style={styles.value}>
+                {yoloPerf.maxMs > 0 ? (1000 / yoloPerf.maxMs).toFixed(1) : '0.0'}-{yoloPerf.minMs > 0 ? (1000 / yoloPerf.minMs).toFixed(1) : '0.0'}
+              </Text>
+            </View>
 
             {modelConfig?.usageMinutes !== undefined && (
               <View style={styles.row}>

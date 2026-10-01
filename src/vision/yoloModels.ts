@@ -34,6 +34,7 @@ export interface YoloModelConfig {
   fpsMax?: number
   epochs?: number
   usageMinutes?: number
+  defaultCameraResolution?: { width: number; height: number }
 }
 
 // GENERATED ENTRIES - do not edit manually.
@@ -51,6 +52,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     fpsMax: 37,
     epochs: 50,
     usageMinutes: 0,
+    defaultCameraResolution: { width: 640, height: 360 },
   },
   {
     id: "best_384_float16",
@@ -64,6 +66,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     fpsMax: 21,
     epochs: 50,
     usageMinutes: 0,
+    defaultCameraResolution: { width: 720, height: 405 },
   },
   {
     id: "best_448_float16",
@@ -77,6 +80,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     fpsMax: 21,
     epochs: 5,
     usageMinutes: 0,
+    defaultCameraResolution: { width: 960, height: 540 },
   },
   {
     id: "best_512_float16",
@@ -90,6 +94,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     fpsMax: 10,
     epochs: 40,
     usageMinutes: 0,
+    defaultCameraResolution: { width: 1280, height: 720 },
   },
   {
     id: "best_640_float16",
@@ -103,6 +108,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     fpsMax: 7,
     epochs: 30,
     usageMinutes: 0,
+    defaultCameraResolution: { width: 1280, height: 720 },
   },
 ]
 

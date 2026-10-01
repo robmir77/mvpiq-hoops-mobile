@@ -755,11 +755,18 @@ export default function CalibrationScreen({ navigation, route }: any) {
         if (!device) return [DEFAULT_CAPTURE]
         try {
             const resolutions = device.getSupportedResolutions('video') || []
+            console.log('[Calibration] ALL supported resolutions:', resolutions)
+            const currentModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
+            const minRes = currentModel?.defaultCameraResolution || CAMERA_CONFIG.MIN_RESOLUTION
+
             const filtered = resolutions
                 .filter((r: { width: number; height: number }) => {
                     const aspect = r.width / r.height
+                    const totalPixels = r.width * r.height
+                    const minPixels = minRes.width * minRes.height
                     return r.width >= CAMERA_CONFIG.MIN_RESOLUTION.width &&
                         r.height >= CAMERA_CONFIG.MIN_RESOLUTION.height &&
+                        totalPixels >= minPixels &&
                         Math.abs(aspect - 16 / 9) < 0.08
                 })
                 .sort((a: any, b: any) => a.width * a.height - b.width * b.height)
@@ -769,7 +776,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             console.warn('[Calibration] Error getting resolutions:', e)
             return [DEFAULT_CAPTURE]
         }
-    }, [device])
+    }, [device, selectedYoloModelId])
 
     const availableFps = React.useMemo(() => {
         if (!device) return [DEFAULT_FPS]
@@ -823,6 +830,30 @@ export default function CalibrationScreen({ navigation, route }: any) {
             setSelectedMoveNetModelId(DEFAULT_MOVENET_MODEL_ID)
         }
     }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId])
+
+    // Auto-select default camera resolution when YOLO model changes
+    useEffect(() => {
+        if (availableResolutions.length > 0 && selectedYoloModelId) {
+            const currentModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
+            const defaultRes = currentModel?.defaultCameraResolution
+
+            if (defaultRes) {
+                // Try to find exact match
+                const exactMatch = availableResolutions.find(r => r.width === defaultRes.width && r.height === defaultRes.height)
+                if (exactMatch) {
+                    setSelectedResolution(exactMatch)
+                    return
+                }
+
+                // Find closest resolution >= default
+                const minPixels = defaultRes.width * defaultRes.height
+                const closest = availableResolutions.find(r => r.width * r.height >= minPixels)
+                if (closest) {
+                    setSelectedResolution(closest)
+                }
+            }
+        }
+    }, [selectedYoloModelId, availableResolutions])
 
     // Get zoom range from device
     const minZoom = device?.minZoom ?? 1
