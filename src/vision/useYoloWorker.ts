@@ -174,6 +174,9 @@ export const useYoloWorker = (
 
   const { resizer: yoloResizer } = useResizer(yoloResizerConfig)
 
+  // ARCHITECTURAL FIX: Revert to synchronous execution for now
+  // scheduleOnRN approach failed due to worklet binding limitations
+  // Alternative approach needed: use a proper worker thread or queue system
   const processFrame = useCallback((frame: any, timestamp: number, frameCounter?: number) => {
     'worklet'
 
@@ -181,8 +184,6 @@ export const useYoloWorker = (
       return
     }
 
-    // Throttling removed - run on every frame as per ARCHITECTURE_CHANGE.md
-    // Adaptive performance system will handle scaling if performance degrades
     isProcessing.value = true
 
     let resized: any = null
@@ -220,7 +221,7 @@ export const useYoloWorker = (
           const parseMs = tParseEnd - tParseStart
 
           const t2 = performance.now()
-          
+
           let validBall = null
           if (ball) {
             const bboxSizeNormalized = ball.width * ball.height
@@ -242,7 +243,7 @@ export const useYoloWorker = (
               validBall = ball
             }
           }
-          
+
           latestResultBall.value = validBall
           latestResultPlayer.value = player
           latestResultRim.value = rim
@@ -283,7 +284,7 @@ export const useYoloWorker = (
         try {
           resized.dispose()
         } catch (e) {
-          }
+        }
       }
       isProcessing.value = false
       lastInferenceAt.value = Date.now()

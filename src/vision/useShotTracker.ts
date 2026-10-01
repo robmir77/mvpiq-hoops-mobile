@@ -32,7 +32,7 @@ import {
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
 import { telemetryLogger } from './telemetry'
-import { YOLO_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, TEST_CONFIG } from '@/config/appConfig'
 
 
 const BALL_STABILITY_THRESHOLD = 0.02 // Position change threshold (2%)
@@ -892,9 +892,9 @@ export const useShotTracker = (
                         (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
 
                     // YOLO: explicit scheduler - only run when not busy and scheduled time reached
-                    // Use configured FPS to calculate interval
-                    const targetFps = selectedFpsShared.value
-                    const yoloIntervalMs = targetFps > 0 ? 1000 / targetFps : 67
+                    // Use TEST_CONFIG.YOLO_TARGET_FPS to reduce blocking time (camera stays at 30 FPS, YOLO at 15 FPS)
+                    const yoloTargetFps = TEST_CONFIG.YOLO_TARGET_FPS || 15
+                    const yoloIntervalMs = 1000 / yoloTargetFps
                     const timeSinceLastYolo = lastYoloInferenceAt.value > 0 ? nowForMoveNet - lastYoloInferenceAt.value : yoloIntervalMs
                     // Reset scheduled count when interval has passed (allows next YOLO execution)
                     if (timeSinceLastYolo >= yoloIntervalMs && yoloScheduledCount.value > 0) {

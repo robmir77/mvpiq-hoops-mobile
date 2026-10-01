@@ -37,7 +37,7 @@ import {
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
-import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG, TEST_CONFIG } from '@/config/appConfig'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -1345,13 +1345,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
-    const [poseEnabled, setPoseEnabled] = useState(true)
-    const [ballEnabled, setBallEnabled] = useState(true)
+    const [poseEnabled, setPoseEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_MOVENET)
+    const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
     const [adaptiveFps, setAdaptiveFps] = useState<number>(effectiveFps)
-    const [showTelemetry, setShowTelemetry] = useState(true)
-    const [debugMode, setDebugMode] = useState(false)
+    const [showTelemetry, setShowTelemetry] = useState<boolean>(TEST_CONFIG.ENABLE_TELEMETRY_OVERLAY)
+    const [debugMode, setDebugMode] = useState<boolean>(TEST_CONFIG.ENABLE_DEBUG_OVERLAY)
     const [usageMinutes, setUsageMinutes] = useState(0)
     const cameraViewRef = useRef<View>(null)
     const usageMinutesTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
