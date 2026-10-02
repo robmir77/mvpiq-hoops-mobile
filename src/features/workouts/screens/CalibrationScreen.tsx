@@ -726,7 +726,16 @@ const MODE_META: Record<CameraMode, { title: string; icon: string; description: 
 }
 
 export default function CalibrationScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode: rawMode, courtType: rawCourtType } = route.params || {}
+    const { sessionId, cameraMode: rawMode, courtType: rawCourtType, selectedResolution: initialResolution, selectedFps: initialFps, selectedPoseResolution: initialPoseResolution, yoloDelegate: initialYoloDelegate, poseDelegate: initialPoseDelegate, yoloModelId: initialYoloModelId, moveNetModelId: initialMoveNetModelId } = route.params || {}
+    console.log('[Calibration] Received params from route.params:', {
+        selectedResolution: initialResolution,
+        selectedFps: initialFps,
+        selectedPoseResolution: initialPoseResolution,
+        yoloDelegate: initialYoloDelegate,
+        poseDelegate: initialPoseDelegate,
+        yoloModelId: initialYoloModelId,
+        moveNetModelId: initialMoveNetModelId,
+    })
     const cameraMode: CameraMode = rawMode || 'ANGLE_45'
     const courtType: 'HALF_COURT' | 'FULL_COURT' = rawCourtType || 'HALF_COURT'
     const { user } = useContext(AuthContext) || {}
@@ -855,11 +864,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }, [selectedYoloModelId, availableResolutions])
 
-    // Get zoom range from device
-    const minZoom = device?.minZoom ?? 1
-    const maxZoom = Math.min(device?.maxZoom ?? 5, 5)
-    const [zoom, setZoom] = useState(minZoom)
-
     const [step, setStep] = useState<CalibStep>('hoop')
     const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
     const [corners, setCorners] = useState<Point[]>([])
@@ -971,7 +975,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const handleProceed = () => {
         if (isNavigating) return
         setIsNavigating(true)
-        navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId })
+        const workoutParams = { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
+        console.log('[Calibration] Navigating to WorkoutSession with params:', workoutParams)
+        navigation.replace('WorkoutSession', workoutParams)
     }
 
     const handleSkip = () => {
@@ -981,21 +987,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
             () => {
                 if (isNavigating) return
                 setIsNavigating(true)
-                navigation.replace('WorkoutSession', { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId })
+                const workoutParams = { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
+                console.log('[Calibration] Skipping calibration, navigating to WorkoutSession with params:', workoutParams)
+                navigation.replace('WorkoutSession', workoutParams)
             }
         )
     }
 
     const resetAll = () => {
-        setCorners([]); setStep('hoop'); setHoopCenter(null); setSavedCalibration(null); setZoom(minZoom)
-    }
-
-    const handleZoomIn = () => {
-        setZoom(prev => Math.min(maxZoom, prev + 0.1))
-    }
-
-    const handleZoomOut = () => {
-        setZoom(prev => Math.max(minZoom, prev - 0.1))
+        setCorners([]); setStep('hoop'); setHoopCenter(null); setSavedCalibration(null)
     }
 
     const CORNER_LABELS = ['Ang. SX alto', 'Ang. DX alto', 'Ang. DX basso', 'Ang. SX basso']
@@ -1040,12 +1040,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     device={device}
                     isActive={isActive}
                     resizeMode="cover"
-                    zoom={zoom}
                     constraints={constraints}
                     onError={(error: any) => {
                         const msg = error?.message || error?.cause?.message || ''
                         if (msg.includes('Camera is not active')) return
-                        if (msg.includes('Cancelled due to another zoom value being set')) return
                         console.warn('[Calibration] Camera error:', error)
                     }}
                 />
@@ -1181,27 +1179,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                     </Picker>
                                 </View>
                                 <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
-                                
-                                {/* Zoom controls */}
-                                <View style={styles.zoomControlsInline}>
-                                    <TouchableOpacity 
-                                        style={styles.zoomBtnSmall} 
-                                        onPress={handleZoomOut}
-                                        disabled={zoom <= minZoom}
-                                    >
-                                        <Text style={[styles.zoomBtnTextSmall, zoom <= minZoom && styles.zoomBtnTextDisabled]}>−</Text>
-                                    </TouchableOpacity>
-                                    <View style={styles.zoomIndicatorSmall}>
-                                        <Text style={styles.zoomTextSmall}>{Math.round(zoom * 100)}%</Text>
-                                    </View>
-                                    <TouchableOpacity 
-                                        style={styles.zoomBtnSmall} 
-                                        onPress={handleZoomIn}
-                                        disabled={zoom >= maxZoom}
-                                    >
-                                        <Text style={[styles.zoomBtnTextSmall, zoom >= maxZoom && styles.zoomBtnTextDisabled]}>+</Text>
-                                    </TouchableOpacity>
-                                </View>
                             </View>
 
                             {/* MoveNet resolution selector */}
@@ -1363,46 +1340,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.72)', color: '#fff',
         fontSize: 12, fontWeight: '600',
         paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
-    },
-    zoomControlsInline: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginTop: 8,
-    },
-    zoomBtnSmall: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    zoomBtnTextSmall: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: '700',
-        lineHeight: 22,
-    },
-    zoomBtnTextDisabled: {
-        color: 'rgba(255,255,255,0.3)',
-    },
-    zoomIndicatorSmall: {
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
-        minWidth: 50,
-        alignItems: 'center',
-    },
-    zoomTextSmall: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: '700',
     },
     configBtn: {
         position: 'absolute',

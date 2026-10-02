@@ -25,7 +25,7 @@ export const CAMERA_CONFIG = {
   DEFAULT_RESOLUTION: { width: 1280, height: 720 }, // Default camera resolution (720p) - aligned with ARCHITECTURE_CHANGE.md
   DEFAULT_FPS: 30, // Default camera frame rate
   DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
-  DEFAULT_ZOOM: 1, // Default camera zoom level
+  DEFAULT_ZOOM: 1, // Default camera zoom level (1 = 100% = no zoom)
   MIN_RESOLUTION: { width: 640, height: 360 }, // Minimum acceptable resolution for workout sessions (allows 360p for smaller YOLO models)
 } as const;
 
@@ -45,7 +45,10 @@ export const COURT_CONFIG = {
 // Test Configuration for Camera FPS Degradation Investigation
 // See ARCHITECTURE_CHANGE.md - Performance Analysis section for test plan
 export const TEST_CONFIG = {
-  // TEST B: YOLO isolato (YOLO ON, MoveNet OFF, Overlay OFF)
+  // TEST B-v3: YOLO isolato con target 10 FPS (DEV)
+  // Obiettivo: Verificare se riducendo la frequenza YOLO a 10 FPS, l'architettura sincrona attuale riesce a mantenere la camera a 30 FPS
+  // Se sì: workaround temporaneo utilizzabile
+  // Se no: passare direttamente alla correzione architetturale (separazione producer/consumer)
   ENABLE_YOLO: true,
   ENABLE_MOVENET: false,
   ENABLE_TELEMETRY_OVERLAY: false,

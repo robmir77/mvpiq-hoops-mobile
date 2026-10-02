@@ -960,13 +960,13 @@ finally {
 #### P0-2: ✅ YOLO Model Registry Aggiornato
 **Risolto:** Registry aggiornato con modelli Float16 corretti.
 
-**YOLO model ladder attuale:**
+**YOLO model ladder attuale (yoloModels.ts):**
 ```
 best_640_float16
 best_512_float16
 best_448_float16
-best_384_float16
-best_320_float16  ← default (più compatibile cross-device)
+best_384_float16  ← default in appConfig.ts
+best_320_float16
 ```
 
 **Modelli rimossi:**
@@ -975,7 +975,7 @@ best_320_float16  ← default (più compatibile cross-device)
 
 **Codice:** `DEFAULT_YOLO_MODEL_ID: 'best_384_float16'` in `appConfig.ts` (384 offre miglior equilibrio stabilità/performance)
 
-**Nota:** Adaptive Performance YOLO_MODEL_TIERS include solo: 640 → 512 → 320 (manca 448 e 384)
+**⚠️ NOTA:** Adaptive Performance YOLO_MODEL_TIERS in `useAdaptivePerformance.ts` include solo: 640 → 512 → 320 (manca 448 e 384). Model switching è TEMPORARILY DISABLED per isolare il problema di camera FPS degradation. TEST_1A è stato implementato con hot path logging disabilitato.
 
 #### P0-3: ✅ Dimensione Resize MoveNet Corretta
 **Risolto:** Documento aggiornato con dimensioni corrette.
@@ -1024,6 +1024,24 @@ MoveNet actual FPS: ~5 FPS (throttled a 3, ma bottleneck JS thread)
 ```
 
 **Nota:** La distinzione tra "requested FPS" e "actual inference FPS" è fondamentale. YOLO viene schedulato su ogni frame, ma l'actual FPS è limitato dal tempo di inferenza hardware.
+
+#### P0-6: ✅ Telemetria Diagnostica 1s Implementata
+**Risolto:** Implementata telemetria finestra 1s in `telemetry.ts` con `DiagnosticWindowSnapshot`.
+
+**Metriche per finestra 1s:**
+- windowMs (durata finestra)
+- cameraFps (FPS reale camera)
+- received/processed/droppedBusy (frame counts)
+- onFrameAvgMs/onFrameMaxMs (durata onFrame)
+- yoloRequested/yoloExecuted/yoloBusySkipped (scheduler metrics)
+- yoloFps (YOLO throughput reale)
+- yoloAvgMs/yoloMinMs/yoloMaxMs (inference time)
+- yoloResizeAvgMs/yoloRunAvgMs/yoloParseAvgMs (stage breakdown)
+
+**Output esempio:**
+```
+[PERF][1s] cam=30.0 recv=30 proc=30 drop=0 frameAvg=2.1ms frameMax=3.5ms yolo=10.0 exec=10/10 busySkip=0 yoloAvg=48.2ms min=46.5 max=51.3 resize=1.7 run=38.9 parse=7.6
+```
 
 ### P1 - Architettura (Formalizzata)
 
@@ -1146,6 +1164,39 @@ Note: Non è vero "tracking", è "best-confidence locking" per camera stabile
 - Tempo inferenza: ~47-48ms (run=38-39ms + resize/parse)
 - req/exec: 321/321, 302/302, 316/316 (perfetto 1:1)
 
+#### P2-2: ✅ Test Baseline Camera (YOLO OFF)
+**Eseguito:** Test baseline con YOLO OFF, MoveNet OFF, Overlay OFF.
+
+**Risultati:**
+```
+Camera:        ~30–31 FPS (stabile per tutta la sessione)
+recv:          ~30–31/s
+processed:     0
+droppedBusy:   0–1
+YOLO:          0 (fps=0, req/exec=0/0, run=0)
+MoveNet:       0 (fps=0, req/exec=0/0, run=0)
+Tracking:      29 (stabile)
+```
+
+**Conclusione:** La camera/frame pipeline di base NON degrada da sola. Il modello viene caricato ma non eseguito. Il baseline è sano. Questo elimina l'ipotesi che il problema sia nella camera/VisionCamera stessa.
+
+#### P2-3: ✅ Test YOLO Isolato
+**Eseguito:** Test con YOLO ON, MoveNet OFF, Overlay OFF.
+
+**Risultati:**
+```
+Camera:        7–20 FPS (molto instabile, range: 7-20)
+recv:          7–20/s
+processed:     5–8 per intervallo
+droppedBusy:   0–5 (aumento rispetto al baseline)
+YOLO:          10–20 FPS (avg ~48-49ms inference time)
+YOLO req/exec: 368/368 (100% eseguite)
+MoveNet:       0 (fps=0, req/exec=0/0, run=0)
+Tracking:      6–21 (variabile)
+```
+
+**Conclusione:** YOLO CAUSA IL DAGRADO DELLA CAMERA. Con YOLO attivo, la camera FPS scende da 30-31 (baseline) a 7-20 FPS, con forte instabilità.
+
 **⚠️ NOTA IMPORTANTE: Metrica YOLO FPS Fuorviante**
 La metrica "YOLO 20-21 FPS stabile" calcolata da `telemetry.ts` è fuorviante:
 ```typescript
@@ -1154,51 +1205,104 @@ const fps = 1000 / avgMs
 ```
 Questo calcola FPS come `1000 / media dei tempi di inferenza`, non il throughput istantaneo. Inoltre conserva fino a 300 campioni, quindi se i tempi degradano progressivamente (47ms → 100ms → 150ms), la console può ancora mostrare 20.5 FPS perché sta mediando anche i campioni precedenti. Questa metrica non è sufficiente per dimostrare che YOLO sia stabile durante il degrado della camera.
 
-**Problema identificato:** Camera FPS degradation
-- Inizio: camFPS=17.0 recv=17 proc=8
-- Mezzo: camFPS=30.0 recv=30 proc=6 drop=6
-- Fine: camFPS=5.0 recv=5 proc=5
-- Ultimo: camFPS=6.0 recv=6 proc=5 drop=1
+**DIAGNOSI AGGIORNATA DOPO TEST 1 (Ottobre 2026):**
 
-**🔴 DIAGNOSI CORRETTA:**
-La metrica camera viene calcolata come `perfFramesReceived.value / 1.0`, dove `perfFramesReceived` viene incrementato all'ingresso di `onFrame`. Quando vediamo `cameraFPS = 5-6`, significa realmente che solo 5-6 callback `onFrame` stanno arrivando in quel secondo. Non è semplicemente un problema dell'overlay o del contatore FPS della UI - è un segnale molto serio che il frame processor è bloccato.
-
-**Problema architetturale: runSync() dentro onFrame**
-La pipeline attuale:
+**Risultati TEST 1 - YOLO isolato con telemetria 1s:**
 ```
-useFrameOutput.onFrame()
-        │
-        ├── YOLO scheduler
-        │
-        ├── yoloWorker.processFrame()
-        │       │
-        │       ├── resize
-        │       ├── getPixelBuffer
-        │       ├── Float32Array
-        │       ├── runSync()   ← BLOCCANTE
-        │       └── parsing
-        │
-        ├── MoveNet
-        │
-        └── frame.dispose()
+Finestra | Camera FPS | frameAvg | YOLO avg | YOLO run | YOLO max
+1        | 11.6 FPS   | 70.9 ms  | 42.4 ms  | 34.1 ms  | 64.4 ms
+2        | 8.2 FPS    | 103.8 ms | 38.9 ms  | 30.4 ms  | 49.6 ms
+3        | 9.8 FPS    | 88.7 ms  | 40.8 ms  | 31.2 ms  | 50.0 ms
+4        | 8.7 FPS    | 90.5 ms  | 58.0 ms  | 46.1 ms  | 94.4 ms
 ```
-`runSync()` viene eseguito direttamente nel frame-processing worklet. Con il benchmark attuale:
-- YOLO run: ~38-39 ms
-- resize + parse: ~8-10 ms
-- **Totale: ~47-48 ms**
 
-A 30 FPS la finestra disponibile è 33.3 ms. Abbiamo quindi:
-- YOLO pipeline: ~48 ms
-- Camera budget: ~33 ms
+**Scoperta Critica 1: YOLO non è costante**
+L'ipotesi precedente "YOLO ≈ 48 ms costanti" è **INCORRETTA**. Il tempo YOLO varia significativamente:
+- Finestre 1-3: 30-34 ms (run avg)
+- Finestra 4: 46 ms (run avg) con picchi a 94 ms
 
-Prima ancora di considerare MoveNet, tracking, bridge e rendering, il sistema è già sotto pressione.
+Questo indica un secondo fenomeno: YOLO degrada nel tempo.
 
-**Sospetti principali (in ordine di priorità):**
-1. **🔴 YOLO runSync() dentro onFrame** - Problema architetturale concreto
-2. **🔴 YOLO GPU + MoveNet GPU contention** - Due modelli competono per le stesse risorse hardware
-3. **🔴 console.log DEV nel percorso caldo** - Troppi log nel percorso critico in development build
-4. **🟠 MoveNet CPU crop** - Contribuisce, ma non sembra sufficiente da solo
-5. **🟠 scheduleOnRN/JS congestion** - Da misurare
+**Scoperta Critica 2: onFrame costa molto più di YOLO**
+```
+Finestra 1: 70.9 - 42.4 ≈ 28.5 ms (non-YOLO)
+Finestra 2: 103.8 - 38.9 ≈ 64.9 ms (non-YOLO)
+Finestra 3: 88.7 - 40.8 ≈ 47.9 ms (non-YOLO)
+Finestra 4: 90.5 - 58.0 ≈ 32.5 ms (non-YOLO)
+```
+Il callback onFrame non sta spendendo tutto il suo tempo in YOLO. C'è un secondo blocco significativo di ~30-50+ ms fuori da runSync().
+
+**Architettura reale del collo di bottiglia:**
+```
+onFrame (70-104 ms totali)
+   │
+   ├── preprocessing
+   │
+   ├── YOLO runSync
+   │      ~30-46 ms (variabile)
+   │
+   ├── parsing
+   │      ~7-10 ms
+   │
+   ├── tracking
+   │
+   ├── player crop / geometry
+   │
+   ├── ball tracking
+   │
+   ├── scheduler
+   │
+   └── altra elaborazione
+          ~30-50+ ms ← NUOVO BOTTLENECK IDENTIFICATO
+```
+
+**Scoperta Critica 3: Il frame processor non riesce a garantire il ritmo**
+Timer desiderato: 66.7 ms (15 FPS target)
+Tempo effettivo osservato: 70, 86, 96, 105, 122, 126, 132, 136, 167, 184 ms
+
+Il problema non è solo "YOLO è lento" - è che il frame processor stesso non riesce più a garantire il ritmo necessario.
+
+**Scoperta Critica 4: Post-processing molto attivo**
+```
+[YOLO][BALL] frames=209 detected=209
+[YOLO][PLAYER] frames=9 detected=177
+[PLAYER CROP] Rejected large jump (0.52, 0.55, 0.57)
+Force accepting after 3 consecutive rejects
+```
+Il pipeline di post-processing è molto attivo e sta reagendo a detection instabili.
+
+**Scoperta Critica 5: Metrica YOLO 21.8 FPS fuorviante**
+```
+[PERF][YOLO] fps=21.8 avg=45.8ms  ← MEDIA CUMULATIVA (fuorviante)
+[PERF][1s] yolo=4.9 yoloAvg=58.0ms  ← THROUGHPUT REALE (corretto)
+```
+Bisogna usare sempre la telemetria finestra 1s per diagnostiche reali.
+
+**Scoperta Critica 6: Scheduler funziona correttamente**
+```
+busySkip=0
+exec=5/5, 5/6, 5/6, 5/5
+```
+Non c'è una coda infinita di richieste YOLO. Il scheduler sta effettivamente limitando le esecuzioni.
+
+**Nuova Diagnosi (3 Cause):**
+
+**Causa 1 - Confermata:**
+runSync() è sincrono dentro onFrame e costa 30-46 ms con picchi fino a 94 ms.
+
+**Causa 2 - Molto Probabile (DA ISOLARE):**
+Il resto di onFrame costa altri 30-50+ ms (tracking, post-processing, scheduler, ecc.).
+
+**Causa 3 - Da Verificare:**
+Il tempo di runSync() stesso aumenta nel tempo (34→30→31→46 ms, max 64→49→50→94 ms). Possibili cause:
+- Thermal throttling GPU/CPU
+- GPU/CPU contention
+- Pressione memoria
+- Effetto delle operazioni successive a YOLO
+- Combinazione dei precedenti
+
+**Importante: Non fare ancora il worker separato**
+Spostare YOLO su un thread separato rimane sensato, ma non è sufficiente. Anche se spostassimo YOLO fuori da onFrame, rimarrebbe da capire cosa genera i 70-104 ms di frameAvg. Bisogna prima profilare il resto.
 
 **⚠️ Float32Array NON è la causa primaria**
 Nel codice attuale YOLO fa:
@@ -1269,60 +1373,98 @@ Tracking:      6–21 (variabile)
 ```
 
 **Conclusione TEST B:**
-YOLO CAUSA IL DAGRADO DELLA CAMERA. Con YOLO attivo, la camera FPS scende da 30-31 (baseline) a 7-20 FPS, con forte instabilità. L'inference time di YOLO è stabile (~ms), ma l'esecuzione sincrona di YOLO nel frame processor blocca la pipeline, causando droppedBusy e degrado della camera. Questo conferma che il problema è nel percorso YOLO/frame processor, specificamente nell'interazione tra runSync() e onFrame().
+YOLO CAUSA IL DAGRADO DELLA CAMERA. Con YOLO attivo, la camera FPS scende da 30-31 (baseline) a 7-20 FPS, con forte instabilità.
 
-**FIX ARCHITETTURALE IMPLEMENTATO (v2 - YOLO Frequency Reduction):**
-L'approccio `scheduleOnRN` è fallito a causa delle limitazioni dei worklet di React Native (le funzioni `useCallback` sono "bound" e non accettate da `scheduleOnRN`).
+**TELEMETRIA DIAGNOSTICA 1s IMPLEMENTATA:**
+Nuova telemetria finestra 1s implementata in `telemetry.ts` con `DiagnosticWindowSnapshot` che misura per ogni secondo:
+- windowMs (durata finestra)
+- cameraFps (FPS reale camera)
+- received/processed/droppedBusy (frame counts)
+- onFrameAvgMs/onFrameMaxMs (durata onFrame)
+- yoloRequested/yoloExecuted/yoloBusySkipped (scheduler metrics)
+- yoloFps (YOLO throughput reale)
+- yoloAvgMs/yoloMinMs/yoloMaxMs (inference time)
+- yoloResizeAvgMs/yoloRunAvgMs/yoloParseAvgMs (stage breakdown)
 
-Ho implementato una fix alternativa pragmatica: ridurre la frequenza YOLO a 15 FPS mentre la camera rimane a 30 FPS.
-
-**Risultati TEST B-v2 (YOLO 15 FPS target):**
+Output esempio:
 ```
-Camera:        16-20 FPS (degradata vs baseline 30-31 FPS)
-YOLO:          ~22 FPS (BUG SCHEDULER: esegue sopra il target 15 FPS)
-YOLO avg:      45-46 ms (stabile)
-droppedBusy:   1-4 (aumento rispetto al baseline)
-```
-
-**Conclusione v2:** FAILED. La riduzione della frequenza non risolve il problema perché ogni `runSync()` continua a bloccare il percorso camera per ~45-46 ms.
-
-**FIX ARCHITETTURALE IMPLEMENTATO (v3 - YOLO 10 FPS target):**
-Ridotto ulteriormente il target YOLO a 10 FPS per verificare se frequenza più bassa permette alla camera di mantenere ~30 FPS.
-
-**Risultati TEST B-v3 (YOLO 10 FPS target):**
-```
-Camera:        15-34 FPS (variabile, picchi a 34 FPS ma instabile)
-YOLO:          ~21 FPS (BUG SCHEDULER: esegue sopra il target 10 FPS)
-YOLO avg:      47-48 ms (stabile)
-droppedBusy:   1-5 (aumento rispetto al baseline)
+[PERF][1s] cam=30.0 recv=30 proc=30 drop=0 frameAvg=2.1ms frameMax=3.5ms yolo=10.0 exec=10/10 busySkip=0 yoloAvg=48.2ms min=46.5 max=51.3 resize=1.7 run=38.9 parse=7.6
 ```
 
-**Conclusione v3:** FAILED. Anche con target 10 FPS:
-1. **Bug scheduler persiste:** YOLO esegue a ~21 FPS con target 10 FPS (stesso problema v2)
-2. **Camera degrada:** Anche con frequenza ridotta, `runSync()` blocca il thread per ~47-48 ms
-3. **Problema architetturale confermato:** Ridurre la frequenza non è una soluzione efficace
+**PIANO DI TEST AGGIORNATO (con telemetria 1s):**
 
-**CONCLUSIONE FINALE:**
-Il problema è puramente architetturale: `runSync()` blocca il frame processor per ~47-48 ms, superando il budget di 33.3 ms/frame a 30 FPS. Nessuna riduzione di frequenza (15 FPS, 10 FPS, o anche 5 FPS) risolverà il problema perché ogni inferenza monopolizza la pipeline.
+**TEST 1 - YOLO isolato, telemetria dettagliata (DEV)** ✅ COMPLETATO
+- YOLO ON
+- MoveNet OFF
+- Overlay OFF
+- Debug OFF
+- Obiettivo: Misurare correlazione tra camera throughput e tempo reale inferenza YOLO durante degrado progressivo
+- Durata: 60+ secondi
+- Metriche chiave: [PERF][1s] log per vedere se yoloAvgMs rimane stabile o aumenta durante degrado
+- **Risultati:** Vedi sezione "DIAGNOSI AGGIORNATA DOPO TEST 1" sopra
+- **Scoperte chiave:**
+  - YOLO non è costante (30-46 ms con picchi a 94 ms)
+  - onFrame costa 70-104 ms totali (30-50+ ms fuori da YOLO)
+  - Metrica YOLO 21.8 FPS fuorviante (usare telemetria 1s)
+  - Scheduler funziona correttamente (busySkip=0)
 
-**Soluzione richiesta:** Isolare veramente il consumer YOLO dalla pipeline camera in modo che `runSync()` non blocchi `onFrame()`. Questo richiede un'architettura di worker thread o queue system separato dal frame processor worklet.
+**TEST 1A - Stesso test senza logging hot path (✅ IMPLEMENTATO)**
+- Stesso modello: best_384_float16.tflite
+- YOLO ON
+- MoveNet ON (secondo TEST_CONFIG)
+- Stesso scheduler
+- Stesso workout
+- Stesso dispositivo
+- Stessa durata (60+ secondi)
+- **Modifica implementata:** Disabilitato tutti i log frequenti/per-frame tramite flag TEST_1A_DISABLE_HOT_PATH_LOGS = true
+  - [PERF][1s] (telemetria diagnostica) - MANTENUTO
+  - [PIPELINE] (log pipeline) - MANTENUTO
+- Log disabilitati (implementati in useShotTracker.ts, yoloParserFloat16.ts, usePlayerCropManager.ts):
+  - YOLO PARSER RAW/PARSED
+  - YOLO SCORE DIAGNOSTIC
+  - YOLO HUMAN BEST
+  - PLAYER CROP
+  - ShotTracker Rejected rim
+  - YOLO SCHEDULER
+- Obiettivo: Capire quanto del tempo extra (~32 ms/frame) viene da logging/post-processing vs altro lavoro
+- **Stato:** Implementato e pronto per test
 
-**TEST C (MoveNet isolato)**
+**Interpretazione risultati TEST 1A:**
+| Risultato | Interpretazione |
+|-----------|---------------|
+| frameAvg scende molto, YOLO resta ~40-50 ms | logging/post-processing è una parte importante del problema |
+| frameAvg resta ~80-100 ms, YOLO ~40-50 ms | c'è altro lavoro dentro onFrame |
+| YOLO continua a passare da ~40 → ~60+ ms | possibile degrado reale di inference/CPU/thermal throttling |
+| tutto migliora e resta stabile | il problema era principalmente overhead del percorso diagnostico/logging |
+
+**Nota:** Questo approccio è meno invasivo rispetto a disabilitare post-tracking e può rivelare rapidamente se il logging è una causa significativa. Il flag è stato implementato in tre file principali: useShotTracker.ts, yoloParserFloat16.ts, usePlayerCropManager.ts.
+
+**TEST 2 - Stesso identico test in Release**
+- Configurazione identica a TEST 1
+- Obiettivo: Eliminare console.log come variabile (molti log __DEV__ nel percorso caldo)
+- Durata: 60+ secondi
+
+**TEST 3 - YOLO OFF (Baseline)**
+- YOLO OFF
+- MoveNet OFF
+- Overlay OFF
+- Obiettivo: Confermare baseline camera ~30 FPS stabile per tutta durata workout
+- Già praticamente dimostrato nei test precedenti
+
+**TEST 4 - MoveNet isolato**
 - YOLO OFF
 - MoveNet ON
 - Overlay OFF
+- Obiettivo: Verificare se esiste un secondo problema indipendente da YOLO
 - Particolarmente importante per verificare il nuovo crop MoveNet
 
-**TEST D (Combinazione)**
+**TEST 5 - YOLO + MoveNet (combinazione)**
 - YOLO ON
 - MoveNet ON
 - Overlay OFF
+- Obiettivo: Verificare interazione tra i due consumer
+- Solo dopo aver completato TEST 1-4
 - Se A/B/C sono relativamente stabili e D degrada → combinazione YOLO GPU + MoveNet GPU è il principale sospetto
-
-**TEST E (Release build)**
-- Stesso TEST B, ma in release build, non development
-- Perché adesso abbiamo troppi `if (__DEV__) { console.log(...) }` nel percorso critico
-- Se DEV: 30→18→10→5 e RELEASE: 30→29→28→27 → abbiamo trovato immediatamente una grossa parte del problema
 
 ### Note Aggiuntive
 
@@ -1641,6 +1783,7 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 | Pose parser [y,x,score] | ✅ | Corretto |
 | Stati DETECTED/PREDICTED/LOST | ✅ | Implementati |
 | Telemetria | ✅ | Ampiamente implementata |
+| Telemetria diagnostica finestra 1s | ✅ | DiagnosticWindowSnapshot implementato |
 | TelemetryOverlay FPS range dinamico | ✅ | Calcolato da minMs/maxMs in tempo reale |
 | TelemetryOverlay usage minutes | ✅ | Aggiornato con dipendenza useEffect |
 | YOLO scheduling basato su intervallo | ✅ | YOLO_FRAME_SKIP rimosso |
@@ -1652,15 +1795,36 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 | Risoluzione camera | ✅ | Allineata a 1280×720 |
 | Log debug dimensioni buffer | ✅ | Aggiunto per verifica runtime |
 | Test req/exec=1:1 | ✅ | Confermato con best_384 |
-| Camera FPS degradation | ⚠️ | Problema identificato, investigazione in corso |
+| TEST_CONFIG centralizzato | ✅ | Implementato in appConfig.ts |
+| TEST 1 (YOLO isolato) | ✅ | Completato - Diagnosi aggiornata con 6 scoperte critiche |
+| TEST 1A (Senza logging hot path) | ✅ | Implementato - Flag TEST_1A_DISABLE_HOT_PATH_LOGS in 3 file, pronto per esecuzione |
+| TEST B-v3 (YOLO 10 FPS) | ❌ | FALLITO - Camera 9-13 FPS, ridurre frequenza non risolve il problema |
+| Camera FPS degradation | ⚠️ | Diagnosi aggiornata: correzione architetturale necessaria (separazione producer/consumer) |
+| Camera zoom refactoring | ✅ | Completato - Pinch-to-zoom implementato in WorkoutSessionScreen |
 
-**Percentuale completamento architettura:** ~85%
+**Percentuale completamento architettura:** ~88%
 
-**Rimanenti:**
-- Investigare causa camera FPS degradation (5-6 FPS sotto carico)
-- Test effettivo pose detection con crop corretto (richiede esecuzione app)
+**Rimanenti (priorità alta):**
+- **Implementare correzione architetturale PRIORITÀ 1 (PROSSIMO STEP)**
+  - Separare producer camera dal consumer YOLO
+  - onFrame() deve limitarsi a catturare/schedulare il lavoro
+  - Non deve eseguire direttamente runSync()
+  - Usare meccanismo latest-frame-wins
+  - Obiettivo: Camera 30 FPS indipendente da YOLO 10-15 FPS
+- **Correggere telemetria PRIORITÀ 3**
+  - Distinguere YOLO latency vs throughput reale
+  - Aggiungere: YOLO completed/sec, YOLO requested/sec, YOLO skipped
+  - Rimuovere campo YOLO fps fuorviante (1000 / avgInferenceTime)
+- TEST 2: Stesso test in Release build (eliminare console.log DEV)
+- TEST 3: YOLO OFF (baseline)
+- TEST 4: MoveNet isolato
+- TEST 5: YOLO + MoveNet (combinazione)
+
+**Rimanenti (priorità media):**
+- Test effettivo pose detection con crop reale (richiede esecuzione app)
 - Valutazione se riabilitare adaptive performance dopo debugging
-- Correggere YOLO_MODEL_TIERS in useAdaptivePerformance per includere 448 e 384
+- Correggere YOLO_MODEL_TIERS in useAdaptivePerformance per includere 448 e 384 (priorità alta prima di riabilitare)
+- Verificare aggiornamento FPS range dinamico in TelemetryOverlay durante esecuzione app
 
 ### Configurazione Globale
 
@@ -1681,14 +1845,26 @@ export const CAMERA_CONFIG = {
   DEFAULT_RESOLUTION: { width: 1280, height: 720 },
   DEFAULT_FPS: 30,
   DEFAULT_POSE_RESOLUTION: 192,
-  DEFAULT_ZOOM: 1,
-  MIN_RESOLUTION: { width: 1280, height: 720 },
+  MIN_RESOLUTION: { width: 640, height: 360 }, // Minimum acceptable resolution for workout sessions (allows 360p for smaller YOLO models)
 } as const
 
 export const COURT_CONFIG = {
   WIDTH_M: 15.24,      // 50 feet
   HEIGHT_M: 28.65,     // 94 feet
   HOOP_Y_M: 1.575,     // 10 feet
+} as const
+
+export const TEST_CONFIG = {
+  // TEST B-v3: YOLO isolato con target 10 FPS (DEV)
+  // Obiettivo: Verificare se riducendo la frequenza YOLO a 10 FPS, l'architettura sincrona attuale riesce a mantenere la camera a 30 FPS
+  // Se sì: workaround temporaneo utilizzabile
+  // Se no: passare direttamente alla correzione architetturale (separazione producer/consumer)
+  ENABLE_YOLO: true,
+  ENABLE_MOVENET: false, // Disabilitato per isolare YOLO
+  ENABLE_TELEMETRY_OVERLAY: false, // Disabilitato per ridurre rumore
+  ENABLE_DEBUG_OVERLAY: false, // Disabilitato per ridurre rumore
+  // YOLO target FPS: 10 = throttling a 10 FPS per testare se questo evita camera degradation
+  YOLO_TARGET_FPS: 10,
 } as const
 ```
 
@@ -1727,6 +1903,13 @@ Per debug sul campo, ogni oggetto tracciato ha uno stato visuale esplicito:
 - Mezzo: camFPS=30.0 recv=30 proc=6 drop=6
 - Fine: camFPS=5.0 recv=5 proc=5
 - Ultimo: camFPS=6.0 recv=6 proc=5 drop=1
+
+**TEST 1A - Hot Path Logging Disabilitato:**
+- Flag TEST_1A_DISABLE_HOT_PATH_LOGS implementato in useShotTracker.ts, yoloParserFloat16.ts, usePlayerCropManager.ts
+- Log disabilitati: YOLO PARSER RAW/PARSED, YOLO SCORE DIAGNOSTIC, YOLO HUMAN BEST, PLAYER CROP, ShotTracker Rejected rim, YOLO SCHEDULER
+- Log mantenuti: [PERF][1s] (telemetria diagnostica), [PIPELINE] (log pipeline)
+- Obiettivo: Determinare quanto del tempo extra (~32 ms/frame) viene da logging/post-processing vs altro lavoro
+- Stato: Implementato e pronto per esecuzione
 
 **🔴 DIAGNOSI CORRETTA:**
 La metrica camera viene calcolata come `perfFramesReceived.value / 1.0`, dove `perfFramesReceived` viene incrementato all'ingresso di `onFrame`. Quando vediamo `cameraFPS = 5-6`, significa realmente che solo 5-6 callback `onFrame` stanno arrivando in quel secondo.
@@ -2055,14 +2238,12 @@ Keypoints trasformati (crop → frame space)
 
 **Stato implementazione:**
 - ❌ Sistema adaptive performance esistente ma TEMPORARILY DISABLED in `useShotTracker.ts`
-- ❌ Collegamento adaptive model al worker YOLO disabilitato
+- ❌ Model switching completamente disabilitato (righe 264-268, 270-277 commentate in useAdaptivePerformance.ts)
+- ❌ Solo FPS scaling parzialmente attivo (solo scaleUpFps() chiamato, scaleDownFps() attivo)
 - ❌ Adaptive FPS NON collegato alla camera (limitazione API VisionCamera V5)
 
-**Approccio attuale**:
-- YOLO viene eseguito su ogni frame (senza throttling basato su `isReady`)
-- Sistema adattivo monitora le performance YOLO e scala il modello dinamicamente (DISABILITATO)
-- Modello YOLO scalato automaticamente: 640 → 512 → 320 (se performance scarse) - DISABILITATO
-- Sistema completamente bidirezionale: scala down quando performance scarse, scala up quando performance buone - DISABILITATO
+**Motivo disabilitazione:**
+Il sistema è stato disabilitato per isolare il problema di camera FPS degradation. Il model switching dinamico può causare problemi di compatibilità GPU su alcuni dispositivi (es. Galaxy S21 Ultra) e complicare la diagnosi del problema attuale.
 
 **YOLO_MODEL_TIERS in useAdaptivePerformance.ts**:
 ```typescript
@@ -2075,7 +2256,7 @@ const YOLO_MODEL_TIERS: YoloModelConfig[] = [
 
 **Nota:** La ladder in useAdaptivePerformance non include best_448_float16 e best_384_float16, mentre yoloModels.ts ha la lista completa.
 
-**Architettura**:
+**Architettura (quando attivo):**
 ```
 YOLO Execution (ogni frame)
     ↓
@@ -2086,9 +2267,11 @@ Performance Metrics (window 3s)
 evaluateAndAdapt (ogni 100 frame)
     ↓
 Se performance scarse:
-    scaleDownModel() → 640→512→320
+    scaleDownFps() → 30→24→20→15
+    scaleDownModel() → 640→512→320 (DISABILITATO)
 Se performance buone:
-    scaleUpModel() → 320→512→640
+    scaleUpModel() → 320→512→640 (DISABILITATO)
+    scaleUpFps() → 15→20→24→30
 ```
 
 **Thresholds (percentuali rispetto al target FPS corrente)**:
@@ -2107,6 +2290,7 @@ Se performance buone:
   - Scala su se YOLO FPS >= 28.5 (30 * 0.95)
 
 **Shared Values**:
+- `currentFps`: FPS target corrente
 - `currentModelIndex`: Indice del modello YOLO corrente
 - `perfWindowStart`, `perfYoloFpsSum`, `perfYoloFpsCount`: Metriche performance
 - `perfFramesProcessed`, `perfFramesFailed`, `perfInferenceTimeSum`: Statistiche esecuzione
@@ -2114,20 +2298,10 @@ Se performance buone:
 **Limitazione Adaptive FPS:**
 VisionCamera V5 non supporta FPS dinamico tramite `useFrameOutput`. Il FPS è configurato a livello di `Camera` session, non del frame output. Per implementare FPS dinamico sarebbe necessario ricreare l'intera sessione camera quando FPS cambia, che è un cambiamento architetturale significativo.
 
-**Warning: Adaptive Performance Incoerenza**
-Il sistema adaptive performance prova prima a scalare l'FPS (30→24→20→15) prima di scalare il modello. Poiché l'FPS non è collegato alla camera, lo stato interno cambia ma l'hardware continua a 30 FPS. Solo quando arriva al minimo FPS, il sistema scala il modello. Questo crea un'incoerenza tra stato interno e carico reale.
-
-**ATTUALMENTE DISABILITATO**: Questo problema non è più presente poiché adaptive performance è completamente disabilitato.
-
-**Warning: YOLO Actual FPS vs Requested FPS**
-YOLO viene richiesto su ogni frame (30 FPS), ma l'actual FPS dipende dal tempo di inferenza. Con `isProcessing` che previene esecuzione concorrente, se YOLO impiega ~70ms, l'actual FPS sarà ~14 FPS, non 30 FPS. Molte richieste vengono ignorate perché `isProcessing=true`. La documentazione dovrebbe distinguere tra YOLO invocation (every frame) e YOLO actual inference FPS (measured).
-
 **Note importanti**:
 - Il sistema usa solo SharedValues per comunicazione worklet-JS (no `scheduleOnRN` nei worklet)
 - L'adattamento del modello è completamente automatico e trasparente per l'utente (QUANDO ATTIVO)
-- Il sistema garantisce che YOLO venga sempre eseguito su ogni frame
-- Il modello viene scalato automaticamente in base alle performance YOLO (QUANDO ATTIVO)
-- **ATTUALMENTE DISABILITATO**: Tutti i riferimenti a adaptive performance sono commentati in useShotTracker.ts
+- **ATTUALMENTE DISABILITATO**: Tutti i riferimenti a adaptive performance sono commentati in useShotTracker.ts e useAdaptivePerformance.ts
 
 ## Future Improvements
 
@@ -2213,7 +2387,7 @@ Il test ha rivelato che il problema non è la risoluzione 416 in sé, ma il camb
 
 **Trade-off**: Pose meno fluida ma miglioramento camera FPS.
 
-### 3. Modello YOLO Migliorato per Player Detection
+### 4. Modello YOLO Migliorato per Player Detection
 
 **Problema attuale**: Il modello `best_512_float16.tflite` produce confidence player basse (0.05-0.12).
 
@@ -2222,13 +2396,30 @@ Il test ha rivelato che il problema non è la risoluzione 416 in sé, ma il camb
 2. Utilizzare un modello separato per person detection (es. COCO)
 3. Valutare un modello YOLO diverso addestrato specificamente per persone
 
-### 4. Adaptive FPS Camera (Richiede Redesign)
+### 5. Adaptive FPS Camera (Richiede Redesign)
 
 **Limitazione**: VisionCamera V5 non supporta FPS dinamico tramite `useFrameOutput`.
 
 **Soluzione richiesta**: Ricreare l'intera sessione camera quando FPS cambia.
 
 **Impatto**: Cambiamento architetturale significativo che richiede valutazione costi/benefici.
+
+### 6. Correzione YOLO_MODEL_TIERS in useAdaptivePerformance
+
+**Problema**: La ladder in useAdaptivePerformance non include best_448_float16 e best_384_float16, mentre yoloModels.ts ha la lista completa.
+
+**Soluzione richiesta**: Aggiornare YOLO_MODEL_TIERS per includere tutti i modelli disponibili:
+```typescript
+const YOLO_MODEL_TIERS: YoloModelConfig[] = [
+  YOLO_MODELS.find(m => m.id === 'best_640_float16')!,
+  YOLO_MODELS.find(m => m.id === 'best_512_float16')!,
+  YOLO_MODELS.find(m => m.id === 'best_448_float16')!, // DA AGGIUNGERE
+  YOLO_MODELS.find(m => m.id === 'best_384_float16')!, // DA AGGIUNGERE
+  YOLO_MODELS.find(m => m.id === 'best_320_float16')!,
+].filter(Boolean)
+```
+
+**Priorità**: Alta - deve essere fatto prima di riabilitare adaptive performance.
 
 ## Debug e Telemetria
 
@@ -2304,6 +2495,7 @@ La pipeline di vision attuale è funzionalmente completa con:
 - ✅ Kalman prediction durante gap YOLO
 - ✅ Configurazione centralizzata
 - ✅ Telemetria completa con TelemetryLogger dettagliato
+- ✅ Telemetria diagnostica finestra 1s implementata (DiagnosticWindowSnapshot)
 - ✅ Debug overlay dettagliato
 - ✅ Stati visuali espliciti per debug sul campo
 - ✅ YOLO schedulato basato su intervallo (YOLO_FRAME_SKIP rimosso)
@@ -2314,46 +2506,58 @@ La pipeline di vision attuale è funzionalmente completa con:
 - ✅ TelemetryOverlay con FPS range dinamico calcolato in tempo reale
 - ✅ TelemetryOverlay con usage minutes aggiornato correttamente
 - ✅ Logging migliorato per debug FPS range e usage minutes
+- ✅ TEST_CONFIG centralizzato in appConfig.ts per test piano
 
-**Stato completamento architettura:** ~87%
+**Stato completamento architettura:** ~88%
 
-**Problema attuale:** Camera FPS degradation
-- Test recente ha mostrato camera FPS degradata a 5-6 FPS sotto carico
-- ⚠️ Metrica YOLO 20-21 FPS è fuorviante (media, non throughput istantaneo)
-- 🔴 Causa principale: runSync() bloccante dentro onFrame (48ms in budget di 33ms)
-- 🔴 Sospetto forte: YOLO GPU + MoveNet GPU contention
-- 🔴 Problema: troppi console.log DEV nel percorso caldo
-- Prossimi passi: eseguire piano di test A-E per isolare la causa
+**Problema attuale:** Camera FPS degradation (DIAGNOSI AGGIORNATA DOPO TEST B-v3)
+- TEST 1 ha mostrato camera FPS degradata a 8-12 FPS sotto carico
+- TEST B-v3 (YOLO 10 FPS) ha mostrato camera FPS 9-13 FPS - FALLITO
+- ⚠️ Metrica YOLO fps=21.3 è fuorviante (calcolato come 1000 / 46.8ms, ma throughput effettivo è 4 esecuzioni/sec)
+- 🔴 Causa 1 (confermata): runSync() bloccante dentro onFrame (39-41 ms)
+- 🔴 Causa 2 (confermata): frameAvg supera budget di 3x (83.9-91.9 ms vs 33.3 ms)
+- 🔴 Causa 3 (confermata): frameMax 158.6-181.7 ms
+- 🔴 Causa 4 (confermata): ridurre frequenza YOLO non risolve il problema (feedback negativo: onFrame rallenta → camera delivery scende)
+- ✅ Costo YOLO scomposto: resize ≈ 1.7 ms, run ≈ 39-41 ms, parse ≈ 5.6-5.9 ms
+- ✅ Scheduler funziona correttamente (busySkip=0, nessuna coda infinita)
+- ✅ TEST 1A implementato con hot path logging disabilitato
+- ✅ TEST B-v3 completato - conclusione: passare a correzione architetturale
+- Prossimo passo: Implementare correzione architetturale PRIORITÀ 1 (separazione producer/consumer)
 
 Il collo di bottiglia principale (crop CPU ~92ms) è stato ottimizzato a ~5-10ms tramite resize intermedio 640×360. MoveNet ora riceve il crop player reale invece del full-frame, migliorando significativamente la qualità della pose detection.
 
-**Rimanenti:**
-- Eseguire piano di test A-E per isolare causa camera FPS degradation (priorità alta)
-- Implementare telemetria throughput reale per finestra di 1 secondo (vedi proposta sotto)
-- Rimuovere/ridurre console.log DEV nel percorso caldo per benchmark seri
-- Valutare architettura alternativa per runSync() (es. spostare fuori onFrame)
+**Rimanenti (priorità alta):**
+- **Implementare correzione architetturale PRIORITÀ 1 (PROSSIMO STEP)**
+  - Separare producer camera dal consumer YOLO
+  - onFrame() deve limitarsi a catturare/schedulare il lavoro
+  - Non deve eseguire direttamente runSync()
+  - Usare meccanismo latest-frame-wins
+  - Obiettivo: Camera 30 FPS indipendente da YOLO 10-15 FPS
+- **Correggere telemetria PRIORITÀ 3**
+  - Distinguere YOLO latency vs throughput reale
+  - Aggiungere: YOLO completed/sec, YOLO requested/sec, YOLO skipped
+  - Rimuovere campo YOLO fps fuorviante (1000 / avgInferenceTime)
+- TEST 2: Stesso test in Release build (eliminare console.log DEV)
+- TEST 3: YOLO OFF (baseline)
+- TEST 4: MoveNet isolato
+- TEST 5: YOLO + MoveNet (combinazione)
+
+**Rimanenti (priorità media):**
 - Test effettivo pose detection con crop reale (richiede esecuzione app)
 - Valutazione se riabilitare adaptive performance dopo debugging
-- Correggere YOLO_MODEL_TIERS in useAdaptivePerformance per includere 448 e 384
+- Correggere YOLO_MODEL_TIERS in useAdaptivePerformance per includere 448 e 384 (priorità alta prima di riabilitare)
 - Verificare aggiornamento FPS range dinamico in TelemetryOverlay durante esecuzione app
 
-### Proposta: Telemetria Throughput Reale
+**Telemetria Throughput Reale (IMPLEMENTATA):**
+La telemetria finestra 1s è stata implementata in `telemetry.ts` con `DiagnosticWindowSnapshot`. Questa fornisce:
+- cameraFps (FPS reale camera)
+- yoloFps (YOLO throughput reale)
+- yoloAvgMs/yoloMinMs/yoloMaxMs (inference time)
+- yoloResizeAvgMs/yoloRunAvgMs/yoloParseAvgMs (stage breakdown)
 
-**Problema attuale:**
-La metrica YOLO FPS attuale (`1000 / avgInferenceTime`) non rappresenta il throughput istantaneo.
-
-**Soluzione proposta:**
-Registrare throughput reale per finestra di 1 secondo, allineato temporalmente con cameraFPS:
+Output esempio:
 ```
-sec 1: camera 30 / YOLO 20 / MoveNet 3
-sec 2: camera 27 / YOLO 19 / MoveNet 3
-sec 3: camera 18 / YOLO 13 / MoveNet 3
-sec 4: camera 7  / YOLO 6  / MoveNet 2
+[PERF][1s] cam=30.0 recv=30 proc=30 drop=0 frameAvg=2.1ms frameMax=3.5ms yolo=10.0 exec=10/10 busySkip=0 yoloAvg=48.2ms min=46.5 max=51.3 resize=1.7 run=38.9 parse=7.6
 ```
-Solo così potremo diagnosticare il degrado senza ambiguità.
 
-**Implementazione:**
-- Contare esecuzioni YOLO effettive per finestra di 1 secondo
-- Contare esecuzioni MoveNet effettive per finestra di 1 secondi
-- Allineare temporalmente con cameraFPS (già calcolato per finestra di 1 secondo)
-- Mostrare in TelemetryOverlay come "Throughput (last 1s)"
+Questo permette di diagnosticare il degrado senza ambiguità correlando camera throughput con tempo reale inferenza YOLO.

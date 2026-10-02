@@ -6,6 +6,26 @@ export interface ModelMetadata {
   delegate: string
 }
 
+export interface DiagnosticWindowSnapshot {
+  windowMs: number
+  cameraFps: number
+  received: number
+  processed: number
+  droppedBusy: number
+  onFrameAvgMs: number
+  onFrameMaxMs: number
+  yoloRequested: number
+  yoloExecuted: number
+  yoloBusySkipped: number
+  yoloFps: number
+  yoloAvgMs: number
+  yoloMinMs: number
+  yoloMaxMs: number
+  yoloResizeAvgMs: number
+  yoloRunAvgMs: number
+  yoloParseAvgMs: number
+}
+
 export interface YoloPerfMetrics {
   fps: number
   avgMs: number
@@ -177,6 +197,31 @@ class TelemetryLogger {
   private ballPrediction: number = 0
   private ballTrackingExpired: number = 0
   private ballPredictionAgeMs: number[] = []
+
+  private diagnosticWindows: DiagnosticWindowSnapshot[] = []
+
+  recordDiagnosticWindow(snapshot: DiagnosticWindowSnapshot): void {
+    this.diagnosticWindows.push(snapshot)
+    if (this.diagnosticWindows.length > 120) {
+      this.diagnosticWindows.shift()
+    }
+
+    console.log(
+      '[PERF][1s]',
+      `cam=${snapshot.cameraFps.toFixed(1)} ` +
+      `recv=${snapshot.received} proc=${snapshot.processed} drop=${snapshot.droppedBusy} ` +
+      `frameAvg=${snapshot.onFrameAvgMs.toFixed(1)}ms frameMax=${snapshot.onFrameMaxMs.toFixed(1)}ms ` +
+      `yolo=${snapshot.yoloFps.toFixed(1)} exec=${snapshot.yoloExecuted}/${snapshot.yoloRequested} ` +
+      `busySkip=${snapshot.yoloBusySkipped} ` +
+      `yoloAvg=${snapshot.yoloAvgMs.toFixed(1)}ms ` +
+      `min=${snapshot.yoloMinMs.toFixed(1)} max=${snapshot.yoloMaxMs.toFixed(1)} ` +
+      `resize=${snapshot.yoloResizeAvgMs.toFixed(1)} run=${snapshot.yoloRunAvgMs.toFixed(1)} parse=${snapshot.yoloParseAvgMs.toFixed(1)}`
+    )
+  }
+
+  getDiagnosticWindows(): DiagnosticWindowSnapshot[] {
+    return [...this.diagnosticWindows]
+  }
 
   logModelMetadata(metadata: ModelMetadata): void {
     this.modelMetadata = metadata
@@ -813,6 +858,7 @@ Current=${summary.battery.endLevel}%
 
   reset(): void {
     this.modelMetadata = null
+    this.diagnosticWindows = []
     this.yoloInferenceTimes = []
     this.ballDetections = []
     this.playerDetections = []

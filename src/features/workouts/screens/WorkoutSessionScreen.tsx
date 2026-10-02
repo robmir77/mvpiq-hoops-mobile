@@ -10,6 +10,7 @@ import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, Animated, Easing, Platform,
 } from 'react-native'
+import { GestureHandlerRootView, PinchGestureHandler, State } from 'react-native-gesture-handler'
 import { captureRef } from 'react-native-view-shot'
 import * as MediaLibrary from 'expo-media-library/legacy'
 import {
@@ -1308,7 +1309,18 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 )
 
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, zoom, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
+    const { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
+    console.log('[WorkoutSession] Received params from route.params:', {
+        sessionId,
+        cameraMode,
+        selectedResolution,
+        selectedFps,
+        selectedPoseResolution,
+        yoloDelegate,
+        poseDelegate,
+        yoloModelId,
+        moveNetModelId,
+    })
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1323,7 +1335,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const effectivePoseResolution = selectedPoseResolution ?? CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION
     const [effectiveYoloModelId, setEffectiveYoloModelId] = useState(yoloModelId ?? DEFAULT_YOLO_MODEL_ID)
     const effectiveMoveNetModelId = moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID
-    const effectiveZoom = zoom ?? CAMERA_CONFIG.DEFAULT_ZOOM
 
     const constraints = React.useMemo(
         () => [{ fps: effectiveFps }],
@@ -1358,6 +1369,30 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [usageMinutes, setUsageMinutes] = useState(0)
     const cameraViewRef = useRef<View>(null)
     const usageMinutesTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+    // Zoom state for pinch-to-zoom
+    const [zoom, setZoom] = useState(1)
+    const [baseZoom, setBaseZoom] = useState(1)
+    const [isZooming, setIsZooming] = useState(false)
+
+    const onPinchGestureEvent = (event: any) => {
+        if (event.nativeEvent.scale !== undefined) {
+            const minZoom = device?.minZoom ?? 1
+            const maxZoom = device?.maxZoom ?? 5
+            const newZoom = Math.max(minZoom, Math.min(maxZoom, baseZoom * event.nativeEvent.scale))
+            setZoom(newZoom)
+        }
+    }
+
+    const onPinchHandlerStateChange = (event: any) => {
+        if (event.nativeEvent.state === State.BEGAN) {
+            setBaseZoom(zoom)
+            setIsZooming(true)
+        } else if (event.nativeEvent.state === State.END) {
+            setBaseZoom(zoom)
+            setIsZooming(false)
+        }
+    }
 
     // Sync effectiveFps with adaptive FPS from useAdaptivePerformance
     useEffect(() => {
@@ -1773,6 +1808,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [trackingState?.ballPosition, trackingState?.ballVelocity])
 
     // useCameraPipeline integration
+    console.log('[WorkoutSession] Calling useCameraPipeline with params:', {
+        selectedResolution: effectiveResolution,
+        selectedFps: effectiveFps,
+        selectedPoseResolution: effectivePoseResolution,
+        yoloModelId: effectiveYoloModelId,
+        moveNetModelId: effectiveMoveNetModelId,
+        yoloDelegate,
+        poseDelegate,
+    })
     const {
         device,
         hasPermission,
@@ -1784,7 +1828,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         resetShotTracking,
         yoloFps,
         moveNetFps,
-        currentFps,
         currentModelId,
         sharedValues: pipelineSharedValues,
     } = useCameraPipeline(
@@ -1823,16 +1866,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             }
         }
     }, [pipelineSharedValues, tracking])
-
-    // Update adaptive FPS from SharedValue (avoid reading .value during render)
-    useEffect(() => {
-        if (currentFps) {
-            const interval = setInterval(() => {
-                setAdaptiveFps(currentFps.value)
-            }, 500) // Update every 500ms
-            return () => clearInterval(interval)
-        }
-    }, [currentFps])
 
     // Update FPS metrics every second from worker SharedValues
     useEffect(() => {
@@ -2019,7 +2052,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const elbowAngle  = jointAngles.elbowAngle != null ? `${jointAngles.elbowAngle.toFixed(0)}°` : '—'
 
     return (
-        <View style={styles.container}>
+        <GestureHandlerRootView style={styles.container}>
             <View style={styles.header}>
                 <View style={styles.headerTop}>
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
@@ -2081,100 +2114,113 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             </View>
 
             <View style={{ height: CAMERA_H, position: 'relative' }} ref={cameraViewRef} collapsable={false}>
-                <Camera
-                    ref={cameraRef}
-                    style={StyleSheet.absoluteFill}
-                    device={device}
-                    isActive={isActive && !isPaused}
-                    outputs={[frameOutput]}
-                    zoom={isActive && !isPaused ? effectiveZoom : undefined}
-                    resizeMode="cover"
-                    constraints={constraints}
-                    onError={(error: any) => {
-                        if (error.code === 'session/invalid-output-configuration') {
-                            console.log('[WorkoutSession] Camera session error - remounting')
-                            setIsActive(false)
-                            setTimeout(() => setIsActive(true), 500)
-                        }
-                    }}
-                />
+                <PinchGestureHandler
+                    onGestureEvent={onPinchGestureEvent}
+                    onHandlerStateChange={onPinchHandlerStateChange}
+                >
+                    <View style={{ flex: 1 }}>
+                        <Camera
+                            ref={cameraRef}
+                            style={StyleSheet.absoluteFill}
+                            device={device}
+                            isActive={isActive && !isPaused}
+                            outputs={[frameOutput]}
+                            zoom={isActive && !isPaused ? zoom : undefined}
+                            resizeMode="cover"
+                            constraints={constraints}
+                            onError={(error: any) => {
+                                if (error.code === 'session/invalid-output-configuration') {
+                                    console.log('[WorkoutSession] Camera session error - remounting')
+                                    setIsActive(false)
+                                    setTimeout(() => setIsActive(true), 500)
+                                }
+                            }}
+                        />
 
-                {/* Visual indicator for active video session recording */}
-                {isVideoRecording && (
-                    <View style={styles.recBanner} pointerEvents="none">
-                        <View style={styles.recDotPulsing} />
-                        <Text style={styles.recBannerText}>🔴 REC {formatVideoDuration(videoDuration)}</Text>
+                        {/* Visual indicator for active video session recording */}
+                        {isVideoRecording && (
+                            <View style={styles.recBanner} pointerEvents="none">
+                                <View style={styles.recDotPulsing} />
+                                <Text style={styles.recBannerText}>🔴 REC {formatVideoDuration(videoDuration)}</Text>
+                            </View>
+                        )}
+
+                        {/* Realtime Ball Overlay (pure Skia, 30/60 FPS) */}
+                        <RealtimeBallOverlay
+                            sharedValues={sharedValues}
+                            effectiveResolution={effectiveResolution}
+                            poseKeypoints={poseKeypoints}
+                        />
+
+                        {/* React Overlay (badges, debug, 2-5 Hz) */}
+                        <ReactOverlay
+                            trackingState={trackingState}
+                            poseKeypoints={poseKeypoints}
+                            jointAngles={jointAngles}
+                            releaseAngle={trackingState?.releaseAngle}
+                            arcHeight={trackingState?.releasePoint && trackingState?.apexPoint
+                                ? trackingState.releasePoint.y - trackingState.apexPoint.y
+                                : undefined}
+                            calibration={calibration}
+                            sharedValues={sharedValues}
+                            fpsMetrics={fpsMetrics}
+                            effectiveResolution={effectiveResolution}
+                            showDebug={debugMode}
+                            rimFromDetection={rimFromDetection}
+                            cameraMode={cameraMode}
+                        />
+
+                        {/* Adaptive FPS overlay */}
+                        {fpsMetrics && (
+                            <View pointerEvents="none" style={{
+                                position: 'absolute',
+                                top: 10,
+                                right: 10,
+                                backgroundColor: 'rgba(0,0,0,0.7)',
+                                padding: 8,
+                                borderRadius: 8,
+                            }}>
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>📊 FPS</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {adaptiveFps}</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
+                                <Text style={{ color: '#9ca3af', fontSize: 8 }}>Model: {effectiveYoloModelId}</Text>
+                            </View>
+                        )}
+
+                        {/* Telemetry overlay */}
+                        <TelemetryOverlay
+                            visible={showTelemetry}
+                            onClose={() => setShowTelemetry(false)}
+                            yoloFps={fpsMetrics.yoloFps}
+                            moveNetFps={fpsMetrics.moveNetFps}
+                            debugMode={debugMode}
+                            cameraConfig={{
+                                resolution: effectiveResolution,
+                                fps: effectiveFps,
+                            }}
+                            modelConfig={{
+                                yoloModel: effectiveYoloModelId,
+                                moveNetModel: effectiveMoveNetModelId,
+                                moveNetResolution: effectivePoseResolution,
+                                fpsMin: getYoloModel(effectiveYoloModelId)?.fpsMin,
+                                fpsMax: getYoloModel(effectiveYoloModelId)?.fpsMax,
+                                epochs: getYoloModel(effectiveYoloModelId)?.epochs,
+                                usageMinutes: usageMinutes,
+                            }}
+                        />
+
+                        <View style={styles.guideH} pointerEvents="none" />
+                        <View style={styles.guideV} pointerEvents="none" />
+
+                        {/* Zoom indicator overlay */}
+                        {isZooming && (
+                            <View style={styles.zoomIndicator} pointerEvents="none">
+                                <Text style={styles.zoomIndicatorText}>{Math.round(zoom * 100)}%</Text>
+                            </View>
+                        )}
                     </View>
-                )}
-
-                {/* Realtime Ball Overlay (pure Skia, 30/60 FPS) */}
-                <RealtimeBallOverlay
-                    sharedValues={sharedValues}
-                    effectiveResolution={effectiveResolution}
-                    poseKeypoints={poseKeypoints}
-                />
-
-                {/* React Overlay (badges, debug, 2-5 Hz) */}
-                <ReactOverlay
-                    trackingState={trackingState}
-                    poseKeypoints={poseKeypoints}
-                    jointAngles={jointAngles}
-                    releaseAngle={trackingState?.releaseAngle}
-                    arcHeight={trackingState?.releasePoint && trackingState?.apexPoint
-                        ? trackingState.releasePoint.y - trackingState.apexPoint.y
-                        : undefined}
-                    calibration={calibration}
-                    sharedValues={sharedValues}
-                    fpsMetrics={fpsMetrics}
-                    effectiveResolution={effectiveResolution}
-                    showDebug={debugMode}
-                    rimFromDetection={rimFromDetection}
-                    cameraMode={cameraMode}
-                />
-
-                {/* Adaptive FPS overlay */}
-                {fpsMetrics && (
-                    <View pointerEvents="none" style={{
-                        position: 'absolute',
-                        top: 10,
-                        right: 10,
-                        backgroundColor: 'rgba(0,0,0,0.7)',
-                        padding: 8,
-                        borderRadius: 8,
-                    }}>
-                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>📊 FPS</Text>
-                        <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {adaptiveFps}</Text>
-                        <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
-                        <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
-                        <Text style={{ color: '#9ca3af', fontSize: 8 }}>Model: {effectiveYoloModelId}</Text>
-                    </View>
-                )}
-
-                {/* Telemetry overlay */}
-                <TelemetryOverlay
-                    visible={showTelemetry}
-                    onClose={() => setShowTelemetry(false)}
-                    yoloFps={fpsMetrics.yoloFps}
-                    moveNetFps={fpsMetrics.moveNetFps}
-                    debugMode={debugMode}
-                    cameraConfig={{
-                        resolution: effectiveResolution,
-                        fps: effectiveFps,
-                        zoom: effectiveZoom,
-                    }}
-                    modelConfig={{
-                        yoloModel: effectiveYoloModelId,
-                        moveNetModel: effectiveMoveNetModelId,
-                        moveNetResolution: effectivePoseResolution,
-                        fpsMin: getYoloModel(effectiveYoloModelId)?.fpsMin,
-                        fpsMax: getYoloModel(effectiveYoloModelId)?.fpsMax,
-                        epochs: getYoloModel(effectiveYoloModelId)?.epochs,
-                        usageMinutes: usageMinutes,
-                    }}
-                />
-
-                <View style={styles.guideH} pointerEvents="none" />
-                <View style={styles.guideV} pointerEvents="none" />
+                </PinchGestureHandler>
 
                 <View style={styles.trackingBadge} pointerEvents="none">
                     <>
@@ -2277,7 +2323,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 </View>
             </View>
             <CustomAlert {...alert} />
-        </View>
+        </GestureHandlerRootView>
     )
 }
 
@@ -2370,4 +2416,8 @@ const styles = StyleSheet.create({
     permDesc:          { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
     permBtn:           { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
     permBtnText:       { color: '#fff', fontWeight: '700', fontSize: 16 },
+    zoomIndicator:     { position: 'absolute', top: 20, left: 20,
+                         backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 12, paddingVertical: 8,
+                         borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' },
+    zoomIndicatorText: { color: '#fff', fontSize: 18, fontWeight: '700' },
 })

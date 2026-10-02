@@ -85,8 +85,13 @@ const makeSquareCrop = (
 export const useMoveNetWorker = (
   enabled: boolean = true,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
-  moveNetModelId?: string
+  moveNetModelId?: string,
 ) => {
+  console.log('[useMoveNetWorker] Received params:', {
+    enabled,
+    poseDelegate,
+    moveNetModelId,
+  })
   const latestResultKeypoints = useSharedValue<any>(null)
   const latestResultAngles = useSharedValue<any>(null)
   const latestResultTimestamp = useSharedValue(0)
@@ -207,7 +212,7 @@ export const useMoveNetWorker = (
           console.log('[POSE TRANSFORM DEBUG] frame size:', `${frameWidth}x${frameHeight}`)
           console.log('[POSE TRANSFORM DEBUG] raw keypoint:', `${sampleKey}= x=${keypoints[sampleKey]!.x.toFixed(3)} y=${keypoints[sampleKey]!.y.toFixed(3)}`)
         }
-        
+
         // PoseKeypoints is an object with named properties, not an array
         // Transform from square crop space (with padding) back to frame space
         finalKeypoints = {} as PoseKeypoints
@@ -218,19 +223,22 @@ export const useMoveNetWorker = (
             const squareCropX = cropInfo.squareCropX || 0
             const squareCropY = cropInfo.squareCropY || 0
             const squareCropSize = cropInfo.squareCropSize || cropRegion.cropWidth
-            
+
             const pixelX = squareCropX + keypoints[key]!.x * squareCropSize
             const pixelY = squareCropY + keypoints[key]!.y * squareCropSize
-            
+
             // Then: normalize to frame space
+            const normalizedX = pixelX / frameWidth
+            const normalizedY = pixelY / frameHeight
+
             finalKeypoints[key] = {
               ...keypoints[key]!,
-              x: pixelX / frameWidth,
-              y: pixelY / frameHeight,
+              x: normalizedX,
+              y: normalizedY,
             }
           }
         }
-        
+
         if (__DEV__ && sampleKey && finalKeypoints[sampleKey]) {
           console.log('[POSE TRANSFORM DEBUG] transformed keypoint:', `${sampleKey}= x=${finalKeypoints[sampleKey]!.x.toFixed(3)} y=${finalKeypoints[sampleKey]!.y.toFixed(3)}`)
         }

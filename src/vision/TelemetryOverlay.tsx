@@ -18,7 +18,6 @@ interface TelemetryOverlayProps {
   cameraConfig?: {
     resolution?: { width: number; height: number }
     fps?: number
-    zoom?: number
   }
   modelConfig?: {
     yoloModel?: string
@@ -252,10 +251,6 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               <View style={styles.row}>
                 <Text style={styles.label}>FPS:</Text>
                 <Text style={styles.value}>{cameraConfig?.fps ?? 'N/A'}</Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Zoom:</Text>
-                <Text style={styles.value}>{cameraConfig?.zoom ? `${cameraConfig.zoom.toFixed(1)}x` : 'N/A'}</Text>
               </View>
             </View>
 

@@ -35,10 +35,9 @@ export default function WorkoutSetupScreen({ navigation }: any) {
             showSuccess('Sessione creata', 'Allenamento avviato con successo')
 
             // Naviga alla schermata di calibrazione con parametri di configurazione
-            navigation.navigate('Calibration', {
+            const calibrationParams = {
                 sessionId: session.id,
                 cameraMode,
-                zoom: 1, // Default zoom
                 selectedResolution: null, // Will use device default
                 selectedFps: null, // Will use device default
                 selectedPoseResolution: 192, // Default pose resolution
@@ -46,7 +45,9 @@ export default function WorkoutSetupScreen({ navigation }: any) {
                 poseDelegate: null, // Will use default
                 yoloModelId: null, // Will use default
                 moveNetModelId: null, // Will use default
-            })
+            }
+            console.log('[WorkoutSetup] Navigating to Calibration with params:', calibrationParams)
+            navigation.navigate('Calibration', calibrationParams)
         } catch (error: any) {
             console.error('Errore creazione sessione:', error)
             console.error('Response data:', error?.response?.data)
