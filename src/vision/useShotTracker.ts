@@ -1016,6 +1016,25 @@ export const useShotTracker = (
                         trackedBbox !== null &&
                         (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
 
+                    // Log MoveNet scheduling conditions (DEV only)
+                    if (__DEV__) {
+                        const moveNetReasons = []
+                        if (!poseEnabledShared.value) moveNetReasons.push('poseDisabled')
+                        if (timeSinceLastMoveNet < MOVENET_INTERVAL_MS) moveNetReasons.push(`tooSoon (${timeSinceLastMoveNet.toFixed(0)}ms)`)
+                        if (trackedBbox === null) moveNetReasons.push('noBbox')
+                        else if ((trackedBbox.bbox.confidence ?? 0) < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) moveNetReasons.push(`lowConf (${(trackedBbox.bbox.confidence ?? 0).toFixed(3)})`)
+                        
+                        if (moveNetDue) {
+                            console.log('[MoveNet] EXECUTING', { 
+                                timeSince: timeSinceLastMoveNet.toFixed(0), 
+                                bboxConf: trackedBbox?.bbox.confidence?.toFixed(3),
+                                isUsingLast: trackedBbox?.isUsingLastBbox
+                            })
+                        } else if (poseEnabledShared.value && timeSinceLastMoveNet >= MOVENET_INTERVAL_MS) {
+                            console.log('[MoveNet] SKIPPED', { reasons: moveNetReasons, trackedBbox })
+                        }
+                    }
+
                     // YOLO: explicit scheduler - only run when not busy and scheduled time reached
                     // Use TEST_CONFIG.YOLO_TARGET_FPS to reduce blocking time (camera stays at 30 FPS, YOLO at 10 FPS for TEST B-v3)
                     const yoloTargetFps = TEST_CONFIG.YOLO_TARGET_FPS || 15
@@ -1085,10 +1104,10 @@ export const useShotTracker = (
                         
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
-                        // PERFORMANCE TEST: disabled logging to reduce bridge overhead
-                        // if (__DEV__) {
-                        //     console.log('[PlayerCrop] currentPlayer (raw YOLO):', currentPlayer)
-                        // }
+                        // Log player detection for MoveNet debugging
+                        if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+                            console.log('[PlayerCrop] currentPlayer (raw YOLO):', currentPlayer)
+                        }
                         if (currentPlayer) {
                             playerCrop.update({
                                 x: currentPlayer.x,

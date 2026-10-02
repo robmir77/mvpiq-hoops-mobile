@@ -657,7 +657,7 @@ export const useMoveNetWorker = (
 
           if (__DEV__) {
             console.log(
-              '[MoveNet CROP] CPU crop applied=',
+              '[MoveNet CROP] CPU crop APPLIED=',
               `intermediate=${intermediateWidth}x${intermediateHeight} `,
               `crop=${Math.round(scaledCropX)},${Math.round(scaledCropY)},${Math.round(scaledCropWidth)}x${Math.round(scaledCropHeight)} `,
               `cropTime=${(tCropCpuEnd - tCropCpuStart).toFixed(2)}ms`
@@ -667,6 +667,9 @@ export const useMoveNetWorker = (
           // Fallback: resize from intermediate to final size using CPU
           // This happens when no valid crop region is available
           usingPlayerCrop = false
+          if (__DEV__) {
+            console.log('[MoveNet CROP] FALLBACK to FULL FRAME - cropRegion=', cropRegion ? 'EXISTS' : 'NULL', 'bufferMatch=', floatSource.length === intermediateWidth * intermediateHeight * 3)
+          }
 
           const tResizeCpuStart = performance.now()
 

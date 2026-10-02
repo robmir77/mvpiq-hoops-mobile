@@ -50,8 +50,8 @@ export const TEST_CONFIG = {
   // Se sì: workaround temporaneo utilizzabile
   // Se no: passare direttamente alla correzione architetturale (separazione producer/consumer)
   ENABLE_YOLO: true,
-  ENABLE_MOVENET: false,
-  ENABLE_TELEMETRY_OVERLAY: false,
+  ENABLE_MOVENET: true,
+  ENABLE_TELEMETRY_OVERLAY: true,
   ENABLE_DEBUG_OVERLAY: false,
   // YOLO target FPS (separate from camera FPS to reduce blocking time)
   // Camera stays at 30 FPS, YOLO runs at 10 FPS to reduce average blocking time
