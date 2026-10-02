@@ -45,13 +45,14 @@ export const COURT_CONFIG = {
 // Test Configuration for Camera FPS Degradation Investigation
 // See ARCHITECTURE_CHANGE.md - Performance Analysis section for test plan
 export const TEST_CONFIG = {
-  // TEST 1: YOLO isolato con telemetria 1s (DEV)
-  // Obiettivo: Misurare correlazione tra camera throughput e tempo reale inferenza YOLO durante degrado progressivo
+  // TEST B-v3: YOLO isolato con target 10 FPS (DEV)
+  // Obiettivo: Verificare se riducendo la frequenza YOLO a 10 FPS, l'architettura sincrona attuale riesce a mantenere la camera a 30 FPS
+  // Se sì: workaround temporaneo utilizzabile
+  // Se no: passare direttamente alla correzione architetturale (separazione producer/consumer)
   ENABLE_YOLO: true,
-  ENABLE_MOVENET: true,
-  ENABLE_TELEMETRY_OVERLAY: true,
-  ENABLE_DEBUG_OVERLAY: true,
-  // YOLO target FPS: undefined = no throttling, run on every frame to observe natural degradation
-  // This allows us to see the true correlation between camera FPS and YOLO inference time
-  YOLO_TARGET_FPS: undefined,
+  ENABLE_MOVENET: false, // Disabilitato per isolare YOLO
+  ENABLE_TELEMETRY_OVERLAY: false, // Disabilitato per ridurre rumore
+  ENABLE_DEBUG_OVERLAY: false, // Disabilitato per ridurre rumore
+  // YOLO target FPS: 10 = throttling a 10 FPS per testare se questo evita camera degradation
+  YOLO_TARGET_FPS: 10,
 } as const;
