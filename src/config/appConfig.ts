@@ -53,9 +53,4 @@ export const TEST_CONFIG = {
   ENABLE_MOVENET: true,
   ENABLE_TELEMETRY_OVERLAY: true,
   ENABLE_DEBUG_OVERLAY: false,
-  // YOLO target FPS (separate from camera FPS to reduce blocking time)
-  // Camera stays at 30 FPS, YOLO runs at 10 FPS to reduce average blocking time
-  // v2 (15 FPS) still caused camera degradation to 16-20 FPS
-  // v3 (10 FPS) - testing if lower frequency allows camera to maintain 30 FPS
-  YOLO_TARGET_FPS: 15,
 } as const;

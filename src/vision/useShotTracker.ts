@@ -1036,8 +1036,8 @@ export const useShotTracker = (
                     }
 
                     // YOLO: explicit scheduler - only run when not busy and scheduled time reached
-                    // Use TEST_CONFIG.YOLO_TARGET_FPS to reduce blocking time (camera stays at 30 FPS, YOLO at 10 FPS for TEST B-v3)
-                    const yoloTargetFps = TEST_CONFIG.YOLO_TARGET_FPS || 15
+                    // Use camera FPS dynamically instead of fixed YOLO_TARGET_FPS
+                    const yoloTargetFps = selectedFpsShared.value || 30
                     const yoloIntervalMs = 1000 / yoloTargetFps
                     const timeSinceLastYolo = lastYoloInferenceAt.value > 0 ? nowForMoveNet - lastYoloInferenceAt.value : yoloIntervalMs
                     // Reset scheduled count when interval has passed (allows next YOLO execution)
