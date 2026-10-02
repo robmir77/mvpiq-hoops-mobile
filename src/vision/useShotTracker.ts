@@ -326,13 +326,16 @@ export const useShotTracker = (
     const lastRimConfidence = useSharedValue(0)
     const lastRimPosition = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
 
-    const detectionHistory =
-        useRef<
-            Array<{
-                confidence: number
-                timestamp: number
-            }>
-        >([])
+    // Ring buffer for detection history (avoids filter() overhead on long sessions)
+    const DETECTION_HISTORY_SIZE = 120 // ~2 seconds at 60 FPS
+    const detectionHistoryRing = useRef<
+        Array<{
+            confidence: number
+            timestamp: number
+        }>
+    >(new Array(DETECTION_HISTORY_SIZE).fill({ confidence: 0, timestamp: 0 }))
+    const detectionHistoryIndex = useRef(0)
+    const detectionHistoryCount = useRef(0)
 
     const TARGET_DETECTION_RATE = 0.15
     const ADAPTATION_WINDOW_MS = 2000
@@ -413,39 +416,47 @@ export const useShotTracker = (
 
                 const now = Date.now()
 
-                detectionHistory.current.push({
-                    confidence:
-                        ball?.confidence ?? 0,
+                // Ring buffer: overwrite at current index
+                const idx = detectionHistoryIndex.current
+                detectionHistoryRing.current[idx] = {
+                    confidence: ball?.confidence ?? 0,
                     timestamp: now,
-                })
+                }
 
-                detectionHistory.current =
-                    detectionHistory.current.filter(
-                        d =>
-                            now -
-                            d.timestamp <
-                            ADAPTATION_WINDOW_MS
-                    )
+                // Advance index (circular)
+                detectionHistoryIndex.current = (idx + 1) % DETECTION_HISTORY_SIZE
+
+                // Track count of valid entries
+                if (detectionHistoryCount.current < DETECTION_HISTORY_SIZE) {
+                    detectionHistoryCount.current++
+                }
 
                 if (
                     now -
                     lastAdjustmentTs.current >
                     ADAPTATION_WINDOW_MS &&
-                    detectionHistory.current.length >
+                    detectionHistoryCount.current >
                     10
                 ) {
 
                     lastAdjustmentTs.current =
                         now
 
-                    const totalFrames =
-                        detectionHistory.current.length
+                    // Count valid entries within window using ring buffer
+                    let totalFrames = 0
+                    let framesWithDetection = 0
 
-                    // Count entries with detection (each entry represents one frame sample)
-                    const framesWithDetection =
-                        detectionHistory.current.filter(
-                            d => d.confidence > 0
-                        ).length
+                    for (let i = 0; i < detectionHistoryCount.current; i++) {
+                        const entry = detectionHistoryRing.current[i]
+                        if (now - entry.timestamp < ADAPTATION_WINDOW_MS) {
+                            totalFrames++
+                            if (entry.confidence > 0) {
+                                framesWithDetection++
+                            }
+                        }
+                    }
+
+                    if (totalFrames === 0) return
 
                     const detectionRate =
                         framesWithDetection /
@@ -832,7 +843,7 @@ export const useShotTracker = (
             []
         )
 
-    // scheduleOnRN called directly at worklet call site (no createRunOnJS needed)
+    // scheduleOnRN called directly at worklet call site
 
     // Frame processor: onFrame MUST use useCallback to prevent TypedArray/worklet binding issues
     const onFrame =
@@ -1237,6 +1248,7 @@ export const useShotTracker = (
         yoloFps: yoloWorker.fps,
         yoloThroughputFps: yoloWorker.throughputFps,
         moveNetFps: moveNetWorker.fps,
+        currentFps: useSharedValue(selectedFps || 30),
         currentModelIndex: -1, // TEMPORARILY DISABLED: adaptiveModelIndex
         exportTelemetrySummary,
         logTelemetrySummary,

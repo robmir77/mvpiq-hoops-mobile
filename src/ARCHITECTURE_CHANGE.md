@@ -1,12 +1,899 @@
-# Vision Pipeline Architecture
+# Vision Pipeline Architecture - Async Queue Refactor
 
 ## Overview
 
 La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera per rilevare e tracciare tre oggetti chiave: la palla, il canestro e il giocatore. La pipeline è costruita su React Native Vision Camera V5 con un'architettura worklet-safe per garantire performance real-time.
 
-## Architecture Gaps & Action Plan
+## Principio Fondamentale
 
-**Stato attuale:** L'architettura direzionale è corretta (YOLO → tracking → crop player → MoveNet → pose → shot tracking), ma ci sono 10 punti strutturali da chiudere prima di considerare l'implementazione completa.
+**Il frame processor non aspetta mai il backend, React state, persistenza o telemetria JS.**
+
+Tutto ciò che può essere asincrono deve essere separato dal percorso realtime. L'obiettivo non è trasformare `runSync()` di YOLO/MoveNet in una Promise semplicemente per "renderlo async" - con react-native-fast-tflite, l'uso documentato dentro VisionCamera è proprio `runSync()` nel worklet. Il vero obiettivo è rendere asincroni i flussi che non devono bloccare il realtime, e separare il più possibile le pipeline.
+
+## Architettura Target
+
+```
+                         CAMERA
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │ Frame Processor │
+                  └────────┬────────┘
+                           │
+                 SOLO realtime/vision
+                           │
+             ┌─────────────┴─────────────┐
+             ▼                           ▼
+        YOLO / Tracking              MoveNet
+             │                           │
+             └─────────────┬─────────────┘
+                           ▼
+                    Shot Detection
+                           │
+                 ┌─────────┴─────────┐
+                 ▼                   ▼
+             SharedValues        Shot Event
+                 │                   │
+                 ▼                   ▼
+              Overlay          CRITICAL QUEUE
+                                    │
+                                    ▼
+                              Async Worker
+                                    │
+                              batch HTTP
+                                    │
+                                    ▼
+                                Backend
+
+        Telemetry ───────► TELEMETRY QUEUE
+                              │
+                         sampling/drop
+                              │
+                              ▼
+                         Async Worker
+```
+
+## Priorità di Modifica
+
+### 🔴 P0 - Critico (Immediato)
+
+1. **WorkoutSessionScreen.tsx** - Eliminare frameBatch + flush seriale
+2. **WorkoutSessionScreen.tsx** - Introdurre queue async bounded
+3. **WorkoutSessionScreen.tsx** - Sampling backend 2 Hz
+4. **workouts.api.ts** - Aggiungere `saveFrameDataBatch()`
+5. **Backend workout API** - Endpoint `/frames/batch`
+6. **telemetry.ts** - Set → contatori
+
+### 🟠 P1 - Importante (Dopo P0)
+
+7. **useShotTracker.ts** - detectionHistory → ring buffer
+8. **useShotTracker.ts** - Eliminare/rate-limitare log
+9. **useMoveNetWorker.ts** - Eliminare log per-frame
+
+### 🟢 P2 - Non Toccare (Già Corretto)
+
+10. **useYoloWorker.ts** - Mantenere runSync() per ora
+11. **useTrackingEngine.ts** - Mantenere ring buffer già presente
+12. **TelemetryOverlay.tsx** - Max ~1 Hz
+13. **usePerformanceMonitor.ts** - Mantenere 1 Hz
+
+### 🔵 P3 - Futuro (Dopo Stabilizzazione)
+
+14. **useShotTracker.ts** - Separare YOLO/MoveNet pipeline
+
+---
+
+## Dettaglio Modifiche P0
+
+### 1. WorkoutSessionScreen.tsx - Eliminare frameBatch
+
+**Problema attuale:**
+```typescript
+const frameBatch = useRef<any[]>([])
+const batchTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+
+// Ad ogni detection:
+frameBatch.current.push({
+    frameTimestamp: detection.timestamp,
+    ballX: ball?.x,
+    ballY: ball?.y,
+    // ...
+})
+
+// Flush seriale:
+const batch = [...frameBatch.current]
+frameBatch.current = []
+
+for (const frame of batch) {
+    try {
+        await saveFrameData(sid, uid, frame)
+    } catch (_) {}
+}
+```
+
+**Perché è un problema:**
+- Coda seriale: 40 frame × 100ms = 4 secondi
+- `setInterval(flushFrameBatch, 2000)` può avviare un altro flush mentre il precedente è ancora in esecuzione
+- Se hai 20 FPS e salvi quasi ogni frame, il backlog cresce progressivamente
+
+**Soluzione:** Eliminare completamente questo meccanismo.
+
+### 2. Creare workoutAsyncQueue.ts
+
+**Nuovo file:** `src/features/workouts/services/workoutAsyncQueue.ts`
+
+```typescript
+interface AsyncQueueItem<T> {
+    payload: T
+    timestamp: number
+}
+
+class BoundedQueue<T> {
+    private queue: T[] = []
+
+    constructor(
+        private readonly maxSize: number
+    ) {}
+
+    push(item: T): boolean {
+        if (this.queue.length >= this.maxSize) {
+            this.queue.shift()  // Drop oldest
+        }
+
+        this.queue.push(item)
+        return true
+    }
+
+    drain(maxItems: number): T[] {
+        return this.queue.splice(0, maxItems)
+    }
+
+    get size() {
+        return this.queue.length
+    }
+
+    clear() {
+        this.queue.length = 0
+    }
+}
+
+class WorkoutAsyncQueue {
+    private telemetry = new BoundedQueue<FrameDataPayload>(100)
+    private critical = new BoundedQueue<any>(50)
+
+    private running = false
+    private workerPromise: Promise<void> | null = null
+
+    enqueueTelemetry(payload: FrameDataPayload) {
+        this.telemetry.push({
+            payload,
+            timestamp: Date.now(),
+        })
+
+        this.ensureWorker()
+    }
+
+    enqueueCritical(payload: any) {
+        this.critical.push({
+            payload,
+            timestamp: Date.now(),
+        })
+
+        this.ensureWorker()
+    }
+
+    private ensureWorker() {
+        if (this.running) return
+
+        this.running = true
+        this.workerPromise = this.run()
+    }
+
+    private async run() {
+        try {
+            while (
+                this.critical.size > 0 ||
+                this.telemetry.size > 0
+            ) {
+                await this.flush()
+            }
+        } finally {
+            this.running = false
+            this.workerPromise = null
+
+            if (
+                this.critical.size > 0 ||
+                this.telemetry.size > 0
+            ) {
+                this.ensureWorker()
+            }
+        }
+    }
+
+    private async flush() {
+        // Process critical first, then telemetry
+        // Use batch API
+    }
+
+    async flushCritical() {
+        while (this.critical.size > 0) {
+            await this.flush()
+        }
+    }
+
+    async flushTelemetry() {
+        while (this.telemetry.size > 0) {
+            await this.flush()
+        }
+    }
+}
+```
+
+**Politica delle queue:**
+
+**Critical Queue (MAX=50):**
+- Non perde dati
+- SHOT
+- SESSION_START
+- SESSION_END
+- CALIBRATION
+
+**Telemetry Queue (MAX=100):**
+- Può perdere dati (drop oldest)
+- frame
+- FPS
+- bbox
+- pose telemetry
+- performance
+
+### 3. workouts.api.ts - Aggiungere API batch
+
+**Nuova funzione:**
+```typescript
+export const saveFrameDataBatch = async (
+    sessionId: string,
+    userId: string,
+    frames: FrameDataPayload[]
+): Promise<void> => {
+    if (frames.length === 0) return
+
+    await apiClient.post(
+        `/workouts/sessions/${sessionId}/frames/batch?userId=${userId}`,
+        {
+            frames,
+        }
+    )
+}
+```
+
+**Backend endpoint richiesto:**
+```
+POST /workouts/sessions/{id}/frames/batch
+{
+  "frames": [
+    {...},
+    {...},
+    {...}
+  ]
+}
+```
+
+**Beneficio:**
+- 40 frame → 1 POST invece di 40 POST
+- Riduzione drastica del carico HTTP
+
+### 4. Non mandare ogni frame al backend
+
+**Filosofia cambiata:**
+Il backend non ha bisogno di ricevere ogni frame YOLO.
+
+**Target:**
+- Camera: 20 FPS
+- YOLO: ~10-15 FPS
+- Tracking: realtime
+- Backend telemetry: 2 FPS
+- Shot events: 100%
+
+**Implementazione in WorkoutSessionScreen.tsx:**
+```typescript
+const lastBackendFrameTimestamp = useRef<number>(0)
+
+if (ball || rimForTracking) {
+    const now = detection.timestamp
+
+    if (now - lastBackendFrameTimestamp.current >= 500) {  // 2 Hz
+        lastBackendFrameTimestamp.current = now
+
+        workoutQueue.enqueueTelemetry({
+            frameTimestamp: now,
+            ballX: ball?.x,
+            ballY: ball?.y,
+            ballWidth: ball?.width,
+            ballHeight: ball?.height,
+            ballConfidence: ball?.confidence,
+            hoopX: rimForTracking?.x,
+            hoopY: rimForTracking?.y,
+            hoopConfidence: rimForTracking?.confidence,
+            ballVelocityX: newState.ballVelocity?.vx,
+            ballVelocityY: newState.ballVelocity?.vy,
+            shotDetected: newState.shotDetected,
+            trajectoryData: {
+                points: newState.trajectory.slice(-10),
+            },
+        })
+    }
+}
+```
+
+**Risultato:** Massimo 2 POST-worthy samples/sec invece di 15-20.
+
+### 5. handleAutoShotDetected() - Asincronia controllata
+
+**Problema attuale:**
+```typescript
+await addShotEvent(...)  // Blocca il realtime
+```
+
+**Soluzione:**
+```typescript
+// Shot detection nel realtime
+workoutQueue.enqueueCritical({
+    type: 'SHOT',
+    payload
+})
+// Ritorna immediatamente
+```
+
+**Pipeline separata:**
+```
+YOLO
+ ↓
+tracking
+ ↓
+shot detected
+ ↓
+enqueueCritical()
+ ↓
+FINE realtime
+
+queue
+ ↓
+POST /shots
+```
+
+### 6. handleManualShot() - Stesso principio
+
+**Da:**
+```typescript
+await addShotEvent(...)
+```
+
+**A:**
+```typescript
+workoutQueue.enqueueCritical({
+    type: 'SHOT',
+    payload
+})
+
+// Aggiorna UI subito
+setShotCount(...)
+setLastShotResult(...)
+// Backend aggiornato in background
+```
+
+### 7. handleEndSession() - Drain queue
+
+**Da:**
+```typescript
+await flushFrameBatch()
+```
+
+**A:**
+```typescript
+await workoutQueue.flushCritical()
+await workoutQueue.flushTelemetry()
+```
+
+**Questa è l'unica situazione in cui accetto di aspettare la queue:**
+```
+UTENTE PREME FINE
+        ↓
+stop camera
+        ↓
+drain queue
+        ↓
+end session
+```
+
+Durante il workout: **NON ASPETTARE MAI**.
+
+---
+
+## Dettaglio Modifiche P1
+
+### 8. telemetry.ts - Set → Contatori
+
+**Problema attuale:**
+```typescript
+private ballDetectionFrames: Set<number> = new Set()
+private playerDetectionFrames: Set<number> = new Set()
+private yoloProcessedFrames: Set<number> = new Set()
+```
+
+**Perché è un problema:**
+- 20 FPS × 60 minuti = 72.000 frame
+- I frame counter continuano a crescere
+- Set cresce potenzialmente all'infinito
+
+**Soluzione:**
+```typescript
+private yoloProcessedFramesCount = 0
+private ballDetectionFramesCount = 0
+private playerDetectionFramesCount = 0
+
+recordYoloProcessedFrame() {
+    this.yoloProcessedFramesCount++
+}
+
+recordBallDetection() {
+    this.ballDetectionFramesCount++
+}
+
+recordPlayerDetection() {
+    this.playerDetectionFramesCount++
+}
+```
+
+**Output:**
+```typescript
+framesWithBall: this.ballDetectionFramesCount
+```
+
+### 9. useShotTracker.ts - detectionHistory → Ring Buffer
+
+**Problema attuale:**
+```typescript
+const detectionHistory = ...
+detectionHistory.current.push(...)
+detectionHistory.current = detectionHistory.current.filter(...)
+```
+
+**Crea continuamente nuovi array.**
+
+**Soluzione:**
+```typescript
+const DETECTION_HISTORY_SIZE = 60
+
+const detectionHistory = useRef(
+    new Array(DETECTION_HISTORY_SIZE).fill(null)
+)
+
+const detectionHistoryIndex = useRef(0)
+const detectionHistoryCount = useRef(0)
+
+const addDetectionSample = (sample: DetectionSample) => {
+    detectionHistory.current[
+        detectionHistoryIndex.current
+    ] = sample
+
+    detectionHistoryIndex.current =
+        (detectionHistoryIndex.current + 1) %
+        DETECTION_HISTORY_SIZE
+
+    detectionHistoryCount.current = Math.min(
+        detectionHistoryCount.current + 1,
+        DETECTION_HISTORY_SIZE
+    )
+}
+```
+
+### 10. Eliminare/rate-limitare log
+
+**Log da eliminare o rate-limitare:**
+```typescript
+console.log('[MoveNet Throttle] Skip...')
+console.log('[YOLO SCHEDULER] Executing YOLO...')
+console.log('[BBOX FILTER] ...')
+console.log('[ShotTracker] Rejected rim detection...')
+console.log('[ShotTracker] Shot started')
+```
+
+**Soluzione:**
+```typescript
+const DEBUG_VISION = false
+
+if (DEBUG_VISION && ...) {
+    console.log(...)
+}
+```
+
+**Rate-limiting per log diagnostici:**
+```typescript
+let lastLogTime = 0
+const LOG_INTERVAL_MS = 5000
+
+if (Date.now() - lastLogTime >= LOG_INTERVAL_MS) {
+    console.log(...)
+    lastLogTime = Date.now()
+}
+```
+
+### 11. useMoveNetWorker.ts - Eliminare log per-frame
+
+**Log da rimuovere:**
+```typescript
+console.log('[MoveNet] Skip...')
+console.log('[MoveNet Throttle] Skip...')
+```
+
+**Con 20-30 FPS questi possono diventare migliaia di messaggi.**
+
+---
+
+## Dettaglio Modifiche P2 (Non Toccare)
+
+### 12. useYoloWorker.ts - Mantenere runSync()
+
+**NON trasformare in Promise:**
+```typescript
+// NON FARE:
+await yoloModelInstance.run(...)
+
+// MANTENERE:
+const outputs = yoloModelInstance!.runSync([inputBuffer])
+```
+
+**Motivo:**
+- react-native-fast-tflite documentazione per VisionCamera mostra `runSync()` nel worklet
+- Il problema vero è YOLO + MoveNet sequenziali sullo stesso thread
+- Non inventare pseudo-asincronità che sposta il carico sul JS thread
+
+### 13. useTrackingEngine.ts - Già corretto
+
+**Già implementato:**
+```typescript
+const MAX_POINTS = 90
+// trajectoryBuffer come ring buffer
+```
+
+**Mantenere così.**
+
+### 14. TelemetryOverlay.tsx - Max 1 Hz
+
+**Già corretto:**
+```typescript
+setInterval(..., ...)
+```
+
+**Mantenere a 1 Hz. Non fare telemetry UI ad ogni frame.**
+
+**Filosofia:**
+- Vision: 20 FPS
+- UI telemetry: 1 FPS
+- Backend telemetry: 1-2 FPS
+
+### 15. usePerformanceMonitor.ts - Mantenere 1 Hz
+
+**Già corretto:**
+```typescript
+setInterval(..., 1000)
+```
+
+**Mantenere solo per:**
+- YOLO FPS
+- tracking FPS
+- overlay FPS
+
+---
+
+## Dettaglio Modifiche P3 (Futuro)
+
+### 16. Separare YOLO e MoveNet
+
+**Architettura attuale:**
+```
+useShotTracker
+      │
+      └── onFrame
+            │
+            ├── YOLO
+            │
+            └── MoveNet
+```
+
+**Target:**
+```
+                  CAMERA
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+          ▼                     ▼
+     YOLO pipeline         Pose pipeline
+          │                     │
+          ▼                     ▼
+    latestPlayerBBox       latestPose
+          │                     │
+          └──────────┬──────────┘
+                     ▼
+               Tracking Engine
+```
+
+**YOLO deve produrre:**
+- latestResultPlayer
+- latestResultBall
+- latestResultRim
+
+**MoveNet legge:**
+- playerBbox (già fatto via SharedValue)
+
+**Nota:** Questa parte del codice è già predisposta:
+```typescript
+moveNetWorker.playerBbox.value = {
+    x: trackedBbox.bbox.x,
+    y: trackedBbox.bbox.y,
+    ...
+}
+```
+
+### 17. Non forzare due thread subito
+
+**Prudenza:**
+- Con react-native-fast-tflite, il modello viene utilizzato direttamente dal worklet
+- L'inferenza documentata nel frame processor è sincrona
+- Non inventare pseudo-asincronità del tipo:
+  ```typescript
+  scheduleOnRN(() => {
+     model.run(...)
+  })
+  ```
+- Rischio: spostare il carico sul JS thread, creare backlog, perdere controllo del frame
+
+**La vera parallelizzazione richiede una scelta più profonda di runtime/threading.**
+
+### 18. runOnJS vs scheduleOnRN per React State da Worklets
+
+**runOnJS (react-native-reanimated):**
+- Usare con `useAnimatedReaction`, `useAnimatedStyle`, e altre API Reanimated
+- Sintassi: `runOnJS(callback)(arg1, arg2, ...)`
+- Esempio:
+```typescript
+import { runOnJS } from 'react-native-reanimated'
+
+useAnimatedReaction(
+    () => ({ ballX: sharedValues?.ballX.value }),
+    (current) => {
+        'worklet'
+        runOnJS(updateAutoStatus)(current.ballX)
+    }
+)
+```
+
+**scheduleOnRN (react-native-worklets):**
+- Usare in worklet generici o frame processor worklet
+- Sintassi: `scheduleOnRN(callback, arg1, arg2, ...)`
+- Esempio:
+```typescript
+import { scheduleOnRN } from 'react-native-worklets'
+
+const onFrame = useCallback((frame: Frame) => {
+    'worklet'
+    // ... processing ...
+    scheduleOnRN(updateTelemetry, metrics)
+}, [])
+```
+
+**Nota:** `runOnJS` è deprecato in TypeScript ma è ancora l'API corretta per useAnimatedReaction. `scheduleOnRN` è per altri casi d'uso worklet.
+
+---
+
+## Piano di Esecuzione
+
+### Fase 1: P0 - Senza toccare ML
+
+**Obiettivo:** Verificare se il degrado dopo 5/10/20 minuti sparisce senza toccare YOLO/MoveNet.
+
+**Modifiche:**
+1. WorkoutSessionScreen - remove frameBatch
+2. WorkoutSessionScreen - AsyncQueue
+3. WorkoutSessionScreen - sampling backend 2 Hz
+4. workouts.api.ts - saveFrameDataBatch()
+5. Backend - endpoint /frames/batch
+6. telemetry.ts - Set → counters
+
+### Fase 2: P1 - Pulizia codice
+
+**Modifiche:**
+7. useShotTracker - detectionHistory → ring buffer
+8. useShotTracker - eliminare/rate-limitare log
+9. useMoveNetWorker - eliminare log per-frame
+
+### Fase 3: P3 - Separazione pipeline vision
+
+**Dopo aver stabilizzato YOLO/MoveNet/Tracking.**
+
+---
+
+## Architettura Corrente (Pre-Refactor)
+
+### Vision Pipeline Layer (useShotTracker)
+
+**Responsabilità:**
+- Camera frame acquisition tramite `useFrameOutput`
+- Reentrancy guard per prevenire elaborazioni concorrenti
+- YOLO scheduler con tre protezioni (frame guard, YOLO guard, scheduled count)
+- YOLO detection (ball, player, rim)
+- Ball/Player/Rim detection parsing e filtering
+- Player crop management (TTL 750ms, EMA smoothing, jump threshold)
+- MoveNet pose estimation (throttled a 3 FPS)
+- Kalman prediction base per ball tracking
+- Frame scheduler coordination (YOLO + MoveNet throttling)
+- Telemetry e performance monitoring
+
+**Separazione responsabilità:**
+```
+Vision Pipeline Layer (useShotTracker)
+  ↓
+Detection + Basic Tracking
+  ↓
+Basketball Intelligence Layer (useTrackingEngine)
+  ↓
+Shot Analysis + Basketball Logic
+```
+
+### Basketball Intelligence Layer (useTrackingEngine)
+
+**Responsabilità:**
+- Advanced Kalman tracking per ball position prediction
+- Ball trajectory analysis (release point, apex, descending)
+- Shot detection logic (MADE/MISS/AIRBALL classification)
+- Release point detection
+- Apex detection
+- Shot quality metrics
+- Ball state management (DETECTED/PREDICTED/LOST)
+
+### Frame Scheduler
+
+**Architettura implementata:**
+```
+                 FRAME SCHEDULER
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+        YOLO        MoveNet       Tracking
+      priority 1   priority 2    every frame
+          │            │
+      20-21 FPS       5 FPS
+```
+
+**YOLO Scheduler (implementato in useShotTracker.ts):**
+- Basato su `yoloIntervalMs` (1000 / targetFps)
+- Tre protezioni attive:
+  1. `isProcessingFrame` - previene concorrenza frame (reentrancy guard)
+  2. `yoloWorker.isProcessing` - previene concorrenza YOLO
+  3. `yoloScheduledCount` - previene doppio scheduling nello stesso intervallo
+- req/exec = 1:1 confermato nei test
+- `timeSinceLast` varia correttamente indicando scheduler funzionante
+
+**MoveNet Scheduler:**
+- Time-based throttling a 3 FPS (ogni ~333ms)
+- Eseguito solo se player bbox disponibile
+- Bottleneck JS thread riduce actual FPS a ~5 FPS
+
+### Tracking Policies
+
+**Ball Tracking Policy:**
+```
+Target: Ball
+Detection: YOLO
+Tracking: Kalman prediction
+TTL: 500 ms
+Fallback: Prediction durante gap YOLO
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+```
+
+**Player Tracking Policy:**
+```
+Target: Player
+Detection: YOLO
+Tracking: EMA smoothing
+TTL: 750 ms
+Fallback: Last bbox durante gap YOLO
+Jump threshold: 0.15 con safety net (3 rifiuti consecutivi)
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+Confidence threshold: 5%
+```
+
+**Rim Tracking Policy:**
+```
+Target: Rim
+Detection: YOLO
+Tracking: Best-confidence locking
+TTL: 500 ms
+Fallback: Calibration point
+Update rule: Aggiorna solo se confidence > lastRimConfidence
+Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+Confidence threshold: 10%
+Note: Non è vero "tracking", è "best-confidence locking" per camera stabile
+```
+
+---
+
+## Configurazione Globale
+
+Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
+
+```typescript
+export const YOLO_CONFIG = {
+  BALL_CONF_THRESHOLD: 0.005,           // 0.5%
+  PLAYER_CONF_THRESHOLD: 0.05,         // 5%
+  PLAYER_CROP_MIN_CONFIDENCE: 0.05,   // 5%
+  RIM_CONF_THRESHOLD: 0.1,            // 10%
+  NMS_IOU_THRESHOLD: 0.4,
+  PLAYER_MIN_WIDTH: 0.05,              // 5% del frame
+  PLAYER_MIN_HEIGHT: 0.1,              // 10% del frame
+} as const
+
+export const CAMERA_CONFIG = {
+  DEFAULT_RESOLUTION: { width: 1280, height: 720 },
+  DEFAULT_FPS: 30,
+  DEFAULT_POSE_RESOLUTION: 192,
+  DEFAULT_ZOOM: 1,
+  MIN_RESOLUTION: { width: 1280, height: 720 },
+} as const
+
+export const COURT_CONFIG = {
+  WIDTH_M: 15.24,      // 50 feet
+  HEIGHT_M: 28.65,     // 94 feet
+  HOOP_Y_M: 1.575,     // 10 feet
+} as const
+```
+
+---
+
+## Stato Implementazione Pre-Refactor
+
+| Componente | Stato | Note |
+|------|------|------|
+| Separazione YOLO/tracking/MoveNet | ✅ | Completata |
+| Reentrancy guard | ✅ | Implementato con isProcessingFrame |
+| YOLO scheduler | ✅ | Implementato con 3 protezioni |
+| Player tracking worklet-safe | ✅ | Implementato |
+| TTL player 750 ms | ✅ | Implementato |
+| TTL ball 500 ms / Kalman | ✅ | Implementato |
+| Jump threshold + safety net | ✅ | Implementato correttamente |
+| MoveNet throttling 3 FPS | ✅ | Implementato |
+| Crop geometrico player | ✅ | Implementato |
+| Crop effettivo immagine per MoveNet | ✅ | CPU ottimizzato (640x360 → 192x192) |
+| Adaptive performance | ❌ | Completamente disabilitato per debugging |
+
+---
+
+## Conclusione
+
+La modifica più importante è questa:
+
+**PRIMA:**
+```
+YOLO → tracking → React → frameBatch → 40 POST
+                           ↓
+                     backlog crescente
+```
+
+**DOPO:**
+```
+YOLO → tracking → SharedValues → UI
+
+             └──────→ bounded queue
+                          ↓
+                       batch
+                          ↓
+                        HTTP
+```
+
+Questa modifica agisce esattamente sul tipo di accumulo che può spiegare il fatto che il Workout sia veloce all'inizio e degradi progressivamente.
+
+**Nota importante su run() vs runSync():**
+L'attuale react-native-fast-tflite supporta `run()` asincrono a livello API, ma la documentazione per VisionCamera continua a mostrare `runSync()` nel worklet. Non userei `run()` come scorciatoia per "parallelizzare" il frame processor.
 
 ### Visione Architetturale Target
 

@@ -42,6 +42,11 @@ jest.mock('react-native-reanimated', () => ({
   runOnJS: jest.fn((fn) => fn),
 }))
 
+// Mock react-native-worklets
+jest.mock('react-native-worklets', () => ({
+  scheduleOnRN: jest.fn((fn) => fn),
+}))
+
 // Mock appConfig to avoid dynamic import errors
 jest.mock('@/config/appConfig', () => ({
   API_BASE_URL: 'http://localhost:3000',

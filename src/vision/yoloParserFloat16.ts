@@ -101,7 +101,7 @@ const STRIDES = [8, 16, 32]
 // MAX_BALL_BOX_SIZE and MAX_RIM_BOX_SIZE filters removed - trust the model's output
 
 // Parse YOLO output to BallDetection
-// This runs in the Worklet - NO runOnJS here
+// This runs in the Worklet - NO scheduleOnRN here
 // Detects both ball (cls 0) and rim (cls 2)
 // Returns the ball with highest confidence and the rim with highest confidence
 // Standard YOLOv8 TFLite format: (1, 7, num_anchors) where 7 = 4 coords + 3 class scores

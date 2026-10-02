@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import Animated, {
-    runOnJS,
     useAnimatedReaction,
     useAnimatedStyle,
 } from 'react-native-reanimated'
@@ -58,7 +57,7 @@ export function BallOverlay({
                 const dimensions = parts[1] || '0x0'
                 const size = parts[2] || 'N/A'
                 const adaptiveThreshold = parts[3] || '0.000'
-                runOnJS(setBallInfo)({ confidence, dimensions, size, adaptiveThreshold })
+                setBallInfo({ confidence, dimensions, size, adaptiveThreshold })
             }
         },
         [ballConf, ballW, ballH, ballSizeCategory, adaptiveThreshold]

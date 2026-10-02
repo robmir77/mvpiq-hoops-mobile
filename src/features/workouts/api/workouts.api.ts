@@ -118,6 +118,18 @@ export const addShotEvent = async (
     return r.data
 }
 
+export const addShotEventsBatch = async (
+    sessionId: string, userId: string, payloads: AddShotEventPayload[]
+): Promise<ShotEvent[]> => {
+    if (payloads.length === 0) return []
+    
+    const r = await apiClient.post<ShotEvent[]>(
+        `/workouts/sessions/${sessionId}/shots/batch?userId=${userId}`,
+        { shots: payloads }
+    )
+    return r.data
+}
+
 // Calibration
 // BE uses flat fields (hoopCenterX/Y), FE uses nested (hoopCenter: {x, y})
 
@@ -168,6 +180,25 @@ export const saveFrameData = async (
     try {
         await apiClient.post(
             `/workouts/sessions/${sessionId}/frames?userId=${userId}`, payload)
+    } catch {
+        // Best-effort - don't block session
+    }
+}
+
+export const saveFrameDataBatch = async (
+    sessionId: string,
+    userId: string,
+    frames: FrameDataPayload[]
+): Promise<void> => {
+    if (frames.length === 0) return
+
+    try {
+        await apiClient.post(
+            `/workouts/sessions/${sessionId}/frames/batch?userId=${userId}`,
+            {
+                frames,
+            }
+        )
     } catch {
         // Best-effort - don't block session
     }

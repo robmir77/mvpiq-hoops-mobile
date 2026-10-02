@@ -16,13 +16,13 @@ import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
-import { useAnimatedReaction, useDerivedValue, runOnJS, useAnimatedStyle } from 'react-native-reanimated'
+import { useAnimatedReaction, useDerivedValue, useAnimatedStyle, useSharedValue, runOnJS } from 'react-native-reanimated'
 import { Camera, type CameraRef } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
-import { useCameraPipeline } from '@/vision'
+import { useCameraPipeline, type CameraPipelineResult } from '@/vision'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
 import { telemetryLogger } from '@/vision/telemetry'
 import {
@@ -30,10 +30,10 @@ import {
     TrackingState, PoseKeypoints, CalibrationData, CameraMode,
 } from '../types/workouts.types'
 import {
-    getWorkoutSession, addShotEvent,
+    getWorkoutSession,
     endWorkoutSession, pauseWorkoutSession, resumeWorkoutSession,
-    saveFrameData, savePoseAnalysis,
 } from '../api/workouts.api'
+import { getWorkoutQueue, type FrameDataPayload, type CriticalPayload } from '../services/workoutAsyncQueue'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
@@ -850,6 +850,7 @@ const ReactOverlay = React.memo(({
             rimTrackAge: sharedValues?.rimTrackAge?.value,
         }),
         (current) => {
+            'worklet'
             const now = Date.now()
             if (now - lastBadgeUpdate.current > 100) {
                 lastBadgeUpdate.current = now
@@ -967,6 +968,7 @@ const ReactOverlay = React.memo(({
             rimRejectionReason: sharedValues?.rimRejectionReason?.value ?? '',
         }),
         (current) => {
+            'worklet'
             const now = Date.now()
             if (now - lastDebugUpdate.current > 500) {
                 lastDebugUpdate.current = now
@@ -1344,6 +1346,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [jointAngles, setJointAngles]     = useState<Partial<JointAngles>>({})
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
+    const modelsReadyShared = useSharedValue(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const [poseEnabled, setPoseEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_MOVENET)
     const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
@@ -1428,33 +1431,37 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const trackingConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0)
     const trackingIsActive = useDerivedValue(() => (trackingBallX.value > 0))
     
+    // React state for tracking badge text and dot color
     const [trackingBadgeText, setTrackingBadgeText] = React.useState('Cerca palla...')
     const [trackingDotActive, setTrackingDotActive] = React.useState(false)
-    const lastTrackingUpdate = React.useRef(0)
+    const [trackingDotColor, setTrackingDotColor] = React.useState('#555')
     
-    const updateTrackingBadge = React.useCallback((isActive: boolean, confidence: number) => {
-        if (isActive) {
-            setTrackingBadgeText(`🏀 ${Math.round(confidence * 100)}%`)
-            setTrackingDotActive(true)
-        } else {
-            setTrackingBadgeText(modelsReady ? 'Cerca palla...' : `Caricamento ${yoloModelName}...`)
-            setTrackingDotActive(false)
-        }
-    }, [modelsReady, yoloModelName])
+    const yoloModelNameShared = useSharedValue(yoloModelName)
     
-    useAnimatedReaction(
-        () => ({
-            isActive: trackingIsActive.value,
-            confidence: trackingConfidence.value,
-        }),
-        (current) => {
-            const now = Date.now()
-            if (now - lastTrackingUpdate.current > 150) {
-                lastTrackingUpdate.current = now
-                runOnJS(updateTrackingBadge)(current.isActive, current.confidence)
+    // Update yoloModelName shared value when it changes
+    useEffect(() => {
+        yoloModelNameShared.value = yoloModelName
+    }, [yoloModelName])
+    
+    // Update tracking badge text and dot color using useEffect (React state, not worklet)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const isActive = (sharedValues?.ballX.value ?? 0) > 0
+            const confidence = sharedValues?.confidence.value ?? 0
+            
+            if (isActive) {
+                setTrackingBadgeText(`🏀 ${Math.round(confidence * 100)}%`)
+                setTrackingDotActive(true)
+                setTrackingDotColor('#4ade80')
+            } else {
+                setTrackingBadgeText(modelsReady ? 'Cerca palla...' : `Caricamento ${yoloModelName}...`)
+                setTrackingDotActive(false)
+                setTrackingDotColor('#555')
             }
-        }
-    )
+        }, 150)
+        
+        return () => clearInterval(interval)
+    }, [modelsReady, yoloModelName, sharedValues])
     
     const [autoStatusText, setAutoStatusText] = React.useState('In attesa della palla…')
     const [autoDotActive, setAutoDotActive] = React.useState(false)
@@ -1480,6 +1487,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             inFlight: sharedValues?.inFlight.value ?? false,
         }),
         (current) => {
+            'worklet'
             const now = Date.now()
             if (now - lastAutoStatusUpdate.current > 150) {
                 lastAutoStatusUpdate.current = now
@@ -1517,9 +1525,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const secs = seconds % 60
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
     }, [])
-    const frameBatch      = useRef<any[]>([])
-    const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
     const cameraRef       = useRef<CameraRef>(null)
+    const lastBackendFrameTimestamp = useRef<number>(0)
+    const workoutQueue = getWorkoutQueue()
 
     // Performance monitoring (YOLO/MoveNet FPS from worker SharedValues)
     useEffect(() => {
@@ -1587,21 +1595,27 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
         
         if (ball || rimForTracking) {
-            frameBatch.current.push({
-                frameTimestamp:   detection.timestamp,
-                ballX:            ball ? ball.x : undefined,
-                ballY:            ball ? ball.y : undefined,
-                ballWidth:        ball ? ball.width : undefined,
-                ballHeight:       ball ? ball.height : undefined,
-                ballConfidence:   ball?.confidence,
-                hoopX:            rimForTracking ? rimForTracking.x : undefined,
-                hoopY:            rimForTracking ? rimForTracking.y : undefined,
-                hoopConfidence:   rimForTracking?.confidence,
-                ballVelocityX:    newState.ballVelocity?.vx,
-                ballVelocityY:    newState.ballVelocity?.vy,
-                shotDetected:     newState.shotDetected,
-                trajectoryData:   { points: newState.trajectory.slice(-10) },
-            })
+            const now = detection.timestamp
+            // Backend sampling: 2 Hz (max 2 POST-worthy samples/sec)
+            if (now - lastBackendFrameTimestamp.current >= 500) {
+                lastBackendFrameTimestamp.current = now
+
+                workoutQueue.enqueueTelemetry({
+                    frameTimestamp:   now,
+                    ballX:            ball ? ball.x : undefined,
+                    ballY:            ball ? ball.y : undefined,
+                    ballWidth:        ball ? ball.width : undefined,
+                    ballHeight:       ball ? ball.height : undefined,
+                    ballConfidence:   ball?.confidence,
+                    hoopX:            rimForTracking ? rimForTracking.x : undefined,
+                    hoopY:            rimForTracking ? rimForTracking.y : undefined,
+                    hoopConfidence:   rimForTracking?.confidence,
+                    ballVelocityX:    newState.ballVelocity?.vx,
+                    ballVelocityY:    newState.ballVelocity?.vy,
+                    shotDetected:     newState.shotDetected,
+                    trajectoryData:   { points: newState.trajectory.slice(-10) },
+                } as FrameDataPayload)
+            }
         }
     }, [tracking, calibration, rimFromDetection])
 
@@ -1618,25 +1632,25 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 state.ballPosition?.y ?? 0.5,
                 calibration
             )
-            const shot = await addShotEvent(sessionId, user.id, {
-                timestampMs: Date.now(), shotResult: result, ...coords,
-                releaseAngle:        metrics.releaseAngle,
-                detectionConfidence: state.confidence,
-                trackingData: JSON.stringify({
-                    autoDetected: true,
-                    arcHeight:    metrics.arcHeight,
-                    smoothness:   metrics.smoothness,
-                }),
-            })
-            if (Object.keys(jointAngles).length > 0) {
-                await savePoseAnalysis(sessionId, user.id, {
-                    shotEventId:   shot.id,
-                    ...jointAngles,
-                    releaseAngle:  metrics.releaseAngle,
-                    releaseHeight: metrics.arcHeight,
-                    shotSmoothness: metrics.smoothness,
-                })
-            }
+            
+            // Enqueue to critical queue - non-blocking
+            workoutQueue.enqueueCritical({
+                type: 'SHOT',
+                sessionId,
+                userId: user.id,
+                payload: {
+                    timestampMs: Date.now(), shotResult: result, ...coords,
+                    releaseAngle:        metrics.releaseAngle,
+                    detectionConfidence: state.confidence,
+                    trackingData: JSON.stringify({
+                        autoDetected: true,
+                        arcHeight:    metrics.arcHeight,
+                        smoothness:   metrics.smoothness,
+                    }),
+                }
+            } as CriticalPayload)
+            
+            // Update UI immediately
             setLastShotResult(result)
             setShotCount(prev => ({
                 total: prev.total + 1,
@@ -1651,7 +1665,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             resetShotTrackingRef.current?.()
         } catch (e: any) { showError('Errore tiro', e.message) }
         finally { isRecordingRef.current = false; setIsRecording(false) }
-    }, [user?.id, sessionId, tracking, calibration, jointAngles])
+    }, [user?.id, sessionId, tracking, calibration, jointAngles, workoutQueue])
 
     // Screenshot capture function
     const captureShotScreenshot = useCallback(async (shotNumber: number) => {
@@ -1844,12 +1858,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Lifecycle
     useEffect(() => {
         void loadSession()
-        batchTimer.current = setInterval(flushFrameBatch, 2000)
 
         return () => {
             isActiveRef.current = false
             setIsActive(false)
-            if (batchTimer.current) clearInterval(batchTimer.current)
         }
     }, [])
 
@@ -1857,6 +1869,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         console.log('[WorkoutSession] isModelReady:', isModelReady)
         setModelsReady(isModelReady)
+        modelsReadyShared.value = isModelReady
     }, [isModelReady])
 
     const loadSession = async () => {
@@ -1866,6 +1879,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setSession(s)
             setIsActive(true) // Activate camera when session loads
             setShotCount({ total: s.totalShots, made: s.madeShots })
+            // Set session in async queue
+            workoutQueue.setSession(sessionId, user.id)
             try {
                 const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                 const cal: CalibrationData = {
@@ -1892,17 +1907,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => { sessionIdRef.current = sessionId }, [sessionId])
     useEffect(() => { userIdRef.current    = user?.id  }, [user?.id])
 
-    const flushFrameBatch = useCallback(async () => {
-        const sid = sessionIdRef.current
-        const uid = userIdRef.current
-        if (!uid || !sid || frameBatch.current.length === 0) return
-        const batch = [...frameBatch.current]
-        frameBatch.current = []
-        // Send all frames in the batch to preserve data granularity
-        for (const frame of batch) {
-            try { await saveFrameData(sid, uid, frame) } catch (_) {}
-        }
-    }, [])
 
     const handleManualShot = async (result: ShotResult) => {
         if (!user?.id || !sessionId || isRecording) return
@@ -1922,7 +1926,16 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 trackingData: JSON.stringify({ manualEntry: true }),
             }
             console.log('[Manual Shot] Payload:', payload)
-            await addShotEvent(sessionId, user.id, payload)
+            
+            // Enqueue to critical queue - non-blocking
+            workoutQueue.enqueueCritical({
+                type: 'SHOT',
+                sessionId,
+                userId: user.id,
+                payload
+            } as CriticalPayload)
+            
+            // Update UI immediately
             setLastShotResult(result)
             setShotCount(prev => ({
                 total: prev.total + 1,
@@ -1951,7 +1964,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 if (isVideoRecordingRef.current) {
                     await stopSessionVideoRecording()
                 }
-                await flushFrameBatch()
+                await workoutQueue.flushCritical()
+                await workoutQueue.flushTelemetry()
                 
                 // Log telemetry summary before ending session
                 telemetryLogger.logTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
@@ -1961,6 +1975,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
                 
                 await endWorkoutSession(sessionId, user!.id)
+                workoutQueue.clearSession()
                 navigation.replace('ShotChart', { sessionId, fromSession: true })
             } catch (e: any) { showError('Errore', e.message) }
             finally { setIsEnding(false) }
@@ -2163,7 +2178,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
                 <View style={styles.trackingBadge} pointerEvents="none">
                     <>
-                        <View style={[styles.trackingDot, trackingDotActive && styles.trackingDotActive]} />
+                        <View style={[styles.trackingDot, { backgroundColor: trackingDotColor }]} />
                         <Text style={styles.trackingText}>
                             {trackingBadgeText}
                         </Text>

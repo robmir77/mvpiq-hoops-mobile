@@ -142,9 +142,9 @@ class TelemetryLogger {
     poseUpdates: 0,
     overlayRendered: 0,
   }
-  private ballDetectionFrames: Set<number> = new Set()
-  private playerDetectionFrames: Set<number> = new Set()
-  private yoloProcessedFrames: Set<number> = new Set()
+  private ballDetectionFramesCount: number = 0
+  private playerDetectionFramesCount: number = 0
+  private yoloProcessedFramesCount: number = 0
   private batteryMetrics: BatteryMetrics | null = null
   private deviceMetrics: DeviceMetrics | null = null
   private testStartTime: number | null = null
@@ -205,8 +205,8 @@ class TelemetryLogger {
     this.yoloExecuted++
   }
 
-  recordYoloProcessedFrame(frameCounter: number): void {
-    this.yoloProcessedFrames.add(frameCounter)
+  recordYoloProcessedFrame(): void {
+    this.yoloProcessedFramesCount++
   }
 
   recordYoloResize(resizeMs: number): void {
@@ -263,21 +263,17 @@ class TelemetryLogger {
     console.log('[PERF][YOLO]', `fps=${metrics.fps.toFixed(1)} avg=${metrics.avgMs.toFixed(1)}ms req/exec=${metrics.requested}/${metrics.executed} resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
-  recordBallDetection(confidence: number, frameCounter?: number): void {
+  recordBallDetection(confidence: number): void {
     this.ballDetections.push({ confidence, timestamp: Date.now() })
-    if (frameCounter !== undefined) {
-      this.ballDetectionFrames.add(frameCounter)
-    }
+    this.ballDetectionFramesCount++
     if (this.ballDetections.length > 600) {
       this.ballDetections.shift()
     }
   }
 
-  recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }, frameCounter?: number): void {
+  recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }): void {
     this.playerDetections.push({ confidence, bbox, timestamp: Date.now() })
-    if (frameCounter !== undefined) {
-      this.playerDetectionFrames.add(frameCounter)
-    }
+    this.playerDetectionFramesCount++
     if (this.playerDetections.length > 600) {
       this.playerDetections.shift()
     }
@@ -448,8 +444,8 @@ class TelemetryLogger {
       dropped: droppedBusy,
       dropRate: received > 0 ? (droppedBusy / received) * 100 : 0,
       yoloExecuted: this.yoloExecuted,
-      framesWithBall: this.ballDetectionFrames.size,
-      framesWithPlayer: this.playerDetectionFrames.size,
+      framesWithBall: this.ballDetectionFramesCount,
+      framesWithPlayer: this.playerDetectionFramesCount,
       trackingAccepted,
       poseUpdates: this.pipelineMetrics.poseUpdates,
       overlayRendered,
@@ -523,8 +519,8 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    const framesWithDetection = this.ballDetectionFrames.size
-    const yoloFramesProcessed = this.yoloProcessedFrames.size
+    const framesWithDetection = this.ballDetectionFramesCount
+    const yoloFramesProcessed = this.yoloProcessedFramesCount
     const detectionRate = yoloFramesProcessed > 0 ? (framesWithDetection / yoloFramesProcessed) * 100 : 0
 
     return {
@@ -576,8 +572,8 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    const framesWithDetection = this.playerDetectionFrames.size
-    const yoloFramesProcessed = this.yoloProcessedFrames.size
+    const framesWithDetection = this.playerDetectionFramesCount
+    const yoloFramesProcessed = this.yoloProcessedFramesCount
     const detectionRate = yoloFramesProcessed > 0 ? (framesWithDetection / yoloFramesProcessed) * 100 : 0
     const bboxSizes = this.playerDetections.map(d => d.bbox.w * d.bbox.h)
     const avgBboxSize = bboxSizes.reduce((a, b) => a + b, 0) / bboxSizes.length
@@ -824,9 +820,9 @@ Current=${summary.battery.endLevel}%
     this.moveNetKeypoints = []
     this.falsePositives.clear()
     this.bboxHistory = []
-    this.ballDetectionFrames.clear()
-    this.playerDetectionFrames.clear()
-    this.yoloProcessedFrames.clear()
+    this.ballDetectionFramesCount = 0
+    this.playerDetectionFramesCount = 0
+    this.yoloProcessedFramesCount = 0
     this.pipelineMetrics = {
       cameraFPS: 0,
       received: 0,
