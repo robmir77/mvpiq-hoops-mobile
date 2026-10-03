@@ -12,35 +12,35 @@
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
 
-## Decision 0: Deterministic Vision FPS (NO Adaptive Performance)
+## Decision 0: Rimozione Throttling Temporale (Natural FPS)
 
-**Contesto:** Il sistema adaptive performance è stato rimosso perché causava regressioni di performance. L'accoppiamento tra camera FPS e YOLO FPS portava a degrado quando YOLO girava a 30 FPS con runSync() sincrono nel frame processor.
+**Contesto:** Il sistema throttling deterministico (YOLO 10 FPS, MoveNet 3 FPS) limitava artificialmente la detection rate. Rimuovendo i limiti temporali, i modelli possono girare al massimo FPS possibile dato il tempo di inferenza sincrono.
 
 **Decisione:**
-- Rimozione completa del sistema adaptive performance (useAdaptivePerformance.ts eliminato)
-- Introduzione di VISION_CONFIG con target FPS deterministici e indipendenti
+- Rimozione completa del throttling temporale da YOLO e MoveNet
+- Rimozione di VISION_CONFIG.YOLO.TARGET_FPS e VISION_CONFIG.MOVENET.TARGET_FPS
+- YOLO esegue ogni frame se `!isProcessing` (FPS naturale ~7-10)
+- MoveNet esegue ogni frame se `!isProcessing` e bbox player valido (FPS naturale ~0-6)
 - Camera FPS: 30 (configurabile via CAMERA_CONFIG.DEFAULT_FPS)
-- YOLO FPS: 10 (deterministico via VISION_CONFIG.YOLO.TARGET_FPS)
-- MoveNet FPS: 3 (deterministico via VISION_CONFIG.MOVENET.TARGET_FPS)
 - Tracking: realtime (ogni frame)
 - Bridge calls: 15 FPS (throttled a 66ms)
 
 **Rationale:**
-- L'architettura sincrona attuale (runSync() nel worklet) non può supportare YOLO a 30 FPS
-- Ogni inferenza YOLO costa ~33ms (resize 5ms + YOLO 25ms + parse 3ms)
-- 30 FPS × 33ms = 990ms di lavoro sincrono nel frame processor
-- Questo supera il budget di 33.3ms per frame a 30 FPS
-- Separare i target FPS evita regressioni causate da modifiche alla camera
-- Sistema deterministico più facile da debuggare e mantenere
+- L'architettura sincrona attuale (runSync() nel worklet) ha un limite naturale basato sul tempo di inferenza
+- Ogni inferenza YOLO costa ~35-45ms (resize + run + parse)
+- Ogni inferenza MoveNet costa ~150-160ms (crop + resize + run + parse)
+- Rimuovere limiti artificiali massimizza la detection rate
+- FPS naturale dipende solo dal tempo di inferenza sincrono
+- Sistema più semplice senza logica di throttling temporale
 
 **Conseguenze:**
-- Camera può girare a 30 FPS indipendentemente da YOLO
-- YOLO gira a 10 FPS deterministico (non segue camera FPS)
-- MoveNet gira a 3 FPS deterministico
+- Camera può girare a 30 FPS indipendentemente da YOLO/MoveNet
+- YOLO gira a FPS naturale (~7-10) basato su tempo inferenza
+- MoveNet gira a FPS naturale (~0-6) basato su tempo inferenza e disponibilità bbox player
 - Tracking usa l'ultimo risultato YOLO + Kalman prediction nei frame intermedi
 - Telemetry YOLO throttled a 15 FPS (66ms) per ridurre overhead bridge
-- Nessun feedback loop automatico di performance
-- Configurazione semplice e chiara in VISION_CONFIG
+- Nessun limite temporale artificiale che riduce detection rate
+- Configurazione semplice in VISION_CONFIG (solo ENABLED flags)
 
 ---
 
@@ -51,14 +51,14 @@
 **Decisione:**
 - Rimozione completa dello scheduling YOLO da useShotTracker.ts
 - Rimozione completo dello scheduling MoveNet da useShotTracker.ts
-- I worker (useYoloWorker, useMoveNetWorker) sono gli unici responsabili del proprio throttling
+- I worker (useYoloWorker, useMoveNetWorker) sono gli unici responsabili del proprio scheduling
 - useShotTracker chiama processFrame() ogni frame per entrambi i worker
-- Ogni worker decide internamente se eseguire in base al proprio target FPS
+- Ogni worker decide internamente se eseguire in base a `isProcessing` flag
 - Rimozione residui adaptive performance (TARGET_DETECTION_RATE, ADAPTATION_WINDOW_MS, lastAdjustmentTs, updateAdaptiveThreshold)
 - Rimozione currentModelIndex e commenti adaptiveModelIndex
 
 **Rationale:**
-- Single Responsibility Principle: ogni worker gestisce il proprio rate
+- Single Responsibility Principle: ogni worker gestisce il proprio scheduling
 - Elimina accoppiamento tra camera FPS e worker FPS
 - Rimuove ridondanza: ShotTracker scheduler → Worker scheduler
 - Semplifica diagnosi: un solo punto di decisione per ogni worker
@@ -66,26 +66,27 @@
 - Log più comprensibili: non c'è più confusione tra scheduler esterno e interno
 
 **Conseguenze:**
-- Architettura pulita: Camera → ShotTracker → Worker (con throttling interno)
-- YOLO: throttling interno a 10 FPS in useYoloWorker
-- MoveNet: throttling interno a 3 FPS in useMoveNetWorker
+- Architettura pulita: Camera → ShotTracker → Worker (con scheduling interno)
+- YOLO: scheduling interno basato su `isProcessing` flag (no throttling temporale)
+- MoveNet: scheduling interno basato su `isProcessing` flag e bbox player valido (no throttling temporale)
 - useShotTracker: orchestrazione semplice, chiama workers ogni frame
 - Nessun accoppiamento tra selectedFps e worker scheduling
 - Code più facile da mantenere e debuggare
 
 **Risultati (post-implementazione):**
-- Camera FPS migliorata da ~4 FPS a 8-12 FPS
-- YOLO throttle confermato funzionante dai log (yolo=4.9 exec=5/10)
-- MoveNet throttle confermato funzionante dai log
+- Camera FPS migliorata da ~4 FPS a 10-14 FPS (senza throttling)
+- YOLO FPS naturale ~7-10 confermato dai log
+- MoveNet FPS naturale ~0-6 confermato dai log (limitato da disponibilità bbox player)
 - Log molto più leggibili e semanticamente corretti
 - Problema spostato da "chi decide quando eseguire" a "quanto costa elaborare un frame"
 
 **Roadmap (non implementata):**
 1. ✅ Rinominare metriche fps → throughputFps/theoreticalFps per chiarezza semantica
-2. Misurare separatamente tempo totale del frame processor
-3. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
-4. Investigare parallelizzazione YOLO/MoveNet
-5. Verificare rerender/remount di WorkoutSession/ShotTracker
+2. ✅ Rimozione throttling temporale per massimizzare detection rate
+3. Misurare separatamente tempo totale del frame processor
+4. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
+5. Investigare parallelizzazione YOLO/MoveNet
+6. Verificare rerender/remount di WorkoutSession/ShotTracker
 
 ---
 
@@ -140,8 +141,8 @@
 
 **Conseguenze:**
 - Vision pipeline: 30 FPS realtime (camera)
-- YOLO: 10 FPS deterministico
-- MoveNet: 3 FPS deterministico
+- YOLO: FPS naturale ~7-10 (basato su tempo inferenza)
+- MoveNet: FPS naturale ~0-6 (basato su tempo inferenza e disponibilità bbox player)
 - Tracking: realtime (ogni frame con Kalman prediction)
 - Backend telemetry: 2 Hz (sampling)
 - Critical events: queue con retry
@@ -215,7 +216,7 @@
 
 **Conseguenze:**
 - Camera: 30 FPS
-- YOLO: 10 FPS deterministico
+- YOLO: FPS naturale ~7-10 (basato su tempo inferenza)
 - Tracking: realtime (ogni frame con Kalman prediction)
 - Backend telemetry: 2 FPS
 - Shot events: 100%

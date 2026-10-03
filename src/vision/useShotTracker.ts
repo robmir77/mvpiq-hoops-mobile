@@ -960,27 +960,32 @@ export const useShotTracker = (
                                 playerTrackState.value = 'DETECTED'
                                 playerTrackAge.value = 0
                             }
-                        }
 
-                        const moveNetExecutionCountBefore = moveNetWorker.executionCount.value
-                        moveNetWorker.processFrame(frame, timestamp)
-                        const moveNetExecutedNow = moveNetWorker.executionCount.value > moveNetExecutionCountBefore
+                            // Only execute MoveNet if valid player bbox is available
+                            const moveNetExecutionCountBefore = moveNetWorker.executionCount.value
+                            moveNetWorker.processFrame(frame, timestamp)
+                            const moveNetExecutedNow = moveNetWorker.executionCount.value > moveNetExecutionCountBefore
 
-                        if (moveNetExecutedNow) {
-                            const moveNetInferenceTime = moveNetWorker.lastInferenceMs.value
-                            perfMoveNetExecuted.value += 1
-                            perfMoveNetInferenceTotal.value += moveNetInferenceTime
-                            perfMoveNetInferenceMin.value = perfMoveNetInferenceMin.value === 0
-                                ? moveNetInferenceTime
-                                : Math.min(perfMoveNetInferenceMin.value, moveNetInferenceTime)
-                            perfMoveNetInferenceMax.value = Math.max(perfMoveNetInferenceMax.value, moveNetInferenceTime)
-                            perfMoveNetCropTotal.value += moveNetWorker.lastCropMs.value
-                            perfMoveNetResizeTotal.value += moveNetWorker.lastResizeMs.value
-                            perfMoveNetRunTotal.value += moveNetWorker.lastRunMs.value
-                            perfMoveNetParseTotal.value += moveNetWorker.lastParseMs.value
+                            if (moveNetExecutedNow) {
+                                const moveNetInferenceTime = moveNetWorker.lastInferenceMs.value
+                                perfMoveNetExecuted.value += 1
+                                perfMoveNetInferenceTotal.value += moveNetInferenceTime
+                                perfMoveNetInferenceMin.value = perfMoveNetInferenceMin.value === 0
+                                    ? moveNetInferenceTime
+                                    : Math.min(perfMoveNetInferenceMin.value, moveNetInferenceTime)
+                                perfMoveNetInferenceMax.value = Math.max(perfMoveNetInferenceMax.value, moveNetInferenceTime)
+                                perfMoveNetCropTotal.value += moveNetWorker.lastCropMs.value
+                                perfMoveNetResizeTotal.value += moveNetWorker.lastResizeMs.value
+                                perfMoveNetRunTotal.value += moveNetWorker.lastRunMs.value
+                                perfMoveNetParseTotal.value += moveNetWorker.lastParseMs.value
+                            } else {
+                                perfMoveNetSkipped.value += 1
+                            }
                         } else {
                             perfMoveNetSkipped.value += 1
                         }
+                    } else {
+                        perfMoveNetSkipped.value += 1
                     }
 
                     // Process worker results (get latest available from shared values)

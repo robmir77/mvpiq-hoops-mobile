@@ -101,25 +101,25 @@ Shot Analysis + Basketball Logic
           ┌────────────┼────────────┐
           ▼            ▼            ▼
     YOLO Worker   MoveNet Worker  Tracking
-  (throttle 10) (throttle 3)   every frame
+  (no throttle) (no throttle)   every frame
        │              │
-   deterministico  deterministico
+   sincrono      sincrono
 ```
 
 **YOLO Scheduler:**
 - Implementato internamente in `useYoloWorker.ts`
-- Throttling deterministico a 10 FPS via `VISION_CONFIG.YOLO.TARGET_FPS`
-- Time-based: esegue inferenza solo se `timeSinceLast >= YOLO_INTERVAL_MS` (100ms)
+- Nessun throttling temporale - esegue ogni frame se `!isProcessing`
+- FPS naturale dipende dal tempo di inferenza sincrono (~35-45ms)
 - Indipendente dal FPS della camera
-- useShotTracker chiama `yoloWorker.processFrame()` ogni frame, il worker decide se eseguire
+- useShotTracker chiama `yoloWorker.processFrame()` ogni frame
 
 **MoveNet Scheduler:**
 - Implementato internamente in `useMoveNetWorker.ts`
-- Throttling deterministico a 3 FPS via `VISION_CONFIG.MOVENET.TARGET_FPS`
-- Time-based: esegue inferenza solo se `timeSinceLast >= MOVENET_INTERVAL_MS` (333ms)
+- Nessun throttling temporale - esegue ogni frame se `!isProcessing` e bbox player valido
+- FPS naturale dipende dal tempo di inferenza sincrono (~150-160ms)
 - Indipendente dal FPS della camera
-- useShotTracker chiama `moveNetWorker.processFrame()` ogni frame, il worker decide se eseguire
-- Bottleneck JS thread riduce actual FPS a ~5 FPS
+- useShotTracker chiama `moveNetWorker.processFrame()` ogni frame
+- Esegue solo se YOLO ha rilevato un bbox player valido (confidence >= threshold)
 
 ### Tracking Policies
 
@@ -181,19 +181,20 @@ export const CAMERA_CONFIG = {
   MIN_RESOLUTION: { width: 1280, height: 720 },
 } as const
 
-// Vision Pipeline Configuration - Deterministic FPS targets
+// Vision Pipeline Configuration
 // Camera FPS is independent from vision model FPS
+// Vision models execute at natural FPS based on inference time
 export const VISION_CONFIG = {
   CAMERA_FPS: 30, // Camera frame rate (hardware/configured)
 
   YOLO: {
     ENABLED: true,
-    TARGET_FPS: 10, // YOLO inference target (10-15 FPS)
+    // No TARGET_FPS - executes every frame if not processing
   },
 
   MOVENET: {
     ENABLED: true,
-    TARGET_FPS: 3, // MoveNet pose estimation target (~3 FPS)
+    // No TARGET_FPS - executes every frame if not processing and player bbox valid
   },
 } as const
 
@@ -216,14 +217,14 @@ export const COURT_CONFIG = {
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
 
-**Nota importante:** Il sistema NON usa adaptive performance. La frequenza della camera è indipendente dalla frequenza di inferenza YOLO/MoveNet:
+**Nota importante:** Il sistema NON usa throttling temporale. La frequenza della camera è indipendente dalla frequenza di inferenza YOLO/MoveNet:
 - Camera: 30 FPS (configurabile via CAMERA_CONFIG)
-- YOLO: 10 FPS (deterministico, via VISION_CONFIG.YOLO.TARGET_FPS)
-- MoveNet: 3 FPS (deterministico, via VISION_CONFIG.MOVENET.TARGET_FPS)
+- YOLO: FPS naturale (~7-10 FPS) basato su tempo inferenza sincrono (~35-45ms)
+- MoveNet: FPS naturale (~0-6 FPS) basato su tempo inferenza sincrono (~150-160ms) e disponibilità bbox player
 - Tracking: realtime (ogni frame)
 - Bridge calls: 15 FPS (throttled a 66ms)
 
-Questa architettura deterministica evita regressioni di performance causate da accoppiamenti tra FPS della camera e FPS dei modelli di visione.
+Questa architettura evita limiti artificiali che riducono la detection rate, lasciando che i modelli girino al massimo FPS possibile dato il tempo di inferenza sincrono.
 
 **BUG CRITICO:** `COURT_CONFIG.HEIGHT_M` è hardcoded a 28.65m (full court) ma non esiste configurazione separata per half court. `CalibrationScreen.tsx` usa sempre:
 ```typescript
@@ -253,11 +254,11 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 |------|------|------|
 | Separazione YOLO/tracking/MoveNet | ✅ | Completata |
 | Reentrancy guard | ✅ | Implementato con isProcessingFrame |
-| YOLO scheduler a 10 FPS | ✅ | Deterministico, interno a useYoloWorker, throttle confermato dai log |
-| MoveNet scheduler a 3 FPS | ✅ | Deterministico, interno a useMoveNetWorker, throttle confermato dai log |
+| YOLO no throttling | ✅ | Esegue ogni frame se !isProcessing, FPS naturale ~7-10 |
+| MoveNet no throttling | ✅ | Esegue ogni frame se !isProcessing e bbox valido, FPS naturale ~0-6 |
 | Scheduler duplicati rimossi | ✅ | useShotTracker non fa più scheduling esterno |
-| Camera FPS migliorata | 🟡 | Da ~4 FPS a 8-12 FPS, ma ancora sotto target 30 FPS |
-| Frame latency | 🟡 | 75-100 ms tipici (vs budget 33.3ms per 30 FPS) |
+| Camera FPS migliorata | 🟡 | Da ~4 FPS a 10-14 FPS (senza throttling), ma ancora sotto target 30 FPS |
+| Frame latency | 🟡 | 76-96 ms tipici (vs budget 33.3ms per 30 FPS) |
 | MoveNet CPU crop | 🔴 | Costa ~30 ms, investigare riduzione/eliminazione |
 | Player tracking worklet-safe | ✅ | Implementato |
 | TTL player 750 ms | ✅ | Implementato |
@@ -265,10 +266,10 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Jump threshold + safety net | ✅ | Implementato correttamente |
 | Crop geometrico player | ✅ | Implementato |
 | Crop effettivo immagine per MoveNet | ✅ | CPU ottimizzato (640x360 → 192x192) |
-| Adaptive performance | ✅ | RIMOSSO - sistema deterministico con VISION_CONFIG |
+| Adaptive performance | ✅ | RIMOSSO - senza throttling temporale |
 | Residui adaptive performance | ✅ | Rimossi (TARGET_DETECTION_RATE, ADAPTATION_WINDOW_MS, etc.) |
 | Throttling YOLO telemetry 15 FPS | ✅ | Implementato (66ms) |
-| Decoupling camera/YOLO FPS | ✅ | VISION_CONFIG separa i target FPS |
+| Decoupling camera/YOLO FPS | ✅ | Camera 30 FPS, YOLO FPS naturale basato su inferenza time |
 | Rerender/Remount investigation | 🔴 | Possibili rerender frequenti da investigare |
 | Propagazione courtType (FULL/HALF) | 🔴 | NON propagato tra Setup → Calibration → Workout |
 | Homography HALF/FULL court | 🔴 | Sempre calcolata come FULL court (15.24 x 28.65) |

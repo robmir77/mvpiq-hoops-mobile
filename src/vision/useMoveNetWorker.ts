@@ -97,9 +97,7 @@ export const useMoveNetWorker = (
   const latestResultTimestamp = useSharedValue(0)
   const latestCropInfo = useSharedValue<PlayerCropResult | null>(null)
 
-  const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
-  const moveNetSkippedCount = useSharedValue(0) // Count frames skipped due to throttling
 
   const executionCount = useSharedValue(0)
   const lastInferenceMs = useSharedValue(0)
@@ -299,7 +297,6 @@ export const useMoveNetWorker = (
       }
 
       isProcessing.value = false
-      // lastInferenceAt already updated at dispatch start (fix throttling bug)
     } catch (error) {
       console.error('[MoveNetWorker] Async inference error:', error)
       
@@ -313,9 +310,8 @@ export const useMoveNetWorker = (
       }
       
       isProcessing.value = false
-      lastInferenceAt.value = Date.now()
     }
-  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, theoreticalFps, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, lastInferenceAt])
+  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, theoreticalFps, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing])
 
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
@@ -506,10 +502,6 @@ export const useMoveNetWorker = (
     }
 
     isProcessing.value = true
-
-    // Fix throttling bug: Update lastInferenceAt at dispatch start, not at async completion
-    // This aligns the internal clock with the external clock in useShotTracker
-    lastInferenceAt.value = Date.now()
 
     // Capture frame dimensions before async operation to avoid use-after-free
     const frameWidth = frame.width
@@ -799,9 +791,8 @@ export const useMoveNetWorker = (
       }
 
       isProcessing.value = false
-      // lastInferenceAt already updated at dispatch start (fix throttling bug)
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, theoreticalFps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, theoreticalFps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -822,11 +813,10 @@ export const useMoveNetWorker = (
     latestResultAngles.value = null
     latestResultTimestamp.value = 0
     latestCropInfo.value = null
-    lastInferenceAt.value = 0
     isProcessing.value = false
     playerBbox.value = null
     playerCropRegion.value = null
-  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, lastInferenceAt, isProcessing, playerBbox, playerCropRegion])
+  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, playerCropRegion])
 
   return {
     processFrame,
@@ -845,6 +835,5 @@ export const useMoveNetWorker = (
     latestResultTimestamp,
     latestCropInfo,
     playerBbox,
-    moveNetSkippedCount,
   }
 }

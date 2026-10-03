@@ -17,10 +17,6 @@ import { VISION_CONFIG } from '@/config/appConfig'
 
 const YOLO_INPUT_SIZE = 512
 
-// YOLO target FPS follows camera configuration for full sampling
-const YOLO_TARGET_FPS = VISION_CONFIG.CAMERA_FPS
-const YOLO_INTERVAL_MS = 1000 / YOLO_TARGET_FPS
-
 interface YoloWorkerResult {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
   player: { x: number; y: number; width: number; height: number; confidence: number } | null
@@ -47,7 +43,6 @@ interface YoloWorkerReturn {
   latestResultRim: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
   latestResultDebug: SharedValue<any>
   latestResultTimestamp: SharedValue<number>
-  yoloSkippedCount: SharedValue<number>
 }
 
 export const useYoloWorker = (
@@ -64,7 +59,6 @@ export const useYoloWorker = (
 
   const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
-  const yoloSkippedCount = useSharedValue(0) // Count frames skipped due to throttling
 
   const isReady = useSharedValue(false)
   const theoreticalFps = useSharedValue(0) // Theoretical FPS based on single inference time (latency capacity)
@@ -210,15 +204,6 @@ export const useYoloWorker = (
     'worklet'
 
     if (!yoloModelInstance || isProcessing.value || !enabled) {
-      return
-    }
-
-    // Throttle YOLO to target FPS (deterministic, independent from camera FPS)
-    const now = Date.now()
-    const timeSinceLastInference = now - lastInferenceAt.value
-    if (timeSinceLastInference < YOLO_INTERVAL_MS) {
-      // Skip this frame - not enough time has elapsed for target YOLO FPS
-      yoloSkippedCount.value++
       return
     }
 
@@ -378,6 +363,5 @@ export const useYoloWorker = (
     latestResultRim,
     latestResultDebug,
     latestResultTimestamp,
-    yoloSkippedCount,
   } as YoloWorkerReturn
 }
