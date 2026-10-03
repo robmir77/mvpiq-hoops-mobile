@@ -1672,7 +1672,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 calibration
             )
             
-            // Enqueue to critical queue - non-blocking
+            // Enqueue to critical queue - non-blocking with error logging
             const workoutQueue = workoutQueueRef.current
             if (!workoutQueue) return
 
@@ -1690,7 +1690,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         smoothness:   metrics.smoothness,
                     }),
                 }
-            } as CriticalPayload)
+            } as CriticalPayload).catch((error) => {
+                console.error('[Auto Shot] Failed to persist shot event:', error)
+                // UI already updated, but data may be lost
+            })
             
             // Update UI immediately
             setLastShotResult(result)
@@ -1969,7 +1972,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             }
             console.log('[Manual Shot] Payload:', payload)
             
-            // Enqueue to critical queue - non-blocking
+            // Enqueue to critical queue - non-blocking with error logging
             const workoutQueue = workoutQueueRef.current
             if (!workoutQueue) return
 
@@ -1978,7 +1981,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 sessionId,
                 userId: user.id,
                 payload
-            } as CriticalPayload)
+            } as CriticalPayload).catch((error) => {
+                console.error('[Manual Shot] Failed to persist shot event:', error)
+                // UI already updated, but data may be lost
+            })
             
             // Update UI immediately
             setLastShotResult(result)

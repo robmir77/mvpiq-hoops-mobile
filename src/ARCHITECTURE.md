@@ -201,3 +201,114 @@ export const COURT_CONFIG = {
 | Crop geometrico player | ✅ | Implementato |
 | Crop effettivo immagine per MoveNet | ✅ | CPU ottimizzato (640x360 → 192x192) |
 | Adaptive performance | ❌ | Completamente disabilitato per debugging |
+
+## Async Queue & Critical Events
+
+### WorkoutAsyncQueue
+
+**Responsabilità:**
+- Queue session-scoped per eventi critici e telemetria
+- Inizializzazione async con global recovery
+- Worker asincrono per HTTP backend
+- Flush granulare (critical only, telemetry only, all)
+- Shutdown sicuro con preservazione eventi pendenti
+
+**Architettura:**
+```
+WorkoutAsyncQueue (session-scoped)
+  ├── Telemetry Queue (bounded, drop-oldest)
+  │   └── max 100 items, best-effort
+  └── Critical Outbox (unbounded, persistent)
+      ├── SHOT events
+      ├── SESSION_START events
+      ├── SESSION_END events
+      └── CALIBRATION events
+```
+
+**Inizializzazione:**
+```typescript
+const queue = await createWorkoutQueue({ sessionId, userId })
+```
+- Carica item pendenti da TUTTE le sessioni precedenti (global recovery)
+- Carica item della sessione corrente
+- Flag `initialized` previene enqueue prematuro
+
+### PersistentOutbox
+
+**Responsabilità:**
+- Persistenza eventi critici in AsyncStorage
+- Global recovery da tutte le sessioni
+- Retry count persistente
+- Separazione clear() (memoria) da clearSession() (storage)
+
+**Durabilità:**
+- Nessun limite di dimensione (MAX_OUTBOX_SIZE rimosso)
+- Eventi critici mai rifiutati
+- Retry count persistito su ogni tentativo
+- Eventi rimangono in storage dopo esaurimento retry
+
+**Recovery:**
+- `loadAllPendingAndMerge()` - carica e merge item da tutte le sessioni
+- `loadPending()` - carica item della sessione corrente e merge
+- Merge con memory queue esistente
+- Sorting per timestamp
+
+**Shutdown:**
+- Se tutti eventi consegnati: `clearSession()` (memoria + storage)
+- Se eventi pendenti: `clear()` (solo memoria, storage per recovery)
+- Log warning se shutdown con eventi pendenti
+- `flushCriticalOnly(maxAttempts)` - default 50, previene loop infinito offline
+
+### Critical Events
+
+**Tipi:**
+- `SHOT` - eventi tiro con API `addShotEvent()`
+- `SESSION_START` - confermato (gestito da creazione sessione)
+- `SESSION_END` - API `endWorkoutSession()`
+- `CALIBRATION` - API `saveCourtCalibration()`
+
+**Retry Strategy:**
+- Max 5 retry con backoff esponenziale (1s, 2s, 4s, 8s, 16s)
+- Retry count persistito prima di ogni tentativo
+- Eventi rimangono in outbox dopo esaurimento retry
+- Recupero automatico al riavvio
+
+### Telemetry
+
+**Sampling:**
+- `TelemetrySampler` con intervallo configurabile (default 500ms = 2 Hz)
+- Solo 1 frame su 10 inviato al backend
+- Batch di 20 frame per richiesta HTTP
+
+**Queue:**
+- Bounded queue (max 100 items)
+- Overflow behavior: drop-oldest
+- Best-effort (dati persi accettabili)
+
+### Test Suite
+
+**PersistentOutbox:**
+- add/remove/peek
+- loadPending/loadAllPendingAndMerge
+- updateRetryCount
+- clear/clearSession
+- corrupted storage handling
+- timestamp sorting
+- merge con memory queue
+
+**WorkoutAsyncQueue:**
+- Inizializzazione async
+- enqueueTelemetry/enqueueCritical
+- flushCriticalOnly(maxAttempts)/flushTelemetryOnly/flushAll
+- shutdown sicuro
+- retry behavior
+- SESSION_END/CALIBRATION API calls
+- metrics
+- offline shutdown (maxAttempts limit)
+
+**TelemetrySampler:**
+- shouldSample con vari intervalli
+- reset
+- setSampleInterval dinamico
+- edge cases (timestamp 0, negativi, non-monotonici)
+- scenari real-world (variable frame rates)

@@ -217,7 +217,182 @@
 
 ---
 
-## Decision 11: Endpoint Batch per Backend
+## Decision 11: Inizializzazione Async della Queue
+
+**Contesto:** Il costruttore di WorkoutAsyncQueue chiamava loadPending() senza await, creando race condition.
+
+**Decisione:**
+- Costruttore reso privato
+- Metodo statico async `create()` per inizializzazione
+- Flag `initialized` previene enqueue prematuro
+- `await createWorkoutQueue()` obbligatorio
+
+**Rationale:**
+- Garantisce che loadPending() sia completato prima di accettare eventi
+- Previene race condition tra loadPending() e enqueueCritical()
+- Pattern factory per controllo lifecycle
+
+**Conseguenze:**
+- Inizializzazione esplicita e sicura
+- Race condition eliminate
+- Chiamanti devono usare await
+
+---
+
+## Decision 12: Global Recovery da Tutte le Sessioni
+
+**Contesto:** PersistentOutbox caricava solo item della sessione corrente, perdendo dati da sessioni precedenti.
+
+**Decisione:**
+- `loadAllPending()` carica item da TUTTE le sessioni precedenti
+- `loadPending()` carica item della sessione corrente e merge
+- WorkoutAsyncQueue chiama entrambi all'inizializzazione
+- Sorting per timestamp globale
+
+**Rationale:**
+- Recupera eventi persi da crash precedenti
+- Una sessione può recuperare eventi di sessioni precedenti
+- Garantisce zero data loss across sessioni
+
+**Conseguenze:**
+- Recovery automatico di eventi pendenti
+- Sessione corrente può completare eventi di sessioni precedenti
+- Merge ordinato per timestamp
+
+---
+
+## Decision 13: Rimozione Limite MAX_OUTBOX_SIZE
+
+**Contesto:** MAX_OUTBOX_SIZE = 100 causava rifiuto di eventi critici quando raggiunto.
+
+**Decisione:**
+- Rimozione completa di MAX_OUTBOX_SIZE
+- Eventi critici mai rifiutati per dimensione
+- Unbounded queue per critical events
+
+**Rationale:**
+- Critical events = non perdere dati
+- Storage AsyncStorage ha capacità sufficiente
+- Rifiuto viola definizione "critical"
+
+**Conseguenze:**
+- Nessun overflow per critical events
+- Garanzia di accettazione per tutti gli eventi critici
+- Memory management affidato a AsyncStorage
+
+---
+
+## Decision 14: Retry Count Persistente
+
+**Contesto:** retryCount era salvato ma non aggiornato durante retry, perdendo stato.
+
+**Decisione:**
+- `updateRetryCount()` chiamato prima di ogni tentativo
+- Retry count persistito in AsyncStorage
+- Recovery conosce stato esatto dopo riavvio
+- Backoff esponenziale basato su retry count persistito
+
+**Rationale:**
+- Retry deve essere resumable dopo crash
+- Evita retry infiniti o prematuri
+- Stato persistente per affidabilità
+
+**Conseguenze:**
+- Retry count incrementato e persistito
+- Recovery riprende dal retry count corretto
+- Backoff esponenziale corretto
+
+---
+
+## Decision 15: Shutdown Sicuro
+
+**Contesto:** shutdown() chiamava clear() anche con eventi pendenti, perdendo dati.
+
+**Decisione:**
+- `shutdown()` controlla se critical outbox vuoto
+- Se vuoto: `clearSession()` (memoria + storage)
+- Se pendenti: `clear()` (solo memoria, storage per recovery)
+- Log warning se shutdown con eventi pendenti
+
+**Rationale:**
+- Non cancellare eventi non consegnati
+- Storage deve persistere per recovery
+- Memoria può essere pulita
+
+**Conseguenze:**
+- Shutdown non perdere dati
+- Recovery possibile dopo shutdown
+- Logging per situazioni anomale
+
+---
+
+## Decision 16: Separazione clear() da clearSession()
+
+**Contesto:** clear() cancellava sia memoria che storage, pericoloso per recovery.
+
+**Decisione:**
+- `clear()` - pulisce solo memory queue
+- `clearSession()` - pulisce memory + storage
+- `clear()` usato in shutdown con eventi pendenti
+- `clearSession()` usato solo quando tutti eventi consegnati
+
+**Rationale:**
+- Separazione responsabilità memoria vs storage
+- Storage deve persistere per recovery
+- Memoria può essere pulita liberamente
+
+**Conseguenze:**
+- Semantica chiara per ogni operazione
+- Recovery garantito con storage persistente
+- Memory management flessibile
+
+---
+
+## Decision 17: API Reali per SESSION_END/CALIBRATION
+
+**Contesto:** SESSION_END e CALIBRATION erano placeholder (console.log), non inviati al backend.
+
+**Decisione:**
+- `SESSION_END` chiama API `endWorkoutSession()`
+- `CALIBRATION` chiama API `saveCourtCalibration()`
+- `SESSION_START` confermato (gestito da creazione sessione)
+- Retry con backoff per API calls
+
+**Rationale:**
+- Eventi critici devono essere realmente inviati
+- Backend deve ricevere conferma sessione
+- Calibration deve essere persistita
+
+**Conseguenze:**
+- SESSION_END e CALIBRATION realmente critici
+- Backend riceve tutti gli eventi
+- Retry automatico su fallimento
+
+---
+
+## Decision 18: Eventi Rimangono in Outbox dopo Retry Exhaustion
+
+**Contesto:** Dopo 5 retry falliti, eventi venivano rimossi dall'outbox (persi).
+
+**Decisione:**
+- Eventi rimangono in outbox dopo esaurimento retry
+- `processCriticalFromOutbox()` break dopo fallimento
+- Eventi ritentati in batch successivi
+- Rimozione solo su successo API
+
+**Rationale:**
+- Retry exhaustion ≠ fallimento permanente
+- Network può riprendere dopo retry exhaustion
+- Eventi critici non devono essere persi mai
+
+**Conseguenze:**
+- Eventi persistono indefinitamente finché non consegnati
+- Retry continuo in batch successivi
+- Garanzia di consegna a lungo termine
+
+---
+
+## Decision 19: Endpoint Batch per Backend
 
 **Contesto:** Il frontend inviava frame data singolarmente, causando carico HTTP eccessivo.
 

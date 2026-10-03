@@ -194,11 +194,40 @@ const ENABLE_MOVENET_LOGS = false
 - Shot events inviati singolarmente
 - Nessun retry su fallimento
 - Possibile perdita dati
+- MAX_OUTBOX_SIZE = 100 (overflow)
 
 **Dopo:**
 - Critical queue con PersistentOutbox
 - Retry con backoff esponenziale
 - Garanzia di consegna
+- Unbounded queue (nessun overflow)
+- Global recovery da tutte le sessioni
+- Retry count persistente
+- Shutdown sicuro con preservazione eventi pendenti
+
+**API Reali:**
+- SHOT: `addShotEvent()`
+- SESSION_END: `endWorkoutSession()`
+- CALIBRATION: `saveCourtCalibration()`
+- SESSION_START: confermato (creazione sessione)
+
+### Recovery Performance
+
+**Global Recovery:**
+- `loadAllPending()` carica item da tutte le sessioni precedenti
+- Merge ordinato per timestamp
+- Recovery automatico all'avvio app
+
+**Retry Strategy:**
+- Max 5 retry con backoff esponenziale (1s, 2s, 4s, 8s, 16s)
+- Retry count persistito su ogni tentativo
+- Eventi rimangono in outbox dopo esaurimento retry
+- Retry continuo in batch successivi
+
+**Shutdown Safety:**
+- Se tutti eventi consegnati: `clearSession()` (memoria + storage)
+- Se eventi pendenti: `clear()` (solo memoria, storage per recovery)
+- Log warning se shutdown con eventi pendenti
 
 ## Degradation Analysis
 
@@ -209,12 +238,16 @@ const ENABLE_MOVENET_LOGS = false
 2. **Backlog frame batch** - Risolto con queue async
 3. **Bridge congestion** - Risolto con throttling
 4. **Log overhead** - Risolto con flag config
+5. **Race condition in loadPending()** - Risolto con inizializzazione async
+6. **Data loss su crash** - Risolto con global recovery
+7. **Retry state perso** - Risolto con retry count persistente
+8. **Shutdown perde dati** - Risolto con shutdown sicuro
 
 ### Mitigazioni implementate:
 
 1. **Queue async bounded**
    - Telemetry queue: max 100 elementi (drop oldest)
-   - Critical queue: max 50 elementi (reject new)
+   - Critical queue: unbounded (mai rifiuta)
    - Worker asincrono per HTTP
 
 2. **Sampling 2 Hz**
@@ -229,6 +262,18 @@ const ENABLE_MOVENET_LOGS = false
    - Ring buffers per detection/trajectory
    - Contatori invece di Set
    - Zero allocation nel hot path
+
+5. **Reliability improvements**
+   - Inizializzazione async con global recovery
+   - Retry count persistente
+   - Shutdown sicuro
+   - API reali per SESSION_END/CALIBRATION
+   - Eventi rimangono in outbox dopo retry exhaustion
+
+6. **Test coverage**
+   - PersistentOutbox: 15+ test cases
+   - WorkoutAsyncQueue: 15+ test cases
+   - TelemetrySampler: 15+ test cases
 
 ## Future Optimizations
 
@@ -293,6 +338,14 @@ const ENABLE_MOVENET_LOGS = false
 - Frames with player
 - YOLO processed frames
 
+**Async Queue:**
+- Telemetry queue size
+- Telemetry dropped count
+- Critical queue size
+- Critical overflow count
+- Pending items from previous sessions
+- Retry counts per event
+
 ### Logging
 
 **Hot path:**
@@ -304,6 +357,10 @@ const ENABLE_MOVENET_LOGS = false
 - 1 Hz performance metrics
 - Session summary
 - Error tracking
+- Queue metrics
+- Recovery events
+- Retry events
+- Shutdown warnings
 
 ## Conclusioni
 
@@ -312,14 +369,26 @@ La pipeline vision è ottimizzata per:
 - **Efficienza:** Zero allocation nel hot path, ring buffers
 - **Scalabilità:** Queue async, sampling, throttling
 - **Affidabilità:** PersistentOutbox per eventi critici, retry
+- **Durabilità:** Global recovery, retry persistente, shutdown sicuro
+- **Testability:** Suite test completa per queue/outbox/sampler
 
 Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo termine:
 - Memory leak risolto (contatori invece di Set)
 - Backlog risolto (queue async bounded)
 - Bridge congestion risolto (throttling 66ms)
 - Log overhead risolto (flag config)
+- Race condition risolta (inizializzazione async)
+- Data loss risolto (global recovery)
+- Retry state perso risolto (retry count persistente)
+- Shutdown perde dati risolto (shutdown sicuro)
+- API fake risolto (SESSION_END/CALIBRATION reali)
 
 Le ottimizzazioni future (separazione pipeline YOLO/MoveNet) richiedono:
 - Stabilizzazione pipeline attuale
 - Testing approfondito
 - Valutazione costi/benefici
+
+Le ottimizzazioni architetturali future (WorkoutSessionRuntime, state machine) richiedono:
+- Decoupling screen da runtime
+- Implementazione macchina stati
+- Separazione responsabilità

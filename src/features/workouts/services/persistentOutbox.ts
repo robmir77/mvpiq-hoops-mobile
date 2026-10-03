@@ -54,13 +54,14 @@ class PersistentOutbox {
 
   /**
    * Load ALL pending items from ALL previous sessions (global recovery)
+   * and merge them into the memory queue
    */
-  async loadAllPending(): Promise<OutboxItem[]> {
+  async loadAllPendingAndMerge(): Promise<void> {
     try {
       const keys = await AsyncStorage.getAllKeys()
       const allOutboxKeys = keys.filter(k => k.startsWith(OUTBOX_KEY_PREFIX))
       
-      if (allOutboxKeys.length === 0) return []
+      if (allOutboxKeys.length === 0) return
 
       const items = await AsyncStorage.multiGet(allOutboxKeys)
       const allItems = items
@@ -75,11 +76,11 @@ class PersistentOutbox {
         .filter((item): item is OutboxItem => item !== null)
         .sort((a, b) => a.timestamp - b.timestamp)
 
-      console.log(`[PersistentOutbox] Loaded ${allItems.length} pending items from ALL sessions`)
-      return allItems
+      // Merge with existing memory queue
+      this.memoryQueue = [...this.memoryQueue, ...allItems]
+      console.log(`[PersistentOutbox] Loaded and merged ${allItems.length} pending items from ALL sessions`)
     } catch (e) {
       console.error('[PersistentOutbox] Failed to load all pending items:', e)
-      return []
     }
   }
 

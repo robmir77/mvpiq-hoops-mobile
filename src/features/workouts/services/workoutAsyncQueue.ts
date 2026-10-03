@@ -104,7 +104,7 @@ class WorkoutAsyncQueue {
     const queue = new WorkoutAsyncQueue(options)
     
     // Load pending items from ALL previous sessions (global recovery)
-    const allPending = await queue.criticalOutbox.loadAllPending()
+    await queue.criticalOutbox.loadAllPendingAndMerge()
     
     // Load current session items and merge
     await queue.criticalOutbox.loadPending()
@@ -324,9 +324,15 @@ class WorkoutAsyncQueue {
     }
   }
 
-  async flushCriticalOnly() {
-    while (this.criticalOutbox.size > 0) {
+  async flushCriticalOnly(maxAttempts: number = 50) {
+    let attempts = 0
+    while (this.criticalOutbox.size > 0 && attempts < maxAttempts) {
       await this.flush({ critical: true, telemetry: false })
+      attempts++
+    }
+    
+    if (this.criticalOutbox.size > 0) {
+      console.warn(`[WorkoutQueue] flushCriticalOnly stopped after ${maxAttempts} attempts with ${this.criticalOutbox.size} pending items - items remain in outbox for recovery`)
     }
   }
 

@@ -190,8 +190,8 @@ describe('PersistentOutbox', () => {
     })
   })
 
-  describe('loadAllPending', () => {
-    it('should load items from ALL previous sessions (global recovery)', async () => {
+  describe('loadAllPendingAndMerge', () => {
+    it('should load and merge items from ALL previous sessions into memory queue', async () => {
       const mockItems: OutboxItem[] = [
         {
           id: 'old-session-1_1',
@@ -222,19 +222,56 @@ describe('PersistentOutbox', () => {
         ['workout_outbox_old-session-2_1', JSON.stringify(mockItems[1])],
       ])
 
-      const loadedItems = await outbox.loadAllPending()
+      await outbox.loadAllPendingAndMerge()
 
-      expect(loadedItems).toHaveLength(2)
-      expect(loadedItems[0].sessionId).toBe('old-session-1')
-      expect(loadedItems[1].sessionId).toBe('old-session-2')
+      expect(outbox.size).toBe(2)
+      const allItems = outbox.getAll()
+      expect(allItems[0].sessionId).toBe('old-session-1')
+      expect(allItems[1].sessionId).toBe('old-session-2')
     })
 
-    it('should return empty array when no items exist', async () => {
+    it('should merge with existing items in memory queue', async () => {
+      // Add existing item
+      outbox['memoryQueue'].push({
+        id: `${sessionId}_0`,
+        type: 'SHOT',
+        sessionId,
+        userId,
+        payload: { shotData: 'existing' },
+        timestamp: 500,
+        retryCount: 0,
+      })
+
+      const mockItems: OutboxItem[] = [
+        {
+          id: 'old-session-1_1',
+          type: 'SHOT',
+          sessionId: 'old-session-1',
+          userId,
+          payload: { shotData: 'old1' },
+          timestamp: 1000,
+          retryCount: 0,
+        },
+      ]
+
+      ;(AsyncStorage.getAllKeys as jest.Mock).mockResolvedValue([
+        'workout_outbox_old-session-1_1',
+      ])
+      ;(AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
+        ['workout_outbox_old-session-1_1', JSON.stringify(mockItems[0])],
+      ])
+
+      await outbox.loadAllPendingAndMerge()
+
+      expect(outbox.size).toBe(2)
+    })
+
+    it('should do nothing when no items exist', async () => {
       ;(AsyncStorage.getAllKeys as jest.Mock).mockResolvedValue([])
 
-      const loadedItems = await outbox.loadAllPending()
+      await outbox.loadAllPendingAndMerge()
 
-      expect(loadedItems).toEqual([])
+      expect(outbox.size).toBe(0)
     })
   })
 

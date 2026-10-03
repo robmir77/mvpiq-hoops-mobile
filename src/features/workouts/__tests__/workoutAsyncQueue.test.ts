@@ -23,7 +23,7 @@ describe('WorkoutAsyncQueue', () => {
   describe('create', () => {
     it('should initialize queue with global recovery', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue(undefined),
         loadPending: jest.fn().mockResolvedValue(undefined),
         size: 0,
         sessionId,
@@ -35,25 +35,13 @@ describe('WorkoutAsyncQueue', () => {
       const createdQueue = await createWorkoutQueue({ sessionId, userId })
 
       expect(createdQueue).toBeInstanceOf(WorkoutAsyncQueue)
-      expect(mockOutbox.loadAllPending).toHaveBeenCalled()
+      expect(mockOutbox.loadAllPendingAndMerge).toHaveBeenCalled()
       expect(mockOutbox.loadPending).toHaveBeenCalled()
     })
 
     it('should load pending items from storage on initialization', async () => {
-      const mockPendingItems = [
-        {
-          id: 'old-item-1',
-          type: 'SHOT',
-          sessionId: 'old-session',
-          userId,
-          payload: { shotData: 'old' },
-          timestamp: 1000,
-          retryCount: 0,
-        },
-      ]
-
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue(mockPendingItems),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue(undefined),
         loadPending: jest.fn().mockResolvedValue(undefined),
         size: 1,
         sessionId,
@@ -64,15 +52,35 @@ describe('WorkoutAsyncQueue', () => {
 
       const createdQueue = await createWorkoutQueue({ sessionId, userId })
 
-      expect(mockOutbox.loadAllPending).toHaveBeenCalled()
+      expect(mockOutbox.loadAllPendingAndMerge).toHaveBeenCalled()
       expect(createdQueue.criticalSize).toBe(1)
+    })
+
+    it('should recover items from previous sessions on app restart', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockImplementation(async () => {
+          // Simulate merging items from previous sessions
+          mockOutbox.size = 2
+        }),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        size: 0,
+        sessionId,
+        userId,
+      } as any
+
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
+
+      const createdQueue = await createWorkoutQueue({ sessionId, userId })
+
+      expect(mockOutbox.loadAllPendingAndMerge).toHaveBeenCalled()
+      expect(createdQueue.criticalSize).toBe(2)
     })
   })
 
   describe('enqueueTelemetry', () => {
     it('should enqueue telemetry items', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         size: 0,
         sessionId,
@@ -93,7 +101,7 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should reject telemetry if queue not initialized', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         size: 0,
         sessionId,
@@ -121,7 +129,7 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should drop oldest telemetry when queue is full', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         size: 0,
         sessionId,
@@ -148,7 +156,7 @@ describe('WorkoutAsyncQueue', () => {
   describe('enqueueCritical', () => {
     it('should enqueue critical events', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 0,
@@ -172,7 +180,7 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should return false if persistence fails', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(false),
         size: 0,
@@ -195,7 +203,7 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should reject critical events if queue not initialized', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 0,
@@ -228,7 +236,7 @@ describe('WorkoutAsyncQueue', () => {
   describe('flushCriticalOnly', () => {
     it('should process only critical events', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 1,
@@ -255,12 +263,79 @@ describe('WorkoutAsyncQueue', () => {
       expect(addShotEvent).toHaveBeenCalled()
       expect(mockOutbox.remove).toHaveBeenCalled()
     })
+
+    it('should stop after maxAttempts when backend is offline', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
+        size: 1,
+        peek: jest.fn().mockReturnValue({
+          id: 'test-1',
+          type: 'SHOT',
+          sessionId,
+          userId,
+          payload: { shotData: 'test' },
+          retryCount: 0,
+        }),
+        remove: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+
+      ;(addShotEvent as jest.Mock).mockRejectedValue(new Error('Network error'))
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
+      queue = await createWorkoutQueue({ sessionId, userId })
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+      await queue.flushCriticalOnly(5) // Low maxAttempts for test
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('flushCriticalOnly stopped after 5 attempts')
+      )
+      expect(mockOutbox.remove).not.toHaveBeenCalled()
+      consoleSpy.mockRestore()
+    })
+
+    it('should use default maxAttempts of 50', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
+        size: 1,
+        peek: jest.fn().mockReturnValue({
+          id: 'test-1',
+          type: 'SHOT',
+          sessionId,
+          userId,
+          payload: { shotData: 'test' },
+          retryCount: 0,
+        }),
+        remove: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+
+      ;(addShotEvent as jest.Mock).mockRejectedValue(new Error('Network error'))
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
+      queue = await createWorkoutQueue({ sessionId, userId })
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+      await queue.flushCriticalOnly()
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('flushCriticalOnly stopped after 50 attempts')
+      )
+      consoleSpy.mockRestore()
+    })
   })
 
   describe('flushTelemetryOnly', () => {
     it('should process only telemetry events', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         size: 0,
         sessionId,
@@ -287,7 +362,7 @@ describe('WorkoutAsyncQueue', () => {
   describe('shutdown', () => {
     it('should clear session if all critical events are delivered', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 0,
@@ -308,7 +383,7 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should keep pending critical events in storage on shutdown', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 5, // Pending items
@@ -337,7 +412,7 @@ describe('WorkoutAsyncQueue', () => {
   describe('retry behavior', () => {
     it('should update retry count on each attempt', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 1,
@@ -368,7 +443,7 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should keep item in outbox after retry exhaustion', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 1,
@@ -405,7 +480,7 @@ describe('WorkoutAsyncQueue', () => {
   describe('SESSION_END and CALIBRATION events', () => {
     it('should call real SESSION_END API', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 1,
@@ -435,7 +510,7 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should call real CALIBRATION API', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 1,
@@ -471,7 +546,7 @@ describe('WorkoutAsyncQueue', () => {
   describe('getQueueMetrics', () => {
     it('should return queue metrics', async () => {
       const mockOutbox = {
-        loadAllPending: jest.fn().mockResolvedValue([]),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
         loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(true),
         size: 5,
