@@ -113,7 +113,7 @@ export const useMoveNetWorker = (
   const lastParseMs = useSharedValue(0)
 
   const isReady = useSharedValue(false)
-  const fps = useSharedValue(0)
+  const theoreticalFps = useSharedValue(0)
 
   const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number; confidence?: number } | null>(null)
   const playerCropRegion = useSharedValue<{ cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null>(null)
@@ -267,7 +267,7 @@ export const useMoveNetWorker = (
       const calculatedFps = 1000 / inferenceTime
 
       if (calculatedFps > 0) {
-        fps.value = calculatedFps
+        theoreticalFps.value = calculatedFps
       }
 
       // Update execution tracking shared values
@@ -319,7 +319,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, fps, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, lastInferenceAt])
+  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, theoreticalFps, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, lastInferenceAt])
 
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
@@ -812,7 +812,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
       // lastInferenceAt already updated at dispatch start (fix throttling bug)
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, fps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, theoreticalFps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -844,7 +844,7 @@ export const useMoveNetWorker = (
     getLatestResult,
     reset,
     isReady,
-    fps,
+    theoreticalFps,
     executionCount,
     lastInferenceMs,
     lastCropMs,

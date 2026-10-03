@@ -19,7 +19,7 @@ import { Picker } from '@react-native-picker/picker'
 import { useIsFocused } from '@react-navigation/native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData, CourtType } from '../types/workouts.types'
-import { saveCourtCalibration } from '../api/workouts.api'
+import { createWorkoutQueue, type CriticalPayload } from '../services/workoutAsyncQueue'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { calculateHomography, getCourtCornersMeters } from '../utils/homography'
 import {
@@ -746,6 +746,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const isFocused = useIsFocused()
     const isActive = isFocused
     const cameraRef = useRef<CameraRef>(null)
+    const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
     const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(DEFAULT_POSE_RESOLUTION)
@@ -874,6 +875,21 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const meta = MODE_META[cameraMode]
 
+    // Initialize workout queue for critical calibration event
+    useEffect(() => {
+        if (sessionId && user?.id) {
+            createWorkoutQueue({ sessionId, userId: user.id }).then(queue => {
+                workoutQueueRef.current = queue
+                console.log('[Calibration] Workout queue initialized')
+            }).catch(e => {
+                console.error('[Calibration] Failed to initialize workout queue:', e)
+            })
+        }
+        return () => {
+            workoutQueueRef.current = null
+        }
+    }, [sessionId, user?.id])
+
     // Log device info for GPU capability testing
     useEffect(() => {
         try {
@@ -930,24 +946,29 @@ export default function CalibrationScreen({ navigation, route }: any) {
             showError('Errore', 'Seleziona prima il centro del canestro')
             return
         }
+        const workoutQueue = workoutQueueRef.current
+        if (!workoutQueue) {
+            showError('Errore', 'Queue non pronta. Riprova.')
+            return
+        }
         setIsSaving(true)
         try {
             const normHoop = normalizePoint(hoopCenter.x, hoopCenter.y)
             let courtCorners
             let homographyMatrix: number[] = []
-            
+
             if (corners.length === 4) {
                 const nc = corners.map(c => normalizePoint(c.x, c.y))
                 courtCorners = {
                     topLeft: nc[0], topRight: nc[1],
                     bottomRight: nc[2], bottomLeft: nc[3],
                 }
-                
+
                 // Calculate real homography matrix from image corners to court coordinates in meters
                 // Court dimensions: 15.24m width, height depends on court type
                 const courtHeight = courtType === 'FULL_COURT' ? COURT_CONFIG.FULL_HEIGHT_M : COURT_CONFIG.HALF_HEIGHT_M
                 const dstCorners = getCourtCornersMeters(COURT_CONFIG.WIDTH_M, courtHeight)
-                
+
                 try {
                     homographyMatrix = calculateHomography(nc, dstCorners)
                 } catch (e) {
@@ -956,14 +977,22 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     homographyMatrix = []
                 }
             }
-            
+
             const cal: CalibrationData = {
                 homographyMatrix,
                 hoopCenter: normHoop,
                 cameraResolution: selectedResolution ?? undefined,
                 courtCorners,
             }
-            await saveCourtCalibration(sessionId, user.id, cal)
+
+            // Enqueue calibration as critical event - will be persisted and retried automatically
+            const payload: CriticalPayload = {
+                type: 'CALIBRATION',
+                sessionId,
+                userId: user.id,
+                payload: cal,
+            }
+            workoutQueue.enqueueCritical(payload)
             setSavedCalibration(cal)
             showSuccess('✓ Calibrazione salvata', 'Puoi procedere con la sessione')
         } catch (e: any) {

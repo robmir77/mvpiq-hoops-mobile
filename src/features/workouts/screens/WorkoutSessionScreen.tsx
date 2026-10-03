@@ -1899,12 +1899,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         try {
             const s = await getWorkoutSession(sessionId, user.id)
             setSession(s)
-            setIsActive(true) // Activate camera when session loads
             setShotCount({ total: s.totalShots, made: s.madeShots })
-            // Create session-scoped queue (async initialization with global recovery)
+
+            // Create session-scoped queue FIRST (async initialization with global recovery)
             workoutQueueRef.current = await createWorkoutQueue({ sessionId, userId: user.id })
+            console.log('[WorkoutSession] Queue initialized')
+
             // Create telemetry sampler (2 Hz = 500ms)
             telemetrySamplerRef.current = new TelemetrySampler({ sampleIntervalMs: 500 })
+            console.log('[WorkoutSession] Telemetry sampler initialized')
+
+            // Load calibration
             try {
                 const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                 const cal: CalibrationData = {
@@ -1922,6 +1927,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 console.log('[WorkoutSession] Calibration not loaded', e)
                 /* calibrazione opzionale */
             }
+
+            // Activate camera ONLY after queue, telemetry, and calibration are ready
+            setIsActive(true)
+            console.log('[WorkoutSession] Camera activated - runtime ready')
         } catch (e: any) { showError('Errore', e.message) }
     }
 
@@ -1994,19 +2003,30 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 if (isVideoRecordingRef.current) {
                     await stopSessionVideoRecording()
                 }
+
+                // Enqueue SESSION_END as critical event before shutdown
                 const workoutQueue = workoutQueueRef.current
                 if (workoutQueue) {
-                    await workoutQueue.shutdown()
+                    workoutQueue.enqueueCritical({
+                        type: 'SESSION_END',
+                        sessionId,
+                        userId: user!.id,
+                    })
+                    console.log('[WorkoutSession] SESSION_END enqueued to critical queue')
                 }
-                
+
                 // Log telemetry summary before ending session
                 telemetryLogger.logTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
-                
+
                 // Export telemetry summary for saving with session
                 const telemetrySummary = telemetryLogger.exportTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
                 console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
-                
-                await endWorkoutSession(sessionId, user!.id)
+
+                // Shutdown queue with bounded timeout
+                if (workoutQueue) {
+                    await workoutQueue.shutdown()
+                }
+
                 workoutQueueRef.current = null
                 telemetrySamplerRef.current = null
                 navigation.replace('ShotChart', { sessionId, fromSession: true })

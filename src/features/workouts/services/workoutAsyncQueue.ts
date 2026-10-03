@@ -73,7 +73,7 @@ interface CriticalPayload {
   type: 'SHOT' | 'SESSION_START' | 'SESSION_END' | 'CALIBRATION'
   sessionId: string
   userId: string
-  payload: any
+  payload?: any
 }
 
 interface WorkoutAsyncQueueOptions {
@@ -168,11 +168,28 @@ class WorkoutAsyncQueue {
 
   private async run() {
     try {
-      while (
-        this.criticalOutbox.size > 0 ||
-        this.telemetry.size > 0
-      ) {
-        await this.flush()
+      // Accumulation window for telemetry: wait 250ms to batch frames
+      const ACCUMULATION_DELAY_MS = 250
+      const MIN_BATCH_SIZE = 5
+
+      while (this.criticalOutbox.size > 0 || this.telemetry.size > 0) {
+        // For critical items, process immediately
+        if (this.criticalOutbox.size > 0) {
+          await this.flush({ critical: true, telemetry: false })
+        }
+
+        // For telemetry, wait for accumulation or minimum batch size
+        if (this.telemetry.size > 0) {
+          if (this.telemetry.size >= MIN_BATCH_SIZE) {
+            // Flush immediately if we have enough items
+            await this.flush({ critical: false, telemetry: true })
+          } else {
+            // Wait for accumulation window
+            await new Promise(resolve => setTimeout(resolve, ACCUMULATION_DELAY_MS))
+            // Flush whatever accumulated
+            await this.flush({ critical: false, telemetry: true })
+          }
+        }
       }
     } finally {
       this.running = false
@@ -187,13 +204,13 @@ class WorkoutAsyncQueue {
     }
   }
 
-  private async flush(options: { critical: boolean; telemetry: boolean } = { critical: true, telemetry: true }) {
+  private async flush(options: { critical: boolean; telemetry: boolean; fastFail?: boolean } = { critical: true, telemetry: true, fastFail: false }) {
     // Update telemetry dropped count
     this.telemetryDroppedCount = this.telemetry.dropped
 
     // Process critical items from outbox
     if (options.critical && this.criticalOutbox.size > 0) {
-      await this.processCriticalFromOutbox()
+      await this.processCriticalFromOutbox(options.fastFail)
     }
 
     // Process telemetry items (frame data) in batch - best effort
@@ -205,15 +222,15 @@ class WorkoutAsyncQueue {
     }
   }
 
-  private async processCriticalFromOutbox() {
+  private async processCriticalFromOutbox(fastFail: boolean = false) {
     // Process up to 10 items at a time
     const processedCount = Math.min(10, this.criticalOutbox.size)
-    
+
     for (let i = 0; i < processedCount; i++) {
       const item = this.criticalOutbox.peek()
       if (!item) break
 
-      const success = await this.processCriticalItemWithRetry(item)
+      const success = await this.processCriticalItemWithRetry(item, fastFail)
       if (success) {
         await this.criticalOutbox.remove(item.id)
       } else {
@@ -229,18 +246,18 @@ class WorkoutAsyncQueue {
     }
   }
 
-  private async processCriticalItemWithRetry(item: any): Promise<boolean> {
+  private async processCriticalItemWithRetry(item: any, fastFail: boolean = false): Promise<boolean> {
     const { type, sessionId, userId, payload, retryCount, id } = item
 
     if (type === 'SHOT') {
-      return await this.retryShotEvent(sessionId, userId, payload, retryCount, id)
+      return await this.retryShotEvent(sessionId, userId, payload, retryCount, id, fastFail)
     } else if (type === 'SESSION_START' || type === 'SESSION_END' || type === 'CALIBRATION') {
-      return await this.retryCriticalEvent(type, sessionId, userId, payload, retryCount, id)
+      return await this.retryCriticalEvent(type, sessionId, userId, payload, retryCount, id, fastFail)
     }
     return true
   }
 
-  private async retryShotEvent(sessionId: string, userId: string, payload: any, retryCount: number, itemId: string): Promise<boolean> {
+  private async retryShotEvent(sessionId: string, userId: string, payload: any, retryCount: number, itemId: string, fastFail: boolean = false): Promise<boolean> {
     const maxRetries = 5
     const baseDelay = 1000 // 1 second
 
@@ -248,28 +265,29 @@ class WorkoutAsyncQueue {
       try {
         // Update retry count before attempt
         await this.criticalOutbox.updateRetryCount(itemId, attempt)
-        
+
         await addShotEvent(sessionId, userId, payload)
         return true
       } catch (e) {
-        const delay = baseDelay * Math.pow(2, attempt)
         console.error(`[WorkoutQueue] Shot event failed (attempt ${attempt + 1}/${maxRetries}):`, e)
 
-        if (attempt < maxRetries - 1) {
+        // Skip backoff during fastFail (shutdown mode)
+        if (!fastFail && attempt < maxRetries - 1) {
+          const delay = baseDelay * Math.pow(2, attempt)
           await new Promise(resolve => setTimeout(resolve, delay))
         }
       }
     }
 
-    console.error('[WorkoutQueue] Shot event failed after retries, will retry later:', { 
-      sessionId, 
+    console.error('[WorkoutQueue] Shot event failed after retries, will retry later:', {
+      sessionId,
       itemId,
-      retryCount: maxRetries 
+      retryCount: maxRetries
     })
     return false
   }
 
-  private async retryCriticalEvent(type: string, sessionId: string, userId: string, payload: any, retryCount: number, itemId: string): Promise<boolean> {
+  private async retryCriticalEvent(type: string, sessionId: string, userId: string, payload: any, retryCount: number, itemId: string, fastFail: boolean = false): Promise<boolean> {
     const maxRetries = 5
     const baseDelay = 1000
 
@@ -296,10 +314,11 @@ class WorkoutAsyncQueue {
         }
         return true
       } catch (e) {
-        const delay = baseDelay * Math.pow(2, attempt)
         console.error(`[WorkoutQueue] Critical event failed (attempt ${attempt + 1}/${maxRetries}):`, { type, e })
 
-        if (attempt < maxRetries - 1) {
+        // Skip backoff during fastFail (shutdown mode)
+        if (!fastFail && attempt < maxRetries - 1) {
+          const delay = baseDelay * Math.pow(2, attempt)
           await new Promise(resolve => setTimeout(resolve, delay))
         }
       }
@@ -324,15 +343,21 @@ class WorkoutAsyncQueue {
     }
   }
 
-  async flushCriticalOnly(maxAttempts: number = 50) {
+  async flushCriticalOnly(maxAttempts: number = 50, timeoutMs: number = 3000) {
+    const startTime = Date.now()
     let attempts = 0
     while (this.criticalOutbox.size > 0 && attempts < maxAttempts) {
-      await this.flush({ critical: true, telemetry: false })
+      // Check time budget
+      if (Date.now() - startTime > timeoutMs) {
+        console.warn(`[WorkoutQueue] flushCriticalOnly timed out after ${timeoutMs}ms with ${this.criticalOutbox.size} pending items - items remain in outbox for recovery`)
+        break
+      }
+      await this.flush({ critical: true, telemetry: false, fastFail: true })
       attempts++
     }
-    
+
     if (this.criticalOutbox.size > 0) {
-      console.warn(`[WorkoutQueue] flushCriticalOnly stopped after ${maxAttempts} attempts with ${this.criticalOutbox.size} pending items - items remain in outbox for recovery`)
+      console.warn(`[WorkoutQueue] flushCriticalOnly stopped after ${attempts} attempts (${Date.now() - startTime}ms) with ${this.criticalOutbox.size} pending items - items remain in outbox for recovery`)
     }
   }
 

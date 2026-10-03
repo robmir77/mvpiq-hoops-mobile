@@ -1191,15 +1191,15 @@ export const useShotTracker = (
     // Telemetry control
     const exportTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
-        const moveNetFPS = moveNetWorker.fps.value || 0
+        const moveNetFPS = moveNetWorker.theoreticalFps.value || 0
         return telemetryLogger.exportTestSummary(cameraFPS, moveNetFPS)
-    }, [selectedFps, moveNetWorker.fps])
+    }, [selectedFps, moveNetWorker.theoreticalFps])
 
     const logTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
-        const moveNetFPS = moveNetWorker.fps.value || 0
+        const moveNetFPS = moveNetWorker.theoreticalFps.value || 0
         telemetryLogger.logTestSummary(cameraFPS, moveNetFPS)
-    }, [selectedFps, moveNetWorker.fps])
+    }, [selectedFps, moveNetWorker.theoreticalFps])
 
     const resetTelemetry = useCallback(() => {
         telemetryLogger.reset()
@@ -1209,9 +1209,9 @@ export const useShotTracker = (
         frameOutput,
         isModelReady,
         resetShotTracking,
-        yoloFps: yoloWorker.fps,
+        yoloFps: yoloWorker.theoreticalFps,
         yoloThroughputFps: yoloWorker.throughputFps,
-        moveNetFps: moveNetWorker.fps,
+        moveNetFps: moveNetWorker.theoreticalFps,
         currentFps: useSharedValue(selectedFps || 30),
         exportTelemetrySummary,
         logTelemetrySummary,

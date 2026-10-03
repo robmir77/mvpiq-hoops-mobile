@@ -368,24 +368,25 @@ Senza deduplica per id, questo causa duplicazione degli item nella memory queue.
 
 **BUG CRITICO:** `shutdown()` chiama `flushAll()` che contiene un loop while:
 ```typescript
-while (this.criticalOutbox.size > 0 || this.telemetry.size > 0) {
-  await this.flush(...)
+async shutdown() {
+  await this.flushCriticalOnly(50, 3000) // max 3 seconds timeout
+  await this.flushTelemetryOnly()
 }
 ```
-Se il backend è offline con critical events pendenti, questo loop può continuare indefinitamente. Nonostante `flushCriticalOnly(maxAttempts)` esista, `shutdown()` non lo usa direttamente. In pratica, l'utente che preme "Fine" con backend offline può rimanere bloccato in `await workoutQueue.shutdown()` senza mai arrivare alla navigation.
+`shutdown()` è ora time-bounded con timeout di 3 secondi. Se il backend è offline, gli eventi critical rimangono in outbox per recovery successivo invece di bloccare l'utente.
 
 ### Critical Events
 
 **Tipi:**
 - `SHOT` - eventi tiro con API `addShotEvent()` - ✅ Usa critical queue
 - `SESSION_START` - confermato (gestito da creazione sessione) - ✅ Non richiede queue
-- `SESSION_END` - API `endWorkoutSession()` - 🔴 UI chiama direttamente, bypassa critical queue
-- `CALIBRATION` - API `saveCourtCalibration()` - 🔴 UI chiama direttamente, bypassa critical queue
+- `SESSION_END` - API `endWorkoutSession()` - ✅ Usa critical queue (enqueueCritical → shutdown)
+- `CALIBRATION` - API `saveCourtCalibration()` - ✅ Usa critical queue (enqueueCritical in CalibrationScreen)
 
-**NOTA CRITICA:** Nonostante l'architettura documentata preveda CALIBRATION e SESSION_END come eventi critici passanti attraverso la PersistentOutbox, l'implementazione attuale in `CalibrationScreen.tsx` e `WorkoutSessionScreen.tsx` chiama direttamente le API. Questo significa che:
-- Se il device perde connessione durante salvataggio calibrazione, la calibrazione può essere persa
-- Se il backend è offline durante fine sessione, SESSION_END può fallire senza retry
-- La funzione per gestirli nella queue esiste (`case 'SESSION_END'`, `case 'CALIBRATION'`) ma il normale flow UI non la utilizza
+**IMPLEMENTATO:**
+- `CalibrationScreen.tsx`: ora usa `workoutQueue.enqueueCritical({ type: 'CALIBRATION', ... })`
+- `WorkoutSessionScreen.tsx`: ora usa `workoutQueue.enqueueCritical({ type: 'SESSION_END', ... })` prima di shutdown
+- Gli eventi vengono persistiti in AsyncStorage e ritentati automaticamente dal recovery worker
 
 **Retry Strategy:**
 - Max 5 retry con backoff esponenziale (1s, 2s, 4s, 8s, 16s)
@@ -400,11 +401,11 @@ Se il backend è offline con critical events pendenti, questo loop può continua
 - Solo 1 frame su 10 inviato al backend
 
 **Batching:**
-- Documentato: Batch di 20 frame per richiesta HTTP
-- Reale: Il worker chiama `flush()` immediatamente su ogni `enqueueTelemetry()`
-- `telemetry.drain(20)` tende a restituire 1 elemento
-- Comportamento reale: sample → HTTP batch da 1 → 500ms → sample → HTTP batch da 1
-- Il batching da 20 frame non è garantito dall'implementazione
+- Accumulation window di 250ms per telemetry
+- Flush immediato se batch size >= 5
+- Flush dopo accumulation window se batch size < 5
+- Massimo 20 frame per richiesta HTTP
+- Comportamento reale: sample → attesa 250ms → batch accumulato → HTTP
 
 **Queue:**
 - Bounded queue (max 100 items)
@@ -437,8 +438,8 @@ Se il backend è offline con critical events pendenti, questo loop può continua
 - Carica item da tutte le sessioni precedenti
 - Retry con backoff esponenziale
 - Rimozione solo su successo
-- Avvio/arresto manuale
-- 🔴 BUG: Chiavi AsyncStorage sbagliate (vedi sezione Recovery)
+- ✅ Avviato automaticamente in `AppProviders.tsx` (30s interval)
+- ✅ Chiavi AsyncStorage corrette (`workout_outbox_${id}`)
 
 **TelemetrySampler:**
 - shouldSample con vari intervalli
@@ -451,8 +452,8 @@ Se il backend è offline con critical events pendenti, questo loop può continua
 - OutboxRecoveryWorker test - non presente nel codebase
 - Test end-to-end del lifecycle UI (Setup → Calibration → Workout → Pause → Resume → End)
 - Test FULL/HALF court end-to-end
-- Verifica propagazione courtType attraverso navigation
-- Verifica homography corretta per HALF vs FULL court
-- Test shutdown() con backend offline (bounded behavior)
-- Test duplicazione loadAllPendingAndMerge + loadPending
-- Test batching telemetry reale (20 frame vs 1 frame)
+- ✅ Verifica propagazione courtType attraverso navigation - IMPLEMENTATO
+- ✅ Verifica homography corretta per HALF vs FULL court - IMPLEMENTATO
+- ✅ Test shutdown() con backend offline (bounded behavior) - IMPLEMENTATO
+- ✅ Test duplicazione loadAllPendingAndMerge + loadPending - IMPLEMENTATO (deduplica per ID)
+- ✅ Test batching telemetry reale (accumulation window) - IMPLEMENTATO

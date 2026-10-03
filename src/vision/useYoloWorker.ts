@@ -40,7 +40,7 @@ interface YoloWorkerReturn {
   lastRunMs: SharedValue<number>
   lastParseMs: SharedValue<number>
   executionCount: SharedValue<number>
-  fps: SharedValue<number>
+  theoreticalFps: SharedValue<number>
   throughputFps: SharedValue<number>
   latestResultBall: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
   latestResultPlayer: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
@@ -67,7 +67,7 @@ export const useYoloWorker = (
   const yoloSkippedCount = useSharedValue(0) // Count frames skipped due to throttling
 
   const isReady = useSharedValue(false)
-  const fps = useSharedValue(0) // Theoretical FPS based on single inference time
+  const theoreticalFps = useSharedValue(0) // Theoretical FPS based on single inference time (latency capacity)
   const throughputFps = useSharedValue(0) // Actual throughput (inferences per second)
   const inferenceCount = useSharedValue(0)
   const throughputWindowStart = useSharedValue(0)
@@ -296,7 +296,7 @@ export const useYoloWorker = (
           executionCount.value += 1
           const calculatedFps = 1000 / inferenceTime
           if (calculatedFps > 0) {
-            fps.value = calculatedFps
+            theoreticalFps.value = calculatedFps
           }
 
           // Calculate actual throughput (inferences per second over time window)
@@ -336,7 +336,7 @@ export const useYoloWorker = (
         yoloScheduledCount.value = 0
       }
     }
-  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, fps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt, yoloScheduledCount])
+  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, theoreticalFps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt, yoloScheduledCount])
 
   const getLatestResult = useCallback((): YoloWorkerResult | null => {
     if (latestResultBall.value === null && latestResultTimestamp.value === 0) {
@@ -371,7 +371,7 @@ export const useYoloWorker = (
     lastRunMs,
     lastParseMs,
     executionCount,
-    fps,
+    theoreticalFps,
     throughputFps,
     latestResultBall,
     latestResultPlayer,
