@@ -17,8 +17,8 @@ import { VISION_CONFIG } from '@/config/appConfig'
 
 const YOLO_INPUT_SIZE = 512
 
-// YOLO runs at independent FPS from camera (deterministic, not adaptive)
-const YOLO_TARGET_FPS = VISION_CONFIG.YOLO.TARGET_FPS
+// YOLO target FPS follows camera configuration for full sampling
+const YOLO_TARGET_FPS = VISION_CONFIG.CAMERA_FPS
 const YOLO_INTERVAL_MS = 1000 / YOLO_TARGET_FPS
 
 interface YoloWorkerResult {

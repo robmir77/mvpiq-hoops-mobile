@@ -21,10 +21,6 @@ import { VISION_CONFIG } from '@/config/appConfig'
 const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the registry
 const INTERMEDIATE_RESIZE_SIZE = 640 // Intermediate resize for crop optimization (reduces CPU crop work)
 
-// Use VISION_CONFIG for deterministic MoveNet FPS
-const MOVENET_TARGET_FPS = VISION_CONFIG.MOVENET.TARGET_FPS
-const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
-
 // DIAGNOSTIC FLAG: Disable MoveNet execution to measure YOLO + tracking + crop calculation performance
 const ENABLE_MOVENET = true
 
@@ -452,18 +448,6 @@ export const useMoveNetWorker = (
       return
     }
 
-    // Throttle based on timing
-    const now = Date.now()
-    const timeSinceLast = lastInferenceAt.value > 0 ? now - lastInferenceAt.value : MOVENET_INTERVAL_MS
-    if (timeSinceLast < MOVENET_INTERVAL_MS) {
-      // Skip this frame - not enough time has elapsed for target MoveNet FPS
-      moveNetSkippedCount.value++
-      if (__DEV__) {
-        console.log('[MoveNet Throttle] Skip:', timeSinceLast, 'ms since last (need', MOVENET_INTERVAL_MS, 'ms)')
-      }
-      return
-    }
-
     // Get player bbox from YOLO (center coordinates)
     const bboxRaw = playerBbox.value
     
@@ -493,24 +477,29 @@ export const useMoveNetWorker = (
       bbox.x + bbox.width <= 1 + BOUNDARY_TOLERANCE &&
       bbox.y + bbox.height <= 1 + BOUNDARY_TOLERANCE
 
-    const poseSource = hasValidPlayer ? "PLAYER_CROP_GEOMETRY" : "FULL_FRAME"
+    // Skip MoveNet execution if player bbox is below threshold
+    if (!hasValidPlayer) {
+      if (__DEV__ && bbox) {
+        console.log('[MoveNet] Skip: bbox below threshold',
+          bbox.confidence == null ? 'no_confidence' :
+          bbox.confidence < PLAYER_CONFIDENCE_THRESH ? `conf_too_low (${bbox.confidence.toFixed(4)} < ${PLAYER_CONFIDENCE_THRESH})` :
+          bbox.width < PLAYER_MIN_WIDTH ? `width_too_small (${bbox.width.toFixed(3)} < ${PLAYER_MIN_WIDTH})` :
+          bbox.width > PLAYER_MAX_WIDTH ? `width_too_large (${bbox.width.toFixed(3)} > ${PLAYER_MAX_WIDTH})` :
+          bbox.height < PLAYER_MIN_HEIGHT ? `height_too_small (${bbox.height.toFixed(3)} < ${PLAYER_MIN_HEIGHT})` :
+          bbox.height > PLAYER_MAX_HEIGHT ? `height_too_large (${bbox.height.toFixed(3)} > ${PLAYER_MAX_HEIGHT})` :
+          bbox.x < 0 ? `x_negative (${bbox.x.toFixed(3)})` :
+          bbox.y < 0 ? `y_negative (${bbox.y.toFixed(3)})` :
+          bbox.x + bbox.width > 1 ? `x_out_of_bounds (${(bbox.x + bbox.width).toFixed(3)} > 1)` :
+          bbox.y + bbox.height > 1 ? `y_out_of_bounds (${(bbox.y + bbox.height).toFixed(3)} > 1)` :
+          'unknown')
+      }
+      return
+    }
+
+    const poseSource = "PLAYER_CROP_GEOMETRY"
 
     if (__DEV__) {
       console.log('[MoveNet CROP] source=', poseSource, 'bboxValid=', hasValidPlayer)
-    }
-    if (__DEV__ && !hasValidPlayer && bbox) {
-      console.log('[MoveNet CROP] Rejection reason:', 
-        bbox.confidence == null ? 'no_confidence' :
-        bbox.confidence < PLAYER_CONFIDENCE_THRESH ? `conf_too_low (${bbox.confidence.toFixed(4)} < ${PLAYER_CONFIDENCE_THRESH})` :
-        bbox.width < PLAYER_MIN_WIDTH ? `width_too_small (${bbox.width.toFixed(3)} < ${PLAYER_MIN_WIDTH})` :
-        bbox.width > PLAYER_MAX_WIDTH ? `width_too_large (${bbox.width.toFixed(3)} > ${PLAYER_MAX_WIDTH})` :
-        bbox.height < PLAYER_MIN_HEIGHT ? `height_too_small (${bbox.height.toFixed(3)} < ${PLAYER_MIN_HEIGHT})` :
-        bbox.height > PLAYER_MAX_HEIGHT ? `height_too_large (${bbox.height.toFixed(3)} > ${PLAYER_MAX_HEIGHT})` :
-        bbox.x < 0 ? `x_negative (${bbox.x.toFixed(3)})` :
-        bbox.y < 0 ? `y_negative (${bbox.y.toFixed(3)})` :
-        bbox.x + bbox.width > 1 ? `x_out_of_bounds (${(bbox.x + bbox.width).toFixed(3)} > 1)` :
-        bbox.y + bbox.height > 1 ? `y_out_of_bounds (${(bbox.y + bbox.height).toFixed(3)} > 1)` :
-        'unknown')
     }
     if (__DEV__ && hasValidPlayer && bbox) {
       console.log('[MoveNet CROP] normalized bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)

@@ -36,12 +36,12 @@ export const VISION_CONFIG = {
 
   YOLO: {
     ENABLED: true,
-    TARGET_FPS: 10, // YOLO inference target (10-15 FPS per ARCHITECTURE.md)
+    // TARGET_FPS follows CAMERA_FPS dynamically in useYoloWorker
   },
 
   MOVENET: {
     ENABLED: true,
-    TARGET_FPS: 3, // MoveNet pose estimation target (~3 FPS per ARCHITECTURE.md)
+    // MoveNet executes only when player bbox is above threshold (no FPS limit)
   },
 } as const;
 

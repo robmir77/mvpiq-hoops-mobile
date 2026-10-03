@@ -204,6 +204,18 @@ export const COURT_CONFIG = {
 } as const
 ```
 
+## Model Configurations
+
+### YOLO Models
+
+| Model ID | Input Size | Precision | Epochs | Expected FPS | Actual FPS | Note |
+|----------|------------|-----------|--------|--------------|------------|------|
+| best_320_float16 | 320x320 | FP16 | 50 | 10-37 | 2-7 | Measured at 640x360 resolution |
+| best_384_float16 | 384x384 | FP16 | 100 | 20-21 | 3-6 | Updated to 100 epochs, actual FPS lower due to device bottleneck |
+| best_448_float16 | 448x448 | FP16 | 5 | 12-21 | TBD | Early training |
+| best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
+| best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
+
 **Nota importante:** Il sistema NON usa adaptive performance. La frequenza della camera è indipendente dalla frequenza di inferenza YOLO/MoveNet:
 - Camera: 30 FPS (configurabile via CAMERA_CONFIG)
 - YOLO: 10 FPS (deterministico, via VISION_CONFIG.YOLO.TARGET_FPS)

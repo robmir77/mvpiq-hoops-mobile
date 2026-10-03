@@ -992,7 +992,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 userId: user.id,
                 payload: cal,
             }
-            workoutQueue.enqueueCritical(payload)
+            const persisted = await workoutQueue.enqueueCritical(payload)
+            if (!persisted) {
+                throw new Error('Impossibile persistere la calibrazione')
+            }
             setSavedCalibration(cal)
             showSuccess('✓ Calibrazione salvata', 'Puoi procedere con la sessione')
         } catch (e: any) {

@@ -1,18 +1,34 @@
 # Modelli AI per MVPiQ Hoops
 
-Questa cartella deve contenere i modelli ONNX per il tracking AI on-device.
+Questa cartella deve contenere i modelli TFLite per il tracking AI on-device.
 
 ## Modelli richiesti
 
-### 1. ball_detection.onnx
+### YOLO Models (Ball/Player/Rim Detection)
+
+| File | Input Size | Precision | Epochs | Expected FPS | Actual FPS | Note |
+|------|------------|-----------|--------|--------------|------------|------|
+| best_320_float16.tflite | 320x320 | FP16 | 50 | 10-37 | 2-7 | Measured at 640x360 resolution |
+| best_384_float16.tflite | 384x384 | FP16 | 100 | 20-21 | 3-6 | Updated to 100 epochs, actual FPS lower due to device bottleneck |
+| best_448_float16.tflite | 448x448 | FP16 | 5 | 12-21 | TBD | Early training |
+| best_512_float16.tflite | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
+| best_640_float16.tflite | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
+
+**YOLO Model Details:**
 - **Tipo**: YOLO11n fine-tuned su basketball
-- **Input**: [1, 3, 320, 320] float32 normalizzato [0,1]
-- **Output**: [1, N, 6] (cx, cy, w, h, confidence, class)
+- **Input**: [1, 3, N, N] float16 normalizzato [0,1] (dove N = input size)
+- **Output**: [1, M, 6] (cx, cy, w, h, confidence, class)
 - **Classi**: 0=basketball, 1=hoop, 2=player
 
-### 2. movenet_lightning.onnx
+### MoveNet Model (Pose Detection)
+
+| File | Input Size | Precision | Note |
+|------|------------|-----------|------|
+| movenet_lightning_192_int8.tflite | 192x192 | INT8 | Lightning model |
+
+**MoveNet Model Details:**
 - **Tipo**: MoveNet Lightning per pose detection
-- **Input**: [1, 192, 192, 3] float32 normalizzato [0,1]
+- **Input**: [1, 192, 192, 3] int8 normalizzato [0,255]
 - **Output**: [1, 1, 17, 3] (y, x, score) normalizzati [0,1]
 - **Keypoints**: 17 keypoints COCO standard
 

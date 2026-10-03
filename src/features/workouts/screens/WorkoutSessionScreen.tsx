@@ -2007,11 +2007,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 // Enqueue SESSION_END as critical event before shutdown
                 const workoutQueue = workoutQueueRef.current
                 if (workoutQueue) {
-                    workoutQueue.enqueueCritical({
+                    const persisted = await workoutQueue.enqueueCritical({
                         type: 'SESSION_END',
                         sessionId,
                         userId: user!.id,
                     })
+                    if (!persisted) {
+                        throw new Error('Unable to persist SESSION_END')
+                    }
                     console.log('[WorkoutSession] SESSION_END enqueued to critical queue')
                 }
 

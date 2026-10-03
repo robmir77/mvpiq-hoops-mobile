@@ -64,7 +64,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     asset: require("../../assets/models/best_384_float16.tflite"),
     fpsMin: 20,
     fpsMax: 21,
-    epochs: 50,
+    epochs: 100,
     usageMinutes: 0,
     defaultCameraResolution: { width: 720, height: 405 },
   },

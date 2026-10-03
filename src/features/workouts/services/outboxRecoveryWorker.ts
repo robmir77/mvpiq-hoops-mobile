@@ -23,6 +23,7 @@ export class OutboxRecoveryWorker {
   private isRunning = false
   private intervalId: number | null = null
   private retryIntervalMs = 30000 // 30 seconds between recovery attempts
+  private recoveryInProgress = false
 
   /**
    * Start the recovery worker
@@ -44,8 +45,15 @@ export class OutboxRecoveryWorker {
 
     // Schedule periodic recovery
     this.intervalId = setInterval(() => {
+      if (this.recoveryInProgress) {
+        console.warn('[RecoveryWorker] Recovery already in progress, skipping this cycle')
+        return
+      }
+      this.recoveryInProgress = true
       this.runRecovery().catch(e => {
         console.error('[RecoveryWorker] Scheduled recovery failed:', e)
+      }).finally(() => {
+        this.recoveryInProgress = false
       })
     }, this.retryIntervalMs)
   }
