@@ -4,9 +4,6 @@
 // Both YOLO and MoveNet run entirely in the Frame Processor Worklet.
 // Only processed results (BallDetection, PoseResult, ShotEvent) cross to JS.
 
-// TEST 1A: Disable hot path logging for performance testing
-const TEST_1A_DISABLE_HOT_PATH_LOGS = true
-
 import { useRef, useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { useFrameOutput } from 'react-native-vision-camera'
@@ -19,6 +16,8 @@ import { useYoloWorker } from './useYoloWorker'
 import { useMoveNetWorker } from './useMoveNetWorker'
 import { usePlayerCropManager } from './usePlayerCropManager'
 import { useAdaptivePerformance } from './useAdaptivePerformance'
+
+import { HOT_PATH_LOGS } from '@/config/debugConfig'
 
 import type {
     BallDetection,
@@ -169,7 +168,7 @@ export const useShotTracker = (
     const hasFatalError =
         useSharedValue(false)
 
-    // Throttle scheduleOnRN calls to ~16ms (limit bridge crossings)
+    // Throttle scheduleOnRN calls to ~66ms (15 FPS) to reduce bridge crossings
     const lastRNDispatch =
         useSharedValue(0)
 
@@ -524,7 +523,7 @@ export const useShotTracker = (
                     }
 
                     // Log adaptive threshold changes (DEV only)
-                    if (__DEV__) {
+                    if (HOT_PATH_LOGS) {
                         console.log(
                             '[AdaptiveThreshold] Rate:',
                             detectionRate.toFixed(2),
@@ -606,7 +605,7 @@ export const useShotTracker = (
                 }
 
                 // Log filter decisions (DEV only)
-                if (__DEV__ && filterReason) {
+                if (HOT_PATH_LOGS && filterReason) {
                     console.log(`[BBOX FILTER] ${filterReason}`)
                     console.log(`[BBOX FILTER] Previous valid bbox: w=${lastBallWidth.value.toFixed(3)}, h=${lastBallHeight.value.toFixed(3)}`)
                     console.log(`[BBOX FILTER] Current bbox (raw): w=${ball.width.toFixed(3)}, h=${ball.height.toFixed(3)}`)
@@ -724,7 +723,7 @@ export const useShotTracker = (
                     const MAX_RIM_DISTANCE = 0.1
                     if (distance > MAX_RIM_DISTANCE) {
                         filteredRim = undefined
-                        if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+                        if (HOT_PATH_LOGS) {
                             console.log('[ShotTracker] Rejected rim detection: too far from calibration', {
                                 detected: { x: detection.rim.x.toFixed(3), y: detection.rim.y.toFixed(3) },
                                 calibration: { x: rimFromCalibration.x.toFixed(3), y: rimFromCalibration.y.toFixed(3) },
@@ -1017,7 +1016,7 @@ export const useShotTracker = (
                         (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
 
                     // Log MoveNet scheduling conditions (DEV only)
-                    if (__DEV__) {
+                    if (HOT_PATH_LOGS) {
                         const moveNetReasons = []
                         if (!poseEnabledShared.value) moveNetReasons.push('poseDisabled')
                         if (timeSinceLastMoveNet < MOVENET_INTERVAL_MS) moveNetReasons.push(`tooSoon (${timeSinceLastMoveNet.toFixed(0)}ms)`)
@@ -1052,7 +1051,7 @@ export const useShotTracker = (
                     }
 
                     // Log throttling (DEV only)
-                    if (__DEV__) {
+                    if (HOT_PATH_LOGS) {
                         if (poseEnabledShared.value && !moveNetDue) {
                             console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
                         }
@@ -1060,7 +1059,7 @@ export const useShotTracker = (
 
                     // Execute YOLO and MoveNet (independent throttling per model)
                     if (yoloDue) {
-                        if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+                        if (HOT_PATH_LOGS) {
                             console.log('[YOLO SCHEDULER] Executing YOLO', { frame: currentFrame, timeSinceLast: timeSinceLastYolo.toFixed(0), interval: yoloIntervalMs.toFixed(1) })
                         }
                         perfYoloRequested.value += 1
@@ -1105,7 +1104,7 @@ export const useShotTracker = (
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
                         // Log player detection for MoveNet debugging
-                        if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+                        if (HOT_PATH_LOGS) {
                             console.log('[PlayerCrop] currentPlayer (raw YOLO):', currentPlayer)
                         }
                         if (currentPlayer) {
@@ -1216,7 +1215,7 @@ export const useShotTracker = (
 
                     // Emit via bridge
                     const now = Date.now()
-                    if (now - lastRNDispatch.value >= 16) {
+                    if (now - lastRNDispatch.value >= 66) {
                         lastRNDispatch.value = now
                         scheduleOnRN(emitBallDetection, detection)
                     }
@@ -1236,7 +1235,7 @@ export const useShotTracker = (
                         }
 
                         const now = Date.now()
-                        if (now - lastRNDispatch.value >= 16) {
+                        if (now - lastRNDispatch.value >= 66) {
                             lastRNDispatch.value = now
                             scheduleOnRN(emitPoseResult, result)
                         }

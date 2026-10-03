@@ -1,4 +1,5 @@
 import { saveFrameDataBatch, addShotEvent, addShotEventsBatch } from '../api/workouts.api'
+import { PersistentOutbox } from './persistentOutbox'
 
 interface AsyncQueueItem<T> {
   payload: T
@@ -75,11 +76,14 @@ interface CriticalPayload {
   payload: any
 }
 
+interface WorkoutAsyncQueueOptions {
+  sessionId: string
+  userId: string
+}
+
 class WorkoutAsyncQueue {
   private telemetry = new BoundedQueue<AsyncQueueItem<FrameDataPayload>>(100, 'drop-oldest')
-  private critical = new BoundedQueue<AsyncQueueItem<CriticalPayload>>(1000, 'reject')
-  private sessionId: string | null = null
-  private userId: string | null = null
+  private criticalOutbox: PersistentOutbox
 
   private running = false
   private workerPromise: Promise<void> | null = null
@@ -88,29 +92,20 @@ class WorkoutAsyncQueue {
   private telemetryDroppedCount = 0
   private criticalOverflowCount = 0
 
-  setSession(sessionId: string, userId: string) {
-    this.sessionId = sessionId
-    this.userId = userId
-  }
-
-  clearSession() {
-    this.sessionId = null
-    this.userId = null
-    this.telemetryDroppedCount = 0
-    this.criticalOverflowCount = 0
+  constructor(options: WorkoutAsyncQueueOptions) {
+    this.criticalOutbox = new PersistentOutbox(options.sessionId, options.userId)
+    // Load pending items from previous session
+    this.criticalOutbox.loadPending().catch(e => {
+      console.error('[WorkoutQueue] Failed to load pending critical items:', e)
+    })
   }
 
   enqueueTelemetry(payload: Omit<FrameDataPayload, 'sessionId' | 'userId'>) {
-    if (!this.sessionId || !this.userId) {
-      console.error('[WorkoutQueue] Cannot enqueue telemetry: no session set')
-      return
-    }
-
     this.telemetry.push({
       payload: {
         ...payload,
-        sessionId: this.sessionId,
-        userId: this.userId,
+        sessionId: this.criticalOutbox.sessionId,
+        userId: this.criticalOutbox.userId,
       },
       timestamp: Date.now(),
     })
@@ -118,18 +113,19 @@ class WorkoutAsyncQueue {
     this.ensureWorker()
   }
 
-  enqueueCritical(payload: CriticalPayload) {
-    const success = this.critical.push({
-      payload,
-      timestamp: Date.now(),
-      retryCount: 0,
+  async enqueueCritical(payload: CriticalPayload) {
+    const success = await this.criticalOutbox.add({
+      type: payload.type,
+      sessionId: payload.sessionId,
+      userId: payload.userId,
+      payload: payload.payload,
     })
 
     if (!success) {
       this.criticalOverflowCount++
-      console.error('[WorkoutQueue] CRITICAL QUEUE OVERFLOW - data may be lost!', {
+      console.error('[WorkoutQueue] CRITICAL OUTBOX OVERFLOW - data may be lost!', {
         type: payload.type,
-        queueSize: this.critical.size,
+        queueSize: this.criticalOutbox.size,
         overflowCount: this.criticalOverflowCount,
       })
     }
@@ -147,7 +143,7 @@ class WorkoutAsyncQueue {
   private async run() {
     try {
       while (
-        this.critical.size > 0 ||
+        this.criticalOutbox.size > 0 ||
         this.telemetry.size > 0
       ) {
         await this.flush()
@@ -157,7 +153,7 @@ class WorkoutAsyncQueue {
       this.workerPromise = null
 
       if (
-        this.critical.size > 0 ||
+        this.criticalOutbox.size > 0 ||
         this.telemetry.size > 0
       ) {
         this.ensureWorker()
@@ -165,68 +161,52 @@ class WorkoutAsyncQueue {
     }
   }
 
-  private async flush() {
+  private async flush(options: { critical: boolean; telemetry: boolean } = { critical: true, telemetry: true }) {
     // Update telemetry dropped count
     this.telemetryDroppedCount = this.telemetry.dropped
 
-    // Process critical first, then telemetry
-    const criticalItems = this.critical.drain(10)
-    const telemetryItems = this.telemetry.drain(20)
-
-    // Process critical items (shots, session events) with retry
-    await this.processCriticalItems(criticalItems)
+    // Process critical items from outbox
+    if (options.critical && this.criticalOutbox.size > 0) {
+      await this.processCriticalFromOutbox()
+    }
 
     // Process telemetry items (frame data) in batch - best effort
-    if (telemetryItems.length > 0) {
-      await this.processTelemetryItems(telemetryItems)
+    if (options.telemetry && this.telemetry.size > 0) {
+      const telemetryItems = this.telemetry.drain(20)
+      if (telemetryItems.length > 0) {
+        await this.processTelemetryItems(telemetryItems)
+      }
     }
   }
 
-  private async processCriticalItems(items: AsyncQueueItem<CriticalPayload>[]) {
-    // Group shots for batch processing
-    const shotItems: Array<{ sessionId: string; userId: string; payload: any }> = []
-    const otherItems: AsyncQueueItem<CriticalPayload>[] = []
+  private async processCriticalFromOutbox() {
+    // Process up to 10 items at a time
+    const processedCount = Math.min(10, this.criticalOutbox.size)
+    
+    for (let i = 0; i < processedCount; i++) {
+      const item = this.criticalOutbox.peek()
+      if (!item) break
 
-    for (const item of items) {
-      const { type, sessionId, userId, payload } = item.payload
-      if (type === 'SHOT') {
-        shotItems.push({ sessionId, userId, payload })
+      const success = await this.processCriticalItemWithRetry(item)
+      if (success) {
+        await this.criticalOutbox.remove(item.id)
       } else {
-        otherItems.push(item)
-      }
-    }
-
-    // Process shots in batch if available
-    if (shotItems.length > 0) {
-      await this.processShotBatch(shotItems)
-    }
-
-    // Process other critical events individually with retry
-    for (const item of otherItems) {
-      await this.processCriticalItemWithRetry(item)
-    }
-  }
-
-  private async processShotBatch(shots: Array<{ sessionId: string; userId: string; payload: any }>) {
-    try {
-      // Try batch API first
-      await addShotEventsBatch(shots[0].sessionId, shots[0].userId, shots.map(s => s.payload))
-    } catch (batchError) {
-      console.warn('[WorkoutQueue] Batch shot API failed, falling back to individual:', batchError)
-      // Fallback to individual requests with retry
-      for (const shot of shots) {
-        await this.retryShotEvent(shot.sessionId, shot.userId, shot.payload, 0)
+        // Item failed permanently, remove to avoid blocking queue
+        console.error('[WorkoutQueue] Critical item failed permanently, removing from outbox:', item.id)
+        await this.criticalOutbox.remove(item.id)
       }
     }
   }
 
-  private async processCriticalItemWithRetry(item: AsyncQueueItem<CriticalPayload>) {
-    const { type, sessionId, userId, payload } = item.payload
-    const retryCount = item.retryCount || 0
+  private async processCriticalItemWithRetry(item: any): Promise<boolean> {
+    const { type, sessionId, userId, payload, retryCount } = item
 
-    if (type === 'SESSION_START' || type === 'SESSION_END' || type === 'CALIBRATION') {
-      await this.retryCriticalEvent(type, sessionId, userId, payload, retryCount)
+    if (type === 'SHOT') {
+      return await this.retryShotEvent(sessionId, userId, payload, retryCount)
+    } else if (type === 'SESSION_START' || type === 'SESSION_END' || type === 'CALIBRATION') {
+      return await this.retryCriticalEvent(type, sessionId, userId, payload, retryCount)
     }
+    return true
   }
 
   private async retryShotEvent(sessionId: string, userId: string, payload: any, retryCount: number): Promise<boolean> {
@@ -285,16 +265,31 @@ class WorkoutAsyncQueue {
     }
   }
 
-  async flushCritical() {
-    while (this.critical.size > 0) {
-      await this.flush()
+  async flushCriticalOnly() {
+    while (this.criticalOutbox.size > 0) {
+      await this.flush({ critical: true, telemetry: false })
     }
   }
 
-  async flushTelemetry() {
+  async flushTelemetryOnly() {
     while (this.telemetry.size > 0) {
-      await this.flush()
+      await this.flush({ critical: false, telemetry: true })
     }
+  }
+
+  async flushAll() {
+    while (this.criticalOutbox.size > 0 || this.telemetry.size > 0) {
+      await this.flush({ critical: true, telemetry: true })
+    }
+  }
+
+  // Legacy methods for backward compatibility
+  async flushCritical() {
+    return this.flushCriticalOnly()
+  }
+
+  async flushTelemetry() {
+    return this.flushTelemetryOnly()
   }
 
   get telemetrySize() {
@@ -302,7 +297,7 @@ class WorkoutAsyncQueue {
   }
 
   get criticalSize() {
-    return this.critical.size
+    return this.criticalOutbox.size
   }
 
   get telemetryDropped() {
@@ -325,16 +320,17 @@ class WorkoutAsyncQueue {
       },
     }
   }
-}
 
-// Singleton instance
-let queueInstance: WorkoutAsyncQueue | null = null
-
-export const getWorkoutQueue = (): WorkoutAsyncQueue => {
-  if (!queueInstance) {
-    queueInstance = new WorkoutAsyncQueue()
+  async shutdown() {
+    // Flush all pending items
+    await this.flushAll()
+    // Clear outbox
+    await this.criticalOutbox.clear()
   }
-  return queueInstance
 }
 
-export type { FrameDataPayload, CriticalPayload }
+export const createWorkoutQueue = (options: WorkoutAsyncQueueOptions): WorkoutAsyncQueue => {
+  return new WorkoutAsyncQueue(options)
+}
+
+export type { FrameDataPayload, CriticalPayload, WorkoutAsyncQueueOptions }

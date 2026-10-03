@@ -8,6 +8,7 @@ import { useRef, useCallback, useEffect } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 import { YOLO_MODELS, type YoloModelConfig } from './yoloModels'
+import { ENABLE_ADAPTIVE_PERFORMANCE_LOGS } from '@/config/debugConfig'
 
 // Performance tiers for YOLO models (ordered by complexity, high to low)
 const YOLO_MODEL_TIERS: YoloModelConfig[] = [
@@ -88,7 +89,7 @@ export const useAdaptivePerformance = ({
       perfFramesFailed.value++
     }
 
-    if (__DEV__ && perfFramesProcessed.value % 50 === 0) {
+    if (ENABLE_ADAPTIVE_PERFORMANCE_LOGS && perfFramesProcessed.value % 50 === 0) {
       console.log('[AdaptivePerf] Record:', {
         fps,
         success,
@@ -212,12 +213,12 @@ export const useAdaptivePerformance = ({
   const evaluateAndAdapt = useCallback(() => {
     'worklet'
 
-    if (__DEV__) {
+    if (ENABLE_ADAPTIVE_PERFORMANCE_LOGS) {
       console.log('[AdaptivePerf] evaluateAndAdapt called')
     }
 
     if (isAdapting.value) {
-      if (__DEV__) {
+      if (ENABLE_ADAPTIVE_PERFORMANCE_LOGS) {
         console.log('[AdaptivePerf] Skipped: isAdapting=true')
       }
       return
@@ -226,7 +227,7 @@ export const useAdaptivePerformance = ({
     const now = Date.now()
     const timeSinceLastAdapt = now - lastAdaptationAt.current
     if (timeSinceLastAdapt < MIN_ADAPTATION_INTERVAL_MS) {
-      if (__DEV__) {
+      if (ENABLE_ADAPTIVE_PERFORMANCE_LOGS) {
         console.log('[AdaptivePerf] Skipped: too soon', { timeSinceLastAdapt, MIN_ADAPTATION_INTERVAL_MS })
       }
       return
@@ -236,7 +237,7 @@ export const useAdaptivePerformance = ({
 
     // Need minimum samples to make decision
     if (metrics.framesProcessed < 30) {
-      if (__DEV__) {
+      if (ENABLE_ADAPTIVE_PERFORMANCE_LOGS) {
         console.log('[AdaptivePerf] Skipped: not enough samples', { framesProcessed: metrics.framesProcessed })
       }
       return
@@ -245,7 +246,7 @@ export const useAdaptivePerformance = ({
     isAdapting.value = true
     lastAdaptationAt.current = now
 
-    if (__DEV__) {
+    if (ENABLE_ADAPTIVE_PERFORMANCE_LOGS) {
       console.log('[AdaptivePerf] Evaluation:', {
         targetFps: currentFps.value,
         yoloFps: metrics.yoloFps,

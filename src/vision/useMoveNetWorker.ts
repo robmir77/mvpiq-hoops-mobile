@@ -15,6 +15,7 @@ import type { PlayerCropResult } from './usePlayerCropManager'
 import type { PoseKeypoints } from './types'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
+import { ENABLE_MOVENET_LOGS } from '@/config/debugConfig'
 
 const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the registry
 const INTERMEDIATE_RESIZE_SIZE = 640 // Intermediate resize for crop optimization (reduces CPU crop work)
@@ -175,7 +176,7 @@ export const useMoveNetWorker = (
 
       // Log raw output length for diagnostics (should be 51 for 17 keypoints * 3 values)
       const outputLength = output.length
-      if (__DEV__) {
+      if (ENABLE_MOVENET_LOGS) {
         console.log('[POSE RAW] outputLength=', outputLength)
       }
 
@@ -192,7 +193,7 @@ export const useMoveNetWorker = (
         ? Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints 
         : 0
       
-      if (__DEV__) {
+      if (ENABLE_MOVENET_LOGS) {
         console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
       }
 
@@ -206,7 +207,7 @@ export const useMoveNetWorker = (
       ) {
         // Log for debugging pose position issue
         const sampleKey = Object.keys(keypoints)[0] as keyof PoseKeypoints
-        if (__DEV__ && sampleKey && keypoints[sampleKey]) {
+        if (ENABLE_MOVENET_LOGS && sampleKey && keypoints[sampleKey]) {
           console.log('[POSE TRANSFORM DEBUG] cropRegion:', `x=${cropRegion.cropX.toFixed(0)} y=${cropRegion.cropY.toFixed(0)} w=${cropRegion.cropWidth.toFixed(0)} h=${cropRegion.cropHeight.toFixed(0)}`)
           console.log('[POSE TRANSFORM DEBUG] squareCrop:', `x=${cropInfo.squareCropX?.toFixed(0)} y=${cropInfo.squareCropY?.toFixed(0)} size=${cropInfo.squareCropSize?.toFixed(0)}`)
           console.log('[POSE TRANSFORM DEBUG] frame size:', `${frameWidth}x${frameHeight}`)
@@ -239,7 +240,7 @@ export const useMoveNetWorker = (
           }
         }
 
-        if (__DEV__ && sampleKey && finalKeypoints[sampleKey]) {
+        if (ENABLE_MOVENET_LOGS && sampleKey && finalKeypoints[sampleKey]) {
           console.log('[POSE TRANSFORM DEBUG] transformed keypoint:', `${sampleKey}= x=${finalKeypoints[sampleKey]!.x.toFixed(3)} y=${finalKeypoints[sampleKey]!.y.toFixed(3)}`)
         }
       }
@@ -273,7 +274,7 @@ export const useMoveNetWorker = (
           // Test 2: Log dispose timestamp to measure gap before next resize
           const disposeTime = Date.now()
           lastDisposeTimestamp.value = disposeTime
-          if (__DEV__) {
+          if (ENABLE_MOVENET_LOGS) {
             console.log('[MoveNet DISPOSE] timestamp=', disposeTime)
           }
           resized.dispose()

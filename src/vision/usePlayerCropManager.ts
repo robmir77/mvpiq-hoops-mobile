@@ -5,11 +5,9 @@
 // Handles temporary player loss with bbox persistence
 // Uses Reanimated SharedValues for worklet compatibility
 
-// TEST 1A: Disable hot path logging for performance testing
-const TEST_1A_DISABLE_HOT_PATH_LOGS = true
-
 import { useSharedValue } from 'react-native-reanimated'
 import { YOLO_CONFIG } from '@/config/appConfig'
+import { ENABLE_PLAYER_CROP_LOGS } from '@/config/debugConfig'
 
 export interface PlayerCropConfig {
   paddingPercent: number // Padding around bbox (default 0.15 = 15%)
@@ -108,7 +106,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       const confidence = playerBbox.confidence ?? 1.0
       if (confidence < cfg.minConfidence) {
         // Low confidence detection - ignore but don't reset tracking
-        if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+        if (ENABLE_PLAYER_CROP_LOGS) {
           console.log('[PLAYER CROP] Rejected low confidence:', confidence.toFixed(6), 'threshold:', cfg.minConfidence)
         }
         return
@@ -127,13 +125,13 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
           consecutiveRejects.value += 1
           if (consecutiveRejects.value < MAX_CONSECUTIVE_REJECTS) {
             // Bbox jumped too much - reject as noise
-            if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+            if (ENABLE_PLAYER_CROP_LOGS) {
               console.log('[PLAYER CROP] Rejected large jump:', jump.toFixed(3), 'threshold:', cfg.maxJumpThreshold, 'from:', bboxX.value.toFixed(3), bboxY.value.toFixed(3), 'to:', playerBbox.x.toFixed(3), playerBbox.y.toFixed(3), 'consecutiveRejects:', consecutiveRejects.value)
             }
             return
           }
           // Force accept after MAX_CONSECUTIVE_REJECTS - safety net to re-sync
-          if (__DEV__ && !TEST_1A_DISABLE_HOT_PATH_LOGS) {
+          if (ENABLE_PLAYER_CROP_LOGS) {
             console.log('[PLAYER CROP] Force accepting after', consecutiveRejects.value, 'consecutive rejects - safety net re-sync')
           }
         }

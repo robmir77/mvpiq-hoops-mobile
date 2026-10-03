@@ -34,7 +34,8 @@ import {
     getWorkoutSession,
     endWorkoutSession, pauseWorkoutSession, resumeWorkoutSession,
 } from '../api/workouts.api'
-import { getWorkoutQueue, type FrameDataPayload, type CriticalPayload } from '../services/workoutAsyncQueue'
+import { createWorkoutQueue, type FrameDataPayload, type CriticalPayload } from '../services/workoutAsyncQueue'
+import { TelemetrySampler } from '../services/telemetrySampler'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
@@ -1562,7 +1563,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [])
     const cameraRef       = useRef<CameraRef>(null)
     const lastBackendFrameTimestamp = useRef<number>(0)
-    const workoutQueue = getWorkoutQueue()
+    const workoutQueueRef = useRef<ReturnType<typeof createWorkoutQueue> | null>(null)
+    const telemetrySamplerRef = useRef<TelemetrySampler | null>(null)
 
     // Performance monitoring (YOLO/MoveNet FPS from worker SharedValues)
     useEffect(() => {
@@ -1631,10 +1633,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         
         if (ball || rimForTracking) {
             const now = detection.timestamp
-            // Backend sampling: 2 Hz (max 2 POST-worthy samples/sec)
-            if (now - lastBackendFrameTimestamp.current >= 500) {
-                lastBackendFrameTimestamp.current = now
+            const workoutQueue = workoutQueueRef.current
+            const sampler = telemetrySamplerRef.current
+            if (!workoutQueue || !sampler) return
 
+            // Backend sampling: 2 Hz (max 2 POST-worthy samples/sec)
+            if (sampler.shouldSample(now)) {
                 workoutQueue.enqueueTelemetry({
                     frameTimestamp:   now,
                     ballX:            ball ? ball.x : undefined,
@@ -1652,7 +1656,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 } as FrameDataPayload)
             }
         }
-    }, [tracking, calibration, rimFromDetection])
+    }, [tracking, calibration, rimFromDetection, poseKeypoints])
 
     // Auto shot detection handler
     const handleAutoShotDetected = useCallback(async (result: ShotResult) => {
@@ -1669,6 +1673,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             )
             
             // Enqueue to critical queue - non-blocking
+            const workoutQueue = workoutQueueRef.current
+            if (!workoutQueue) return
+
             workoutQueue.enqueueCritical({
                 type: 'SHOT',
                 sessionId,
@@ -1700,7 +1707,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             resetShotTrackingRef.current?.()
         } catch (e: any) { showError('Errore tiro', e.message) }
         finally { isRecordingRef.current = false; setIsRecording(false) }
-    }, [user?.id, sessionId, tracking, calibration, jointAngles, workoutQueue])
+    }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
     // Screenshot capture function
     const captureShotScreenshot = useCallback(async (shotNumber: number) => {
@@ -1912,8 +1919,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setSession(s)
             setIsActive(true) // Activate camera when session loads
             setShotCount({ total: s.totalShots, made: s.madeShots })
-            // Set session in async queue
-            workoutQueue.setSession(sessionId, user.id)
+            // Create session-scoped queue
+            workoutQueueRef.current = createWorkoutQueue({ sessionId, userId: user.id })
+            // Create telemetry sampler (2 Hz = 500ms)
+            telemetrySamplerRef.current = new TelemetrySampler({ sampleIntervalMs: 500 })
             try {
                 const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                 const cal: CalibrationData = {
@@ -1961,6 +1970,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             console.log('[Manual Shot] Payload:', payload)
             
             // Enqueue to critical queue - non-blocking
+            const workoutQueue = workoutQueueRef.current
+            if (!workoutQueue) return
+
             workoutQueue.enqueueCritical({
                 type: 'SHOT',
                 sessionId,
@@ -1997,8 +2009,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 if (isVideoRecordingRef.current) {
                     await stopSessionVideoRecording()
                 }
-                await workoutQueue.flushCritical()
-                await workoutQueue.flushTelemetry()
+                const workoutQueue = workoutQueueRef.current
+                if (workoutQueue) {
+                    await workoutQueue.shutdown()
+                }
                 
                 // Log telemetry summary before ending session
                 telemetryLogger.logTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
@@ -2008,7 +2022,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
                 
                 await endWorkoutSession(sessionId, user!.id)
-                workoutQueue.clearSession()
+                workoutQueueRef.current = null
+                telemetrySamplerRef.current = null
                 navigation.replace('ShotChart', { sessionId, fromSession: true })
             } catch (e: any) { showError('Errore', e.message) }
             finally { setIsEnding(false) }
