@@ -160,7 +160,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>FPS:</Text>
-                <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
+                <Text style={styles.value}>{yoloPerf.throughputFps?.toFixed(1) || '0.0'}</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>FPS Range:</Text>
@@ -347,7 +347,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
           <>
             <View style={styles.row}>
               <Text style={styles.label}>YOLO FPS:</Text>
-              <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
+              <Text style={styles.value}>{yoloPerf.throughputFps?.toFixed(1) || '0.0'}</Text>
             </View>
 
             <View style={styles.row}>
