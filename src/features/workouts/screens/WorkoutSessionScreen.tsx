@@ -1818,7 +1818,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         resetShotTracking,
         yoloFps,
         moveNetFps,
-        currentModelId,
+        actualCameraFps,
+        actualYoloFps,
+        actualMoveNetFps,
         sharedValues: pipelineSharedValues,
     } = useCameraPipeline(
         handleBallDetection,
@@ -1860,12 +1862,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         const fpsInterval = setInterval(() => {
             setFpsMetrics({
-                yoloFps: Math.round(yoloFps?.value ?? 0),
-                moveNetFps: Math.round(moveNetFps?.value ?? 0),
+                yoloFps: Math.round(actualYoloFps?.value ?? 0),
+                moveNetFps: Math.round(actualMoveNetFps?.value ?? 0),
             })
         }, 1000)
         return () => clearInterval(fpsInterval)
-    }, [yoloFps, moveNetFps])
+    }, [actualYoloFps, actualMoveNetFps])
 
     // Request media library permissions for screenshots
     useEffect(() => {
@@ -2204,7 +2206,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                                 borderRadius: 8,
                             }}>
                                 <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>📊 FPS</Text>
-                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {effectiveFps}</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {Math.round(actualCameraFps?.value ?? 0)}</Text>
                                 <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
                                 <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
                                 <Text style={{ color: '#9ca3af', fontSize: 8 }}>Model: {effectiveYoloModelId}</Text>

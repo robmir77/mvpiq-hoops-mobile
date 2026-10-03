@@ -195,6 +195,10 @@ export const useShotTracker = (
     const perfMoveNetRunTotal = useSharedValue(0)
     const perfMoveNetParseTotal = useSharedValue(0)
 
+    // Actual FPS values for UI (updated every second)
+    const actualCameraFps = useSharedValue(0)
+    const actualYoloFps = useSharedValue(0)
+    const actualMoveNetFps = useSharedValue(0)
 
     // Detection tracking for telemetry (sampled once per second)
     const perfYoloBallDetected = useSharedValue(0)
@@ -836,6 +840,11 @@ export const useShotTracker = (
                     )
                     scheduleOnRN(recordDiagnosticWindow, snapshot)
 
+                    // Update actual FPS values for UI
+                    actualCameraFps.value = snapshot.cameraFps
+                    actualYoloFps.value = snapshot.yoloThroughputFps
+                    actualMoveNetFps.value = snapshot.moveNetThroughputFps
+
                     perfLastLogAt.value = now
                     perfFramesReceived.value = 0
                     perfFramesProcessed.value = 0
@@ -1218,6 +1227,9 @@ export const useShotTracker = (
         yoloThroughputFps: yoloWorker.throughputFps,
         moveNetFps: moveNetWorker.theoreticalFps,
         currentFps: useSharedValue(selectedFps || 30),
+        actualCameraFps,
+        actualYoloFps,
+        actualMoveNetFps,
         exportTelemetrySummary,
         logTelemetrySummary,
         resetTelemetry,
