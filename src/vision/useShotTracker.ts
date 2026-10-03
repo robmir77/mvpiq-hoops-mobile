@@ -15,7 +15,6 @@ import { ShotDetector } from './shotDetector'
 import { useYoloWorker } from './useYoloWorker'
 import { useMoveNetWorker } from './useMoveNetWorker'
 import { usePlayerCropManager } from './usePlayerCropManager'
-import { useAdaptivePerformance } from './useAdaptivePerformance'
 
 import { HOT_PATH_LOGS } from '@/config/debugConfig'
 
@@ -40,10 +39,8 @@ import { YOLO_CONFIG, TEST_CONFIG } from '@/config/appConfig'
 const BALL_STABILITY_THRESHOLD = 0.02 // Position change threshold (2%)
 const BALL_STABILITY_FRAMES = 5 // Consecutive frames to consider stable
 
-// MoveNet is throttled independently from camera/YOLO.
-// Time-based scheduling keeps the target stable if effective camera throughput changes.
-const MOVENET_TARGET_FPS = 3
-const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
+// MoveNet throttling is handled internally by useMoveNetWorker
+// No external scheduling needed here
 
 // Constants
 
@@ -99,9 +96,6 @@ export const useShotTracker = (
     selectedFps?: number | null,
     selectedPoseResolution?: number,
     moveNetModelId?: string,
-
-    // Adaptive performance
-    availableFps?: number[],
 ) => {
     console.log('[useShotTracker] Received params:', {
         selectedResolution,
@@ -182,59 +176,39 @@ export const useShotTracker = (
     const perfFrameDurationMax = useSharedValue(0)
     const perfYoloRequested = useSharedValue(0)
     const perfYoloExecuted = useSharedValue(0)
-    const perfYoloBusySkipped = useSharedValue(0)
+    const perfYoloSkipped = useSharedValue(0)
     const perfYoloInferenceTotal = useSharedValue(0)
     const perfYoloInferenceMin = useSharedValue(0)
     const perfYoloInferenceMax = useSharedValue(0)
     const perfYoloResizeTotal = useSharedValue(0)
     const perfYoloRunTotal = useSharedValue(0)
     const perfYoloParseTotal = useSharedValue(0)
-    const lastMoveNetInferenceAt = useSharedValue(0)
 
-    // Explicit YOLO scheduler: track when YOLO should run next
-    const lastYoloInferenceAt = useSharedValue(0)
-    const yoloScheduledCount = useSharedValue(0)
+    const perfMoveNetRequested = useSharedValue(0)
+    const perfMoveNetExecuted = useSharedValue(0)
+    const perfMoveNetSkipped = useSharedValue(0)
+    const perfMoveNetInferenceTotal = useSharedValue(0)
+    const perfMoveNetInferenceMin = useSharedValue(0)
+    const perfMoveNetInferenceMax = useSharedValue(0)
+    const perfMoveNetCropTotal = useSharedValue(0)
+    const perfMoveNetResizeTotal = useSharedValue(0)
+    const perfMoveNetRunTotal = useSharedValue(0)
+    const perfMoveNetParseTotal = useSharedValue(0)
+
 
     // Detection tracking for telemetry (sampled once per second)
     const perfYoloBallDetected = useSharedValue(0)
     const perfTrackingAccepted = useSharedValue(0)
 
-    // Ball stability for YOLO throttling
-    const lastBallX = useSharedValue(0)
-    const lastBallY = useSharedValue(0)
-    const stableFrameCount = useSharedValue(0)
-    const isBallStable = useSharedValue(false)
 
     // Size continuity filter for incompatible detections
     const lastBallWidth = useSharedValue(0)
     const lastBallHeight = useSharedValue(0)
+    const lastBallX = useSharedValue(0)
+    const lastBallY = useSharedValue(0)
     const lastValidBallTime = useSharedValue(0)
 
-    // TEMPORARILY DISABLED: Adaptive performance for deterministic debugging
-    // const {
-    //     recordYoloPerformance,
-    //     evaluateAndAdapt,
-    //     getCurrentModel,
-    //     currentModelIndex: adaptiveModelIndex,
-    // } = useAdaptivePerformance({
-    //     initialFps: selectedFps || 30,
-    //     initialModelId: yoloModelId || 'best_512_float16',
-    //     availableFps: availableFps || [30, 24, 20, 15],
-    // })
-
-    // TEMPORARILY DISABLED: Adaptive model state
-    // const [adaptiveYoloModelId, setAdaptiveYoloModelId] = useState<string | undefined>(yoloModelId)
-
-    // TEMPORARILY DISABLED: Update adaptive model when it changes
-    // useEffect(() => {
-    //     const currentModel = getCurrentModel()
-    //     if (currentModel && currentModel.id !== adaptiveYoloModelId) {
-    //         console.log('[ShotTracker] Adaptive model changed:', adaptiveYoloModelId, '→', currentModel.id)
-    //         setAdaptiveYoloModelId(currentModel.id)
-    //     }
-    // }, [adaptiveModelIndex, getCurrentModel])
-
-    // Parallel Workers - use selected model ID directly (no adaptive performance)
+    // Parallel Workers - use selected model ID directly
     const yoloWorker = useYoloWorker(
         ballEnabled,
         yoloDelegate,
@@ -332,10 +306,6 @@ export const useShotTracker = (
     }, [])
 
 
-    // Adaptive confidence threshold
-
-    const adaptiveThreshold =
-        useSharedValue(0.01)
 
     // Player bbox from YOLO (for direct display in overlay)
     const playerX = useSharedValue(0)
@@ -359,21 +329,6 @@ export const useShotTracker = (
     const lastRimPosition = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
 
     // Ring buffer for detection history (avoids filter() overhead on long sessions)
-    const DETECTION_HISTORY_SIZE = 120 // ~2 seconds at 60 FPS
-    const detectionHistoryRing = useRef<
-        Array<{
-            confidence: number
-            timestamp: number
-        }>
-    >(new Array(DETECTION_HISTORY_SIZE).fill({ confidence: 0, timestamp: 0 }))
-    const detectionHistoryIndex = useRef(0)
-    const detectionHistoryCount = useRef(0)
-
-    const TARGET_DETECTION_RATE = 0.15
-    const ADAPTATION_WINDOW_MS = 2000
-
-    const lastAdjustmentTs =
-        useRef(0)
 
 
     // Callback refs
@@ -435,106 +390,6 @@ export const useShotTracker = (
 
     }, [rimEnabled])
 
-    // Adaptive threshold update
-
-    const updateAdaptiveThreshold =
-        useCallback(
-            (
-                ball:
-                    | { confidence: number }
-                    | null
-                    | undefined
-            ) => {
-
-                const now = Date.now()
-
-                // Ring buffer: overwrite at current index
-                const idx = detectionHistoryIndex.current
-                detectionHistoryRing.current[idx] = {
-                    confidence: ball?.confidence ?? 0,
-                    timestamp: now,
-                }
-
-                // Advance index (circular)
-                detectionHistoryIndex.current = (idx + 1) % DETECTION_HISTORY_SIZE
-
-                // Track count of valid entries
-                if (detectionHistoryCount.current < DETECTION_HISTORY_SIZE) {
-                    detectionHistoryCount.current++
-                }
-
-                if (
-                    now -
-                    lastAdjustmentTs.current >
-                    ADAPTATION_WINDOW_MS &&
-                    detectionHistoryCount.current >
-                    10
-                ) {
-
-                    lastAdjustmentTs.current =
-                        now
-
-                    // Count valid entries within window using ring buffer
-                    let totalFrames = 0
-                    let framesWithDetection = 0
-
-                    for (let i = 0; i < detectionHistoryCount.current; i++) {
-                        const entry = detectionHistoryRing.current[i]
-                        if (now - entry.timestamp < ADAPTATION_WINDOW_MS) {
-                            totalFrames++
-                            if (entry.confidence > 0) {
-                                framesWithDetection++
-                            }
-                        }
-                    }
-
-                    if (totalFrames === 0) return
-
-                    const detectionRate =
-                        framesWithDetection /
-                        totalFrames
-
-                    const adjustment =
-                        0.02
-
-                    if (
-                        detectionRate >
-                        TARGET_DETECTION_RATE * 1.5
-                    ) {
-
-                        adaptiveThreshold.value =
-                            Math.min(
-                                0.15,
-                                adaptiveThreshold.value +
-                                adjustment
-                            )
-
-                    } else if (
-                        detectionRate <
-                        TARGET_DETECTION_RATE * 0.5
-                    ) {
-
-                        adaptiveThreshold.value =
-                            Math.max(
-                                0.015,
-                                adaptiveThreshold.value -
-                                adjustment
-                            )
-                    }
-
-                    // Log adaptive threshold changes (DEV only)
-                    if (HOT_PATH_LOGS) {
-                        console.log(
-                            '[AdaptiveThreshold] Rate:',
-                            detectionRate.toFixed(2),
-                            'Threshold:',
-                            adaptiveThreshold.value.toFixed(3)
-                        )
-                    }
-                }
-            },
-            []
-        )
 
     // Shot detection
 
@@ -546,10 +401,6 @@ export const useShotTracker = (
 
                 const { ball } =
                     detection
-
-                updateAdaptiveThreshold(
-                    ball
-                )
 
                 if (!ball) {
 
@@ -792,7 +643,6 @@ export const useShotTracker = (
                 onShotEvent,
                 rimFromCalibration,
                 kalmanFilteredBall,
-                updateAdaptiveThreshold,
             ]
         )
 
@@ -924,6 +774,7 @@ export const useShotTracker = (
                     }
 
                     const yoloExecuted = perfYoloExecuted.value
+                    const moveNetExecuted = perfMoveNetExecuted.value
                     const snapshot: DiagnosticWindowSnapshot = {
                         windowMs,
                         cameraFps: perfFramesReceived.value / (windowMs / 1000),
@@ -936,8 +787,8 @@ export const useShotTracker = (
                         onFrameMaxMs: perfFrameDurationMax.value,
                         yoloRequested: perfYoloRequested.value,
                         yoloExecuted,
-                        yoloBusySkipped: perfYoloBusySkipped.value,
-                        yoloFps: yoloExecuted / (windowMs / 1000),
+                        yoloSkipped: perfYoloSkipped.value,
+                        yoloThroughputFps: yoloExecuted / (windowMs / 1000),
                         yoloAvgMs: yoloExecuted > 0
                             ? perfYoloInferenceTotal.value / yoloExecuted
                             : 0,
@@ -951,6 +802,27 @@ export const useShotTracker = (
                             : 0,
                         yoloParseAvgMs: yoloExecuted > 0
                             ? perfYoloParseTotal.value / yoloExecuted
+                            : 0,
+                        moveNetRequested: perfMoveNetRequested.value,
+                        moveNetExecuted,
+                        moveNetSkipped: perfMoveNetSkipped.value,
+                        moveNetThroughputFps: moveNetExecuted / (windowMs / 1000),
+                        moveNetAvgMs: moveNetExecuted > 0
+                            ? perfMoveNetInferenceTotal.value / moveNetExecuted
+                            : 0,
+                        moveNetMinMs: perfMoveNetInferenceMin.value,
+                        moveNetMaxMs: perfMoveNetInferenceMax.value,
+                        moveNetCropAvgMs: moveNetExecuted > 0
+                            ? perfMoveNetCropTotal.value / moveNetExecuted
+                            : 0,
+                        moveNetResizeAvgMs: moveNetExecuted > 0
+                            ? perfMoveNetResizeTotal.value / moveNetExecuted
+                            : 0,
+                        moveNetRunAvgMs: moveNetExecuted > 0
+                            ? perfMoveNetRunTotal.value / moveNetExecuted
+                            : 0,
+                        moveNetParseAvgMs: moveNetExecuted > 0
+                            ? perfMoveNetParseTotal.value / moveNetExecuted
                             : 0,
                     }
 
@@ -972,13 +844,23 @@ export const useShotTracker = (
                     perfFrameDurationMax.value = 0
                     perfYoloRequested.value = 0
                     perfYoloExecuted.value = 0
-                    perfYoloBusySkipped.value = 0
+                    perfYoloSkipped.value = 0
                     perfYoloInferenceTotal.value = 0
                     perfYoloInferenceMin.value = 0
                     perfYoloInferenceMax.value = 0
                     perfYoloResizeTotal.value = 0
                     perfYoloRunTotal.value = 0
                     perfYoloParseTotal.value = 0
+                    perfMoveNetRequested.value = 0
+                    perfMoveNetExecuted.value = 0
+                    perfMoveNetSkipped.value = 0
+                    perfMoveNetInferenceTotal.value = 0
+                    perfMoveNetInferenceMin.value = 0
+                    perfMoveNetInferenceMax.value = 0
+                    perfMoveNetCropTotal.value = 0
+                    perfMoveNetResizeTotal.value = 0
+                    perfMoveNetRunTotal.value = 0
+                    perfMoveNetParseTotal.value = 0
                     perfTrackingAccepted.value = 0
                 }
 
@@ -992,80 +874,15 @@ export const useShotTracker = (
                         return
                     }
 
-                    // REMOVED: Model readiness check - we now run YOLO every frame regardless of ready state
-                    // The adaptive performance system will handle scaling if performance is poor
                     const frameWidth = frame.width
                     const frameHeight = frame.height
-
-                    // Model scheduling: YOLO ~10-15 FPS (throttled by ball stability), MoveNet ~3 FPS
-                    // Both use runSync() on same TFLite thread (sequential, not truly parallel)
                     const timestamp = Date.now()
 
-                    // MoveNet: time-based scheduling (target 3 FPS)
-                    const nowForMoveNet = Date.now()
-                    const lastMoveNet = lastMoveNetInferenceAt.value
-                    const timeSinceLastMoveNet = lastMoveNet > 0 ? nowForMoveNet - lastMoveNet : MOVENET_INTERVAL_MS
-
-                    // Get effective bbox from PlayerCropManager (time-based tracking)
-                    const trackedBbox = playerCrop.getEffectiveBbox(nowForMoveNet)
-
-                    const moveNetDue =
-                        poseEnabledShared.value &&
-                        timeSinceLastMoveNet >= MOVENET_INTERVAL_MS &&
-                        trackedBbox !== null &&
-                        (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
-
-                    // Log MoveNet scheduling conditions (DEV only)
-                    if (HOT_PATH_LOGS) {
-                        const moveNetReasons = []
-                        if (!poseEnabledShared.value) moveNetReasons.push('poseDisabled')
-                        if (timeSinceLastMoveNet < MOVENET_INTERVAL_MS) moveNetReasons.push(`tooSoon (${timeSinceLastMoveNet.toFixed(0)}ms)`)
-                        if (trackedBbox === null) moveNetReasons.push('noBbox')
-                        else if ((trackedBbox.bbox.confidence ?? 0) < YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) moveNetReasons.push(`lowConf (${(trackedBbox.bbox.confidence ?? 0).toFixed(3)})`)
-                        
-                        if (moveNetDue) {
-                            console.log('[MoveNet] EXECUTING', { 
-                                timeSince: timeSinceLastMoveNet.toFixed(0), 
-                                bboxConf: trackedBbox?.bbox.confidence?.toFixed(3),
-                                isUsingLast: trackedBbox?.isUsingLastBbox
-                            })
-                        } else if (poseEnabledShared.value && timeSinceLastMoveNet >= MOVENET_INTERVAL_MS) {
-                            console.log('[MoveNet] SKIPPED', { reasons: moveNetReasons, trackedBbox })
-                        }
-                    }
-
-                    // YOLO: explicit scheduler - only run when not busy and scheduled time reached
-                    // Use camera FPS dynamically instead of fixed YOLO_TARGET_FPS
-                    const yoloTargetFps = selectedFpsShared.value || 30
-                    const yoloIntervalMs = 1000 / yoloTargetFps
-                    const timeSinceLastYolo = lastYoloInferenceAt.value > 0 ? nowForMoveNet - lastYoloInferenceAt.value : yoloIntervalMs
-                    // Reset scheduled count when interval has passed (allows next YOLO execution)
-                    if (timeSinceLastYolo >= yoloIntervalMs && yoloScheduledCount.value > 0) {
-                        yoloScheduledCount.value = 0
-                    }
-                    // Only run YOLO if enough time has passed AND we haven't already scheduled one in this interval
-                    const yoloDue = ballEnabledShared.value && !yoloWorker.isProcessing.value && timeSinceLastYolo >= yoloIntervalMs && yoloScheduledCount.value === 0
-
-                    if (ballEnabledShared.value && timeSinceLastYolo >= yoloIntervalMs && yoloWorker.isProcessing.value) {
-                        perfYoloBusySkipped.value += 1
-                    }
-
-                    // Log throttling (DEV only)
-                    if (HOT_PATH_LOGS) {
-                        if (poseEnabledShared.value && !moveNetDue) {
-                            console.log(`[MoveNet Throttle] Skip: ${timeSinceLastMoveNet.toFixed(0)}ms since last (need ${MOVENET_INTERVAL_MS.toFixed(0)}ms)`)
-                        }
-                    }
-
-                    // Execute YOLO and MoveNet (independent throttling per model)
-                    if (yoloDue) {
-                        if (HOT_PATH_LOGS) {
-                            console.log('[YOLO SCHEDULER] Executing YOLO', { frame: currentFrame, timeSinceLast: timeSinceLastYolo.toFixed(0), interval: yoloIntervalMs.toFixed(1) })
-                        }
+                    // Call YOLO worker every frame - it handles its own throttling internally
+                    if (ballEnabledShared.value) {
                         perfYoloRequested.value += 1
                         const yoloExecutionCountBefore = yoloWorker.executionCount.value
                         yoloWorker.processFrame(frame, timestamp, currentFrame)
-                        const yoloEndTime = Date.now()
                         const yoloExecutedNow = yoloWorker.executionCount.value > yoloExecutionCountBefore
 
                         if (yoloExecutedNow) {
@@ -1079,34 +896,12 @@ export const useShotTracker = (
                             perfYoloResizeTotal.value += yoloWorker.lastResizeMs.value
                             perfYoloRunTotal.value += yoloWorker.lastRunMs.value
                             perfYoloParseTotal.value += yoloWorker.lastParseMs.value
+                        } else {
+                            perfYoloSkipped.value += 1
                         }
 
-                        // Schedule next YOLO inference with target interval
-                        lastYoloInferenceAt.value = yoloEndTime
-                        yoloScheduledCount.value = 1
-
-                        // TEMPORARILY DISABLED: Adaptive performance to isolate YOLO degradation issue
-                        // Record YOLO performance for adaptive management
-                        // const yoloSuccess = yoloWorker.latestResultBall.value !== null || 
-                        //                    yoloWorker.latestResultPlayer.value !== null
-                        // recordYoloPerformance(
-                        //     yoloWorker.fps.value,
-                        //     yoloSuccess,
-                        //     yoloInferenceTime
-                        // )
-
-                        // TEMPORARILY DISABLED: Adaptive performance evaluation
-                        // Evaluate adaptation every ~100 frames
-                        // if (currentFrame % 100 === 0) {
-                        //     evaluateAndAdapt()
-                        // }
-                        
                         // Update player bbox via PlayerCropManager (time-based tracking)
                         const currentPlayer = yoloWorker.latestResultPlayer.value
-                        // Log player detection for MoveNet debugging
-                        if (HOT_PATH_LOGS) {
-                            console.log('[PlayerCrop] currentPlayer (raw YOLO):', currentPlayer)
-                        }
                         if (currentPlayer) {
                             playerCrop.update({
                                 x: currentPlayer.x,
@@ -1143,28 +938,49 @@ export const useShotTracker = (
                         }
                     }
 
-                    if (moveNetDue) {
-                        lastMoveNetInferenceAt.value = nowForMoveNet
+                    // Call MoveNet worker every frame - it handles its own throttling internally
+                    if (poseEnabledShared.value) {
+                        perfMoveNetRequested.value += 1
+                        // Get effective bbox from PlayerCropManager for MoveNet crop
+                        const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
+                        if (trackedBbox !== null && (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
+                            moveNetWorker.playerBbox.value = {
+                                x: trackedBbox.bbox.x,
+                                y: trackedBbox.bbox.y,
+                                width: trackedBbox.bbox.width,
+                                height: trackedBbox.bbox.height,
+                                confidence: trackedBbox.bbox.confidence,
+                            }
+                            // Update visual tracking state
+                            if (trackedBbox.isUsingLastBbox) {
+                                playerTrackState.value = 'PREDICTED'
+                                playerTrackAge.value = trackedBbox.ageMs
+                                scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
+                            } else {
+                                playerTrackState.value = 'DETECTED'
+                                playerTrackAge.value = 0
+                            }
 
-                        moveNetWorker.playerBbox.value = {
-                            x: trackedBbox.bbox.x,
-                            y: trackedBbox.bbox.y,
-                            width: trackedBbox.bbox.width,
-                            height: trackedBbox.bbox.height,
-                            confidence: trackedBbox.bbox.confidence,
-                        }
-                        // Update visual tracking state
-                        if (trackedBbox.isUsingLastBbox) {
-                            playerTrackState.value = 'PREDICTED'
-                            playerTrackAge.value = trackedBbox.ageMs
-                            scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
+                            const moveNetExecutionCountBefore = moveNetWorker.executionCount.value
+                            moveNetWorker.processFrame(frame, timestamp)
+                            const moveNetExecutedNow = moveNetWorker.executionCount.value > moveNetExecutionCountBefore
+
+                            if (moveNetExecutedNow) {
+                                const moveNetInferenceTime = moveNetWorker.lastInferenceMs.value
+                                perfMoveNetExecuted.value += 1
+                                perfMoveNetInferenceTotal.value += moveNetInferenceTime
+                                perfMoveNetInferenceMin.value = perfMoveNetInferenceMin.value === 0
+                                    ? moveNetInferenceTime
+                                    : Math.min(perfMoveNetInferenceMin.value, moveNetInferenceTime)
+                                perfMoveNetInferenceMax.value = Math.max(perfMoveNetInferenceMax.value, moveNetInferenceTime)
+                                perfMoveNetCropTotal.value += moveNetWorker.lastCropMs.value
+                                perfMoveNetResizeTotal.value += moveNetWorker.lastResizeMs.value
+                                perfMoveNetRunTotal.value += moveNetWorker.lastRunMs.value
+                                perfMoveNetParseTotal.value += moveNetWorker.lastParseMs.value
+                            }
                         } else {
-                            playerTrackState.value = 'DETECTED'
-                            playerTrackAge.value = 0
+                            perfMoveNetSkipped.value += 1
                         }
-
-                        // Execute MoveNet only if bbox is available
-                        moveNetWorker.processFrame(frame, timestamp)
                     }
 
                     // Process worker results (get latest available from shared values)
@@ -1293,13 +1109,23 @@ export const useShotTracker = (
                 perfFrameDurationMax,
                 perfYoloRequested,
                 perfYoloExecuted,
-                perfYoloBusySkipped,
+                perfYoloSkipped,
                 perfYoloInferenceTotal,
                 perfYoloInferenceMin,
                 perfYoloInferenceMax,
                 perfYoloResizeTotal,
                 perfYoloRunTotal,
                 perfYoloParseTotal,
+                perfMoveNetRequested,
+                perfMoveNetExecuted,
+                perfMoveNetSkipped,
+                perfMoveNetInferenceTotal,
+                perfMoveNetInferenceMin,
+                perfMoveNetInferenceMax,
+                perfMoveNetCropTotal,
+                perfMoveNetResizeTotal,
+                perfMoveNetRunTotal,
+                perfMoveNetParseTotal,
                 perfLastLogAt,
                 recordDiagnosticWindow,
                 updatePipelineTelemetry,
@@ -1387,7 +1213,6 @@ export const useShotTracker = (
         yoloThroughputFps: yoloWorker.throughputFps,
         moveNetFps: moveNetWorker.fps,
         currentFps: useSharedValue(selectedFps || 30),
-        currentModelIndex: -1, // TEMPORARILY DISABLED: adaptiveModelIndex
         exportTelemetrySummary,
         logTelemetrySummary,
         resetTelemetry,

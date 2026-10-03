@@ -48,7 +48,6 @@ export const useCameraPipeline = (
   selectedFps?: number | null,
   selectedPoseResolution?: number,
   moveNetModelId?: string,
-  availableFps?: number[],
 ): CameraPipelineResult => {
   console.log('[useCameraPipeline] Received params:', {
     selectedResolution,
@@ -89,8 +88,7 @@ export const useCameraPipeline = (
     selectedResolution,
     selectedFps,
     selectedPoseResolution,
-    moveNetModelId,
-    availableFps
+    moveNetModelId
   )
 
   return {

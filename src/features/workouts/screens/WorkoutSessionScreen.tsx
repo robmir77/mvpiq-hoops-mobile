@@ -1342,9 +1342,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         [effectiveFps]
     )
 
-    // Get available FPS from device (will be updated after device is available)
-    const availableFps = React.useMemo(() => [30, 24, 20, 15], [])
-
     const [isEnding, setIsEnding]           = useState(false)
     const [isRecording, setIsRecording]     = useState(false)
     const isRecordingRef = useRef(false)
@@ -1364,7 +1361,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
-    const [adaptiveFps, setAdaptiveFps] = useState<number>(effectiveFps)
     const [showTelemetry, setShowTelemetry] = useState<boolean>(TEST_CONFIG.ENABLE_TELEMETRY_OVERLAY)
     const [debugMode, setDebugMode] = useState<boolean>(TEST_CONFIG.ENABLE_DEBUG_OVERLAY)
     const [usageMinutes, setUsageMinutes] = useState(0)
@@ -1395,14 +1391,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }
 
-    // Sync effectiveFps with adaptive FPS from useAdaptivePerformance
-    useEffect(() => {
-        if (adaptiveFps !== effectiveFps) {
-            console.log('[WorkoutSession] Updating camera FPS:', effectiveFps, '→', adaptiveFps)
-            setEffectiveFps(adaptiveFps)
-        }
-    }, [adaptiveFps, effectiveFps])
-
     // Track usage minutes when recording is active
     useEffect(() => {
         if (isRecording) {
@@ -1423,14 +1411,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             }
         }
     }, [isRecording])
-
-    // Debug: log adaptive FPS periodically
-    useEffect(() => {
-        const interval = setInterval(() => {
-            console.log('[AdaptivePerf Debug] adaptiveFps:', adaptiveFps, 'effectiveFps:', effectiveFps)
-        }, 5000) // Log every 5 seconds
-        return () => clearInterval(interval)
-    }, [adaptiveFps, effectiveFps])
 
     // Lifecycle diagnostic: if ShotTracker reports UNMOUNT during an active
     // session, this tells us whether the whole WorkoutSessionScreen also
@@ -1857,8 +1837,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         effectiveResolution,
         effectiveFps,
         effectivePoseResolution,
-        effectiveMoveNetModelId,
-        availableFps
+        effectiveMoveNetModelId
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
@@ -2202,7 +2181,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                                 borderRadius: 8,
                             }}>
                                 <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>📊 FPS</Text>
-                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {adaptiveFps}</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {effectiveFps}</Text>
                                 <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
                                 <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
                                 <Text style={{ color: '#9ca3af', fontSize: 8 }}>Model: {effectiveYoloModelId}</Text>

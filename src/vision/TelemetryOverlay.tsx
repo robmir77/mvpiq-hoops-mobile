@@ -31,7 +31,7 @@ interface TelemetryOverlayProps {
 }
 
 export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, debugMode = false, cameraConfig, modelConfig }) => {
-  const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ fps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
+  const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, skipped: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
   const [ballMetrics, setBallMetrics] = useState<BallDetectionMetrics>({
     framesProcessed: 0,
     framesDetected: 0,
@@ -73,7 +73,8 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
   const [moveNetMetrics, setMoveNetMetrics] = useState<MoveNetMetrics>({
     modelInput: 192,
     inferenceTimes: [],
-    fps: 0,
+    throughputFps: 0,
+    theoreticalFps: 0,
     avgMs: 0,
     minMs: 0,
     maxMs: 0,
@@ -82,6 +83,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     keypointStability: 0,
     requested: 0,
     executed: 0,
+    skipped: 0,
     cropMs: 0,
     resizeMs: 0,
     runMs: 0,
@@ -101,9 +103,9 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
       const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
 
       console.log('[TelemetryOverlay] Updating metrics:', {
-        yoloFps: yoloPerf.fps.toFixed(1),
-        yoloMinMs: yoloPerf.minMs.toFixed(1),
-        yoloMaxMs: yoloPerf.maxMs.toFixed(1),
+        yoloFps: yoloPerf.throughputFps?.toFixed(1) || '0.0',
+        yoloMinMs: yoloPerf.minMs?.toFixed(1) || '0.0',
+        yoloMaxMs: yoloPerf.maxMs?.toFixed(1) || '0.0',
         yoloSamples: yoloPerf.samples,
         detectionRate: telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed).detectionRate.toFixed(1),
         pipelineProcessed: pipelineMetrics.processed,
@@ -168,23 +170,23 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Avg:</Text>
-                <Text style={styles.value}>{yoloPerf.avgMs.toFixed(1)}ms</Text>
+                <Text style={styles.value}>{yoloPerf.avgMs?.toFixed(1) || '0.0'}ms</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Min/Max:</Text>
-                <Text style={styles.value}>{yoloPerf.minMs.toFixed(1)}/{yoloPerf.maxMs.toFixed(1)}ms</Text>
+                <Text style={styles.value}>{yoloPerf.minMs?.toFixed(1) || '0.0'}/{yoloPerf.maxMs?.toFixed(1) || '0.0'}ms</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Resize:</Text>
-                <Text style={styles.value}>{yoloPerf.resizeMs.toFixed(1)}ms</Text>
+                <Text style={styles.value}>{yoloPerf.resizeMs?.toFixed(1) || '0.0'}ms</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Run:</Text>
-                <Text style={styles.value}>{yoloPerf.runMs.toFixed(1)}ms</Text>
+                <Text style={styles.value}>{yoloPerf.runMs?.toFixed(1) || '0.0'}ms</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Parse:</Text>
-                <Text style={styles.value}>{yoloPerf.parseMs.toFixed(1)}ms</Text>
+                <Text style={styles.value}>{yoloPerf.parseMs?.toFixed(1) || '0.0'}ms</Text>
               </View>
             </View>
 

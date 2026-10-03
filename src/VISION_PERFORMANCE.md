@@ -4,31 +4,71 @@
 
 | Componente | Target FPS | Attuale FPS | Note |
 |------------|-----------|-------------|------|
-| Camera | 30 FPS | 30 FPS | Configurazione hardware |
-| YOLO | 20 FPS | 20-21 FPS | Scheduler con 3 protezioni |
-| Tracking | Realtime | Realtime | Ogni frame |
-| MoveNet | 3 FPS | 5 FPS | Bottleneck JS thread |
+| Camera | 30 FPS | 8-12 FPS | Migliorata da ~4 FPS, ma ancora sotto target |
+| YOLO | 10 FPS | 4-5 FPS | Throttle funziona, ma frame processor bottleneck |
+| Tracking | Realtime | Realtime | Ogni frame con Kalman prediction |
+| MoveNet | 3 FPS | 3 FPS (throttled) | Throttle funziona, ma costa ~104ms quando esegue |
 | UI Telemetry | 1 FPS | 1 FPS | TelemetryOverlay |
 | Backend Telemetry | 2 FPS | 2 FPS | Sampling |
 | Bridge Calls | 15 FPS | 15 FPS | Throttling 66ms |
 
+**Nota importante:** Il sistema usa target FPS deterministici. Camera FPS è indipendente da YOLO/MoveNet FPS. Questa architettura evita regressioni causate da accoppiamenti inappropriati.
+
+**Scheduler Architecture:**
+- YOLO throttling è gestito internamente da useYoloWorker (10 FPS)
+- MoveNet throttling è gestito internamente da useMoveNetWorker (3 FPS)
+- useShotTracker chiama processFrame() ogni frame per entrambi i worker
+- Ogni worker decide internamente se eseguire in base al proprio target FPS
+- Nessuno scheduler duplicato in useShotTracker
+
 ## Bottleneck Analysis
 
-### Primary Bottleneck: JS Thread per MoveNet
+### Primary Bottleneck: Frame Processor Latency
 
-**Sintomo:** MoveNet throttled a 3 FPS ma actual ~5 FPS
+**Sintomo:** Frame latency 75-100 ms tipici (vs budget 33.3ms per 30 FPS)
+
+**Causa:**
+- YOLO inference costa ~35-50 ms
+- MoveNet costa ~104 ms quando eseguito (crop 30ms + run 70ms)
+- runSync() sincrono blocca il frame processor
+- Nessuna parallelizzazione tra YOLO e MoveNet
+
+**Mitigazione (Attuale):**
+- YOLO throttled a 10 FPS deterministico
+- MoveNet throttled a 3 FPS deterministico
+- Tracking realtime con Kalman prediction
+- Architettura deterministica per debugging
+
+**Mitigazione (Futuro):**
+- Ridurre costo MoveNet CPU crop
+- Parallelizzare YOLO e MoveNet se possibile
+- Ottimizzare inference time
+
+### Secondary Bottleneck: MoveNet CPU Crop
+
+**Sintomo:** MoveNet costa ~104 ms quando eseguito
+
+**Breakdown tipico:**
+- CPU crop: ~30 ms
+- Resize: ~4 ms
+- MoveNet run: ~70 ms
+- Parse: ~0.5 ms
 
 **Causa:**
 - Crop CPU (640x360 → 192x192) su JS thread
 - Resize e dispose operazioni asincrone
 - Bridge overhead per coordinate crop
 
-**Mitigazione:**
+**Mitigazione (Attuale):**
 - Crop geometrico (coordinate) nel worklet
 - Resize CPU ottimizzato con dimensione intermedia
 - Throttling a 3 FPS per limitare carico
 
-### Secondary Bottleneck: YOLO + MoveNet Sequenziali
+**Mitigazione (Futuro):**
+- Investigare eliminazione/riduzione CPU crop
+- Considerare crop GPU o pre-allocated buffers
+
+### Tertiary Bottleneck: YOLO + MoveNet Sequenziali
 
 **Sintomo:** YOLO e MoveNet eseguiti sequenzialmente nel frame processor
 
@@ -37,13 +77,21 @@
 - react-native-fast-tflite usa runSync() nel worklet
 - Nessuna parallelizzazione a livello thread
 
+**Mitigazione (Attuale):**
+- YOLO throttled a 10 FPS deterministico in useYoloWorker (non segue camera FPS)
+- MoveNet throttled a 3 FPS deterministico in useMoveNetWorker
+- useShotTracker chiama workers ogni frame senza scheduling esterno
+- Tracking usa Kalman prediction nei frame intermedi
+- Questa architettura evita che YOLO a 30 FPS causi degrado
+- Scheduler duplicati rimossi per single responsibility
+
 **Mitigazione (Futuro):**
 - Separare pipeline YOLO e MoveNet
 - YOLO produce latestPlayerBbox via SharedValue
 - MoveNet legge playerBbox via SharedValue
 - Possibile parallelizzazione con thread separati
 
-### Tertiary Bottleneck: Bridge Calls
+### Quaternary Bottleneck: Bridge Calls
 
 **Sintomo:** scheduleOnRN chiamato troppo frequentemente
 
@@ -56,29 +104,46 @@
 - Throttling da 16ms a 66ms (15 FPS)
 - SharedValues per rendering UI (60 FPS)
 - Solo dati critici attraversano il bridge
+- YOLO telemetry throttled a 15 FPS (66ms)
+
+### Quinary Bottleneck: Rerender/Remount
+
+**Sintomo:** Log frequenti di "Received params" in WorkoutSession/ShotTracker
+
+**Causa:**
+- Possibili rerender di componenti durante sessione
+- Possibili remount di hooks worker
+
+**Mitigazione (Futuro):**
+- Verificare se componenti vengono smontati/rimontati
+- Investigare cause rerender
+- Ottimizzare React memoization se necessario
 
 ## Performance Metrics
 
 ### YOLO Scheduler Metrics
 
 **Metriche attuali:**
-- req/exec ratio: 1:1 (ottimale)
-- timeSinceLast: varia correttamente
-- yoloIntervalMs: adattivo in base a target FPS
-- yoloScheduledCount: previene doppio scheduling
+- Target FPS: 10 FPS (deterministico via VISION_CONFIG.YOLO.TARGET_FPS)
+- Interval: 100ms (1000 / 10)
+- Throttling: time-based in useYoloWorker.processFrame()
+- Indipendente dal FPS della camera
+- useShotTracker chiama processFrame() ogni frame, il worker decide se eseguire
 
-**Protezioni attive:**
-1. `isProcessingFrame` - reentrancy guard
-2. `yoloWorker.isProcessing` - YOLO concurrency guard
-3. `yoloScheduledCount` - interval scheduling guard
+**Protezioni attive (in useYoloWorker):**
+1. `isProcessing` - previene concorrenza YOLO
+2. `timeSinceLast < YOLO_INTERVAL_MS` - throttling time-based
+3. `enabled` - flag di abilitazione
 
 ### MoveNet Scheduler Metrics
 
 **Metriche attuali:**
 - Target: 3 FPS (ogni 333ms)
 - Actual: ~5 FPS (bottleneck JS thread)
-- Throttling: time-based
+- Throttling: time-based in useMoveNetWorker.processFrame()
+- Indipendente dal FPS della camera
 - Condizione: player bbox disponibile + confidence >= 5%
+- useShotTracker chiama processFrame() ogni frame, il worker decide se eseguire
 
 ### Tracking Performance
 
@@ -303,28 +368,44 @@ const ENABLE_MOVENET_LOGS = false
 
 ### Adaptive Performance
 
-**Stato:** Disabilitato per debugging
+**Stato:** RIMOSSO - Sistema deterministico con VISION_CONFIG
 
-**Funzionalità:**
-- Scala YOLO FPS in base a performance
-- Scala dimensione modello (640 → 512 → 320)
-- Scala camera FPS (30 → 24 → 20 → 15)
+**Motivazione rimozione:**
+- L'architettura sincrona attuale (runSync() nel worklet) non può supportare YOLO a 30 FPS
+- Ogni inferenza YOLO costa ~33ms (resize 5ms + YOLO 25ms + parse 3ms)
+- 30 FPS × 33ms = 990ms di lavoro sincrono nel frame processor
+- Questo supera the budget di 33.3ms per frame a 30 FPS
+- L'accoppiamento camera FPS / YOLO FPS causava regressioni di performance
 
-**Attivazione futura:**
-- Dopo stabilizzazione pipeline
-- Con metriche reliable
-- Con testing approfondito
+**Architettura attuale:**
+- Camera FPS: 30 (indipendente, via CAMERA_CONFIG.DEFAULT_FPS)
+- YOLO FPS: 10 (deterministico, via VISION_CONFIG.YOLO.TARGET_FPS)
+- MoveNet FPS: 3 (deterministico, via VISION_CONFIG.MOVENET.TARGET_FPS)
+- Tracking: realtime (ogni frame con Kalman prediction)
+- Nessun feedback loop automatico di performance
+- Configurazione semplice e chiara in VISION_CONFIG
 
 ## Performance Monitoring
 
 ### Metrics attuali
 
 **Vision pipeline:**
-- YOLO FPS
+- YOLO throughput FPS (actual inferences per second)
+- YOLO theoretical FPS (latency capacity: 1000/inferenceTime)
 - YOLO inference time (min/max/avg)
-- MoveNet FPS
-- MoveNet inference time
+- MoveNet throughput FPS (actual inferences per second)
+- MoveNet theoretical FPS (latency capacity: 1000/inferenceTime)
+- MoveNet inference time (min/max/avg)
 - Frame drops (busy, processing)
+- Log formato: `YOLO fps=4.9 exec=5 attempt=11 skip=6 avg=46.7ms max=58.3ms`
+- Log formato: `MOVE fps=2.9 exec=3 attempt=11 skip=8 avg=101.4ms max=114.8ms`
+
+**NOTA IMPORTANTE sulle metriche FPS:**
+- `throughputFps` (actual): inferences reali per secondo - indica il throughput effettivo
+- `theoreticalFps` (latencyCapacity): 1000 / avgInferenceTime - indica quanto velocemente potrebbe girare se eseguita continuamente
+- Esempio: se YOLO impiega 50ms, theoreticalFps = 20, ma se throttled a 10 FPS, throughputFps = 10
+- I log ora mostrano chiaramente throughput vs capacità di latenza
+- Log formato: `[PERF 1s] CAM fps=10.8 recv=11 proc=10 drop=1 avg=78.2ms max=142.1ms`
 
 **Tracking:**
 - Ball state (DETECTED/PREDICTED/LOST)

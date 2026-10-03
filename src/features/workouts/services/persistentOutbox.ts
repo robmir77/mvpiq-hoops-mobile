@@ -29,7 +29,7 @@ class PersistentOutbox {
     try {
       const keys = await AsyncStorage.getAllKeys()
       const sessionKeys = keys.filter(k => k.startsWith(`${OUTBOX_KEY_PREFIX}${this._sessionId}_`))
-      
+
       if (sessionKeys.length === 0) return
 
       const items = await AsyncStorage.multiGet(sessionKeys)
@@ -45,8 +45,12 @@ class PersistentOutbox {
         .filter((item): item is OutboxItem => item !== null)
         .sort((a, b) => a.timestamp - b.timestamp)
 
-      this.memoryQueue = [...this.memoryQueue, ...loadedItems]
-      console.log(`[PersistentOutbox] Loaded ${loadedItems.length} pending items for session ${this._sessionId}`)
+      // Deduplicate by id to avoid duplicates when called after loadAllPendingAndMerge
+      const existingIds = new Set(this.memoryQueue.map(item => item.id))
+      const newItems = loadedItems.filter(item => !existingIds.has(item.id))
+
+      this.memoryQueue = [...this.memoryQueue, ...newItems]
+      console.log(`[PersistentOutbox] Loaded ${newItems.length} pending items for session ${this._sessionId} (${loadedItems.length - newItems.length} duplicates skipped)`)
     } catch (e) {
       console.error('[PersistentOutbox] Failed to load pending items:', e)
     }

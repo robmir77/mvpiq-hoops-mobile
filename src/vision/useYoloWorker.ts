@@ -13,12 +13,13 @@ import { getYoloModel } from './yoloModels'
 import { DEFAULT_YOLO_MODEL_ID } from './yoloModels'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
+import { VISION_CONFIG } from '@/config/appConfig'
 
 const YOLO_INPUT_SIZE = 512
-// YOLO throttling removed - run on every frame as per ARCHITECTURE_CHANGE.md
-// Adaptive performance system will handle scaling if performance degrades
-// const YOLO_TARGET_FPS = 10 // Disabled: run every frame
-// const YOLO_INTERVAL_MS = 1000 / YOLO_TARGET_FPS // Disabled
+
+// YOLO runs at independent FPS from camera (deterministic, not adaptive)
+const YOLO_TARGET_FPS = VISION_CONFIG.YOLO.TARGET_FPS
+const YOLO_INTERVAL_MS = 1000 / YOLO_TARGET_FPS
 
 interface YoloWorkerResult {
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
@@ -46,6 +47,7 @@ interface YoloWorkerReturn {
   latestResultRim: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
   latestResultDebug: SharedValue<any>
   latestResultTimestamp: SharedValue<number>
+  yoloSkippedCount: SharedValue<number>
 }
 
 export const useYoloWorker = (
@@ -62,6 +64,7 @@ export const useYoloWorker = (
 
   const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
+  const yoloSkippedCount = useSharedValue(0) // Count frames skipped due to throttling
 
   const isReady = useSharedValue(false)
   const fps = useSharedValue(0) // Theoretical FPS based on single inference time
@@ -79,7 +82,7 @@ export const useYoloWorker = (
     if (requested) telemetryLogger.recordYoloRequested()
     if (executed) {
       telemetryLogger.recordYoloExecuted()
-      if (frameCounter !== undefined) telemetryLogger.recordYoloProcessedFrame(frameCounter)
+      telemetryLogger.recordYoloProcessedFrame()
     }
     telemetryLogger.recordYoloInference(inferenceTime)
     if (resizeMs !== undefined) telemetryLogger.recordYoloResize(resizeMs)
@@ -87,7 +90,7 @@ export const useYoloWorker = (
     if (parseMs !== undefined) telemetryLogger.recordYoloParse(parseMs)
 
     if (ball) {
-      telemetryLogger.recordBallDetection(ball.confidence, frameCounter)
+      telemetryLogger.recordBallDetection(ball.confidence)
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
 
       const bboxSizeNormalized = ball.width * ball.height
@@ -116,7 +119,7 @@ export const useYoloWorker = (
         y: player.y,
         w: player.width,
         h: player.height
-      }, frameCounter)
+      })
     }
   }, [])
 
@@ -207,6 +210,15 @@ export const useYoloWorker = (
     'worklet'
 
     if (!yoloModelInstance || isProcessing.value || !enabled) {
+      return
+    }
+
+    // Throttle YOLO to target FPS (deterministic, independent from camera FPS)
+    const now = Date.now()
+    const timeSinceLastInference = now - lastInferenceAt.value
+    if (timeSinceLastInference < YOLO_INTERVAL_MS) {
+      // Skip this frame - not enough time has elapsed for target YOLO FPS
+      yoloSkippedCount.value++
       return
     }
 
@@ -366,5 +378,6 @@ export const useYoloWorker = (
     latestResultRim,
     latestResultDebug,
     latestResultTimestamp,
+    yoloSkippedCount,
   } as YoloWorkerReturn
 }

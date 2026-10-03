@@ -29,6 +29,22 @@ export const CAMERA_CONFIG = {
   MIN_RESOLUTION: { width: 640, height: 360 }, // Minimum acceptable resolution for workout sessions (allows 360p for smaller YOLO models)
 } as const;
 
+// Vision Pipeline Configuration - Deterministic FPS targets
+// Camera FPS is independent from vision model FPS
+export const VISION_CONFIG = {
+  CAMERA_FPS: 30, // Camera frame rate (hardware/configured)
+
+  YOLO: {
+    ENABLED: true,
+    TARGET_FPS: 10, // YOLO inference target (10-15 FPS per ARCHITECTURE.md)
+  },
+
+  MOVENET: {
+    ENABLED: true,
+    TARGET_FPS: 3, // MoveNet pose estimation target (~3 FPS per ARCHITECTURE.md)
+  },
+} as const;
+
 // Model Configuration
 export const MODEL_CONFIG = {
   DEFAULT_YOLO_MODEL_ID: 'best_384_float16', // Default YOLO model (384 offers best balance of stability and performance)
@@ -38,8 +54,10 @@ export const MODEL_CONFIG = {
 // Court Dimensions (meters)
 export const COURT_CONFIG = {
   WIDTH_M: 15.24, // Court width in meters (50 feet)
-  HEIGHT_M: 28.65, // Court height in meters (94 feet)
+  FULL_HEIGHT_M: 28.65, // Full court height in meters (94 feet)
+  HALF_HEIGHT_M: 14.32, // Half court height in meters (47 feet)
   HOOP_Y_M: 1.575, // Hoop height in meters (10 feet / 3.05 meters)
+  HEIGHT_M: 28.65, // Alias for FULL_HEIGHT_M for backward compatibility
 } as const;
 
 // Test Configuration for Camera FPS Degradation Investigation

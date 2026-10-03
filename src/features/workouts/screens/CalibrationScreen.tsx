@@ -944,8 +944,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 }
                 
                 // Calculate real homography matrix from image corners to court coordinates in meters
-                // Court dimensions: 15.24m width, 28.65m height (FIBA/NBA full court)
-                const dstCorners = getCourtCornersMeters(COURT_CONFIG.WIDTH_M, COURT_CONFIG.HEIGHT_M)
+                // Court dimensions: 15.24m width, height depends on court type
+                const courtHeight = courtType === 'FULL_COURT' ? COURT_CONFIG.FULL_HEIGHT_M : COURT_CONFIG.HALF_HEIGHT_M
+                const dstCorners = getCourtCornersMeters(COURT_CONFIG.WIDTH_M, courtHeight)
                 
                 try {
                     homographyMatrix = calculateHomography(nc, dstCorners)
@@ -975,7 +976,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const handleProceed = () => {
         if (isNavigating) return
         setIsNavigating(true)
-        const workoutParams = { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
+        const workoutParams = { sessionId, cameraMode, courtType, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
         console.log('[Calibration] Navigating to WorkoutSession with params:', workoutParams)
         navigation.replace('WorkoutSession', workoutParams)
     }
@@ -987,7 +988,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             () => {
                 if (isNavigating) return
                 setIsNavigating(true)
-                const workoutParams = { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
+                const workoutParams = { sessionId, cameraMode, courtType, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
                 console.log('[Calibration] Skipping calibration, navigating to WorkoutSession with params:', workoutParams)
                 navigation.replace('WorkoutSession', workoutParams)
             }

@@ -38,6 +38,7 @@ export default function WorkoutSetupScreen({ navigation }: any) {
             const calibrationParams = {
                 sessionId: session.id,
                 cameraMode,
+                courtType,
                 selectedResolution: null, // Will use device default
                 selectedFps: null, // Will use device default
                 selectedPoseResolution: 192, // Default pose resolution

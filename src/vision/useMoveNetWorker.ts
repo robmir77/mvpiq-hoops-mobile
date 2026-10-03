@@ -16,10 +16,13 @@ import type { PoseKeypoints } from './types'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
 import { ENABLE_MOVENET_LOGS } from '@/config/debugConfig'
+import { VISION_CONFIG } from '@/config/appConfig'
 
 const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the registry
 const INTERMEDIATE_RESIZE_SIZE = 640 // Intermediate resize for crop optimization (reduces CPU crop work)
-const MOVENET_TARGET_FPS = 3 // Target 3 FPS for MoveNet
+
+// Use VISION_CONFIG for deterministic MoveNet FPS
+const MOVENET_TARGET_FPS = VISION_CONFIG.MOVENET.TARGET_FPS
 const MOVENET_INTERVAL_MS = 1000 / MOVENET_TARGET_FPS
 
 // DIAGNOSTIC FLAG: Disable MoveNet execution to measure YOLO + tracking + crop calculation performance
@@ -100,6 +103,14 @@ export const useMoveNetWorker = (
 
   const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
+  const moveNetSkippedCount = useSharedValue(0) // Count frames skipped due to throttling
+
+  const executionCount = useSharedValue(0)
+  const lastInferenceMs = useSharedValue(0)
+  const lastCropMs = useSharedValue(0)
+  const lastResizeMs = useSharedValue(0)
+  const lastRunMs = useSharedValue(0)
+  const lastParseMs = useSharedValue(0)
 
   const isReady = useSharedValue(false)
   const fps = useSharedValue(0)
@@ -258,6 +269,14 @@ export const useMoveNetWorker = (
       if (calculatedFps > 0) {
         fps.value = calculatedFps
       }
+
+      // Update execution tracking shared values
+      executionCount.value += 1
+      lastInferenceMs.value = inferenceTime
+      lastCropMs.value = totalCropMs
+      lastResizeMs.value = resizeMs
+      lastRunMs.value = runMs
+      lastParseMs.value = parseMs
 
       // Write telemetry to SharedValues (worklet-safe)
       telemetryInferenceTime.value = inferenceTime
@@ -437,6 +456,8 @@ export const useMoveNetWorker = (
     const now = Date.now()
     const timeSinceLast = lastInferenceAt.value > 0 ? now - lastInferenceAt.value : MOVENET_INTERVAL_MS
     if (timeSinceLast < MOVENET_INTERVAL_MS) {
+      // Skip this frame - not enough time has elapsed for target MoveNet FPS
+      moveNetSkippedCount.value++
       if (__DEV__) {
         console.log('[MoveNet Throttle] Skip:', timeSinceLast, 'ms since last (need', MOVENET_INTERVAL_MS, 'ms)')
       }
@@ -791,7 +812,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
       // lastInferenceAt already updated at dispatch start (fix throttling bug)
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, fps, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, fps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastInferenceAt, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -824,10 +845,17 @@ export const useMoveNetWorker = (
     reset,
     isReady,
     fps,
+    executionCount,
+    lastInferenceMs,
+    lastCropMs,
+    lastResizeMs,
+    lastRunMs,
+    lastParseMs,
     latestResultKeypoints,
     latestResultAngles,
     latestResultTimestamp,
     latestCropInfo,
     playerBbox,
+    moveNetSkippedCount,
   }
 }

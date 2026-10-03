@@ -387,8 +387,11 @@ class WorkoutAsyncQueue {
   }
 
   async shutdown() {
-    // Flush all pending items
-    await this.flushAll()
+    // Flush critical events with bounded attempts to prevent infinite loop offline
+    await this.flushCriticalOnly(50)
+    
+    // Flush telemetry (best-effort, no limit needed)
+    await this.flushTelemetryOnly()
     
     // Only clear if all critical events are delivered
     if (this.criticalOutbox.size === 0) {

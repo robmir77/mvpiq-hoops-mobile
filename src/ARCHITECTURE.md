@@ -60,14 +60,12 @@ Tutto ciò che può essere asincrono deve essere separato dal percorso realtime.
 **Responsabilità:**
 - Camera frame acquisition tramite `useFrameOutput`
 - Reentrancy guard per prevenire elaborazioni concorrenti
-- YOLO scheduler con tre protezioni (frame guard, YOLO guard, scheduled count)
 - YOLO detection (ball, player, rim)
 - Ball/Player/Rim detection parsing e filtering
 - Player crop management (TTL 750ms, EMA smoothing, jump threshold)
-- MoveNet pose estimation (throttled a 3 FPS)
 - Kalman prediction base per ball tracking
-- Frame scheduler coordination (YOLO + MoveNet throttling)
 - Telemetry e performance monitoring
+- **NOTA:** Lo scheduling YOLO/MoveNet è gestito internamente dai rispettivi worker, non da useShotTracker
 
 **Separazione responsabilità:**
 ```
@@ -95,28 +93,32 @@ Shot Analysis + Basketball Logic
 
 **Architettura implementata:**
 ```
-                 FRAME SCHEDULER
+                 CAMERA (30 FPS)
+                       │
+                       ▼
+              useShotTracker.onFrame
                        │
           ┌────────────┼────────────┐
           ▼            ▼            ▼
-        YOLO        MoveNet       Tracking
-      priority 1   priority 2    every frame
-          │            │
-      20-21 FPS       5 FPS
+    YOLO Worker   MoveNet Worker  Tracking
+  (throttle 10) (throttle 3)   every frame
+       │              │
+   deterministico  deterministico
 ```
 
-**YOLO Scheduler (implementato in useShotTracker.ts):**
-- Basato su `yoloIntervalMs` (1000 / targetFps)
-- Tre protezioni attive:
-  1. `isProcessingFrame` - previene concorrenza frame (reentrancy guard)
-  2. `yoloWorker.isProcessing` - previene concorrenza YOLO
-  3. `yoloScheduledCount` - previene doppio scheduling nello stesso intervallo
-- req/exec = 1:1 confermato nei test
-- `timeSinceLast` varia correttamente indicando scheduler funzionante
+**YOLO Scheduler:**
+- Implementato internamente in `useYoloWorker.ts`
+- Throttling deterministico a 10 FPS via `VISION_CONFIG.YOLO.TARGET_FPS`
+- Time-based: esegue inferenza solo se `timeSinceLast >= YOLO_INTERVAL_MS` (100ms)
+- Indipendente dal FPS della camera
+- useShotTracker chiama `yoloWorker.processFrame()` ogni frame, il worker decide se eseguire
 
 **MoveNet Scheduler:**
-- Time-based throttling a 3 FPS (ogni ~333ms)
-- Eseguito solo se player bbox disponibile
+- Implementato internamente in `useMoveNetWorker.ts`
+- Throttling deterministico a 3 FPS via `VISION_CONFIG.MOVENET.TARGET_FPS`
+- Time-based: esegue inferenza solo se `timeSinceLast >= MOVENET_INTERVAL_MS` (333ms)
+- Indipendente dal FPS della camera
+- useShotTracker chiama `moveNetWorker.processFrame()` ogni frame, il worker decide se eseguire
 - Bottleneck JS thread riduce actual FPS a ~5 FPS
 
 ### Tracking Policies
@@ -179,12 +181,59 @@ export const CAMERA_CONFIG = {
   MIN_RESOLUTION: { width: 1280, height: 720 },
 } as const
 
+// Vision Pipeline Configuration - Deterministic FPS targets
+// Camera FPS is independent from vision model FPS
+export const VISION_CONFIG = {
+  CAMERA_FPS: 30, // Camera frame rate (hardware/configured)
+
+  YOLO: {
+    ENABLED: true,
+    TARGET_FPS: 10, // YOLO inference target (10-15 FPS)
+  },
+
+  MOVENET: {
+    ENABLED: true,
+    TARGET_FPS: 3, // MoveNet pose estimation target (~3 FPS)
+  },
+} as const
+
 export const COURT_CONFIG = {
   WIDTH_M: 15.24,      // 50 feet
-  HEIGHT_M: 28.65,     // 94 feet
+  HEIGHT_M: 28.65,     // 94 feet (FULL court)
   HOOP_Y_M: 1.575,     // 10 feet
 } as const
 ```
+
+**Nota importante:** Il sistema NON usa adaptive performance. La frequenza della camera è indipendente dalla frequenza di inferenza YOLO/MoveNet:
+- Camera: 30 FPS (configurabile via CAMERA_CONFIG)
+- YOLO: 10 FPS (deterministico, via VISION_CONFIG.YOLO.TARGET_FPS)
+- MoveNet: 3 FPS (deterministico, via VISION_CONFIG.MOVENET.TARGET_FPS)
+- Tracking: realtime (ogni frame)
+- Bridge calls: 15 FPS (throttled a 66ms)
+
+Questa architettura deterministica evita regressioni di performance causate da accoppiamenti tra FPS della camera e FPS dei modelli di visione.
+
+**BUG CRITICO:** `COURT_CONFIG.HEIGHT_M` è hardcoded a 28.65m (full court) ma non esiste configurazione separata per half court. `CalibrationScreen.tsx` usa sempre:
+```typescript
+const dstCorners = getCourtCornersMeters(
+  COURT_CONFIG.WIDTH_M,
+  COURT_CONFIG.HEIGHT_M  // Sempre 28.65, anche per HALF_COURT
+)
+```
+
+La documentazione di `homography.ts` dice che per half court dovrebbe essere usata una profondità diversa (~14m), ma questo non è implementato. Questo falsa:
+- `courtX`, `courtY`
+- `distanceFromHoop`
+- `zone`
+- Shot chart e analytics basati sulla posizione
+
+**BUG CRITICO:** `courtType` non viene propagato nel navigation flow:
+- `WorkoutSetupScreen.tsx` seleziona `courtType` (HALF_COURT o FULL_COURT)
+- Viene inviato al backend nel payload di creazione sessione
+- `CalibrationScreen.tsx` riceve `undefined` per `courtType` nei params
+- Fallback a `HALF_COURT` anche se l'utente ha selezionato FULL_COURT
+
+Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_COURT.
 
 ## Stato Implementazione
 
@@ -192,15 +241,35 @@ export const COURT_CONFIG = {
 |------|------|------|
 | Separazione YOLO/tracking/MoveNet | ✅ | Completata |
 | Reentrancy guard | ✅ | Implementato con isProcessingFrame |
-| YOLO scheduler | ✅ | Implementato con 3 protezioni |
+| YOLO scheduler a 10 FPS | ✅ | Deterministico, interno a useYoloWorker, throttle confermato dai log |
+| MoveNet scheduler a 3 FPS | ✅ | Deterministico, interno a useMoveNetWorker, throttle confermato dai log |
+| Scheduler duplicati rimossi | ✅ | useShotTracker non fa più scheduling esterno |
+| Camera FPS migliorata | 🟡 | Da ~4 FPS a 8-12 FPS, ma ancora sotto target 30 FPS |
+| Frame latency | 🟡 | 75-100 ms tipici (vs budget 33.3ms per 30 FPS) |
+| MoveNet CPU crop | 🔴 | Costa ~30 ms, investigare riduzione/eliminazione |
 | Player tracking worklet-safe | ✅ | Implementato |
 | TTL player 750 ms | ✅ | Implementato |
 | TTL ball 500 ms / Kalman | ✅ | Implementato |
 | Jump threshold + safety net | ✅ | Implementato correttamente |
-| MoveNet throttling 3 FPS | ✅ | Implementato |
 | Crop geometrico player | ✅ | Implementato |
 | Crop effettivo immagine per MoveNet | ✅ | CPU ottimizzato (640x360 → 192x192) |
-| Adaptive performance | ❌ | Completamente disabilitato per debugging |
+| Adaptive performance | ✅ | RIMOSSO - sistema deterministico con VISION_CONFIG |
+| Residui adaptive performance | ✅ | Rimossi (TARGET_DETECTION_RATE, ADAPTATION_WINDOW_MS, etc.) |
+| Throttling YOLO telemetry 15 FPS | ✅ | Implementato (66ms) |
+| Decoupling camera/YOLO FPS | ✅ | VISION_CONFIG separa i target FPS |
+| Rerender/Remount investigation | 🔴 | Possibili rerender frequenti da investigare |
+| Propagazione courtType (FULL/HALF) | 🔴 | NON propagato tra Setup → Calibration → Workout |
+| Homography HALF/FULL court | 🔴 | Sempre calcolata come FULL court (15.24 x 28.65) |
+| CALIBRATION in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
+| SESSION_END in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
+| shutdown() bounded offline | 🔴 | Può loopare infinitamente con critical events pendenti |
+| OutboxRecoveryWorker chiavi | 🔴 | Usa chiavi sbagliate (id invece di workout_outbox_<id>) |
+| Duplicazione loadAllPendingAndMerge | 🔴 | loadAllPendingAndMerge + loadPending duplicano item |
+| Telemetry batching garantito | 🟡 | Non garantito, tende a batch da 1 invece di 20 |
+| Inizializzazione queue prima camera | 🟡 | Queue inizializzata DOPO attivazione camera |
+| Gestione enqueueCritical false | 🟡 | UI non verifica return boolean per fallimento persistenza |
+| Shot detection single source | 🟡 | Due sistemi sovrapposti (useTrackingEngine + useShotTracker) |
+| Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
 
 ## Async Queue & Critical Events
 
@@ -233,6 +302,21 @@ const queue = await createWorkoutQueue({ sessionId, userId })
 - Carica item della sessione corrente
 - Flag `initialized` previene enqueue prematuro
 
+**BUG CRITICO:** In `WorkoutSessionScreen.tsx`, la camera viene attivata PRIMA che la queue sia pronta:
+```typescript
+setSession(s)
+setIsActive(true)  // Camera ON
+setShotCount(...)
+workoutQueueRef.current = await createWorkoutQueue(...)  // Queue pronta DOPO
+```
+Per un breve periodo:
+- Camera ACTIVE
+- Vision tracking genera shot/telemetry
+- `workoutQueueRef.current === null`
+- Eventi possono essere persi (telemetry: return, shot: return)
+
+Questo contraddice Decision 11: l'inizializzazione deve essere completata prima di accettare eventi.
+
 ### PersistentOutbox
 
 **Responsabilità:**
@@ -252,6 +336,29 @@ const queue = await createWorkoutQueue({ sessionId, userId })
 - `loadPending()` - carica item della sessione corrente e merge
 - Merge con memory queue esistente
 - Sorting per timestamp
+- `OutboxRecoveryWorker` - worker background per retry di eventi pendenti da sessioni precedenti
+  - Intervallo configurabile (default 30 secondi)
+  - Backoff esponenziale per retry
+  - Max 5 retry per evento
+  - Rimozione solo su successo API
+
+**BUG CRITICO:** `OutboxRecoveryWorker` usa chiavi AsyncStorage sbagliate:
+- `PersistentOutbox.add()` salva con chiave: `workout_outbox_<id>`
+- `OutboxRecoveryWorker.removeItem()` usa: `await AsyncStorage.removeItem(id)`
+- `OutboxRecoveryWorker.incrementRetryCount()` usa: `await AsyncStorage.setItem(item.id, ...)`
+
+Questo causa:
+- L'evento viene trovato correttamente
+- Viene inviato con successo
+- Il worker tenta di rimuoverlo con chiave sbagliata
+- L'evento originale rimane nello storage
+- Alla prossima recovery può essere reinviato (duplicazione)
+
+**BUG CRITICO:** `WorkoutAsyncQueue.create()` chiama:
+1. `await queue.criticalOutbox.loadAllPendingAndMerge()` - include sessione corrente
+2. `await queue.criticalOutbox.loadPending()` - ricarica sessione corrente
+
+Senza deduplica per id, questo causa duplicazione degli item nella memory queue.
 
 **Shutdown:**
 - Se tutti eventi consegnati: `clearSession()` (memoria + storage)
@@ -259,13 +366,26 @@ const queue = await createWorkoutQueue({ sessionId, userId })
 - Log warning se shutdown con eventi pendenti
 - `flushCriticalOnly(maxAttempts)` - default 50, previene loop infinito offline
 
+**BUG CRITICO:** `shutdown()` chiama `flushAll()` che contiene un loop while:
+```typescript
+while (this.criticalOutbox.size > 0 || this.telemetry.size > 0) {
+  await this.flush(...)
+}
+```
+Se il backend è offline con critical events pendenti, questo loop può continuare indefinitamente. Nonostante `flushCriticalOnly(maxAttempts)` esista, `shutdown()` non lo usa direttamente. In pratica, l'utente che preme "Fine" con backend offline può rimanere bloccato in `await workoutQueue.shutdown()` senza mai arrivare alla navigation.
+
 ### Critical Events
 
 **Tipi:**
-- `SHOT` - eventi tiro con API `addShotEvent()`
-- `SESSION_START` - confermato (gestito da creazione sessione)
-- `SESSION_END` - API `endWorkoutSession()`
-- `CALIBRATION` - API `saveCourtCalibration()`
+- `SHOT` - eventi tiro con API `addShotEvent()` - ✅ Usa critical queue
+- `SESSION_START` - confermato (gestito da creazione sessione) - ✅ Non richiede queue
+- `SESSION_END` - API `endWorkoutSession()` - 🔴 UI chiama direttamente, bypassa critical queue
+- `CALIBRATION` - API `saveCourtCalibration()` - 🔴 UI chiama direttamente, bypassa critical queue
+
+**NOTA CRITICA:** Nonostante l'architettura documentata preveda CALIBRATION e SESSION_END come eventi critici passanti attraverso la PersistentOutbox, l'implementazione attuale in `CalibrationScreen.tsx` e `WorkoutSessionScreen.tsx` chiama direttamente le API. Questo significa che:
+- Se il device perde connessione durante salvataggio calibrazione, la calibrazione può essere persa
+- Se il backend è offline durante fine sessione, SESSION_END può fallire senza retry
+- La funzione per gestirli nella queue esiste (`case 'SESSION_END'`, `case 'CALIBRATION'`) ma il normale flow UI non la utilizza
 
 **Retry Strategy:**
 - Max 5 retry con backoff esponenziale (1s, 2s, 4s, 8s, 16s)
@@ -278,7 +398,13 @@ const queue = await createWorkoutQueue({ sessionId, userId })
 **Sampling:**
 - `TelemetrySampler` con intervallo configurabile (default 500ms = 2 Hz)
 - Solo 1 frame su 10 inviato al backend
-- Batch di 20 frame per richiesta HTTP
+
+**Batching:**
+- Documentato: Batch di 20 frame per richiesta HTTP
+- Reale: Il worker chiama `flush()` immediatamente su ogni `enqueueTelemetry()`
+- `telemetry.drain(20)` tende a restituire 1 elemento
+- Comportamento reale: sample → HTTP batch da 1 → 500ms → sample → HTTP batch da 1
+- Il batching da 20 frame non è garantito dall'implementazione
 
 **Queue:**
 - Bounded queue (max 100 items)
@@ -306,9 +432,27 @@ const queue = await createWorkoutQueue({ sessionId, userId })
 - metrics
 - offline shutdown (maxAttempts limit)
 
+**OutboxRecoveryWorker:**
+- Singleton worker background
+- Carica item da tutte le sessioni precedenti
+- Retry con backoff esponenziale
+- Rimozione solo su successo
+- Avvio/arresto manuale
+- 🔴 BUG: Chiavi AsyncStorage sbagliate (vedi sezione Recovery)
+
 **TelemetrySampler:**
 - shouldSample con vari intervalli
 - reset
 - setSampleInterval dinamico
 - edge cases (timestamp 0, negativi, non-monotonici)
 - scenari real-world (variable frame rates)
+
+**In architettura ma NON implementato:**
+- OutboxRecoveryWorker test - non presente nel codebase
+- Test end-to-end del lifecycle UI (Setup → Calibration → Workout → Pause → Resume → End)
+- Test FULL/HALF court end-to-end
+- Verifica propagazione courtType attraverso navigation
+- Verifica homography corretta per HALF vs FULL court
+- Test shutdown() con backend offline (bounded behavior)
+- Test duplicazione loadAllPendingAndMerge + loadPending
+- Test batching telemetry reale (20 frame vs 1 frame)

@@ -16,24 +16,37 @@ export interface DiagnosticWindowSnapshot {
   onFrameMaxMs: number
   yoloRequested: number
   yoloExecuted: number
-  yoloBusySkipped: number
-  yoloFps: number
+  yoloSkipped: number
+  yoloThroughputFps: number
   yoloAvgMs: number
   yoloMinMs: number
   yoloMaxMs: number
   yoloResizeAvgMs: number
   yoloRunAvgMs: number
   yoloParseAvgMs: number
+  moveNetRequested: number
+  moveNetExecuted: number
+  moveNetSkipped: number
+  moveNetThroughputFps: number
+  moveNetAvgMs: number
+  moveNetMinMs: number
+  moveNetMaxMs: number
+  moveNetCropAvgMs: number
+  moveNetResizeAvgMs: number
+  moveNetRunAvgMs: number
+  moveNetParseAvgMs: number
 }
 
 export interface YoloPerfMetrics {
-  fps: number
+  throughputFps: number  // Actual inferences per second
+  theoreticalFps: number  // 1000 / avgInferenceTime (latency capacity)
   avgMs: number
   minMs: number
   maxMs: number
   samples: number
   requested: number
   executed: number
+  skipped: number
   resizeMs: number
   runMs: number
   parseMs: number
@@ -62,7 +75,8 @@ export interface PlayerDetectionMetrics {
 export interface MoveNetMetrics {
   modelInput: number
   inferenceTimes: number[]
-  fps: number
+  throughputFps: number  // Actual inferences per second
+  theoreticalFps: number  // 1000 / avgInferenceTime (latency capacity)
   avgMs: number
   minMs: number
   maxMs: number
@@ -71,6 +85,7 @@ export interface MoveNetMetrics {
   keypointStability: number
   requested: number
   executed: number
+  skipped: number
   cropMs: number
   resizeMs: number
   runMs: number
@@ -206,17 +221,10 @@ class TelemetryLogger {
       this.diagnosticWindows.shift()
     }
 
-    console.log(
-      '[PERF][1s]',
-      `cam=${snapshot.cameraFps.toFixed(1)} ` +
-      `recv=${snapshot.received} proc=${snapshot.processed} drop=${snapshot.droppedBusy} ` +
-      `frameAvg=${snapshot.onFrameAvgMs.toFixed(1)}ms frameMax=${snapshot.onFrameMaxMs.toFixed(1)}ms ` +
-      `yolo=${snapshot.yoloFps.toFixed(1)} exec=${snapshot.yoloExecuted}/${snapshot.yoloRequested} ` +
-      `busySkip=${snapshot.yoloBusySkipped} ` +
-      `yoloAvg=${snapshot.yoloAvgMs.toFixed(1)}ms ` +
-      `min=${snapshot.yoloMinMs.toFixed(1)} max=${snapshot.yoloMaxMs.toFixed(1)} ` +
-      `resize=${snapshot.yoloResizeAvgMs.toFixed(1)} run=${snapshot.yoloRunAvgMs.toFixed(1)} parse=${snapshot.yoloParseAvgMs.toFixed(1)}`
-    )
+    console.log('[PERF 1s]')
+    console.log(`CAM  fps=${snapshot.cameraFps.toFixed(1)} recv=${snapshot.received} proc=${snapshot.processed} drop=${snapshot.droppedBusy} avg=${snapshot.onFrameAvgMs.toFixed(1)}ms max=${snapshot.onFrameMaxMs.toFixed(1)}ms`)
+    console.log(`YOLO fps=${snapshot.yoloThroughputFps.toFixed(1)} exec=${snapshot.yoloExecuted} attempt=${snapshot.yoloRequested} skip=${snapshot.yoloSkipped} avg=${snapshot.yoloAvgMs.toFixed(1)}ms max=${snapshot.yoloMaxMs?.toFixed(1) ?? '0.0'}ms`)
+    console.log(`MOVE fps=${snapshot.moveNetThroughputFps.toFixed(1)} exec=${snapshot.moveNetExecuted} attempt=${snapshot.moveNetRequested} skip=${snapshot.moveNetSkipped} avg=${snapshot.moveNetAvgMs.toFixed(1)}ms max=${snapshot.moveNetMaxMs?.toFixed(1) ?? '0.0'}ms`)
   }
 
   getDiagnosticWindows(): DiagnosticWindowSnapshot[] {
@@ -277,26 +285,29 @@ class TelemetryLogger {
 
   getYoloPerfMetrics(): YoloPerfMetrics {
     if (this.yoloInferenceTimes.length === 0) {
-      return { fps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: this.yoloRequested, executed: this.yoloExecuted, resizeMs: 0, runMs: 0, parseMs: 0 }
+      return { throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: this.yoloRequested, executed: this.yoloExecuted, skipped: this.yoloRequested - this.yoloExecuted, resizeMs: 0, runMs: 0, parseMs: 0 }
     }
 
     const avgMs = this.yoloInferenceTimes.reduce((a, b) => a + b, 0) / this.yoloInferenceTimes.length
     const minMs = Math.min(...this.yoloInferenceTimes)
     const maxMs = Math.max(...this.yoloInferenceTimes)
-    const fps = 1000 / avgMs
+    const theoreticalFps = 1000 / avgMs
+    const skipped = this.yoloRequested - this.yoloExecuted
     
     const avgResizeMs = this.yoloResizeTimes.length > 0 ? this.yoloResizeTimes.reduce((a, b) => a + b, 0) / this.yoloResizeTimes.length : 0
     const avgRunMs = this.yoloRunTimes.length > 0 ? this.yoloRunTimes.reduce((a, b) => a + b, 0) / this.yoloRunTimes.length : 0
     const avgParseMs = this.yoloParseTimes.length > 0 ? this.yoloParseTimes.reduce((a, b) => a + b, 0) / this.yoloParseTimes.length : 0
 
     return {
-      fps,
+      throughputFps: 0,  // Calculated externally based on elapsed time
+      theoreticalFps,
       avgMs,
       minMs,
       maxMs,
       samples: this.yoloInferenceTimes.length,
       requested: this.yoloRequested,
       executed: this.yoloExecuted,
+      skipped,
       resizeMs: avgResizeMs,
       runMs: avgRunMs,
       parseMs: avgParseMs,
@@ -305,7 +316,7 @@ class TelemetryLogger {
 
   logYoloPerf(): void {
     const metrics = this.getYoloPerfMetrics()
-    console.log('[PERF][YOLO]', `fps=${metrics.fps.toFixed(1)} avg=${metrics.avgMs.toFixed(1)}ms req/exec=${metrics.requested}/${metrics.executed} resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
+    console.log('[YOLO]', `latency=${metrics.avgMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
   recordBallDetection(confidence: number): void {
@@ -671,7 +682,8 @@ class TelemetryLogger {
       return {
         modelInput: this.moveNetModelInput,
         inferenceTimes: [],
-        fps: 0,
+        throughputFps: 0,
+        theoreticalFps: 0,
         avgMs: 0,
         minMs: 0,
         maxMs: 0,
@@ -680,6 +692,7 @@ class TelemetryLogger {
         keypointStability: 0,
         requested: this.moveNetRequested,
         executed: this.moveNetExecuted,
+        skipped: this.moveNetRequested - this.moveNetExecuted,
         cropMs: 0,
         resizeMs: 0,
         runMs: 0,
@@ -690,7 +703,8 @@ class TelemetryLogger {
     const avgMs = this.moveNetInferenceTimes.reduce((a, b) => a + b, 0) / this.moveNetInferenceTimes.length
     const minMs = Math.min(...this.moveNetInferenceTimes)
     const maxMs = Math.max(...this.moveNetInferenceTimes)
-    const fps = 1000 / avgMs
+    const theoreticalFps = 1000 / avgMs
+    const skipped = this.moveNetRequested - this.moveNetExecuted
 
     const validKeypoints = this.moveNetKeypoints.length
     const avgConfidence = validKeypoints > 0 
@@ -712,7 +726,8 @@ class TelemetryLogger {
     return {
       modelInput: this.moveNetModelInput,
       inferenceTimes: this.moveNetInferenceTimes,
-      fps,
+      throughputFps: 0,  // Calculated externally based on elapsed time
+      theoreticalFps,
       avgMs,
       minMs,
       maxMs,
@@ -721,6 +736,7 @@ class TelemetryLogger {
       keypointStability,
       requested: this.moveNetRequested,
       executed: this.moveNetExecuted,
+      skipped,
       cropMs: avgCropMs,
       resizeMs: avgResizeMs,
       runMs: avgRunMs,
@@ -730,7 +746,7 @@ class TelemetryLogger {
 
   logMoveNetMetrics(): void {
     const metrics = this.getMoveNetMetrics()
-    console.log('[MOVENET]', `input=${metrics.modelInput} fps=${metrics.fps.toFixed(1)} avg=${metrics.avgMs.toFixed(1)}ms req/exec=${metrics.requested}/${metrics.executed} crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
+    console.log('[MOVENET]', `crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
   }
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
@@ -750,7 +766,7 @@ class TelemetryLogger {
       perf: {
         duration: this.batteryMetrics.duration,
         cameraFPS,
-        yoloFPS: yoloPerf.fps,
+        yoloFPS: yoloPerf.throughputFps,
         yoloAvgMs: yoloPerf.avgMs,
         moveNetFPS,
       },
@@ -791,7 +807,7 @@ class TelemetryLogger {
     console.log(`Stability=${summary.player.bboxStability.toFixed(0)}%`)
     console.log('')
     console.log('[MOVENET]')
-    console.log(`FPS=${summary.moveNet.fps.toFixed(1)}`)
+    console.log(`FPS=${summary.moveNet.throughputFps.toFixed(1)}`)
     console.log(`AVG=${summary.moveNet.avgMs.toFixed(1)}ms`)
     console.log('')
     console.log('[PIPELINE]')
@@ -836,7 +852,7 @@ Confidence=${summary.player.avgConfidence.toFixed(2)}
 Stability=${summary.player.bboxStability.toFixed(0)}%
 
 [MOVENET]
-FPS=${summary.moveNet.fps.toFixed(1)}
+FPS=${summary.moveNet.throughputFps.toFixed(1)}
 AVG=${summary.moveNet.avgMs.toFixed(1)}ms
 
 [PIPELINE]
