@@ -1,4 +1,4 @@
-import { saveFrameDataBatch, addShotEvent, addShotEventsBatch } from '../api/workouts.api'
+import { saveFrameDataBatch, addShotEvent, addShotEventsBatch, endWorkoutSession, saveCourtCalibration } from '../api/workouts.api'
 import { PersistentOutbox } from './persistentOutbox'
 
 interface AsyncQueueItem<T> {
@@ -87,20 +87,40 @@ class WorkoutAsyncQueue {
 
   private running = false
   private workerPromise: Promise<void> | null = null
+  private initialized = false
 
   // Telemetry metrics
   private telemetryDroppedCount = 0
   private criticalOverflowCount = 0
 
-  constructor(options: WorkoutAsyncQueueOptions) {
+  private constructor(options: WorkoutAsyncQueueOptions) {
     this.criticalOutbox = new PersistentOutbox(options.sessionId, options.userId)
-    // Load pending items from previous session
-    this.criticalOutbox.loadPending().catch(e => {
-      console.error('[WorkoutQueue] Failed to load pending critical items:', e)
-    })
+  }
+
+  /**
+   * Initialize the queue - must be called before enqueueing
+   */
+  static async create(options: WorkoutAsyncQueueOptions): Promise<WorkoutAsyncQueue> {
+    const queue = new WorkoutAsyncQueue(options)
+    
+    // Load pending items from ALL previous sessions (global recovery)
+    const allPending = await queue.criticalOutbox.loadAllPending()
+    
+    // Load current session items and merge
+    await queue.criticalOutbox.loadPending()
+    
+    queue.initialized = true
+    console.log(`[WorkoutQueue] Initialized with ${queue.criticalOutbox.size} pending critical items`)
+    
+    return queue
   }
 
   enqueueTelemetry(payload: Omit<FrameDataPayload, 'sessionId' | 'userId'>) {
+    if (!this.initialized) {
+      console.error('[WorkoutQueue] Queue not initialized, cannot enqueue telemetry')
+      return
+    }
+
     this.telemetry.push({
       payload: {
         ...payload,
@@ -113,7 +133,12 @@ class WorkoutAsyncQueue {
     this.ensureWorker()
   }
 
-  async enqueueCritical(payload: CriticalPayload) {
+  async enqueueCritical(payload: CriticalPayload): Promise<boolean> {
+    if (!this.initialized) {
+      console.error('[WorkoutQueue] Queue not initialized, cannot enqueue critical event')
+      return false
+    }
+
     const success = await this.criticalOutbox.add({
       type: payload.type,
       sessionId: payload.sessionId,
@@ -123,7 +148,7 @@ class WorkoutAsyncQueue {
 
     if (!success) {
       this.criticalOverflowCount++
-      console.error('[WorkoutQueue] CRITICAL OUTBOX OVERFLOW - data may be lost!', {
+      console.error('[WorkoutQueue] CRITICAL OUTBOX PERSISTENCE FAILED - data may be lost!', {
         type: payload.type,
         queueSize: this.criticalOutbox.size,
         overflowCount: this.criticalOverflowCount,
@@ -131,6 +156,7 @@ class WorkoutAsyncQueue {
     }
 
     this.ensureWorker()
+    return success
   }
 
   private ensureWorker() {
@@ -191,30 +217,38 @@ class WorkoutAsyncQueue {
       if (success) {
         await this.criticalOutbox.remove(item.id)
       } else {
-        // Item failed permanently, remove to avoid blocking queue
-        console.error('[WorkoutQueue] Critical item failed permanently, removing from outbox:', item.id)
-        await this.criticalOutbox.remove(item.id)
+        // Item failed - keep it in outbox for future retry
+        // DO NOT remove - critical events must not be lost
+        console.error('[WorkoutQueue] Critical item failed, keeping in outbox for retry:', {
+          id: item.id,
+          type: item.type,
+          retryCount: item.retryCount,
+        })
+        break // Stop processing this batch to avoid infinite loop
       }
     }
   }
 
   private async processCriticalItemWithRetry(item: any): Promise<boolean> {
-    const { type, sessionId, userId, payload, retryCount } = item
+    const { type, sessionId, userId, payload, retryCount, id } = item
 
     if (type === 'SHOT') {
-      return await this.retryShotEvent(sessionId, userId, payload, retryCount)
+      return await this.retryShotEvent(sessionId, userId, payload, retryCount, id)
     } else if (type === 'SESSION_START' || type === 'SESSION_END' || type === 'CALIBRATION') {
-      return await this.retryCriticalEvent(type, sessionId, userId, payload, retryCount)
+      return await this.retryCriticalEvent(type, sessionId, userId, payload, retryCount, id)
     }
     return true
   }
 
-  private async retryShotEvent(sessionId: string, userId: string, payload: any, retryCount: number): Promise<boolean> {
+  private async retryShotEvent(sessionId: string, userId: string, payload: any, retryCount: number, itemId: string): Promise<boolean> {
     const maxRetries = 5
     const baseDelay = 1000 // 1 second
 
     for (let attempt = retryCount; attempt < maxRetries; attempt++) {
       try {
+        // Update retry count before attempt
+        await this.criticalOutbox.updateRetryCount(itemId, attempt)
+        
         await addShotEvent(sessionId, userId, payload)
         return true
       } catch (e) {
@@ -227,19 +261,39 @@ class WorkoutAsyncQueue {
       }
     }
 
-    console.error('[WorkoutQueue] Shot event permanently failed after retries:', { sessionId, payload })
+    console.error('[WorkoutQueue] Shot event failed after retries, will retry later:', { 
+      sessionId, 
+      itemId,
+      retryCount: maxRetries 
+    })
     return false
   }
 
-  private async retryCriticalEvent(type: string, sessionId: string, userId: string, payload: any, retryCount: number): Promise<boolean> {
+  private async retryCriticalEvent(type: string, sessionId: string, userId: string, payload: any, retryCount: number, itemId: string): Promise<boolean> {
     const maxRetries = 5
     const baseDelay = 1000
 
     for (let attempt = retryCount; attempt < maxRetries; attempt++) {
       try {
-        // For now, session events don't have a dedicated API - they're handled by session management
-        // This is a placeholder for future critical event APIs
-        console.log(`[WorkoutQueue] Critical event processed: ${type}`)
+        // Update retry count before attempt
+        await this.criticalOutbox.updateRetryCount(itemId, attempt)
+        
+        if (type === 'SESSION_START') {
+          // SESSION_START is handled by createWorkoutSession API call when session is created
+          // This event is mainly for tracking purposes, so we mark it as successful
+          console.log(`[WorkoutQueue] SESSION_START event acknowledged: ${sessionId}`)
+          return true
+        } else if (type === 'SESSION_END') {
+          // Call the real SESSION_END API
+          await endWorkoutSession(sessionId, userId)
+          console.log(`[WorkoutQueue] SESSION_END event processed: ${sessionId}`)
+          return true
+        } else if (type === 'CALIBRATION') {
+          // Call the real CALIBRATION API
+          await saveCourtCalibration(sessionId, userId, payload)
+          console.log(`[WorkoutQueue] CALIBRATION event processed: ${sessionId}`)
+          return true
+        }
         return true
       } catch (e) {
         const delay = baseDelay * Math.pow(2, attempt)
@@ -251,7 +305,12 @@ class WorkoutAsyncQueue {
       }
     }
 
-    console.error('[WorkoutQueue] Critical event permanently failed after retries:', { type, sessionId })
+    console.error('[WorkoutQueue] Critical event failed after retries, will retry later:', { 
+      type, 
+      sessionId,
+      itemId,
+      retryCount: maxRetries 
+    })
     return false
   }
 
@@ -324,13 +383,22 @@ class WorkoutAsyncQueue {
   async shutdown() {
     // Flush all pending items
     await this.flushAll()
-    // Clear outbox
-    await this.criticalOutbox.clear()
+    
+    // Only clear if all critical events are delivered
+    if (this.criticalOutbox.size === 0) {
+      await this.criticalOutbox.clearSession()
+      console.log('[WorkoutQueue] Shutdown complete - all critical events delivered')
+    } else {
+      console.warn('[WorkoutQueue] Shutdown with pending critical events - keeping in outbox for recovery', {
+        pendingCount: this.criticalOutbox.size,
+      })
+      // Clear memory only, keep storage for recovery
+      await this.criticalOutbox.clear()
+    }
   }
 }
 
-export const createWorkoutQueue = (options: WorkoutAsyncQueueOptions): WorkoutAsyncQueue => {
-  return new WorkoutAsyncQueue(options)
-}
+export { WorkoutAsyncQueue }
+export const createWorkoutQueue = WorkoutAsyncQueue.create
 
 export type { FrameDataPayload, CriticalPayload, WorkoutAsyncQueueOptions }

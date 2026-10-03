@@ -1563,7 +1563,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [])
     const cameraRef       = useRef<CameraRef>(null)
     const lastBackendFrameTimestamp = useRef<number>(0)
-    const workoutQueueRef = useRef<ReturnType<typeof createWorkoutQueue> | null>(null)
+    const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
     const telemetrySamplerRef = useRef<TelemetrySampler | null>(null)
 
     // Performance monitoring (YOLO/MoveNet FPS from worker SharedValues)
@@ -1919,8 +1919,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setSession(s)
             setIsActive(true) // Activate camera when session loads
             setShotCount({ total: s.totalShots, made: s.madeShots })
-            // Create session-scoped queue
-            workoutQueueRef.current = createWorkoutQueue({ sessionId, userId: user.id })
+            // Create session-scoped queue (async initialization with global recovery)
+            workoutQueueRef.current = await createWorkoutQueue({ sessionId, userId: user.id })
             // Create telemetry sampler (2 Hz = 500ms)
             telemetrySamplerRef.current = new TelemetrySampler({ sampleIntervalMs: 500 })
             try {

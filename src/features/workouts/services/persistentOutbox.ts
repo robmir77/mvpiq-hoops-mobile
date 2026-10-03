@@ -11,7 +11,6 @@ interface OutboxItem {
 }
 
 const OUTBOX_KEY_PREFIX = 'workout_outbox_'
-const MAX_OUTBOX_SIZE = 100
 
 class PersistentOutbox {
   private _sessionId: string
@@ -24,7 +23,7 @@ class PersistentOutbox {
   }
 
   /**
-   * Load pending items from AsyncStorage
+   * Load pending items from current session only
    */
   async loadPending(): Promise<void> {
     try {
@@ -34,7 +33,7 @@ class PersistentOutbox {
       if (sessionKeys.length === 0) return
 
       const items = await AsyncStorage.multiGet(sessionKeys)
-      this.memoryQueue = items
+      const loadedItems = items
         .map(([_, value]) => {
           if (!value) return null
           try {
@@ -46,25 +45,52 @@ class PersistentOutbox {
         .filter((item): item is OutboxItem => item !== null)
         .sort((a, b) => a.timestamp - b.timestamp)
 
-      console.log(`[PersistentOutbox] Loaded ${this.memoryQueue.length} pending items for session ${this._sessionId}`)
+      this.memoryQueue = [...this.memoryQueue, ...loadedItems]
+      console.log(`[PersistentOutbox] Loaded ${loadedItems.length} pending items for session ${this._sessionId}`)
     } catch (e) {
       console.error('[PersistentOutbox] Failed to load pending items:', e)
     }
   }
 
   /**
+   * Load ALL pending items from ALL previous sessions (global recovery)
+   */
+  async loadAllPending(): Promise<OutboxItem[]> {
+    try {
+      const keys = await AsyncStorage.getAllKeys()
+      const allOutboxKeys = keys.filter(k => k.startsWith(OUTBOX_KEY_PREFIX))
+      
+      if (allOutboxKeys.length === 0) return []
+
+      const items = await AsyncStorage.multiGet(allOutboxKeys)
+      const allItems = items
+        .map(([_, value]) => {
+          if (!value) return null
+          try {
+            return JSON.parse(value) as OutboxItem
+          } catch {
+            return null
+          }
+        })
+        .filter((item): item is OutboxItem => item !== null)
+        .sort((a, b) => a.timestamp - b.timestamp)
+
+      console.log(`[PersistentOutbox] Loaded ${allItems.length} pending items from ALL sessions`)
+      return allItems
+    } catch (e) {
+      console.error('[PersistentOutbox] Failed to load all pending items:', e)
+      return []
+    }
+  }
+
+  /**
    * Add item to outbox (persist to AsyncStorage)
+   * No size limit - critical events must not be dropped
    */
   async add(item: Omit<OutboxItem, 'id' | 'timestamp' | 'retryCount'>): Promise<boolean> {
-    // Check size limit
-    if (this.memoryQueue.length >= MAX_OUTBOX_SIZE) {
-      console.error('[PersistentOutbox] Outbox full, rejecting item')
-      return false
-    }
-
     const outboxItem: OutboxItem = {
       ...item,
-      id: `${this.sessionId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `${item.sessionId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
       retryCount: 0,
     }
@@ -132,9 +158,19 @@ class PersistentOutbox {
   }
 
   /**
-   * Clear all items for this session
+   * Clear all items for this session from memory only
+   * Storage items are only removed when explicitly deleted by ID
    */
   async clear(): Promise<void> {
+    this.memoryQueue = []
+    console.log(`[PersistentOutbox] Cleared memory queue for session ${this._sessionId}`)
+  }
+
+  /**
+   * Clear all items for this session from both memory and storage
+   * This should only be called when all items are confirmed delivered
+   */
+  async clearSession(): Promise<void> {
     try {
       const keys = await AsyncStorage.getAllKeys()
       const sessionKeys = keys.filter(k => k.startsWith(`${OUTBOX_KEY_PREFIX}${this._sessionId}_`))
@@ -146,7 +182,7 @@ class PersistentOutbox {
       this.memoryQueue = []
       console.log(`[PersistentOutbox] Cleared ${sessionKeys.length} items for session ${this._sessionId}`)
     } catch (e) {
-      console.error('[PersistentOutbox] Failed to clear items:', e)
+      console.error('[PersistentOutbox] Failed to clear session items:', e)
     }
   }
 
