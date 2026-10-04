@@ -98,19 +98,20 @@ export const useShotTracker = (
     selectedPoseResolution?: number,
     moveNetModelId?: string,
 ) => {
-    console.log('[useShotTracker] Received params:', {
-        selectedResolution,
-        selectedFps,
-        selectedPoseResolution,
-        yoloModelId,
-        moveNetModelId,
-        yoloDelegate,
-        poseDelegate,
-        enabled,
-        poseEnabled,
-        ballEnabled,
-        rimEnabled,
-    })
+    // TEMP: Commented to reduce log noise during performance investigation
+    // console.log('[useShotTracker] Received params:', {
+    //     selectedResolution,
+    //     selectedFps,
+    //     selectedPoseResolution,
+    //     yoloModelId,
+    //     moveNetModelId,
+    //     yoloDelegate,
+    //     poseDelegate,
+    //     enabled,
+    //     poseEnabled,
+    //     ballEnabled,
+    //     rimEnabled,
+    // })
 
     // Mount-instance diagnostic: detect concurrent hook mounts by logging unique IDs
 
@@ -793,14 +794,8 @@ export const useShotTracker = (
         // are already recorded in useYoloWorkerAsync worker
         
         if (result.player) {
-            playerCrop.update({
-                x: result.player.x,
-                y: result.player.y,
-                width: result.player.width,
-                height: result.player.height,
-                confidence: result.player.confidence,
-            })
             // Update shared values for direct display in overlay
+            // Frame processor will read these and call playerCrop.update() in worklet context
             playerX.value = result.player.x
             playerY.value = result.player.y
             playerWidth.value = result.player.width
@@ -809,30 +804,15 @@ export const useShotTracker = (
             // Update visual tracking state
             playerTrackState.value = 'DETECTED'
             playerTrackAge.value = 0
-            // Check if the detection was accepted by the confidence filter
-            const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
-            if (trackedBbox) {
-                if (!lastPlayerDetectedRef.value) {
-                    // Transition: LOST → DETECTED
-                    lastPlayerDetectedRef.value = true
-                }
-                recordPlayerDetected()
-            }
         } else {
-            playerCrop.update(null)
             // Reset shared values for overlay when no player detected
             playerX.value = 0
             playerY.value = 0
             playerWidth.value = 0
             playerHeight.value = 0
             playerConfidence.value = 0
-            if (lastPlayerDetectedRef.value) {
-                // Transition: DETECTED → LOST
-                lastPlayerDetectedRef.value = false
-                recordPlayerLost()
-            }
         }
-    }, [playerCrop, playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge, recordPlayerDetected, recordPlayerLost])
+    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge])
 
     // Initialize async YOLO worker with callback (must be after handleYoloAsyncResult)
     const yoloWorkerAsync = useYoloWorkerAsync(
@@ -1149,6 +1129,20 @@ export const useShotTracker = (
                         timestamp: yoloWorker.latestResultTimestamp.value
                     }
 
+                    // Update playerCrop from shared values (set by handleYoloAsyncResult on RN thread)
+                    // This must happen in worklet context, not from RN thread
+                    if (playerX.value !== 0 || playerY.value !== 0) {
+                        playerCrop.update({
+                            x: playerX.value,
+                            y: playerY.value,
+                            width: playerWidth.value,
+                            height: playerHeight.value,
+                            confidence: playerConfidence.value,
+                        })
+                    } else {
+                        playerCrop.update(null)
+                    }
+
                     // Update rim tracking state
                     if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
                         rimTrackState.value = 'DETECTED'
@@ -1368,7 +1362,7 @@ export const useShotTracker = (
         isModelReady,
         resetShotTracking,
         yoloFps: yoloWorker.theoreticalFps,
-        yoloThroughputFps: yoloWorker.throughputFps,
+        yoloThroughputFps: actualYoloFps,
         moveNetFps: telemetryLogger.getMoveNetMetrics().throughputFps,
         currentFps: useSharedValue(selectedFps || 30),
         actualCameraFps,

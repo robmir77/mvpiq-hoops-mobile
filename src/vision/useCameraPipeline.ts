@@ -51,19 +51,20 @@ export const useCameraPipeline = (
   selectedPoseResolution?: number,
   moveNetModelId?: string,
 ): CameraPipelineResult => {
-  console.log('[useCameraPipeline] Received params:', {
-    selectedResolution,
-    selectedFps,
-    selectedPoseResolution,
-    yoloModelId,
-    moveNetModelId,
-    yoloDelegate,
-    poseDelegate,
-    enabled,
-    poseEnabled,
-    ballEnabled,
-    rimEnabled,
-  })
+  // TEMP: Commented to reduce log noise during performance investigation
+  // console.log('[useCameraPipeline] Received params:', {
+  //     selectedResolution,
+  //     selectedFps,
+  //     selectedPoseResolution,
+  //     yoloModelId,
+  //     moveNetModelId,
+  //     yoloDelegate,
+  //     poseDelegate,
+  //     enabled,
+  //     poseEnabled,
+  //     ballEnabled,
+  //     rimEnabled,
+  // })
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
   const device = useCameraDevice('back')
   const [isActive, setIsActive] = useState(false)

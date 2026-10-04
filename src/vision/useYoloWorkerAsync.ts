@@ -217,6 +217,15 @@ export const useYoloWorkerAsync = (
       const tCallbackStart = performance.now()
       const scheduleWaitMs = tCallbackStart - scheduleStartMs
 
+      // Detailed scheduling diagnostics
+      console.log('[YoloWorkerAsync] scheduling diagnostics', {
+        frameCounter,
+        scheduleStartMs,
+        callbackStart: tCallbackStart,
+        scheduleWaitMs,
+        queueDepth: scheduleWaitMs.toFixed(1) + 'ms'
+      })
+
       // Record schedule wait time if tracking is enabled
       if (perfYoloScheduleWaitTotal) {
         perfYoloScheduleWaitTotal.value += scheduleWaitMs

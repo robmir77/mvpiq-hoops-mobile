@@ -1311,17 +1311,18 @@ const StatBox = ({ label, value, highlight }: { label: string; value: any; highl
 
 export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
-    console.log('[WorkoutSession] Received params from route.params:', {
-        sessionId,
-        cameraMode,
-        selectedResolution,
-        selectedFps,
-        selectedPoseResolution,
-        yoloDelegate,
-        poseDelegate,
-        yoloModelId,
-        moveNetModelId,
-    })
+    // TEMP: Commented to reduce log noise during performance investigation
+    // console.log('[WorkoutSession] Received params from route.params:', {
+    //     sessionId,
+    //     cameraMode,
+    //     selectedResolution,
+    //     selectedFps,
+    //     selectedPoseResolution,
+    //     yoloDelegate,
+    //     poseDelegate,
+    //     yoloModelId,
+    //     moveNetModelId,
+    // })
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
@@ -1543,10 +1544,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Pose callback
     const handlePoseResult = useCallback((result: PoseResult) => {
         const validKeypoints = Object.values(result.keypoints).filter((kp: any) => kp && kp.score > 0).length
-        console.log('[POSE RESULT] keypoints=', Object.keys(result.keypoints).length, 'valid=', validKeypoints)
+        // TEMP: Commented to reduce log noise during performance investigation
+        // console.log('[POSE RESULT] keypoints=', Object.keys(result.keypoints).length, 'valid=', validKeypoints)
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
-        console.log('[POSE STATE] setPoseKeypoints called')
+        // console.log('[POSE STATE] setPoseKeypoints called')
     }, [])
 
     // Rim detection callback (replaces calibrated rim if confidence high)
@@ -1786,15 +1788,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [trackingState?.ballPosition, trackingState?.ballVelocity])
 
     // useCameraPipeline integration
-    console.log('[WorkoutSession] Calling useCameraPipeline with params:', {
-        selectedResolution: effectiveResolution,
-        selectedFps: effectiveFps,
-        selectedPoseResolution: effectivePoseResolution,
-        yoloModelId: effectiveYoloModelId,
-        moveNetModelId: effectiveMoveNetModelId,
-        yoloDelegate,
-        poseDelegate,
-    })
+    useEffect(() => {
+        console.log('[WorkoutSession] Calling useCameraPipeline with params:', {
+            selectedResolution: effectiveResolution,
+            selectedFps: effectiveFps,
+            selectedPoseResolution: effectivePoseResolution,
+            yoloModelId: effectiveYoloModelId,
+            moveNetModelId: effectiveMoveNetModelId,
+            yoloDelegate,
+            poseDelegate,
+        })
+    }, [effectiveResolution, effectiveFps, effectivePoseResolution, effectiveYoloModelId, effectiveMoveNetModelId, yoloDelegate, poseDelegate])
+
     const {
         device,
         hasPermission,

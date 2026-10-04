@@ -100,11 +100,12 @@ export const useMoveNetWorker = (
   perfMoveNetRunTotal?: any,
   perfMoveNetParseTotal?: any,
 ) => {
-  console.log('[useMoveNetWorker] Received params:', {
-    enabled,
-    poseDelegate,
-    moveNetModelId,
-  })
+  // TEMP: Commented to reduce log noise during performance investigation
+  // console.log('[useMoveNetWorker] Received params:', {
+  //     enabled,
+  //     poseDelegate,
+  //     moveNetModelId,
+  // })
   const latestResultKeypoints = useSharedValue<any>(null)
   const latestResultAngles = useSharedValue<any>(null)
   const latestResultTimestamp = useSharedValue(0)
