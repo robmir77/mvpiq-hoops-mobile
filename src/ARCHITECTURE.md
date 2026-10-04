@@ -10,6 +10,8 @@ La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera p
 
 Tutto ciò che può essere asincrono deve essere separato dal percorso realtime. L'obiettivo non è trasformare `runSync()` di YOLO/MoveNet in una Promise semplicemente per "renderlo async" - con react-native-fast-tflite, l'uso documentato dentro VisionCamera è proprio `runSync()` nel worklet. Il vero obiettivo è rendere asincroni i flussi che non devono bloccare il realtime, e separare il più possibile le pipeline.
 
+**Reanimated Shared Values:** I shared values di Reanimated non devono essere letti direttamente durante il render dei componenti React. Per evitare warning di Reanimated, i valori devono essere sincronizzati a variabili di stato regolari tramite useEffect prima di essere passati ai componenti UI.
+
 ## Architettura Target
 
 ```
@@ -65,6 +67,8 @@ Tutto ciò che può essere asincrono deve essere separato dal percorso realtime.
 - Player crop management (TTL 750ms, EMA smoothing, jump threshold)
 - Kalman prediction base per ball tracking
 - Telemetry e performance monitoring
+- FPS metrics synchronization (shared values → state) per evitare warning Reanimated
+- Session usage time tracking (minuti:secondi) con persistenza tra unmount/mount
 - **NOTA:** Lo scheduling YOLO/MoveNet è gestito internamente dai rispettivi worker, non da useShotTracker
 
 **Separazione responsabilità:**
@@ -270,6 +274,10 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Residui adaptive performance | ✅ | Rimossi (TARGET_DETECTION_RATE, ADAPTATION_WINDOW_MS, etc.) |
 | Throttling YOLO telemetry 15 FPS | ✅ | Implementato (66ms) |
 | Decoupling camera/YOLO FPS | ✅ | Camera 30 FPS, YOLO FPS naturale basato su inferenza time |
+| Reanimated shared values handling | ✅ | Sincronizzazione shared values → state per evitare warning |
+| TelemetryOverlay unificazione stili | ✅ | Tutte le voci usano formato row/label/value uniforme |
+| TelemetryOverlay FPS display | ✅ | Camera/YOLO/MoveNet su righe separate, YOLO sopra MoveNet |
+| Session usage time tracking | ✅ | Minuti:secondi con ref globale per persistenza unmount/mount |
 | Rerender/Remount investigation | 🔴 | Possibili rerender frequenti da investigare |
 | Propagazione courtType (FULL/HALF) | 🔴 | NON propagato tra Setup → Calibration → Workout |
 | Homography HALF/FULL court | 🔴 | Sempre calcolata come FULL court (15.24 x 28.65) |

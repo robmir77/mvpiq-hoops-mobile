@@ -157,24 +157,159 @@ export const useMoveNetWorker = (
 
   // Run MoveNet inference on JS thread (Promises are not worklet-safe)
   const runMoveNetInference = useCallback(async (
-    inputBuffer: ArrayBuffer,
-    cropInfo: PlayerCropResult | null,
+    intermediateBuffer: Float32Array,
+    intermediateWidth: number,
+    intermediateHeight: number,
     cropRegion: { cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null,
+    cropInfo: PlayerCropResult | null,
     usingPlayerCrop: boolean,
     frameWidth: number,
     frameHeight: number,
     timestamp: number,
     t0: number,
-    totalCropMs: number,
+    cropMs: number,
     resizeMs: number,
     resized: any
   ) => {
     try {
+      // CPU crop + resize to final size (now on JS thread, not in worklet)
+      const tCropCpuStart = performance.now()
+
+      let inputSource: Float32Array
+      let totalCropMs = cropMs
+
+      if (cropRegion && intermediateBuffer.length === intermediateWidth * intermediateHeight * 3) {
+        // Scale crop region to intermediate dimensions
+        const scale = INTERMEDIATE_RESIZE_SIZE / Math.max(frameWidth, frameHeight)
+        const scaledCropX = cropRegion.cropX * scale
+        const scaledCropY = cropRegion.cropY * scale
+        const scaledCropWidth = cropRegion.cropWidth * scale
+        const scaledCropHeight = cropRegion.cropHeight * scale
+
+        // CPU crop + resize to final size
+        inputSource = cropAndResizeFloat32(
+          intermediateBuffer,
+          intermediateWidth,
+          intermediateHeight,
+          scaledCropX,
+          scaledCropY,
+          scaledCropWidth,
+          scaledCropHeight,
+          poseInputSize
+        )
+
+        const tCropCpuEnd = performance.now()
+        totalCropMs = cropMs + (tCropCpuEnd - tCropCpuStart)
+
+        if (__DEV__) {
+          console.log(
+            '[MoveNet CROP] CPU crop on JS thread=',
+            `intermediate=${intermediateWidth}x${intermediateHeight} `,
+            `crop=${Math.round(scaledCropX)},${Math.round(scaledCropY)},${Math.round(scaledCropWidth)}x${Math.round(scaledCropHeight)} `,
+            `cropTime=${(tCropCpuEnd - tCropCpuStart).toFixed(2)}ms`
+          )
+        }
+      } else {
+        // Fallback: resize from intermediate to final size using CPU
+        usingPlayerCrop = false
+        if (__DEV__) {
+          console.log('[MoveNet CROP] FALLBACK to FULL FRAME - cropRegion=', cropRegion ? 'EXISTS' : 'NULL', 'bufferMatch=', intermediateBuffer.length === intermediateWidth * intermediateHeight * 3)
+        }
+
+        if (intermediateBuffer.length === intermediateWidth * intermediateHeight * 3) {
+          inputSource = cropAndResizeFloat32(
+            intermediateBuffer,
+            intermediateWidth,
+            intermediateHeight,
+            0,
+            0,
+            intermediateWidth,
+            intermediateHeight,
+            poseInputSize
+          )
+        } else {
+          // Fallback to direct resize if dimensions don't match
+          inputSource = new Float32Array(poseInputElements)
+          // Simple nearest neighbor resize
+          const scaleX = intermediateWidth / poseInputSize
+          const scaleY = intermediateHeight / poseInputSize
+          for (let ty = 0; ty < poseInputSize; ty++) {
+            for (let tx = 0; tx < poseInputSize; tx++) {
+              const sx = Math.floor(tx * scaleX)
+              const sy = Math.floor(ty * scaleY)
+              const sourceIdx = (sy * intermediateWidth + sx) * 3
+              const targetIdx = (ty * poseInputSize + tx) * 3
+              if (sourceIdx + 2 < intermediateBuffer.length) {
+                inputSource[targetIdx] = intermediateBuffer[sourceIdx]
+                inputSource[targetIdx + 1] = intermediateBuffer[sourceIdx + 1]
+                inputSource[targetIdx + 2] = intermediateBuffer[sourceIdx + 2]
+              }
+            }
+          }
+        }
+
+        const tCropCpuEnd = performance.now()
+        totalCropMs = cropMs + (tCropCpuEnd - tCropCpuStart)
+
+        if (__DEV__) {
+          console.log(
+            '[MoveNet CROP] Fallback resize (no crop) on JS thread=',
+            `intermediate=${intermediateWidth}x${intermediateHeight} `,
+            `resizeTime=${(tCropCpuEnd - tCropCpuStart).toFixed(2)}ms`
+          )
+        }
+      }
+
+      // Buffer size validation
+      if (inputSource.length !== poseInputElements) {
+        console.error(
+          '[MoveNet Input] Invalid input length:',
+          inputSource.length,
+          'expected:',
+          poseInputElements,
+        )
+
+        resized.dispose()
+        resized = null
+        isProcessing.value = false
+        return
+      }
+
+      let maxVal = 0;
+      for (let i = 0; i < inputSource.length; i+=100) {
+        if (inputSource[i] > maxVal) maxVal = inputSource[i];
+      }
+
+      if (__DEV__) {
+        console.log(`[MoveNet Input] Model expects dataType: ${poseModelInstance!.inputs[0].dataType}, shape: ${poseModelInstance!.inputs[0].shape}`)
+        console.log(`[MoveNet Input] floatSource max sample value: ${maxVal}`)
+      }
+
+      let inputBuffer: ArrayBuffer;
+      const needsScaling = maxVal <= 1.0 && maxVal > 0;
+
+      if (poseModelInstance!.inputs[0].dataType === 'uint8') {
+        const uint8Source = new Uint8Array(inputSource.length)
+        for (let i = 0; i < inputSource.length; i++) {
+          uint8Source[i] = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
+        }
+        inputBuffer = uint8Source.buffer as ArrayBuffer
+      } else if (poseModelInstance!.inputs[0].dataType === 'int8') {
+        const int8Source = new Int8Array(inputSource.length)
+        for (let i = 0; i < inputSource.length; i++) {
+          let val = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
+          int8Source[i] = val - 128
+        }
+        inputBuffer = int8Source.buffer as ArrayBuffer
+      } else {
+        inputBuffer = inputSource.buffer as ArrayBuffer
+      }
+
       const tRunStart = performance.now()
       const outputs = await poseModelInstance!.run([inputBuffer])
       const tRunEnd = performance.now()
       const runMs = tRunEnd - tRunStart
-      
+
       // The MoveNet INT8 model outputs a Float32 tensor for keypoints
       const output = new Float32Array(outputs[0])
 
@@ -436,6 +571,7 @@ export const useMoveNetWorker = (
   const processFrame = useCallback((frame: any, timestamp: number) => {
     'worklet'
 
+    // Latest-frame-wins: skip immediately if busy to avoid any preprocessing work
     if (!poseModelInstance || isProcessing.value || !enabled || !ENABLE_MOVENET) {
       if (__DEV__) {
         console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled, 'ENABLE_MOVENET=', ENABLE_MOVENET)
@@ -617,34 +753,8 @@ export const useMoveNetWorker = (
           )
         }
 
-        let inputSource: Float32Array
-        let totalCropMs = cropMs
-
-        if (cropRegion && floatSource.length === intermediateWidth * intermediateHeight * 3) {
-          // Scale crop region to intermediate dimensions
-          const scaledCropX = cropRegion.cropX * scale
-          const scaledCropY = cropRegion.cropY * scale
-          const scaledCropWidth = cropRegion.cropWidth * scale
-          const scaledCropHeight = cropRegion.cropHeight * scale
-
-          const tCropCpuStart = performance.now()
-
-          // CPU crop + resize to final size
-          inputSource = cropAndResizeFloat32(
-            floatSource,
-            intermediateWidth,
-            intermediateHeight,
-            scaledCropX,
-            scaledCropY,
-            scaledCropWidth,
-            scaledCropHeight,
-            poseInputSize
-          )
-
-          const tCropCpuEnd = performance.now()
-          totalCropMs = cropMs + (tCropCpuEnd - tCropCpuStart)
-          usingPlayerCrop = true
-
+        // Prepare cropInfo for JS thread
+        if (cropRegion) {
           cropInfo = {
             cropX: cropRegion.cropX,
             cropY: cropRegion.cropY,
@@ -656,125 +766,15 @@ export const useMoveNetWorker = (
             squareCropY: cropRegion.cropY,
             squareCropSize: cropRegion.cropWidth,
           }
-
-          if (__DEV__) {
-            console.log(
-              '[MoveNet CROP] CPU crop APPLIED=',
-              `intermediate=${intermediateWidth}x${intermediateHeight} `,
-              `crop=${Math.round(scaledCropX)},${Math.round(scaledCropY)},${Math.round(scaledCropWidth)}x${Math.round(scaledCropHeight)} `,
-              `cropTime=${(tCropCpuEnd - tCropCpuStart).toFixed(2)}ms`
-            )
-          }
+          usingPlayerCrop = true
         } else {
-          // Fallback: resize from intermediate to final size using CPU
-          // This happens when no valid crop region is available
+          cropInfo = null
           usingPlayerCrop = false
-          if (__DEV__) {
-            console.log('[MoveNet CROP] FALLBACK to FULL FRAME - cropRegion=', cropRegion ? 'EXISTS' : 'NULL', 'bufferMatch=', floatSource.length === intermediateWidth * intermediateHeight * 3)
-          }
-
-          const tResizeCpuStart = performance.now()
-
-          if (floatSource.length === intermediateWidth * intermediateHeight * 3) {
-            inputSource = cropAndResizeFloat32(
-              floatSource,
-              intermediateWidth,
-              intermediateHeight,
-              0,
-              0,
-              intermediateWidth,
-              intermediateHeight,
-              poseInputSize
-            )
-          } else {
-            // Fallback to direct resize if dimensions don't match
-            inputSource = new Float32Array(poseInputElements)
-            // Simple nearest neighbor resize
-            const scaleX = intermediateWidth / poseInputSize
-            const scaleY = intermediateHeight / poseInputSize
-            for (let ty = 0; ty < poseInputSize; ty++) {
-              for (let tx = 0; tx < poseInputSize; tx++) {
-                const sx = Math.floor(tx * scaleX)
-                const sy = Math.floor(ty * scaleY)
-                const sourceIdx = (sy * intermediateWidth + sx) * 3
-                const targetIdx = (ty * poseInputSize + tx) * 3
-                if (sourceIdx + 2 < floatSource.length) {
-                  inputSource[targetIdx] = floatSource[sourceIdx]
-                  inputSource[targetIdx + 1] = floatSource[sourceIdx + 1]
-                  inputSource[targetIdx + 2] = floatSource[sourceIdx + 2]
-                }
-              }
-            }
-          }
-
-          const tResizeCpuEnd = performance.now()
-          totalCropMs = cropMs + (tResizeCpuEnd - tResizeCpuStart)
-
-          if (__DEV__) {
-            console.log(
-              '[MoveNet CROP] Fallback resize (no crop)=',
-              `intermediate=${intermediateWidth}x${intermediateHeight} `,
-              `resizeTime=${(tResizeCpuEnd - tResizeCpuStart).toFixed(2)}ms`
-            )
-          }
         }
 
-        if (__DEV__) {
-          console.log(
-            '[MoveNet CROP] usingPlayerCrop=',
-            usingPlayerCrop,
-            'inputElements=',
-            inputSource.length,
-          )
-        }
-
-        // Buffer size validation
-        if (inputSource.length !== poseInputElements) {
-          console.error(
-            '[MoveNet Input] Invalid input length:',
-            inputSource.length,
-            'expected:',
-            poseInputElements,
-          )
-
-          resized.dispose()
-          resized = null
-          isProcessing.value = false
-          return
-        }
-
-        let maxVal = 0;
-        for (let i = 0; i < inputSource.length; i+=100) {
-          if (inputSource[i] > maxVal) maxVal = inputSource[i];
-        }
-
-        if (__DEV__ && telemetryHasNewData.value === false) { // log occasionally
-          console.log(`[MoveNet Input] Model expects dataType: ${poseModelInstance!.inputs[0].dataType}, shape: ${poseModelInstance!.inputs[0].shape}`)
-          console.log(`[MoveNet Input] floatSource max sample value: ${maxVal}`)
-        }
-
-        let inputBuffer: ArrayBuffer;
-        const needsScaling = maxVal <= 1.0 && maxVal > 0;
-
-        if (poseModelInstance!.inputs[0].dataType === 'uint8') {
-          const uint8Source = new Uint8Array(inputSource.length)
-          for (let i = 0; i < inputSource.length; i++) {
-            uint8Source[i] = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
-          }
-          inputBuffer = uint8Source.buffer as ArrayBuffer
-        } else if (poseModelInstance!.inputs[0].dataType === 'int8') {
-          const int8Source = new Int8Array(inputSource.length)
-          for (let i = 0; i < inputSource.length; i++) {
-            let val = needsScaling ? inputSource[i] * 255.0 : inputSource[i];
-            int8Source[i] = val - 128
-          }
-          inputBuffer = int8Source.buffer as ArrayBuffer
-        } else {
-          inputBuffer = inputSource.buffer as ArrayBuffer
-        }
-
-        // ASYNC: Run inference on JS thread (Promises are not worklet-safe)
-        scheduleOnRN(runMoveNetInference, inputBuffer, cropInfo, cropRegion, usingPlayerCrop, frameWidth, frameHeight, timestamp, t0, totalCropMs, resizeMs, resized)
+        // ASYNC: Pass intermediate buffer to JS thread for CPU crop + inference
+        // CPU crop is now done on JS thread, NOT in worklet (frame processor)
+        scheduleOnRN(runMoveNetInference, floatSource, intermediateWidth, intermediateHeight, cropRegion, cropInfo, usingPlayerCrop, frameWidth, frameHeight, timestamp, t0, cropMs, resizeMs, resized)
       }
 
     } catch (error) {
@@ -791,7 +791,7 @@ export const useMoveNetWorker = (
 
       isProcessing.value = false
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, theoreticalFps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, theoreticalFps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp, poseInputSize])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {

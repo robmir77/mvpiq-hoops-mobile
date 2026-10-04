@@ -14,6 +14,31 @@
 
 ## Decision 0: Rimozione Throttling Temporale (Natural FPS)
 
+---
+
+## Decision 0.1: Sincronizzazione Reanimated Shared Values
+
+**Contesto:** I shared values di Reanimated (es. `actualCameraFps.value`) venivano letti direttamente durante il render dei componenti React, causando warning di Reanimated: "Reading from `value` during component render."
+
+**Decisione:**
+- Sincronizzare i shared values a variabili di stato regolari tramite useEffect
+- `WorkoutSessionScreen.tsx`: aggiunto `cameraFps` state aggiornato ogni 1000ms da `actualCameraFps.value`
+- `TelemetryOverlay.tsx`: riceve `cameraFps` come prop regolare invece di shared value
+- Stesso pattern applicato per `yoloFps` e `moveNetFps`
+
+**Rationale:**
+- Reanimated richiede che i shared values non siano letti durante il render
+- La sincronizzazione tramite useEffect garantisce che il valore sia disponibile come state regolare
+- Evita warning e potenziali problemi di performance
+
+**Conseguenze:**
+- Warning Reanimated eliminati
+- FPS metrics aggiornati ogni secondo (sufficiente per UI)
+- Componenti UI ricevono props regolari invece di shared values
+- Architettura più pulita con separazione tra vision layer (shared values) e UI layer (state)
+
+---
+
 **Contesto:** Il sistema throttling deterministico (YOLO 10 FPS, MoveNet 3 FPS) limitava artificialmente la detection rate. Rimuovendo i limiti temporali, i modelli possono girare al massimo FPS possibile dato il tempo di inferenza sincrono.
 
 **Decisione:**
@@ -79,14 +104,63 @@
 - MoveNet FPS naturale ~0-6 confermato dai log (limitato da disponibilità bbox player)
 - Log molto più leggibili e semanticamente corretti
 - Problema spostato da "chi decide quando eseguire" a "quanto costa elaborare un frame"
+- ✅ Sincronizzazione shared values → state implementata per evitare warning Reanimated
 
 **Roadmap (non implementata):**
 1. ✅ Rinominare metriche fps → throughputFps/theoreticalFps per chiarezza semantica
 2. ✅ Rimozione throttling temporale per massimizzare detection rate
-3. Misurare separatamente tempo totale del frame processor
-4. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
-5. Investigare parallelizzazione YOLO/MoveNet
-6. Verificare rerender/remount di WorkoutSession/ShotTracker
+3. ✅ Sincronizzazione Reanimated shared values per evitare warning
+4. Misurare separatamente tempo totale del frame processor
+5. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
+6. Investigare parallelizzazione YOLO/MoveNet
+7. Verificare rerender/remount di WorkoutSession/ShotTracker
+
+---
+
+## Decision 0.2: Unificazione Stili TelemetryOverlay
+
+**Contesto:** TelemetryOverlay aveva stili inconsistente per diverse voci, con FPS section separata con styling diverso dalle altre sezioni.
+
+**Decisione:**
+- Rimozione sezione `fpsSection` separata con stile speciale
+- Tutte le voci usano formato uniforme: `section` → `row` → `label`/`value`
+- Camera, YOLO e MoveNet FPS ora su righe separate nello stesso stile delle altre metriche
+- Rimozione stili `fpsSection` e `fpsLabel` non più necessari
+- Ordine FPS: Camera → YOLO → MoveNet (YOLO sopra MoveNet come richiesto)
+
+**Rationale:**
+- Unificazione stili migliora consistenza visiva
+- Codice più semplice con meno stili special case
+- Più facile manutenzione futura
+
+**Conseguenze:**
+- Overlay più uniforme e leggibile
+- Codice più pulito senza duplicazione stili
+- Tutte le metriche hanno lo stesso aspetto
+
+---
+
+## Decision 0.3: Session Usage Time Tracking con Ref Globale
+
+**Contesto:** Il tracking del tempo di utilizzo della sessione veniva resettato quando il componente veniva unmounted/mountato frequentemente, causando valori sempre a 0.
+
+**Decisione:**
+- Uso di `sessionStartTimeGlobal` ref per persistere timestamp di inizio tra unmount/mount
+- Calcolo tempo trascorso ogni secondo basato su timestamp globale
+- Display formato minuti:secondi (es. 0:17 per 17 secondi)
+- Aggiornamento ogni secondo invece di ogni minuto per feedback immediato
+- Timer attivo quando `isActive && isModelReady`
+
+**Rationale:**
+- I frequenti unmount/mount del componente resettavano il timer locale
+- Ref globale persiste anche quando il componente viene ricreato
+- Formato minuti:secondi fornisce feedback più immediato
+
+**Conseguenze:**
+- Tempo di utilizzo ora persiste tra unmount/mount
+- Valori aggiornati ogni secondo per feedback immediato
+- Display più informativo con secondi
+- Log di debug per verificare funzionamento timer
 
 ---
 
