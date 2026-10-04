@@ -36,6 +36,7 @@ interface FrameData {
   timestamp: number
   frameCounter: number
   resizeMs: number
+  scheduleStartMs: number  // Time when scheduleOnRN was called (worklet time)
 }
 
 // Fixed YOLO target FPS - deterministic, no adaptation
@@ -70,6 +71,7 @@ export const useYoloWorkerAsync = (
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   yoloModelId?: string,
   yoloScheduledCount?: { value: number },
+  perfYoloScheduleWaitTotal?: SharedValue<number>,
   onResultCallback?: (result: YoloWorkerResult) => void
 ) => {
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
@@ -195,7 +197,15 @@ export const useYoloWorkerAsync = (
     telemetryLogger.recordYoloRequested()
 
     try {
-      const { inputBuffer, frameWidth, frameHeight, timestamp, frameCounter, resizeMs } = frameData
+      const { inputBuffer, frameWidth, frameHeight, timestamp, frameCounter, resizeMs, scheduleStartMs } = frameData
+      const tCallbackStart = performance.now()
+      const scheduleWaitMs = tCallbackStart - scheduleStartMs
+
+      // Record schedule wait time if tracking is enabled
+      if (perfYoloScheduleWaitTotal) {
+        perfYoloScheduleWaitTotal.value += scheduleWaitMs
+      }
+
       const t0 = performance.now()
 
       // Use resizeMs measured in worklet
@@ -235,7 +245,25 @@ export const useYoloWorkerAsync = (
 
           if (isValidSize && isInCourt) {
             validBall = ball
+            // Record ball detection telemetry
+            telemetryLogger.recordBallDetection(validBall.confidence)
+            telemetryLogger.recordBbox(validBall.x, validBall.y, validBall.width, validBall.height)
+
+            // Record false positive reasons for filtering
+            if (validBall.confidence < 0.3) {
+              telemetryLogger.recordFalsePositive('low_confidence', validBall.confidence)
+            }
           }
+        }
+
+        // Record player detection telemetry
+        if (player) {
+          telemetryLogger.recordPlayerDetection(player.confidence, {
+            x: player.x,
+            y: player.y,
+            w: player.width,
+            h: player.height
+          })
         }
 
         latestResultBall.value = validBall
@@ -259,6 +287,7 @@ export const useYoloWorkerAsync = (
         telemetryLogger.recordYoloResize(resizeMs)
         telemetryLogger.recordYoloRun(runMs)
         telemetryLogger.recordYoloParse(parseMs)
+        telemetryLogger.recordYoloScheduleWait(scheduleWaitMs)
 
         // Notify callback if provided
         if (onResultCallbackRef.current) {
@@ -360,6 +389,7 @@ export const useYoloWorkerAsync = (
           inputBuffer = source.buffer as ArrayBuffer
 
           // Create frame data object with extracted buffer
+          const tScheduleStart = performance.now()
           const frameData: FrameData = {
             inputBuffer,
             frameWidth: frame.width,
@@ -367,6 +397,7 @@ export const useYoloWorkerAsync = (
             timestamp,
             frameCounter: frameCounter || 0,
             resizeMs,
+            scheduleStartMs: tScheduleStart,
           }
 
           // Mark as processing and submit to RN runtime

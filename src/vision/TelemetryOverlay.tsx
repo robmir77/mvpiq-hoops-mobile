@@ -33,7 +33,7 @@ interface TelemetryOverlayProps {
 }
 
 export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, actualCameraFps, debugMode = false, cameraConfig, modelConfig }) => {
-  const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, skipped: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
+  const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, skipped: 0, scheduleWaitMs: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
   const [ballMetrics, setBallMetrics] = useState<BallDetectionMetrics>({
     framesProcessed: 0,
     framesDetected: 0,
@@ -86,10 +86,12 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     requested: 0,
     executed: 0,
     skipped: 0,
+    workletPrepMs: 0,
     cropMs: 0,
     resizeMs: 0,
     runMs: 0,
     parseMs: 0,
+    scheduleWaitMs: 0,
   })
 
   // Aggiorna le metriche ogni 500ms
@@ -105,7 +107,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
       const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
 
       console.log('[TelemetryOverlay] Updating metrics:', {
-        yoloFps: yoloFps?.toFixed(1) || '0.0',
+        yoloFps: yoloPerf.throughputFps.toFixed(1),
         yoloMinMs: yoloPerf.minMs?.toFixed(1) || '0.0',
         yoloMaxMs: yoloPerf.maxMs?.toFixed(1) || '0.0',
         yoloSamples: yoloPerf.samples,
@@ -176,8 +178,12 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.value}>{yoloPerf.requested}/{yoloPerf.executed}/{yoloPerf.skipped}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>FPS:</Text>
+                <Text style={styles.label}>Window FPS:</Text>
                 <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Session FPS:</Text>
+                <Text style={styles.value}>{yoloPerf.throughputFps.toFixed(1)}</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>FPS Range:</Text>

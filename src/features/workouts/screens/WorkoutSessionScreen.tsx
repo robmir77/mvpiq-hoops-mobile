@@ -1579,7 +1579,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const newState = tracking.processFrame(
             ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
             rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
-            detection.timestamp,
+            Date.now(),  // Use Date.now() for consistent timestamp domain with ballLastSeenAt
             poseKeypoints,
             detection.ballSizeCategory,
             detection.adaptiveThreshold

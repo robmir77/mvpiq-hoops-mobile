@@ -50,6 +50,7 @@ export interface YoloPerfMetrics {
   requested: number
   executed: number
   skipped: number
+  scheduleWaitMs: number
   resizeMs: number
   runMs: number
   parseMs: number
@@ -193,6 +194,8 @@ class TelemetryLogger {
   // Granular YOLO metrics
   private yoloRequested: number = 0
   private yoloExecuted: number = 0
+  private yoloStartTime: number | null = null
+  private yoloScheduleWaitTimes: number[] = []
   private yoloResizeTimes: number[] = []
   private yoloRunTimes: number[] = []
   private yoloParseTimes: number[] = []
@@ -268,6 +271,9 @@ class TelemetryLogger {
 
   recordYoloExecuted(): void {
     this.yoloExecuted++
+    if (this.yoloStartTime === null) {
+      this.yoloStartTime = Date.now()
+    }
   }
 
   recordYoloProcessedFrame(): void {
@@ -295,9 +301,16 @@ class TelemetryLogger {
     }
   }
 
+  recordYoloScheduleWait(scheduleWaitMs: number): void {
+    this.yoloScheduleWaitTimes.push(scheduleWaitMs)
+    if (this.yoloScheduleWaitTimes.length > 300) {
+      this.yoloScheduleWaitTimes.shift()
+    }
+  }
+
   getYoloPerfMetrics(): YoloPerfMetrics {
     if (this.yoloInferenceTimes.length === 0) {
-      return { throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: this.yoloRequested, executed: this.yoloExecuted, skipped: this.yoloRequested - this.yoloExecuted, resizeMs: 0, runMs: 0, parseMs: 0 }
+      return { throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: this.yoloRequested, executed: this.yoloExecuted, skipped: this.yoloRequested - this.yoloExecuted, scheduleWaitMs: 0, resizeMs: 0, runMs: 0, parseMs: 0 }
     }
 
     const avgMs = this.yoloInferenceTimes.reduce((a, b) => a + b, 0) / this.yoloInferenceTimes.length
@@ -305,13 +318,23 @@ class TelemetryLogger {
     const maxMs = Math.max(...this.yoloInferenceTimes)
     const theoreticalFps = 1000 / avgMs
     const skipped = this.yoloRequested - this.yoloExecuted
-    
+
+    // Calculate throughput FPS based on executed count and elapsed time
+    let throughputFps = 0
+    if (this.yoloStartTime !== null && this.yoloExecuted > 0) {
+      const elapsedMs = Date.now() - this.yoloStartTime
+      if (elapsedMs > 0) {
+        throughputFps = (this.yoloExecuted / elapsedMs) * 1000
+      }
+    }
+
+    const avgScheduleWaitMs = this.yoloScheduleWaitTimes.length > 0 ? this.yoloScheduleWaitTimes.reduce((a, b) => a + b, 0) / this.yoloScheduleWaitTimes.length : 0
     const avgResizeMs = this.yoloResizeTimes.length > 0 ? this.yoloResizeTimes.reduce((a, b) => a + b, 0) / this.yoloResizeTimes.length : 0
     const avgRunMs = this.yoloRunTimes.length > 0 ? this.yoloRunTimes.reduce((a, b) => a + b, 0) / this.yoloRunTimes.length : 0
     const avgParseMs = this.yoloParseTimes.length > 0 ? this.yoloParseTimes.reduce((a, b) => a + b, 0) / this.yoloParseTimes.length : 0
 
     return {
-      throughputFps: 0,  // Calculated externally based on elapsed time
+      throughputFps,
       theoreticalFps,
       avgMs,
       minMs,
@@ -320,6 +343,7 @@ class TelemetryLogger {
       requested: this.yoloRequested,
       executed: this.yoloExecuted,
       skipped,
+      scheduleWaitMs: avgScheduleWaitMs,
       resizeMs: avgResizeMs,
       runMs: avgRunMs,
       parseMs: avgParseMs,
@@ -334,6 +358,7 @@ class TelemetryLogger {
   recordBallDetection(confidence: number): void {
     this.ballDetections.push({ confidence, timestamp: Date.now() })
     this.ballDetectionFramesCount++
+    this.pipelineMetrics.framesWithBall++
     if (this.ballDetections.length > 600) {
       this.ballDetections.shift()
     }
@@ -342,6 +367,7 @@ class TelemetryLogger {
   recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }): void {
     this.playerDetections.push({ confidence, bbox, timestamp: Date.now() })
     this.playerDetectionFramesCount++
+    this.pipelineMetrics.framesWithPlayer++
     if (this.playerDetections.length > 600) {
       this.playerDetections.shift()
     }
@@ -612,9 +638,8 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    const framesWithDetection = this.ballDetectionFramesCount
-    const yoloFramesProcessed = this.yoloProcessedFramesCount
-    const detectionRate = yoloFramesProcessed > 0 ? (framesWithDetection / yoloFramesProcessed) * 100 : 0
+    const framesWithDetection = this.pipelineMetrics.framesWithBall
+    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
 
     return {
       framesProcessed,
@@ -665,9 +690,8 @@ class TelemetryLogger {
     const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
-    const framesWithDetection = this.playerDetectionFramesCount
-    const yoloFramesProcessed = this.yoloProcessedFramesCount
-    const detectionRate = yoloFramesProcessed > 0 ? (framesWithDetection / yoloFramesProcessed) * 100 : 0
+    const framesWithDetection = this.pipelineMetrics.framesWithPlayer
+    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
     const bboxSizes = this.playerDetections.map(d => d.bbox.w * d.bbox.h)
     const avgBboxSize = bboxSizes.reduce((a, b) => a + b, 0) / bboxSizes.length
     if (this.playerDetections.length < 2) {

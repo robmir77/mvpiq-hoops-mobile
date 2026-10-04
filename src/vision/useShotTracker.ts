@@ -119,19 +119,22 @@ export const useShotTracker = (
             Math.random().toString(36).slice(2, 8)
         )
 
+    // Mount flag to prevent callbacks after unmount
+    const isMountedRef = useRef(true)
+
     useEffect(() => {
         console.log(
             '[ShotTracker][INSTANCE] MOUNT',
             instanceIdRef.current
         )
-
+        isMountedRef.current = true
 
         return () => {
             console.log(
                 '[ShotTracker][INSTANCE] UNMOUNT',
                 instanceIdRef.current
             )
-
+            isMountedRef.current = false
         }
     }, [])
 
@@ -307,6 +310,11 @@ export const useShotTracker = (
         droppedBusy: number,
         trackingAccepted: number
     ) => {
+        // Skip if unmounted
+        if (!isMountedRef.current) {
+            return
+        }
+
         telemetryLogger.updatePipelineMetrics(
             cameraFPS,
             received,
@@ -714,6 +722,10 @@ export const useShotTracker = (
             (
                 detection: BallDetection
             ) => {
+                // Skip if unmounted
+                if (!isMountedRef.current) {
+                    return
+                }
 
                 incrementYoloFps()
 
@@ -742,6 +754,11 @@ export const useShotTracker = (
 
     // Callback for async YOLO results - updates overlay when results are ready
     const handleYoloAsyncResult = useCallback((result: any) => {
+        // Skip if unmounted
+        if (!isMountedRef.current) {
+            return
+        }
+
         // IMPORTANT: Async YOLO must feed the same TrackingEngine path as sync YOLO.
         const detection: BallDetection = {
             ball: result.ball ?? undefined,
@@ -823,6 +840,7 @@ export const useShotTracker = (
         yoloDelegate,
         yoloModelId,
         undefined, // yoloScheduledCount
+        perfYoloScheduleWaitTotal,
         handleYoloAsyncResult
     )
 
@@ -835,6 +853,10 @@ export const useShotTracker = (
             (
                 result: PoseResult
             ) => {
+                // Skip if unmounted
+                if (!isMountedRef.current) {
+                    return
+                }
 
                 onPoseResultRef.current(
                     result

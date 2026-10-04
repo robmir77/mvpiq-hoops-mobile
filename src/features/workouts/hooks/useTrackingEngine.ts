@@ -123,7 +123,7 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     const inFlightRef  = useRef<boolean>(false)
 
     // Ball tracking state for TTL
-    const ballLastSeenAt = useRef<number>(0)
+    const ballLastSeenAt = useRef<number>(Date.now())
     const ballTrackingValid = useRef<boolean>(false)
     const lastBallWasDetected = useRef<boolean>(false)
 
@@ -582,9 +582,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         inFlightRef.current       = false
         risingFrames.current       = 0
         flightStartY.current       = 1.0
-        // Reset ball tracking TTL state
-        ballLastSeenAt.current = 0
+        // Reset ball tracking TTL state with valid timestamp
         ballTrackingValid.current = false
+        ballLastSeenAt.current = Date.now()
         lastBallWasDetected.current = false
         // Reset visual tracking state
         ballTrackState.value = 'LOST'
@@ -608,9 +608,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         risingFrames.current = 0
         flightStartY.current = 1.0
         lastShotTs.current  = 0
-        // Reset ball tracking TTL state
-        ballLastSeenAt.current = 0
+        // Reset ball tracking TTL state with valid timestamp
         ballTrackingValid.current = false
+        ballLastSeenAt.current = Date.now()
         lastBallWasDetected.current = false
         // Reset visual tracking state
         ballTrackState.value = 'LOST'
