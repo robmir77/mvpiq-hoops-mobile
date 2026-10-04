@@ -921,17 +921,21 @@
 - Vera cancellazione di un'inferenza già partita (richiederebbe worklet-safe SharedValue)
 
 **Roadmap post-Decision 24 (YOLO FPS benchmark):**
-- Target: Aumentare YOLO FPS gradualmente (10 → 12 → 15 FPS)
-- Non aumentare semplicemente YOLO_TARGET_FPS: il limite principale è scheduleWaitMs e contesa RN runtime, non il throttle
-- Strategia incrementale:
-  1. Portare YOLO_TARGET_FPS da 10 a 12 FPS come primo test
-  2. Mantenere single-flight + latest-frame-wins
-  3. Misurare separatamente: submitted, throttled, busy, scheduleWaitMs, inferenceMs, actualThroughputFps
-  4. Se scheduleWaitMs resta basso, provare 15 FPS
-  5. Se la coda RN esplode, tornare al valore precedente
-- Ottimizzazione alternativa più interessante: ridurre costo per frame YOLO (run ~25-30 ms, scheduleWait 40-90 ms)
-- Target realistico:
+- **Step 1 COMPLETATO:** Verificato rate limiter YOLO - pending frame non bypassa throttle. Quando YOLO termina, pulisce solo il flag `hasPendingFrame` senza resubmittere il frame. Il prossimo frame dalla camera passa sempre attraverso `submitFrame`, che applica il throttle all'inizio.
+- **Step 2 COMPLETATO:** Cambiato YOLO_TARGET_FPS da 10 a 15 FPS per benchmark test.
+- **Step 3 IN CORSO:** Eseguire benchmark test con configurazione:
   - Camera: 30 FPS target
-  - YOLO: 10 → 12 → 15 FPS benchmark
-  - MoveNet: 3 FPS hard cap (non aumentare)
-  - Tracking: ogni frame
+  - YOLO: 15 FPS target (up from 10 FPS baseline)
+  - MoveNet: 3 FPS target (invariato)
+  - Tracking: ogni frame (invariato)
+- **Metriche da misurare:**
+  - camera throughput
+  - YOLO throughput (actual, non theoretical)
+  - YOLO schedule wait
+  - YOLO latency
+  - MoveNet throughput
+  - frame drops
+- **Criterio di successo:**
+  - YOLO FPS ↑, camera FPS ≈ 30, MoveNet FPS ≈ 3, schedule wait non esplode
+  - 15 FPS target → ~14-15 FPS reale con camera ~30 e MoveNet ~3 = ottimo
+  - Se schedule wait esplode o camera collassa, tornare a 10 FPS

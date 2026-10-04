@@ -40,7 +40,8 @@ interface FrameData {
 }
 
 // Fixed YOLO target FPS - deterministic, no adaptation
-const YOLO_TARGET_FPS = 10
+// Benchmark: testing 15 FPS (up from 10 FPS baseline)
+const YOLO_TARGET_FPS = 15
 
 interface YoloWorkerReturn {
   submitFrame: (frame: any, timestamp: number, frameCounter?: number) => void
