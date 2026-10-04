@@ -49,7 +49,8 @@ export const useYoloWorker = (
   enabled: boolean = true,
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   yoloModelId?: string,
-  yoloScheduledCount?: { value: number } // Shared value for scheduler coordination
+  yoloScheduledCount?: { value: number }, // Shared value for scheduler coordination
+  perfYoloScheduleWaitTotal?: any // SharedValue for schedule wait tracking
 ) => {
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
@@ -202,9 +203,124 @@ export const useYoloWorker = (
 
   const { resizer: yoloResizer } = useResizer(yoloResizerConfig)
 
-  // ARCHITECTURAL FIX: Revert to synchronous execution for now
-  // scheduleOnRN approach failed due to worklet binding limitations
-  // Alternative approach needed: use a proper worker thread or queue system
+  // Run YOLO inference on JS thread (async) to measure RN scheduling contention
+  const runYoloInference = useCallback(async (
+    inputBuffer: ArrayBuffer,
+    frameWidth: number,
+    frameHeight: number,
+    timestamp: number,
+    t0: number,
+    tScheduleStart: number,
+    resizeMs: number,
+    resized: any
+  ) => {
+    try {
+      // Measure scheduling wait time (time from scheduleOnRN to actual execution)
+      const tCallbackStart = performance.now()
+      const scheduleWaitMs = tCallbackStart - tScheduleStart
+
+      const tRunStart = performance.now()
+      const outputs = yoloModelInstance!.runSync([inputBuffer])
+      const tRunEnd = performance.now()
+      const runMs = tRunEnd - tRunStart
+      const rawOutput = outputs[0] as ArrayBufferLike
+
+      // Parse YOLO output (Float16 only - INT8 models removed)
+      const tParseStart = performance.now()
+      const output = new Float32Array(rawOutput)
+      const result = parseYoloOutputFloat16(output, 0.005, frameWidth, frameHeight, 0.005)
+      const ball = result.ball
+      const player = result.player
+      const rim = result.rim
+      const debug = result.debug
+      const tParseEnd = performance.now()
+      const parseMs = tParseEnd - tParseStart
+
+      const t2 = performance.now()
+
+      let validBall = null
+      if (ball) {
+        const bboxSizeNormalized = ball.width * ball.height
+        const frameW = frameWidth || 1280
+        const frameH = frameHeight || 720
+        const frameArea = frameW * frameH
+        const bboxSizePixels = bboxSizeNormalized * frameArea
+
+        // Calculate thresholds based on actual frame resolution
+        const MIN_BBOX_SIZE_NORMALIZED = 0.0001
+        const MAX_BBOX_SIZE_NORMALIZED = 0.06
+        const COURT_MARGIN = 0.1
+
+        const isValidSize = bboxSizeNormalized >= MIN_BBOX_SIZE_NORMALIZED && bboxSizeNormalized <= MAX_BBOX_SIZE_NORMALIZED
+        const isInCourt = ball.x >= COURT_MARGIN && ball.x <= 1 - COURT_MARGIN &&
+                        ball.y >= COURT_MARGIN && ball.y <= 1 - COURT_MARGIN
+
+        if (isValidSize && isInCourt) {
+          validBall = ball
+        }
+      }
+
+      latestResultBall.value = validBall
+      latestResultPlayer.value = player
+      latestResultRim.value = rim
+      latestResultDebug.value = debug
+      latestResultTimestamp.value = timestamp
+
+      const inferenceTime = t2 - t0
+      lastInferenceMs.value = inferenceTime
+      lastResizeMs.value = resizeMs
+      lastRunMs.value = runMs
+      lastParseMs.value = parseMs
+      executionCount.value += 1
+
+      // Record schedule wait time if tracking is enabled
+      if (perfYoloScheduleWaitTotal) {
+        perfYoloScheduleWaitTotal.value += scheduleWaitMs
+      }
+      const calculatedFps = 1000 / inferenceTime
+      if (calculatedFps > 0) {
+        theoreticalFps.value = calculatedFps
+        // Adapt target FPS based on inference time (with safety margin)
+        // Target FPS = 1000 / (inferenceTime + 20ms margin)
+        const marginMs = 20
+        const adaptiveTargetFps = 1000 / (inferenceTime + marginMs)
+        // Clamp between 5 and 30 FPS
+        targetFps.value = Math.max(5, Math.min(30, adaptiveTargetFps))
+      }
+
+      // Calculate actual throughput (inferences per second over time window)
+      const now = Date.now()
+      if (throughputWindowStart.value === 0) {
+        throughputWindowStart.value = now
+        inferenceCount.value = 1
+      } else {
+        inferenceCount.value += 1
+        const windowDuration = now - throughputWindowStart.value
+        if (windowDuration >= 1000) { // Update every second
+          throughputFps.value = (inferenceCount.value / windowDuration) * 1000
+          throughputWindowStart.value = now
+          inferenceCount.value = 0
+        }
+      }
+
+      scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, undefined, resizeMs, runMs, parseMs, true, true)
+
+    } catch (error) {
+      console.error('[YoloWorker] Async inference error:', error)
+    } finally {
+      // Dispose GPUFrame
+      if (resized) {
+        try {
+          resized.dispose()
+        } catch (e) {
+        }
+      }
+      isProcessing.value = false
+      lastInferenceAt.value = Date.now()
+    }
+  }, [yoloModelInstance, latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp, lastInferenceMs, lastResizeMs, lastRunMs, lastParseMs, executionCount, theoreticalFps, targetFps, throughputFps, throughputWindowStart, inferenceCount, adaptiveFpsEnabled, lastSubmitTime, isProcessing, lastInferenceAt, recordTelemetry, perfYoloScheduleWaitTotal])
+
+  // Process frame in worklet, then schedule async inference on JS thread
   const processFrame = useCallback((frame: any, timestamp: number, frameCounter?: number) => {
     'worklet'
 
@@ -217,7 +333,7 @@ export const useYoloWorker = (
       const now = Date.now()
       const timeSinceLastSubmit = now - lastSubmitTime.value
       const minIntervalMs = 1000 / targetFps.value
-      
+
       if (timeSinceLastSubmit < minIntervalMs) {
         // Skip this frame - not enough time passed
         return
@@ -236,116 +352,32 @@ export const useYoloWorker = (
 
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
-
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (source.length === yoloInputElements) {
           // Pass buffer directly without slice() to avoid unnecessary copy
           const inputBuffer = source.buffer as ArrayBuffer
+          const tScheduleStart = performance.now()
 
-          const tRunStart = performance.now()
-          const outputs = yoloModelInstance!.runSync([inputBuffer])
-          const tRunEnd = performance.now()
-          const runMs = tRunEnd - tRunStart
-          const rawOutput = outputs[0] as ArrayBufferLike
-
-
-          // Parse YOLO output (Float16 only - INT8 models removed)
-          const tParseStart = performance.now()
-          const output = new Float32Array(rawOutput)
-          const result = parseYoloOutputFloat16(output, 0.005, frame.width, frame.height, 0.005)
-          const ball = result.ball
-          const player = result.player
-          const rim = result.rim
-          const debug = result.debug
-          const tParseEnd = performance.now()
-          const parseMs = tParseEnd - tParseStart
-
-          const t2 = performance.now()
-
-          let validBall = null
-          if (ball) {
-            const bboxSizeNormalized = ball.width * ball.height
-            const frameW = frame.width || 1280
-            const frameH = frame.height || 720
-            const frameArea = frameW * frameH
-            const bboxSizePixels = bboxSizeNormalized * frameArea
-
-            // Calculate thresholds based on actual frame resolution
-            const MIN_BBOX_SIZE_NORMALIZED = 0.0001
-            const MAX_BBOX_SIZE_NORMALIZED = 0.06
-            const COURT_MARGIN = 0.1
-
-            const isValidSize = bboxSizeNormalized >= MIN_BBOX_SIZE_NORMALIZED && bboxSizeNormalized <= MAX_BBOX_SIZE_NORMALIZED
-            const isInCourt = ball.x >= COURT_MARGIN && ball.x <= 1 - COURT_MARGIN &&
-                            ball.y >= COURT_MARGIN && ball.y <= 1 - COURT_MARGIN
-
-            if (isValidSize && isInCourt) {
-              validBall = ball
-            }
-          }
-
-          latestResultBall.value = validBall
-          latestResultPlayer.value = player
-          latestResultRim.value = rim
-          latestResultDebug.value = debug
-          latestResultTimestamp.value = timestamp
-
-          const inferenceTime = t2 - t0
-          lastInferenceMs.value = inferenceTime
-          lastResizeMs.value = resizeMs
-          lastRunMs.value = runMs
-          lastParseMs.value = parseMs
-          executionCount.value += 1
-          const calculatedFps = 1000 / inferenceTime
-          if (calculatedFps > 0) {
-            theoreticalFps.value = calculatedFps
-            // Adapt target FPS based on inference time (with safety margin)
-            // Target FPS = 1000 / (inferenceTime + 20ms margin)
-            const marginMs = 20
-            const adaptiveTargetFps = 1000 / (inferenceTime + marginMs)
-            // Clamp between 5 and 30 FPS
-            targetFps.value = Math.max(5, Math.min(30, adaptiveTargetFps))
-          }
-
-          // Calculate actual throughput (inferences per second over time window)
-          const now = Date.now()
-          if (throughputWindowStart.value === 0) {
-            throughputWindowStart.value = now
-            inferenceCount.value = 1
-          } else {
-            inferenceCount.value += 1
-            const windowDuration = now - throughputWindowStart.value
-            if (windowDuration >= 1000) { // Update every second
-              throughputFps.value = (inferenceCount.value / windowDuration) * 1000
-              throughputWindowStart.value = now
-              inferenceCount.value = 0
-            }
-          }
-
-          scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, frameCounter, resizeMs, runMs, parseMs, true, true)
-
+          // ASYNC: Pass buffer to JS thread for inference
+          scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, t0, tScheduleStart, resizeMs, resized)
         }
       }
 
     } catch (error) {
       console.error('[YoloWorker] Error processing frame:', error)
-    } finally {
-      // Dispose GPUFrame
+
+      // Release GPUFrame on error
       if (resized) {
         try {
           resized.dispose()
         } catch (e) {
         }
       }
+
       isProcessing.value = false
-      lastInferenceAt.value = Date.now()
-      // Reset scheduled count to allow next YOLO execution
-      if (yoloScheduledCount) {
-        yoloScheduledCount.value = 0
-      }
     }
-  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, theoreticalFps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt, yoloScheduledCount])
+  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, theoreticalFps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt, runYoloInference, adaptiveFpsEnabled, lastSubmitTime, targetFps])
 
   const getLatestResult = useCallback((): YoloWorkerResult | null => {
     if (latestResultBall.value === null && latestResultTimestamp.value === 0) {

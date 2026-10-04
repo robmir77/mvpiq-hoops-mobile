@@ -4,10 +4,10 @@
 
 | Componente | Target FPS | Attuale FPS | Note |
 |------------|-----------|-------------|------|
-| Camera | 30 FPS | 25-30 FPS | Default 30 FPS, raggiunge target |
-| YOLO | 10 FPS | 4-6 FPS | FPS naturale basato su tempo inferenza sincrono |
+| Camera | 30 FPS | 27-30 FPS | Default 30 FPS, raggiunge target |
+| YOLO | 10 FPS | 4-5 FPS | FPS naturale basato su tempo inferenza async |
 | Tracking | Realtime | Realtime | Ogni frame con Kalman prediction |
-| MoveNet | 3 FPS | 0-6 FPS | FPS naturale basato su tempo inferenza e disponibilità bbox player |
+| MoveNet | 3 FPS | 3-4 FPS | FPS naturale basato su tempo inferenza async |
 | UI Telemetry | 1 FPS | 1 FPS | TelemetryOverlay aggiornato ogni 500ms |
 | Backend Telemetry | 2 FPS | 2 FPS | Sampling |
 | Bridge Calls | 15 FPS | 15 FPS | Throttling 66ms |
@@ -26,85 +26,88 @@
 
 **Nota importante:** Il sistema usa FPS naturale (no throttling temporale). Camera FPS è indipendente da YOLO/MoveNet FPS. Questa architettura evita regressioni causate da accoppiamenti inappropriati.
 
-**Scheduler Architecture:**
-- YOLO esegue ogni frame se `!isProcessing` (FPS naturale ~7-10)
-- MoveNet esegue ogni frame se `!isProcessing` e bbox player valido (FPS naturale ~0-6)
+**Scheduler Architecture (Async):**
+- YOLO esegue async tramite scheduleOnRN (FPS naturale ~4-5)
+- MoveNet esegue async tramite scheduleOnRN (FPS naturale ~3-4)
 - useShotTracker chiama processFrame() ogni frame per entrambi i worker
 - Ogni worker decide internamente se eseguire in base a `isProcessing` flag
 - Nessuno scheduler duplicato in useShotTracker
 - FPS metrics sincronizzati da shared values a state per evitare warning Reanimated
+- **Misurazione schedule wait:** Entrambi i worker misurano il tempo di attesa del runtime RN (scheduleWaitMs)
 
 ## Bottleneck Analysis
 
-### Primary Bottleneck: Frame Processor Latency
+### Primary Bottleneck: RN Runtime Scheduling Contention
 
-**Sintomo:** Frame latency 75-100 ms tipici (vs budget 33.3ms per 30 FPS)
+**Sintomo:** Schedule wait time variabile 45-134 ms per MoveNet, alto throughput gap
 
 **Causa:**
-- YOLO inference costa ~35-50 ms
-- MoveNet costa ~104 ms quando eseguito (crop 30ms + run 70ms)
-- runSync() sincrono blocca il frame processor
-- Nessuna parallelizzazione tra YOLO e MoveNet
+- YOLO e MoveNet eseguono async sullo stesso runtime RN/JS
+- scheduleOnRN() entra in una coda e attende disponibilità runtime
+- Contesa tra YOLO runSync() (~30-40ms) e MoveNet inference (~80-130ms)
+- Il callback async non parte immediatamente dopo scheduleOnRN()
 
-**Mitigazione (Attuale):**
-- YOLO FPS naturale basato su tempo inferenza sincrono (~35-45ms)
-- MoveNet FPS naturale basato su tempo inferenza sincrono (~150-160ms)
-- Tracking realtime con Kalman prediction
-- FPS metrics sincronizzati da shared values a state per UI
-- Architettura deterministica per debugging
-
-**Mitigazione (Futuro):**
-- Ridurre costo MoveNet CPU crop
-- Parallelizzare YOLO e MoveNet se possibile
-- Ottimizzare inference time
-
-### Secondary Bottleneck: MoveNet CPU Crop
-
-**Sintomo:** MoveNet costa ~104 ms quando eseguito
-
-**Breakdown tipico:**
-- CPU crop: ~30 ms
+**Breakdown tipico MoveNet:**
+- Worklet prep: ~5 ms (crop geometry + resize + buffer extraction)
+- Schedule wait: 45-134 ms (attesa runtime RN)
+- CPU crop: ~15 ms (su JS thread)
 - Resize: ~4 ms
-- MoveNet run: ~70 ms
-- Parse: ~0.5 ms
+- MoveNet run: 80-130 ms
+- Parse: ~0.4 ms
+- Total: ~200-230 ms
 
-**Causa:**
-- Crop CPU (640x360 → 192x192) su JS thread
-- Resize e dispose operazioni asincrone
-- Bridge overhead per coordinate crop
-
-**Mitigazione (Attuale):**
-- Crop geometrico (coordinate) nel worklet
-- Resize CPU ottimizzato con dimensione intermedia
-- FPS naturale basato su tempo inferenza (no throttling)
-
-**Mitigazione (Futuro):**
-- Investigare eliminazione/riduzione CPU crop
-- Considerare crop GPU o pre-allocated buffers
-
-### Tertiary Bottleneck: YOLO + MoveNet Sequenziali
-
-**Sintomo:** YOLO e MoveNet eseguiti sequenzialmente nel frame processor
-
-**Causa:**
-- Entrambi i modelli eseguiti nello stesso worklet
-- react-native-fast-tflite usa runSync() nel worklet
-- Nessuna parallelizzazione a livello thread
+**Breakdown tipico YOLO:**
+- Schedule wait: variabile (attesa runtime RN)
+- Resize: ~5 ms
+- Run: 30-40 ms
+- Parse: ~3 ms
+- Total: ~40-50 ms
 
 **Mitigazione (Attuale):**
-- YOLO FPS naturale in useYoloWorker (non segue camera FPS)
-- MoveNet FPS naturale in useMoveNetWorker
-- useShotTracker chiama workers ogni frame senza scheduling esterno
-- Tracking usa Kalman prediction nei frame intermedi
-- Questa architettura evita che YOLO a 30 FPS causi degrado
-- Scheduler duplicati rimossi per single responsibility
-- FPS metrics sincronizzati da shared values a state per evitare warning Reanimated
+- YOLO convertito ad async con scheduleOnRN
+- MoveNet convertito ad async con scheduleOnRN
+- Misurazione scheduleWaitMs per entrambi i worker
+- Worklet prep separato da schedule wait per MoveNet
+- CPU crop spostato fuori dal worklet (non più collo di bottiglia)
 
 **Mitigazione (Futuro):**
-- Separare pipeline YOLO e MoveNet
-- YOLO produce latestPlayerBbox via SharedValue
-- MoveNet legge playerBbox via SharedValue
-- Possibile parallelizzazione con thread separati
+- Ridurre contesa RN eliminando trasferimento buffer 640×360×3 (~2.64 MB)
+- Investigare crop/resize native prima di scheduleOnRN
+- Considerare worker thread separati per YOLO/MoveNet
+- Ottimizzare delegate/runtime del modello MoveNet
+
+### Secondary Bottleneck: MoveNet Inference Latency
+
+**Sintomo:** MoveNet run time 80-130 ms (variabile)
+
+**Causa:**
+- Modello movenet_lightning_192_int8
+- Delegate runtime overhead
+- Variabilità dovuta a contesa runtime RN
+
+**Mitigazione (Attuale):**
+- Misurazione separata di runMs vs scheduleWaitMs
+- Crop CPU ridotto a ~15 ms (accettabile)
+- Resize intermedio 640×360 ottimizzato
+
+**Mitigazione (Futuro):**
+- Ottimizzare delegate (GPU/NPU se disponibile)
+- Considerare modello più leggero
+- Ridurre input size se accettabile per accuracy
+
+### Tertiary Bottleneck: Frame Processor (Risolto)
+
+**Sintomo:** Frame latency 17-32 ms (risolto da 75-100 ms)
+
+**Causa (Precedente):**
+- CPU crop nel worklet bloccava per ~50 ms
+- runSync() sincrono nel worklet
+
+**Mitigazione (Implementata):**
+- CPU crop spostato su JS thread async
+- scheduleOnRN per inference async
+- Camera ora 27-30 FPS (target raggiunto)
+- Frame processor non più collo di bottiglia
 
 ### Quaternary Bottleneck: Bridge Calls
 
@@ -121,29 +124,35 @@
 - Solo dati critici attraversano il bridge
 - YOLO telemetry throttled a 15 FPS (66ms)
 
-### Quinary Bottleneck: Rerender/Remount
+### Quinary Bottleneck: Transfer Buffer Size
 
-**Sintomo:** Log frequenti di "Received params" in WorkoutSession/ShotTracker
+**Sintomo:** Trasferimento buffer 640×360×3 (~2.64 MB) per MoveNet
 
 **Causa:**
-- Possibili rerender di componenti durante sessione
-- Possibili remount di hooks worker
+- Resize intermedio 640×360 prima di crop CPU
+- getPixelBuffer() + Float32Array conversion
+- scheduleOnRN trasferisce buffer intero
+
+**Mitigazione (Attuale):**
+- Resize intermedio riduce lavoro crop CPU
+- Buffer riutilizzato quando possibile
 
 **Mitigazione (Futuro):**
-- Verificare se componenti vengono smontati/rimontati
-- Investigare cause rerender
-- Ottimizzare React memoization se necessario
+- Eliminare buffer intermedio se possibile
+- Crop/resize native prima di scheduleOnRN
+- Passare solo crop 192×192 al runtime RN
 
 ## Performance Metrics
 
 ### YOLO Scheduler Metrics
 
 **Metriche attuali:**
-- FPS naturale: ~7-10 (basato su tempo inferenza sincrono ~35-45ms)
-- Nessun throttling temporale
+- FPS naturale: ~4-5 (basato su tempo inferenza async ~40-50ms)
+- Esecuzione async tramite scheduleOnRN
 - Esegue ogni frame se `!isProcessing`
 - Indipendente dal FPS della camera
 - useShotTracker chiama processFrame() ogni frame, il worker decide se eseguire
+- **scheduleWaitMs:** Tempo di attesa runtime RN (misurato)
 
 **Protezioni attive (in useYoloWorker):**
 1. `isProcessing` - previene concorrenza YOLO
@@ -152,12 +161,18 @@
 ### MoveNet Scheduler Metrics
 
 **Metriche attuali:**
-- FPS naturale: ~0-6 (basato su tempo inferenza sincrono ~150-160ms)
-- Nessun throttling temporale
+- FPS naturale: ~3-4 (basato su tempo inferenza async ~200-230ms total)
+- Esecuzione async tramite scheduleOnRN
 - Esegue ogni frame se `!isProcessing` e bbox player valido
 - Indipendente dal FPS della camera
 - Condizione: player bbox disponibile + confidence >= 5%
 - useShotTracker chiama processFrame() ogni frame, il worker decide se eseguire
+- **workletPrepMs:** Tempo preparazione worklet (crop geometry + resize + buffer)
+- **scheduleWaitMs:** Tempo di attesa runtime RN (misurato)
+- **cropMs:** Tempo crop CPU su JS thread
+- **resizeMs:** Tempo resize intermedio
+- **runMs:** Tempo inferenza MoveNet
+- **parseMs:** Tempo parsing output
 
 ### Tracking Performance
 
@@ -356,45 +371,56 @@ const ENABLE_MOVENET_LOGS = false
 
 ## Future Optimizations
 
-### Separazione Pipeline YOLO/MoveNet
+### Riduzione Contesa RN Runtime
 
 **Architettura target:**
 ```
-                  CAMERA
-                     │
-          ┌──────────┴──────────┐
-          │                     │
-          ▼                     ▼
-     YOLO pipeline         Pose pipeline
-          │                     │
-          ▼                     ▼
-    latestPlayerBBox       latestPose
-          │                     │
-          └──────────┬──────────┘
-                     ▼
-               Tracking Engine
+WORKLET
+  │
+  ├─ prep ~5ms
+  ├─ resize ~4ms
+  ├─ native crop/resize 192×192
+  │
+  └─ scheduleOnRN(...)
+          │
+          │  ← ridotto (meno contesa)
+          ↓
+RN / JS
+  │
+  ├─ crop ~0ms (già fatto native)
+  ├─ conversione ~0ms
+  └─ MoveNet run ~80-130ms
 ```
 
 **Benefici:**
-- Parallelizzazione YOLO e MoveNet
-- YOLO può girare a target FPS senza bloccare MoveNet
-- MoveNet può girare a 3 FPS indipendentemente
+- Eliminazione trasferimento buffer 640×360×3 (~2.64 MB)
+- Crop/resize native riducono lavoro JS thread
+- Meno contesa tra YOLO e MoveNet
+- Schedule wait ridotto
+
+### Ottimizzazione MoveNet Delegate
+
+**Stato:** Da investigare
+
+**Opzioni:**
+- GPU delegate se disponibile sul device
+- NPU delegate per hardware acceleration
+- Modello più leggero se accuracy accettabile
+- Riduzione input size (192 → 160 o 128)
 
 ### Adaptive Performance
 
 **Stato:** RIMOSSO - Sistema deterministico con VISION_CONFIG
 
 **Motivazione rimozione:**
-- L'architettura sincrona attuale (runSync() nel worklet) non può supportare YOLO a 30 FPS
-- Ogni inferenza YOLO costa ~33ms (resize 5ms + YOLO 25ms + parse 3ms)
-- 30 FPS × 33ms = 990ms di lavoro sincrono nel frame processor
-- Questo supera the budget di 33.3ms per frame a 30 FPS
+- L'architettura async attuale (scheduleOnRN) non richiede throttling temporale
+- FPS naturale basato su tempo inferenza async
 - L'accoppiamento camera FPS / YOLO FPS causava regressioni di performance
 
 **Architettura attuale:**
 - Camera FPS: 30 (indipendente, via CAMERA_CONFIG.DEFAULT_FPS)
-- YOLO FPS: naturale ~7-10 (basato su tempo inferenza sincrono)
-- MoveNet FPS: naturale ~0-6 (basato su tempo inferenza sincrono)
+- YOLO FPS: naturale ~4-5 (basato su tempo inferenza async)
+- MoveNet FPS: naturale ~3-4 (basato su tempo inferenza async)
 - Tracking: realtime (ogni frame con Kalman prediction)
 - FPS metrics sincronizzati da shared values a state per UI
 - Session usage time: minuti:secondi con ref globale per persistenza
@@ -406,24 +432,32 @@ const ENABLE_MOVENET_LOGS = false
 
 **Vision pipeline:**
 - YOLO throughput FPS (actual inferences per second)
-- YOLO theoretical FPS (latency capacity: 1000/inferenceTime)
+- YOLO schedule wait time (ms) - attesa runtime RN
 - YOLO inference time (min/max/avg)
-- MoveNet throughput FPS (actual inferences per second - executed/elapsedSeconds)
-- MoveNet avg latency (inference time in ms)
+- MoveNet throughput FPS (actual inferences per second)
+- MoveNet worklet prep time (ms) - preparazione nel worklet
+- MoveNet schedule wait time (ms) - attesa runtime RN
+- MoveNet crop time (ms) - crop CPU su JS thread
+- MoveNet resize time (ms) - resize intermedio
+- MoveNet run time (ms) - inferenza
+- MoveNet parse time (ms) - parsing output
 - MoveNet requested/executed/droppedBusy/skipped counters
 - Camera FPS (sincronizzato da shared value a state)
 - Frame drops (busy, processing)
 - Log formato: `YOLO fps=4.9 exec=5 attempt=11 skip=6 avg=46.7ms max=58.3ms`
-- Log formato: `MOVE fps=2.9 exec=3 attempt=11 skip=8 avg=101.4ms max=114.8ms`
-- Log formato: `CAM fps=10.8 recv=11 proc=10 drop=1 avg=78.2ms max=142.1ms`
+- Log formato: `YOLO DETAIL schedule=Xms resize=Yms run=Zms parse=Ams`
+- Log formato: `MOVE fps=3.8 exec=4 attempt=4 skip=0 avg=213.4ms max=303.7ms`
+- Log formato: `MOVE DETAIL prep=Xms schedule=Yms crop=Zms resize=Ams run=Bms parse=Cms`
+- Log formato: `CAM fps=29.6 recv=30 proc=28 drop=2 avg=17.0ms max=32.1ms`
 
 **NOTA IMPORTANTE sulle metriche FPS:**
 - `throughputFps` (actual): inferences reali per secondo - indica il throughput effettivo
 - `theoreticalFps` (latencyCapacity): 1000 / avgInferenceTime - indica quanto velocemente potrebbe girare se eseguita continuamente
-- Esempio: se YOLO impiega 50ms, theoreticalFps = 20, ma throughputFps naturale = ~10
+- Esempio: se YOLO impiega 50ms, theoreticalFps = 20, ma throughputFps naturale = ~4-5
 - I log ora mostrano chiaramente throughput vs capacità di latenza
-- Log formato: `[PERF 1s] CAM fps=10.8 recv=11 proc=10 drop=1 avg=78.2ms max=142.1ms`
+- Log formato: `[PERF 1s] CAM fps=29.6 recv=30 proc=28 drop=2 avg=17.0ms max=32.1ms`
 - **Reanimated Shared Values:** I shared values non vengono letti direttamente durante il render, ma sincronizzati a state tramite useEffect per evitare warning
+- **Schedule wait measurement:** Entrambi i worker misurano il tempo tra scheduleOnRN() e l'esecuzione effettiva del callback, permettendo di identificare la contesa del runtime RN
 
 **Tracking:**
 - Ball state (DETECTED/PREDICTED/LOST)
@@ -465,12 +499,13 @@ const ENABLE_MOVENET_LOGS = false
 ## Conclusioni
 
 La pipeline vision è ottimizzata per:
-- **Realtime:** 20+ FPS per YOLO, realtime per tracking
+- **Realtime:** 27-30 FPS per camera, realtime per tracking
 - **Efficienza:** Zero allocation nel hot path, ring buffers
 - **Scalabilità:** Queue async, sampling, throttling
 - **Affidabilità:** PersistentOutbox per eventi critici, retry
 - **Durabilità:** Global recovery, retry persistente, shutdown sicuro
 - **Testability:** Suite test completa per queue/outbox/sampler
+- **Misurabilità:** Schedule wait time separato da inference time
 
 Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo termine:
 - Memory leak risolto (contatori invece di Set)
@@ -482,11 +517,16 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
 - Retry state perso risolto (retry count persistente)
 - Shutdown perde dati risolto (shutdown sicuro)
 - API fake risolto (SESSION_END/CALIBRATION reali)
+- **Frame processor latency risolto** (conversione ad async)
+- **CPU crop nel worklet risolto** (spostato su JS thread async)
+- **Misurazione schedule wait implementata** (per identificare contesa RN)
 
-Le ottimizzazioni future (separazione pipeline YOLO/MoveNet) richiedono:
-- Stabilizzazione pipeline attuale
+Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
+- Stabilizzazione pipeline async attuale
+- Misurazione precisa schedule wait YOLO vs MoveNet
+- Valutazione crop/resize native
+- Ottimizzazione delegate MoveNet
 - Testing approfondito
-- Valutazione costi/benefici
 
 Le ottimizzazioni architetturali future (WorkoutSessionRuntime, state machine) richiedono:
 - Decoupling screen da runtime

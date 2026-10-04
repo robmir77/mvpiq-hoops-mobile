@@ -92,6 +92,7 @@ export const useMoveNetWorker = (
   perfMoveNetInferenceTotal?: any,
   perfMoveNetInferenceMin?: any,
   perfMoveNetInferenceMax?: any,
+  perfMoveNetWorkletPrepTotal?: any,
   perfMoveNetScheduleWaitTotal?: any,
   perfMoveNetCropTotal?: any,
   perfMoveNetResizeTotal?: any,
@@ -125,6 +126,7 @@ export const useMoveNetWorker = (
 
   // Telemetry SharedValues (worklet-safe)
   const telemetryInferenceTime = useSharedValue(0)
+  const telemetryWorkletPrepMs = useSharedValue(0)
   const telemetryCropMs = useSharedValue(0)
   const telemetryResizeMs = useSharedValue(0)
   const telemetryRunMs = useSharedValue(0)
@@ -184,14 +186,16 @@ export const useMoveNetWorker = (
     frameHeight: number,
     timestamp: number,
     t0: number,
+    tScheduleStart: number,
     cropMs: number,
     resizeMs: number,
     resized: any
   ) => {
     try {
       // Measure scheduling wait time (time from scheduleOnRN to actual execution)
-      const tScheduleStart = performance.now()
-      const scheduleWaitMs = tScheduleStart - t0
+      const tCallbackStart = performance.now()
+      const scheduleWaitMs = tCallbackStart - tScheduleStart
+      const workletPrepMs = tScheduleStart - t0
 
       // CPU crop + resize to final size (now on JS thread, not in worklet)
       const tCropCpuStart = performance.now()
@@ -426,6 +430,7 @@ export const useMoveNetWorker = (
 
       // Write telemetry to SharedValues (worklet-safe)
       telemetryInferenceTime.value = inferenceTime
+      telemetryWorkletPrepMs.value = workletPrepMs
       telemetryScheduleWaitMs.value = scheduleWaitMs
       telemetryCropMs.value = totalCropMs
       telemetryResizeMs.value = resizeMs
@@ -447,6 +452,9 @@ export const useMoveNetWorker = (
       }
       if (perfMoveNetInferenceMax) {
         perfMoveNetInferenceMax.value = Math.max(perfMoveNetInferenceMax.value, inferenceTime)
+      }
+      if (perfMoveNetWorkletPrepTotal) {
+        perfMoveNetWorkletPrepTotal.value += workletPrepMs
       }
       if (perfMoveNetScheduleWaitTotal) {
         perfMoveNetScheduleWaitTotal.value += scheduleWaitMs
@@ -494,7 +502,7 @@ export const useMoveNetWorker = (
 
       isProcessing.value = false
     }
-  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, perfMoveNetScheduleWaitTotal])
+  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, perfMoveNetWorkletPrepTotal, perfMoveNetScheduleWaitTotal])
 
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
@@ -571,11 +579,12 @@ export const useMoveNetWorker = (
     return target
   }
 
-  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, cropMs?: number, resizeMs?: number, runMs?: number, parseMs?: number, scheduleWaitMs?: number, requested?: boolean, executed?: boolean) => {
+  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, workletPrepMs?: number, cropMs?: number, resizeMs?: number, runMs?: number, parseMs?: number, scheduleWaitMs?: number, requested?: boolean, executed?: boolean) => {
     if (requested) telemetryLogger.recordMoveNetRequested()
     if (executed) telemetryLogger.recordMoveNetExecuted()
     telemetryLogger.recordMoveNetInference(inferenceTime)
     telemetryLogger.incrementPoseUpdates()
+    if (workletPrepMs !== undefined) telemetryLogger.recordMoveNetWorkletPrep(workletPrepMs)
     if (cropMs !== undefined) telemetryLogger.recordMoveNetCrop(cropMs)
     if (resizeMs !== undefined) telemetryLogger.recordMoveNetResize(resizeMs)
     if (runMs !== undefined) telemetryLogger.recordMoveNetRun(runMs)
@@ -603,6 +612,7 @@ export const useMoveNetWorker = (
       recordTelemetry(
         telemetryInferenceTime.value,
         null, // keypoints not needed, confidence already calculated
+        telemetryWorkletPrepMs.value,
         telemetryCropMs.value,
         telemetryResizeMs.value,
         telemetryRunMs.value,
@@ -863,7 +873,8 @@ export const useMoveNetWorker = (
 
         // ASYNC: Pass intermediate buffer to JS thread for CPU crop + inference
         // CPU crop is now done on JS thread, NOT in worklet (frame processor)
-        scheduleOnRN(runMoveNetInference, floatSource, intermediateWidth, intermediateHeight, cropRegion, cropInfo, usingPlayerCrop, frameWidth, frameHeight, timestamp, t0, cropMs, resizeMs, resized)
+        const tScheduleStart = performance.now()
+        scheduleOnRN(runMoveNetInference, floatSource, intermediateWidth, intermediateHeight, cropRegion, cropInfo, usingPlayerCrop, frameWidth, frameHeight, timestamp, t0, tScheduleStart, cropMs, resizeMs, resized)
       }
 
     } catch (error) {

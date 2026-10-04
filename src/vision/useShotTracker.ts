@@ -181,6 +181,7 @@ export const useShotTracker = (
     const perfYoloInferenceTotal = useSharedValue(0)
     const perfYoloInferenceMin = useSharedValue(0)
     const perfYoloInferenceMax = useSharedValue(0)
+    const perfYoloScheduleWaitTotal = useSharedValue(0)
     const perfYoloResizeTotal = useSharedValue(0)
     const perfYoloRunTotal = useSharedValue(0)
     const perfYoloParseTotal = useSharedValue(0)
@@ -191,6 +192,7 @@ export const useShotTracker = (
     const perfMoveNetInferenceTotal = useSharedValue(0)
     const perfMoveNetInferenceMin = useSharedValue(0)
     const perfMoveNetInferenceMax = useSharedValue(0)
+    const perfMoveNetWorkletPrepTotal = useSharedValue(0)
     const perfMoveNetScheduleWaitTotal = useSharedValue(0)
     const perfMoveNetCropTotal = useSharedValue(0)
     const perfMoveNetResizeTotal = useSharedValue(0)
@@ -220,7 +222,9 @@ export const useShotTracker = (
     const yoloWorkerSync = useYoloWorker(
         ballEnabled && !TEST_CONFIG.ENABLE_ASYNC_YOLO_POC,
         yoloDelegate,
-        yoloModelId
+        yoloModelId,
+        undefined,
+        perfYoloScheduleWaitTotal
     )
 
     // yoloWorkerAsync will be initialized after handleYoloAsyncResult is defined
@@ -235,6 +239,7 @@ export const useShotTracker = (
         perfMoveNetInferenceTotal,
         perfMoveNetInferenceMin,
         perfMoveNetInferenceMax,
+        perfMoveNetWorkletPrepTotal,
         perfMoveNetScheduleWaitTotal,
         perfMoveNetCropTotal,
         perfMoveNetResizeTotal,
@@ -905,6 +910,9 @@ export const useShotTracker = (
                             : 0,
                         yoloMinMs: perfYoloInferenceMin.value,
                         yoloMaxMs: perfYoloInferenceMax.value,
+                        yoloScheduleWaitMs: yoloExecuted > 0
+                            ? perfYoloScheduleWaitTotal.value / yoloExecuted
+                            : 0,
                         yoloResizeAvgMs: yoloExecuted > 0
                             ? perfYoloResizeTotal.value / yoloExecuted
                             : 0,
@@ -923,6 +931,9 @@ export const useShotTracker = (
                             : 0,
                         moveNetMinMs: perfMoveNetInferenceMin.value,
                         moveNetMaxMs: perfMoveNetInferenceMax.value,
+                        moveNetWorkletPrepMs: moveNetExecuted > 0
+                            ? perfMoveNetWorkletPrepTotal.value / moveNetExecuted
+                            : 0,
                         moveNetScheduleWaitMs: moveNetExecuted > 0
                             ? perfMoveNetScheduleWaitTotal.value / moveNetExecuted
                             : 0,
@@ -972,6 +983,7 @@ export const useShotTracker = (
                     perfYoloInferenceTotal.value = 0
                     perfYoloInferenceMin.value = 0
                     perfYoloInferenceMax.value = 0
+                    perfYoloScheduleWaitTotal.value = 0
                     perfYoloResizeTotal.value = 0
                     perfYoloRunTotal.value = 0
                     perfYoloParseTotal.value = 0
@@ -981,6 +993,7 @@ export const useShotTracker = (
                     perfMoveNetInferenceTotal.value = 0
                     perfMoveNetInferenceMin.value = 0
                     perfMoveNetInferenceMax.value = 0
+                    perfMoveNetWorkletPrepTotal.value = 0
                     perfMoveNetScheduleWaitTotal.value = 0
                     perfMoveNetCropTotal.value = 0
                     perfMoveNetResizeTotal.value = 0
@@ -1231,6 +1244,7 @@ export const useShotTracker = (
                 perfYoloInferenceTotal,
                 perfYoloInferenceMin,
                 perfYoloInferenceMax,
+                perfYoloScheduleWaitTotal,
                 perfYoloResizeTotal,
                 perfYoloRunTotal,
                 perfYoloParseTotal,
@@ -1240,6 +1254,7 @@ export const useShotTracker = (
                 perfMoveNetInferenceTotal,
                 perfMoveNetInferenceMin,
                 perfMoveNetInferenceMax,
+                perfMoveNetWorkletPrepTotal,
                 perfMoveNetScheduleWaitTotal,
                 perfMoveNetCropTotal,
                 perfMoveNetResizeTotal,

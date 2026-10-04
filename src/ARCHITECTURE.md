@@ -8,9 +8,11 @@ La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera p
 
 **Il frame processor non aspetta mai il backend, React state, persistenza o telemetria JS.**
 
-Tutto ciò che può essere asincrono deve essere separato dal percorso realtime. L'obiettivo non è trasformare `runSync()` di YOLO/MoveNet in una Promise semplicemente per "renderlo async" - con react-native-fast-tflite, l'uso documentato dentro VisionCamera è proprio `runSync()` nel worklet. Il vero obiettivo è rendere asincroni i flussi che non devono bloccare il realtime, e separare il più possibile le pipeline.
+Tutto ciò che può essere asincrono deve essere separato dal percorso realtime. L'obiettivo è misurare e ridurre la contesa del runtime RN/JS, non solo trasformare `runSync()` in async. L'architettura attuale usa `scheduleOnRN()` per eseguire YOLO e MoveNet sul thread JS, permettendo di misurare il tempo di attesa del runtime (scheduleWaitMs) separatamente dal tempo di inferenza.
 
 **Reanimated Shared Values:** I shared values di Reanimated non devono essere letti direttamente durante il render dei componenti React. Per evitare warning di Reanimated, i valori devono essere sincronizzati a variabili di stato regolari tramite useEffect prima di essere passati ai componenti UI.
+
+**Schedule Wait Measurement:** Entrambi i worker (YOLO e MoveNet) misurano il tempo tra `scheduleOnRN()` e l'esecuzione effettiva del callback, permettendo di identificare la contesa del runtime RN come collo di bottiglia primario.
 
 ## Architettura Target
 
@@ -95,7 +97,7 @@ Shot Analysis + Basketball Logic
 
 ### Frame Scheduler
 
-**Architettura implementata:**
+**Architettura implementata (Async):**
 ```
                  CAMERA (30 FPS)
                        │
@@ -105,25 +107,35 @@ Shot Analysis + Basketball Logic
           ┌────────────┼────────────┐
           ▼            ▼            ▼
     YOLO Worker   MoveNet Worker  Tracking
-  (no throttle) (no throttle)   every frame
+  (async)        (async)         every frame
        │              │
-   sincrono      sincrono
+   scheduleOnRN   scheduleOnRN
+       │              │
+   JS thread      JS thread
+       │              │
+   runSync()      runSync()
 ```
 
-**YOLO Scheduler:**
+**YOLO Scheduler (Async):**
 - Implementato internamente in `useYoloWorker.ts`
-- Nessun throttling temporale - esegue ogni frame se `!isProcessing`
-- FPS naturale dipende dal tempo di inferenza sincrono (~35-45ms)
+- Esecuzione async tramite `scheduleOnRN()`
+- Worklet prepara frame (resize), poi scheduleOnRN invia al JS thread
+- FPS naturale dipende dal tempo inferenza async (~40-50ms)
 - Indipendente dal FPS della camera
 - useShotTracker chiama `yoloWorker.processFrame()` ogni frame
+- **scheduleWaitMs misurato:** tempo di attesa runtime RN
 
-**MoveNet Scheduler:**
+**MoveNet Scheduler (Async):**
 - Implementato internamente in `useMoveNetWorker.ts`
-- Nessun throttling temporale - esegue ogni frame se `!isProcessing` e bbox player valido
-- FPS naturale dipende dal tempo di inferenza sincrono (~150-160ms)
+- Esecuzione async tramite `scheduleOnRN()`
+- Worklet prepara frame (crop geometry + resize + buffer), poi scheduleOnRN invia al JS thread
+- FPS naturale dipende dal tempo inferenza async (~200-230ms total)
 - Indipendente dal FPS della camera
 - useShotTracker chiama `moveNetWorker.processFrame()` ogni frame
 - Esegue solo se YOLO ha rilevato un bbox player valido (confidence >= threshold)
+- **workletPrepMs misurato:** tempo preparazione worklet
+- **scheduleWaitMs misurato:** tempo di attesa runtime RN
+- **cropMs misurato:** tempo crop CPU su JS thread
 
 ### Tracking Policies
 
@@ -223,12 +235,12 @@ export const COURT_CONFIG = {
 
 **Nota importante:** Il sistema NON usa throttling temporale. La frequenza della camera è indipendente dalla frequenza di inferenza YOLO/MoveNet:
 - Camera: 30 FPS (configurabile via CAMERA_CONFIG)
-- YOLO: FPS naturale (~7-10 FPS) basato su tempo inferenza sincrono (~35-45ms)
-- MoveNet: FPS naturale (~0-6 FPS) basato su tempo inferenza sincrono (~150-160ms) e disponibilità bbox player
+- YOLO: FPS naturale (~4-5 FPS) basato su tempo inferenza async (~40-50ms)
+- MoveNet: FPS naturale (~3-4 FPS) basato su tempo inferenza async (~200-230ms) e disponibilità bbox player
 - Tracking: realtime (ogni frame)
 - Bridge calls: 15 FPS (throttled a 66ms)
 
-Questa architettura evita limiti artificiali che riducono la detection rate, lasciando che i modelli girino al massimo FPS possibile dato il tempo di inferenza sincrono.
+Questa architettura evita limiti artificiali che riducono la detection rate, lasciando che i modelli girino al massimo FPS possibile dato il tempo di inferenza async. La conversione ad async permette di misurare la contesa del runtime RN separatamente dal tempo di inferenza.
 
 **BUG CRITICO:** `COURT_CONFIG.HEIGHT_M` è hardcoded a 28.65m (full court) ma non esiste configurazione separata per half court. `CalibrationScreen.tsx` usa sempre:
 ```typescript
@@ -258,12 +270,13 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 |------|------|------|
 | Separazione YOLO/tracking/MoveNet | ✅ | Completata |
 | Reentrancy guard | ✅ | Implementato con isProcessingFrame |
-| YOLO no throttling | ✅ | Esegue ogni frame se !isProcessing, FPS naturale ~7-10 |
-| MoveNet no throttling | ✅ | Esegue ogni frame se !isProcessing e bbox valido, FPS naturale ~0-6 |
+| YOLO async con scheduleOnRN | ✅ | Esegue async, FPS naturale ~4-5 |
+| MoveNet async con scheduleOnRN | ✅ | Esegue async, FPS naturale ~3-4 |
 | Scheduler duplicati rimossi | ✅ | useShotTracker non fa più scheduling esterno |
-| Camera FPS migliorata | 🟡 | Da ~4 FPS a 10-14 FPS (senza throttling), ma ancora sotto target 30 FPS |
-| Frame latency | 🟡 | 76-96 ms tipici (vs budget 33.3ms per 30 FPS) |
-| MoveNet CPU crop | 🔴 | Costa ~30 ms, investigare riduzione/eliminazione |
+| Camera FPS migliorata | ✅ | 27-30 FPS (target raggiunto) |
+| Frame latency | ✅ | 17-32 ms (risolto da 75-100 ms) |
+| MoveNet CPU crop | ✅ | Spostato su JS thread async, ~15 ms (accettabile) |
+| Schedule wait measurement | ✅ | Entrambi i worker misurano scheduleWaitMs |
 | Player tracking worklet-safe | ✅ | Implementato |
 | TTL player 750 ms | ✅ | Implementato |
 | TTL ball 500 ms / Kalman | ✅ | Implementato |
@@ -273,11 +286,13 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Adaptive performance | ✅ | RIMOSSO - senza throttling temporale |
 | Residui adaptive performance | ✅ | Rimossi (TARGET_DETECTION_RATE, ADAPTATION_WINDOW_MS, etc.) |
 | Throttling YOLO telemetry 15 FPS | ✅ | Implementato (66ms) |
-| Decoupling camera/YOLO FPS | ✅ | Camera 30 FPS, YOLO FPS naturale basato su inferenza time |
+| Decoupling camera/YOLO FPS | ✅ | Camera 30 FPS, YOLO FPS naturale basato su inferenza async |
 | Reanimated shared values handling | ✅ | Sincronizzazione shared values → state per evitare warning |
 | TelemetryOverlay unificazione stili | ✅ | Tutte le voci usano formato row/label/value uniforme |
 | TelemetryOverlay FPS display | ✅ | Camera/YOLO/MoveNet su righe separate, YOLO sopra MoveNet |
 | Session usage time tracking | ✅ | Minuti:secondi con ref globale per persistenza unmount/mount |
+| RN runtime contention | 🔴 | Schedule wait 45-134 ms, da ridurre |
+| Transfer buffer size | 🔴 | 640×360×3 (~2.64 MB), da eliminare |
 | Rerender/Remount investigation | 🔴 | Possibili rerender frequenti da investigare |
 | Propagazione courtType (FULL/HALF) | 🔴 | NON propagato tra Setup → Calibration → Workout |
 | Homography HALF/FULL court | 🔴 | Sempre calcolata come FULL court (15.24 x 28.65) |

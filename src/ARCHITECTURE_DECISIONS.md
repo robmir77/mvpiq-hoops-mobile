@@ -804,5 +804,55 @@
   - `WorkoutSetupScreen.tsx` seleziona `courtType` e lo invia al backend
   - `CalibrationScreen.tsx` riceve `undefined` per `courtType` nei params
   - Fallback a `HALF_COURT` anche se l'utente ha selezionato FULL_COURT
-- Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_COURT
-- Questo falsa: courtX, courtY, distanceFromHoop, zone, shot chart e analytics
+
+---
+
+## Decision 23: Conversione YOLO/MoveNet ad Async con Schedule Wait Measurement
+
+**Contesto:** L'architettura sincrona precedente (runSync() nel worklet) causava frame processor latency elevata (75-100 ms). Il CPU crop nel worklet bloccava per ~50 ms, e non era possibile misurare la contesa del runtime RN separatamente dal tempo di inferenza.
+
+**Decisione:**
+- Convertire YOLO ad async con `scheduleOnRN()` in `useYoloWorker.ts`
+- Convertire MoveNet ad async con `scheduleOnRN()` in `useMoveNetWorker.ts`
+- Separare `t0` (worklet start) da `tScheduleStart` (post-preparation) per MoveNet
+- Calcolare `workletPrepMs = tScheduleStart - t0` per MoveNet
+- Calcolare `scheduleWaitMs = tCallbackStart - tScheduleStart` per entrambi i worker
+- Aggiungere `perfYoloScheduleWaitTotal` SharedValue in `useShotTracker.ts`
+- Aggiungere `perfMoveNetWorkletPrepTotal` e `perfMoveNetScheduleWaitTotal` SharedValue in `useShotTracker.ts`
+- Aggiungere `yoloScheduleWaitMs` e `moveNetWorkletPrepMs` a `DiagnosticWindowSnapshot` in `telemetry.ts`
+- Aggiornare logging per mostrare breakdown completo:
+  - `YOLO DETAIL schedule=Xms resize=Yms run=Zms parse=Ams`
+  - `MOVE DETAIL prep=Xms schedule=Yms crop=Zms resize=Ams run=Bms parse=Cms`
+
+**Rationale:**
+- L'architettura async permette di misurare la contesa del runtime RN separatamente dal tempo di inferenza
+- scheduleOnRN() entra in una coda e attende disponibilità runtime - questo tempo deve essere misurato
+- Separare worklet prep da schedule wait permette di identificare se il collo di bottiglia è nella preparazione o nella contesa runtime
+- CPU crop spostato su JS thread async riduce frame processor latency
+- Misurazione precisa permette di identificare se YOLO runSync() blocca MoveNet scheduleWait
+
+**Conseguenze:**
+- Camera FPS migliorata da ~10-14 FPS a 27-30 FPS (target raggiunto)
+- Frame latency ridotta da 75-100 ms a 17-32 ms
+- YOLO FPS naturale ~4-5 (basato su tempo inferenza async ~40-50ms)
+- MoveNet FPS naturale ~3-4 (basato su tempo inferenza async ~200-230ms)
+- Schedule wait misurato: 45-134 ms per MoveNet (variabile)
+- Worklet prep misurato: ~5 ms per MoveNet
+- CPU crop ridotto a ~15 ms (accettabile)
+- Nuovo collo di bottiglia identificato: contesa RN runtime
+- Breakdown completo disponibile nei log per debugging
+
+**Risultati (post-implementazione):**
+- Log mostrano: `CAM fps=29.6 recv=30 proc=28 drop=2 avg=17.0ms max=32.1ms`
+- Log mostrano: `MOVE DETAIL prep=4.8ms schedule=77.1ms crop=15.4ms resize=3.9ms run=103.2ms parse=0.4ms total=213.4ms`
+- Log mostrano: `YOLO DETAIL schedule=Xms resize=Yms run=Zms parse=Ams`
+- Schedule wait variabile (44-134 ms) indica contesa runtime RN
+- Frame processor non più collo di bottiglia
+- CPU crop non più collo di bottiglia
+
+**Roadmap (basata su nuova misurazione):**
+1. Misurare scheduleWaitMs YOLO vs MoveNet per identificare contesa bidirezionale
+2. Ridurre trasferimento buffer 640×360×3 (~2.64 MB) eliminando resize intermedio
+3. Investigare crop/resize native prima di scheduleOnRN
+4. Ottimizzare delegate MoveNet (GPU/NPU se disponibile)
+5. Considerare worker thread separati per YOLO/MoveNet

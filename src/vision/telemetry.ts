@@ -21,6 +21,7 @@ export interface DiagnosticWindowSnapshot {
   yoloAvgMs: number
   yoloMinMs: number
   yoloMaxMs: number
+  yoloScheduleWaitMs: number
   yoloResizeAvgMs: number
   yoloRunAvgMs: number
   yoloParseAvgMs: number
@@ -31,6 +32,7 @@ export interface DiagnosticWindowSnapshot {
   moveNetAvgMs: number
   moveNetMinMs: number
   moveNetMaxMs: number
+  moveNetWorkletPrepMs: number
   moveNetScheduleWaitMs: number
   moveNetCropAvgMs: number
   moveNetResizeAvgMs: number
@@ -87,6 +89,7 @@ export interface MoveNetMetrics {
   requested: number
   executed: number
   skipped: number
+  workletPrepMs: number  // Time from worklet start to scheduleOnRN
   cropMs: number
   resizeMs: number
   runMs: number
@@ -200,6 +203,7 @@ class TelemetryLogger {
   private moveNetSkipped: number = 0
   private moveNetDroppedBusy: number = 0
   private moveNetStartTime: number | null = null
+  private moveNetWorkletPrepTimes: number[] = []
   private moveNetCropTimes: number[] = []
   private moveNetResizeTimes: number[] = []
   private moveNetRunTimes: number[] = []
@@ -230,9 +234,9 @@ class TelemetryLogger {
     console.log('[PERF 1s]')
     console.log(`CAM  fps=${snapshot.cameraFps.toFixed(1)} recv=${snapshot.received} proc=${snapshot.processed} drop=${snapshot.droppedBusy} avg=${snapshot.onFrameAvgMs.toFixed(1)}ms max=${snapshot.onFrameMaxMs.toFixed(1)}ms`)
     console.log(`YOLO fps=${snapshot.yoloThroughputFps.toFixed(1)} exec=${snapshot.yoloExecuted} attempt=${snapshot.yoloRequested} skip=${snapshot.yoloSkipped} avg=${snapshot.yoloAvgMs.toFixed(1)}ms max=${snapshot.yoloMaxMs?.toFixed(1) ?? '0.0'}ms`)
-    console.log(`YOLO DETAIL resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
+    console.log(`YOLO DETAIL schedule=${snapshot.yoloScheduleWaitMs.toFixed(1)}ms resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
     console.log(`MOVE fps=${snapshot.moveNetThroughputFps.toFixed(1)} exec=${snapshot.moveNetExecuted} attempt=${snapshot.moveNetRequested} skip=${snapshot.moveNetSkipped} avg=${snapshot.moveNetAvgMs.toFixed(1)}ms max=${snapshot.moveNetMaxMs?.toFixed(1) ?? '0.0'}ms`)
-    console.log(`MOVE DETAIL schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms resize=${snapshot.moveNetResizeAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
+    console.log(`MOVE DETAIL prep=${snapshot.moveNetWorkletPrepMs.toFixed(1)}ms schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms resize=${snapshot.moveNetResizeAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
   }
 
   getDiagnosticWindows(): DiagnosticWindowSnapshot[] {
@@ -367,6 +371,13 @@ class TelemetryLogger {
 
   recordMoveNetDroppedBusy(): void {
     this.moveNetDroppedBusy++
+  }
+
+  recordMoveNetWorkletPrep(workletPrepMs: number): void {
+    this.moveNetWorkletPrepTimes.push(workletPrepMs)
+    if (this.moveNetWorkletPrepTimes.length > 300) {
+      this.moveNetWorkletPrepTimes.shift()
+    }
   }
 
   recordMoveNetCrop(cropMs: number): void {
@@ -719,6 +730,7 @@ class TelemetryLogger {
         requested: this.moveNetRequested,
         executed: this.moveNetExecuted,
         skipped: this.moveNetSkipped,
+        workletPrepMs: 0,
         cropMs: 0,
         resizeMs: 0,
         runMs: 0,
@@ -753,6 +765,7 @@ class TelemetryLogger {
       keypointStability = Math.max(0, 100 - (stdDev * 100))
     }
     
+    const avgWorkletPrepMs = this.moveNetWorkletPrepTimes.length > 0 ? this.moveNetWorkletPrepTimes.reduce((a, b) => a + b, 0) / this.moveNetWorkletPrepTimes.length : 0
     const avgCropMs = this.moveNetCropTimes.length > 0 ? this.moveNetCropTimes.reduce((a, b) => a + b, 0) / this.moveNetCropTimes.length : 0
     const avgResizeMs = this.moveNetResizeTimes.length > 0 ? this.moveNetResizeTimes.reduce((a, b) => a + b, 0) / this.moveNetResizeTimes.length : 0
     const avgRunMs = this.moveNetRunTimes.length > 0 ? this.moveNetRunTimes.reduce((a, b) => a + b, 0) / this.moveNetRunTimes.length : 0
@@ -773,6 +786,7 @@ class TelemetryLogger {
       requested: this.moveNetRequested,
       executed: this.moveNetExecuted,
       skipped: this.moveNetSkipped,
+      workletPrepMs: avgWorkletPrepMs,
       cropMs: avgCropMs,
       resizeMs: avgResizeMs,
       runMs: avgRunMs,
@@ -783,7 +797,7 @@ class TelemetryLogger {
 
   logMoveNetMetrics(): void {
     const metrics = this.getMoveNetMetrics()
-    console.log('[MOVENET]', `schedule=${metrics.scheduleWaitMs.toFixed(1)}ms crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
+    console.log('[MOVENET]', `prep=${metrics.workletPrepMs.toFixed(1)}ms schedule=${metrics.scheduleWaitMs.toFixed(1)}ms crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
   }
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
