@@ -85,6 +85,18 @@ export const useMoveNetWorker = (
   enabled: boolean = true,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   moveNetModelId?: string,
+  // Performance tracking SharedValues (for PERF 1s diagnostic window)
+  perfMoveNetRequested?: any,
+  perfMoveNetExecuted?: any,
+  perfMoveNetSkipped?: any,
+  perfMoveNetInferenceTotal?: any,
+  perfMoveNetInferenceMin?: any,
+  perfMoveNetInferenceMax?: any,
+  perfMoveNetScheduleWaitTotal?: any,
+  perfMoveNetCropTotal?: any,
+  perfMoveNetResizeTotal?: any,
+  perfMoveNetRunTotal?: any,
+  perfMoveNetParseTotal?: any,
 ) => {
   console.log('[useMoveNetWorker] Received params:', {
     enabled,
@@ -106,7 +118,7 @@ export const useMoveNetWorker = (
   const lastParseMs = useSharedValue(0)
 
   const isReady = useSharedValue(false)
-  const theoreticalFps = useSharedValue(0)
+  const moveNetStartTime = useSharedValue(0)
 
   const playerBbox = useSharedValue<{ x: number; y: number; width: number; height: number; confidence?: number } | null>(null)
   const playerCropRegion = useSharedValue<{ cropX: number; cropY: number; cropWidth: number; cropHeight: number } | null>(null)
@@ -119,6 +131,11 @@ export const useMoveNetWorker = (
   const telemetryParseMs = useSharedValue(0)
   const telemetryKeypointsConfidence = useSharedValue(0)
   const telemetryHasNewData = useSharedValue(false)
+  const telemetryDroppedBusy = useSharedValue(0)
+  const telemetrySkipped = useSharedValue(0)
+  const telemetryRequested = useSharedValue(0)
+  const telemetryExecuted = useSharedValue(0)
+  const telemetryScheduleWaitMs = useSharedValue(0)
 
   // Test 2: Track last dispose timestamp to measure gap before next resize
   const lastDisposeTimestamp = useSharedValue(0)
@@ -172,6 +189,10 @@ export const useMoveNetWorker = (
     resized: any
   ) => {
     try {
+      // Measure scheduling wait time (time from scheduleOnRN to actual execution)
+      const tScheduleStart = performance.now()
+      const scheduleWaitMs = tScheduleStart - t0
+
       // CPU crop + resize to final size (now on JS thread, not in worklet)
       const tCropCpuStart = performance.now()
 
@@ -392,11 +413,8 @@ export const useMoveNetWorker = (
       latestCropInfo.value = cropInfo
 
       const inferenceTime = t2 - t0
-      const calculatedFps = 1000 / inferenceTime
-
-      if (calculatedFps > 0) {
-        theoreticalFps.value = calculatedFps
-      }
+      // theoreticalFps removed - it's latency-based, not throughput-based
+      // Real throughput is calculated in telemetry based on executed / elapsed time
 
       // Update execution tracking shared values
       executionCount.value += 1
@@ -408,12 +426,43 @@ export const useMoveNetWorker = (
 
       // Write telemetry to SharedValues (worklet-safe)
       telemetryInferenceTime.value = inferenceTime
+      telemetryScheduleWaitMs.value = scheduleWaitMs
       telemetryCropMs.value = totalCropMs
       telemetryResizeMs.value = resizeMs
       telemetryRunMs.value = runMs
       telemetryParseMs.value = parseMs
       telemetryKeypointsConfidence.value = finalKeypoints ? Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).length : 0
       telemetryHasNewData.value = true
+
+      // Record MoveNet executed when inference completes
+      telemetryExecuted.value += 1
+      if (perfMoveNetExecuted) {
+        perfMoveNetExecuted.value += 1
+      }
+      if (perfMoveNetInferenceTotal) {
+        perfMoveNetInferenceTotal.value += inferenceTime
+      }
+      if (perfMoveNetInferenceMin) {
+        perfMoveNetInferenceMin.value = perfMoveNetInferenceMin.value === 0 ? inferenceTime : Math.min(perfMoveNetInferenceMin.value, inferenceTime)
+      }
+      if (perfMoveNetInferenceMax) {
+        perfMoveNetInferenceMax.value = Math.max(perfMoveNetInferenceMax.value, inferenceTime)
+      }
+      if (perfMoveNetScheduleWaitTotal) {
+        perfMoveNetScheduleWaitTotal.value += scheduleWaitMs
+      }
+      if (perfMoveNetCropTotal) {
+        perfMoveNetCropTotal.value += totalCropMs
+      }
+      if (perfMoveNetResizeTotal) {
+        perfMoveNetResizeTotal.value += resizeMs
+      }
+      if (perfMoveNetRunTotal) {
+        perfMoveNetRunTotal.value += runMs
+      }
+      if (perfMoveNetParseTotal) {
+        perfMoveNetParseTotal.value += parseMs
+      }
 
       // Release GPUFrame after async operation completes
       if (resized) {
@@ -433,7 +482,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
     } catch (error) {
       console.error('[MoveNetWorker] Async inference error:', error)
-      
+
       // Release GPUFrame on error
       if (resized) {
         try {
@@ -442,10 +491,10 @@ export const useMoveNetWorker = (
           // Ignore if already disposed
         }
       }
-      
+
       isProcessing.value = false
     }
-  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, theoreticalFps, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing])
+  }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, perfMoveNetScheduleWaitTotal])
 
   useEffect(() => {
     isReady.value = poseModel.state === 'loaded' && poseModel.model != null
@@ -522,7 +571,7 @@ export const useMoveNetWorker = (
     return target
   }
 
-  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, cropMs?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
+  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, cropMs?: number, resizeMs?: number, runMs?: number, parseMs?: number, scheduleWaitMs?: number, requested?: boolean, executed?: boolean) => {
     if (requested) telemetryLogger.recordMoveNetRequested()
     if (executed) telemetryLogger.recordMoveNetExecuted()
     telemetryLogger.recordMoveNetInference(inferenceTime)
@@ -531,6 +580,7 @@ export const useMoveNetWorker = (
     if (resizeMs !== undefined) telemetryLogger.recordMoveNetResize(resizeMs)
     if (runMs !== undefined) telemetryLogger.recordMoveNetRun(runMs)
     if (parseMs !== undefined) telemetryLogger.recordMoveNetParse(parseMs)
+    if (scheduleWaitMs !== undefined) telemetryLogger.recordMoveNetScheduleWait(scheduleWaitMs)
 
     if (keypoints) {
       const keypointValues = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0)
@@ -557,10 +607,36 @@ export const useMoveNetWorker = (
         telemetryResizeMs.value,
         telemetryRunMs.value,
         telemetryParseMs.value,
-        true, // requested
-        true  // executed
+        telemetryScheduleWaitMs.value,
+        false, // requested - recorded separately below
+        false  // executed - recorded separately below
       )
       telemetryLogger.recordMoveNetKeypoints(telemetryKeypointsConfidence.value)
+      
+      // Record requested/executed/dropped/skipped counts from SharedValues
+      const requested = telemetryRequested.value
+      const executed = telemetryExecuted.value
+      const droppedBusy = telemetryDroppedBusy.value
+      const skipped = telemetrySkipped.value
+      
+      for (let i = 0; i < requested; i++) {
+        telemetryLogger.recordMoveNetRequested()
+      }
+      for (let i = 0; i < executed; i++) {
+        telemetryLogger.recordMoveNetExecuted()
+      }
+      for (let i = 0; i < droppedBusy; i++) {
+        telemetryLogger.recordMoveNetDroppedBusy()
+      }
+      for (let i = 0; i < skipped; i++) {
+        telemetryLogger.recordMoveNetSkipped()
+      }
+      
+      telemetryRequested.value = 0
+      telemetryExecuted.value = 0
+      telemetryDroppedBusy.value = 0
+      telemetrySkipped.value = 0
+      
       telemetryHasNewData.value = false
     }, 100)
 
@@ -573,6 +649,9 @@ export const useMoveNetWorker = (
 
     // Latest-frame-wins: skip immediately if busy to avoid any preprocessing work
     if (!poseModelInstance || isProcessing.value || !enabled || !ENABLE_MOVENET) {
+      if (isProcessing.value) {
+        telemetryDroppedBusy.value += 1
+      }
       if (__DEV__) {
         console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled, 'ENABLE_MOVENET=', ENABLE_MOVENET)
       }
@@ -610,6 +689,10 @@ export const useMoveNetWorker = (
 
     // Skip MoveNet execution if player bbox is below threshold
     if (!hasValidPlayer) {
+      telemetrySkipped.value += 1
+      if (perfMoveNetSkipped) {
+        perfMoveNetSkipped.value += 1
+      }
       if (__DEV__ && bbox) {
         console.log('[MoveNet] Skip: bbox below threshold',
           bbox.confidence == null ? 'no_confidence' :
@@ -625,6 +708,12 @@ export const useMoveNetWorker = (
           'unknown')
       }
       return
+    }
+
+    // Record MoveNet requested when frame is accepted for processing
+    telemetryRequested.value += 1
+    if (perfMoveNetRequested) {
+      perfMoveNetRequested.value += 1
     }
 
     const poseSource = "PLAYER_CROP_GEOMETRY"
@@ -791,7 +880,7 @@ export const useMoveNetWorker = (
 
       isProcessing.value = false
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, theoreticalFps, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, lastDisposeTimestamp, poseInputSize])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryScheduleWaitMs, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, telemetryDroppedBusy, telemetrySkipped, telemetryRequested, telemetryExecuted, lastDisposeTimestamp, poseInputSize, perfMoveNetRequested, perfMoveNetExecuted, perfMoveNetSkipped, perfMoveNetInferenceTotal, perfMoveNetInferenceMin, perfMoveNetInferenceMax, perfMoveNetCropTotal, perfMoveNetResizeTotal, perfMoveNetRunTotal, perfMoveNetParseTotal])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -822,7 +911,6 @@ export const useMoveNetWorker = (
     getLatestResult,
     reset,
     isReady,
-    theoreticalFps,
     executionCount,
     lastInferenceMs,
     lastCropMs,

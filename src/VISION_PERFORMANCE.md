@@ -4,7 +4,7 @@
 
 | Componente | Target FPS | Attuale FPS | Note |
 |------------|-----------|-------------|------|
-| Camera | 30 FPS | 10-14 FPS | Migliorata da ~4 FPS, ma ancora sotto target |
+| Camera | 30 FPS | 25-30 FPS | Default 30 FPS, raggiunge target |
 | YOLO | 10 FPS | 4-6 FPS | FPS naturale basato su tempo inferenza sincrono |
 | Tracking | Realtime | Realtime | Ogni frame con Kalman prediction |
 | MoveNet | 3 FPS | 0-6 FPS | FPS naturale basato su tempo inferenza e disponibilità bbox player |
@@ -408,9 +408,9 @@ const ENABLE_MOVENET_LOGS = false
 - YOLO throughput FPS (actual inferences per second)
 - YOLO theoretical FPS (latency capacity: 1000/inferenceTime)
 - YOLO inference time (min/max/avg)
-- MoveNet throughput FPS (actual inferences per second)
-- MoveNet theoretical FPS (latency capacity: 1000/inferenceTime)
-- MoveNet inference time (min/max/avg)
+- MoveNet throughput FPS (actual inferences per second - executed/elapsedSeconds)
+- MoveNet avg latency (inference time in ms)
+- MoveNet requested/executed/droppedBusy/skipped counters
 - Camera FPS (sincronizzato da shared value a state)
 - Frame drops (busy, processing)
 - Log formato: `YOLO fps=4.9 exec=5 attempt=11 skip=6 avg=46.7ms max=58.3ms`

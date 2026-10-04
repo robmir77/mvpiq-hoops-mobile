@@ -182,7 +182,7 @@ export const CAMERA_CONFIG = {
   DEFAULT_FPS: 30,
   DEFAULT_POSE_RESOLUTION: 192,
   DEFAULT_ZOOM: 1,
-  MIN_RESOLUTION: { width: 1280, height: 720 },
+  MIN_RESOLUTION: { width: 640, height: 360 },
 } as const
 
 // Vision Pipeline Configuration

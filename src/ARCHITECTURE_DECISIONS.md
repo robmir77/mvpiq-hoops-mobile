@@ -117,6 +117,78 @@
 
 ---
 
+## Decision 0.7: Correzione Metriche MoveNet Throughput
+
+**Contesto:** La metrica `theoreticalFps` in MoveNet era calcolata come `1000 / inferenceTime`, rappresentando la capacità di latenza teorica invece del throughput reale. Inoltre, il PERF 1s mostrava sempre `MOVE fps=0.0 exec=0` perché i contatori di performance tracking non venivano aggiornati dal MoveNet worker.
+
+**Decisione:**
+- Rimozione completa di `theoreticalFps` da `useMoveNetWorker.ts` (metrica latenza-based errata)
+- Implementazione throughput tracking corretto in `telemetry.ts`:
+  - `moveNetStartTime` per calcolare throughput reale (executed / elapsedSeconds)
+  - `moveNetSkipped` per tracciare frame scartati per bbox non valido
+  - `moveNetDroppedBusy` per tracciare frame scartati per busy (latest-frame-wins)
+  - `throughputFps` calcolato come `executed / elapsedSeconds` (non 1000/latency)
+- Aggiornamento `TelemetryOverlay.tsx`:
+  - Mostra `Req/Exec/Drop` per completezza
+  - Mostra `Throughput` FPS (reale) invece di FPS generico
+  - Mostra `Avg Latency` per chiarezza separata
+- Correzione errore worklet: uso di SharedValues invece di accesso diretto a telemetryLogger
+  - `telemetryRequested` e `telemetryExecuted` SharedValues nel worklet
+  - Polling interval trasferisce i count al telemetry logger sul JS thread
+- Connessione MoveNet a PERF 1s diagnostic window:
+  - Aggiunti parametri performance tracking SharedValues a `useMoveNetWorker`
+  - `perfMoveNetRequested`, `perfMoveNetExecuted`, `perfMoveNetSkipped`
+  - `perfMoveNetInferenceTotal/Min/Max`
+  - `perfMoveNetCropTotal`, `perfMoveNetResizeTotal`, `perfMoveNetRunTotal`, `perfMoveNetParseTotal`
+  - Passati da `useShotTracker` e aggiornati nel worklet quando le inferenze completano
+
+**Rationale:**
+- `theoreticalFps` (1000/latency) non rappresenta throughput reale con latest-frame-wins
+- Throughput reale deve essere `executed / elapsedTime` per riflettere frame processati al secondo
+- PERF 1s deve mostrare metriche accurate per debugging performance
+- Worklet non può accedere a oggetti JS esterni (telemetryLogger) - deve usare SharedValues
+- Separazione chiara tra latenza (tempo per inferenza) e throughput (inferenze per secondo)
+
+**Conseguenze:**
+- Metriche MoveNet ora semanticamente corrette:
+  - `throughputFps`: inferences reali per secondo
+  - `avgLatencyMs`: tempo medio inferenza
+  - `requested/executed/droppedBusy`: contatori accurati
+- PERF 1s mostra metriche MoveNet accurate invece di fps=0.0
+- TelemetryOverlay mostra metriche più informative e corrette
+- Nessun errore worklet per accesso a telemetryLogger
+- Architettura worklet-safe rispettata (solo SharedValues tra worklet e JS)
+
+**Risultati (post-implementazione):**
+- PERF 1s ora mostra: `MOVE fps=X exec=Y attempt=Z skip=W avg=XXms max=YYms`
+- TelemetryOverlay mostra: `Req/Exec/Drop`, `Throughput FPS`, `Avg Latency`
+- Throughput reale MoveNet riflette capacità del sistema con latest-frame-wins
+- Latenza separata da throughput per diagnosi più chiara
+
+---
+
+## Decision 0.8: Default Camera FPS 30
+
+**Contesto:** Il default FPS della camera era impostato a 15 per testing async YOLO, ma questo limitava la performance generale dell'applicazione.
+
+**Decisione:**
+- Cambiato `CAMERA_CONFIG.DEFAULT_FPS` da 15 a 30
+- Camera ora gira a 30 FPS di default
+- YOLO e MoveNet continuano a girare a FPS naturale basato su tempo inferenza
+
+**Rationale:**
+- 30 FPS è lo standard per applicazioni video
+- Migliore esperienza utente con frame rate più alto
+- YOLO/MoveNet non dipendono dal FPS della camera (architettura decoupled)
+
+**Conseguenze:**
+- Camera: 30 FPS di default
+- YOLO: FPS naturale ~7-10 (indipendente)
+- MoveNet: FPS naturale ~0-6 (indipendente)
+- Tracking: realtime (ogni frame)
+
+---
+
 ## Decision 0.2: Unificazione Stili TelemetryOverlay
 
 **Contesto:** TelemetryOverlay aveva stili inconsistente per diverse voci, con FPS section separata con styling diverso dalle altre sezioni.

@@ -191,6 +191,7 @@ export const useShotTracker = (
     const perfMoveNetInferenceTotal = useSharedValue(0)
     const perfMoveNetInferenceMin = useSharedValue(0)
     const perfMoveNetInferenceMax = useSharedValue(0)
+    const perfMoveNetScheduleWaitTotal = useSharedValue(0)
     const perfMoveNetCropTotal = useSharedValue(0)
     const perfMoveNetResizeTotal = useSharedValue(0)
     const perfMoveNetRunTotal = useSharedValue(0)
@@ -227,7 +228,18 @@ export const useShotTracker = (
     const moveNetWorker = useMoveNetWorker(
         poseEnabled,
         poseDelegate,
-        moveNetModelId
+        moveNetModelId,
+        perfMoveNetRequested,
+        perfMoveNetExecuted,
+        perfMoveNetSkipped,
+        perfMoveNetInferenceTotal,
+        perfMoveNetInferenceMin,
+        perfMoveNetInferenceMax,
+        perfMoveNetScheduleWaitTotal,
+        perfMoveNetCropTotal,
+        perfMoveNetResizeTotal,
+        perfMoveNetRunTotal,
+        perfMoveNetParseTotal
     )
 
     // Player crop manager (worklet-compatible hook)
@@ -911,6 +923,9 @@ export const useShotTracker = (
                             : 0,
                         moveNetMinMs: perfMoveNetInferenceMin.value,
                         moveNetMaxMs: perfMoveNetInferenceMax.value,
+                        moveNetScheduleWaitMs: moveNetExecuted > 0
+                            ? perfMoveNetScheduleWaitTotal.value / moveNetExecuted
+                            : 0,
                         moveNetCropAvgMs: moveNetExecuted > 0
                             ? perfMoveNetCropTotal.value / moveNetExecuted
                             : 0,
@@ -966,6 +981,7 @@ export const useShotTracker = (
                     perfMoveNetInferenceTotal.value = 0
                     perfMoveNetInferenceMin.value = 0
                     perfMoveNetInferenceMax.value = 0
+                    perfMoveNetScheduleWaitTotal.value = 0
                     perfMoveNetCropTotal.value = 0
                     perfMoveNetResizeTotal.value = 0
                     perfMoveNetRunTotal.value = 0
@@ -1057,7 +1073,6 @@ export const useShotTracker = (
 
                     // Call MoveNet worker every frame - it handles its own throttling internally
                     if (poseEnabledShared.value) {
-                        perfMoveNetRequested.value += 1
                         // Get effective bbox from PlayerCropManager for MoveNet crop
                         const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
                         if (trackedBbox !== null && (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
@@ -1078,31 +1093,12 @@ export const useShotTracker = (
                                 playerTrackAge.value = 0
                             }
 
-                            // Only execute MoveNet if valid player bbox is available
-                            const moveNetExecutionCountBefore = moveNetWorker.executionCount.value
+                            // MoveNet worker handles its own performance tracking in the async callback
                             moveNetWorker.processFrame(frame, timestamp)
-                            const moveNetExecutedNow = moveNetWorker.executionCount.value > moveNetExecutionCountBefore
-
-                            if (moveNetExecutedNow) {
-                                const moveNetInferenceTime = moveNetWorker.lastInferenceMs.value
-                                perfMoveNetExecuted.value += 1
-                                perfMoveNetInferenceTotal.value += moveNetInferenceTime
-                                perfMoveNetInferenceMin.value = perfMoveNetInferenceMin.value === 0
-                                    ? moveNetInferenceTime
-                                    : Math.min(perfMoveNetInferenceMin.value, moveNetInferenceTime)
-                                perfMoveNetInferenceMax.value = Math.max(perfMoveNetInferenceMax.value, moveNetInferenceTime)
-                                perfMoveNetCropTotal.value += moveNetWorker.lastCropMs.value
-                                perfMoveNetResizeTotal.value += moveNetWorker.lastResizeMs.value
-                                perfMoveNetRunTotal.value += moveNetWorker.lastRunMs.value
-                                perfMoveNetParseTotal.value += moveNetWorker.lastParseMs.value
-                            } else {
-                                perfMoveNetSkipped.value += 1
-                            }
                         } else {
-                            perfMoveNetSkipped.value += 1
+                            // Invalid bbox - MoveNet worker will handle skipped counting
+                            moveNetWorker.processFrame(frame, timestamp)
                         }
-                    } else {
-                        perfMoveNetSkipped.value += 1
                     }
 
                     // Process worker results (get latest available from shared values)
@@ -1244,6 +1240,7 @@ export const useShotTracker = (
                 perfMoveNetInferenceTotal,
                 perfMoveNetInferenceMin,
                 perfMoveNetInferenceMax,
+                perfMoveNetScheduleWaitTotal,
                 perfMoveNetCropTotal,
                 perfMoveNetResizeTotal,
                 perfMoveNetRunTotal,
@@ -1313,15 +1310,17 @@ export const useShotTracker = (
     // Telemetry control
     const exportTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
-        const moveNetFPS = moveNetWorker.theoreticalFps.value || 0
+        const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
+        const moveNetFPS = moveNetMetrics.throughputFps
         return telemetryLogger.exportTestSummary(cameraFPS, moveNetFPS)
-    }, [selectedFps, moveNetWorker.theoreticalFps])
+    }, [selectedFps])
 
     const logTelemetrySummary = useCallback(() => {
         const cameraFPS = selectedFps || 30
-        const moveNetFPS = moveNetWorker.theoreticalFps.value || 0
+        const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
+        const moveNetFPS = moveNetMetrics.throughputFps
         telemetryLogger.logTestSummary(cameraFPS, moveNetFPS)
-    }, [selectedFps, moveNetWorker.theoreticalFps])
+    }, [selectedFps])
 
     const resetTelemetry = useCallback(() => {
         telemetryLogger.reset()
@@ -1333,7 +1332,7 @@ export const useShotTracker = (
         resetShotTracking,
         yoloFps: yoloWorker.theoreticalFps,
         yoloThroughputFps: yoloWorker.throughputFps,
-        moveNetFps: moveNetWorker.theoreticalFps,
+        moveNetFps: telemetryLogger.getMoveNetMetrics().throughputFps,
         currentFps: useSharedValue(selectedFps || 30),
         actualCameraFps,
         actualYoloFps,

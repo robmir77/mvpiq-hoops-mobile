@@ -23,7 +23,7 @@ export const YOLO_CONFIG = {
 // Camera Configuration
 export const CAMERA_CONFIG = {
   DEFAULT_RESOLUTION: { width: 1280, height: 720 }, // Default camera resolution (720p) - aligned with ARCHITECTURE_CHANGE.md
-  DEFAULT_FPS: 15, // Default camera frame rate - reduced to 15 FPS for async YOLO testing
+  DEFAULT_FPS: 30, // Default camera frame rate
   DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
   DEFAULT_ZOOM: 1, // Default camera zoom level (1 = 100% = no zoom)
   MIN_RESOLUTION: { width: 640, height: 360 }, // Minimum acceptable resolution for workout sessions (allows 360p for smaller YOLO models)

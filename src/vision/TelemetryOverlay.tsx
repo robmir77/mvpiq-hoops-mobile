@@ -236,12 +236,16 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>MOVENET {moveNetMetrics.modelInput}</Text>
               <View style={styles.row}>
-                <Text style={styles.label}>Req/Exec:</Text>
-                <Text style={styles.value}>{moveNetMetrics.requested}/{moveNetMetrics.executed}</Text>
+                <Text style={styles.label}>Req/Exec/Drop:</Text>
+                <Text style={styles.value}>{moveNetMetrics.requested}/{moveNetMetrics.executed}/{pipelineMetrics.droppedBusy}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>FPS:</Text>
-                <Text style={styles.value}>{moveNetFps?.toFixed(1) || '0.0'}</Text>
+                <Text style={styles.label}>Throughput:</Text>
+                <Text style={styles.value}>{moveNetMetrics.throughputFps.toFixed(1)} FPS</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Avg Latency:</Text>
+                <Text style={styles.value}>{moveNetMetrics.avgMs.toFixed(1)}ms</Text>
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Crop:</Text>

@@ -31,6 +31,7 @@ export interface DiagnosticWindowSnapshot {
   moveNetAvgMs: number
   moveNetMinMs: number
   moveNetMaxMs: number
+  moveNetScheduleWaitMs: number
   moveNetCropAvgMs: number
   moveNetResizeAvgMs: number
   moveNetRunAvgMs: number
@@ -90,6 +91,7 @@ export interface MoveNetMetrics {
   resizeMs: number
   runMs: number
   parseMs: number
+  scheduleWaitMs: number  // Time from scheduleOnRN to actual execution
 }
 
 export interface FalsePositiveMetrics {
@@ -195,10 +197,14 @@ class TelemetryLogger {
   // Granular MoveNet metrics
   private moveNetRequested: number = 0
   private moveNetExecuted: number = 0
+  private moveNetSkipped: number = 0
+  private moveNetDroppedBusy: number = 0
+  private moveNetStartTime: number | null = null
   private moveNetCropTimes: number[] = []
   private moveNetResizeTimes: number[] = []
   private moveNetRunTimes: number[] = []
   private moveNetParseTimes: number[] = []
+  private moveNetScheduleWaitTimes: number[] = []
   
   // Player tracking metrics
   private playerDetected: number = 0
@@ -226,7 +232,7 @@ class TelemetryLogger {
     console.log(`YOLO fps=${snapshot.yoloThroughputFps.toFixed(1)} exec=${snapshot.yoloExecuted} attempt=${snapshot.yoloRequested} skip=${snapshot.yoloSkipped} avg=${snapshot.yoloAvgMs.toFixed(1)}ms max=${snapshot.yoloMaxMs?.toFixed(1) ?? '0.0'}ms`)
     console.log(`YOLO DETAIL resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
     console.log(`MOVE fps=${snapshot.moveNetThroughputFps.toFixed(1)} exec=${snapshot.moveNetExecuted} attempt=${snapshot.moveNetRequested} skip=${snapshot.moveNetSkipped} avg=${snapshot.moveNetAvgMs.toFixed(1)}ms max=${snapshot.moveNetMaxMs?.toFixed(1) ?? '0.0'}ms`)
-    console.log(`MOVE DETAIL crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms resize=${snapshot.moveNetResizeAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
+    console.log(`MOVE DETAIL schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms resize=${snapshot.moveNetResizeAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
   }
 
   getDiagnosticWindows(): DiagnosticWindowSnapshot[] {
@@ -346,10 +352,21 @@ class TelemetryLogger {
 
   recordMoveNetRequested(): void {
     this.moveNetRequested++
+    if (this.moveNetStartTime === null) {
+      this.moveNetStartTime = Date.now()
+    }
   }
 
   recordMoveNetExecuted(): void {
     this.moveNetExecuted++
+  }
+
+  recordMoveNetSkipped(): void {
+    this.moveNetSkipped++
+  }
+
+  recordMoveNetDroppedBusy(): void {
+    this.moveNetDroppedBusy++
   }
 
   recordMoveNetCrop(cropMs: number): void {
@@ -377,6 +394,13 @@ class TelemetryLogger {
     this.moveNetParseTimes.push(parseMs)
     if (this.moveNetParseTimes.length > 300) {
       this.moveNetParseTimes.shift()
+    }
+  }
+
+  recordMoveNetScheduleWait(scheduleWaitMs: number): void {
+    this.moveNetScheduleWaitTimes.push(scheduleWaitMs)
+    if (this.moveNetScheduleWaitTimes.length > 300) {
+      this.moveNetScheduleWaitTimes.shift()
     }
   }
 
@@ -694,11 +718,12 @@ class TelemetryLogger {
         keypointStability: 0,
         requested: this.moveNetRequested,
         executed: this.moveNetExecuted,
-        skipped: this.moveNetRequested - this.moveNetExecuted,
+        skipped: this.moveNetSkipped,
         cropMs: 0,
         resizeMs: 0,
         runMs: 0,
         parseMs: 0,
+        scheduleWaitMs: 0,
       }
     }
 
@@ -706,7 +731,15 @@ class TelemetryLogger {
     const minMs = Math.min(...this.moveNetInferenceTimes)
     const maxMs = Math.max(...this.moveNetInferenceTimes)
     const theoreticalFps = 1000 / avgMs
-    const skipped = this.moveNetRequested - this.moveNetExecuted
+
+    // Calculate real throughput based on elapsed time
+    let throughputFps = 0
+    if (this.moveNetStartTime && this.moveNetExecuted > 0) {
+      const elapsedSeconds = (Date.now() - this.moveNetStartTime) / 1000
+      if (elapsedSeconds > 0) {
+        throughputFps = this.moveNetExecuted / elapsedSeconds
+      }
+    }
 
     const validKeypoints = this.moveNetKeypoints.length
     const avgConfidence = validKeypoints > 0 
@@ -724,11 +757,12 @@ class TelemetryLogger {
     const avgResizeMs = this.moveNetResizeTimes.length > 0 ? this.moveNetResizeTimes.reduce((a, b) => a + b, 0) / this.moveNetResizeTimes.length : 0
     const avgRunMs = this.moveNetRunTimes.length > 0 ? this.moveNetRunTimes.reduce((a, b) => a + b, 0) / this.moveNetRunTimes.length : 0
     const avgParseMs = this.moveNetParseTimes.length > 0 ? this.moveNetParseTimes.reduce((a, b) => a + b, 0) / this.moveNetParseTimes.length : 0
+    const avgScheduleWaitMs = this.moveNetScheduleWaitTimes.length > 0 ? this.moveNetScheduleWaitTimes.reduce((a, b) => a + b, 0) / this.moveNetScheduleWaitTimes.length : 0
 
     return {
       modelInput: this.moveNetModelInput,
       inferenceTimes: this.moveNetInferenceTimes,
-      throughputFps: 0,  // Calculated externally based on elapsed time
+      throughputFps,
       theoreticalFps,
       avgMs,
       minMs,
@@ -738,17 +772,18 @@ class TelemetryLogger {
       keypointStability,
       requested: this.moveNetRequested,
       executed: this.moveNetExecuted,
-      skipped,
+      skipped: this.moveNetSkipped,
       cropMs: avgCropMs,
       resizeMs: avgResizeMs,
       runMs: avgRunMs,
       parseMs: avgParseMs,
+      scheduleWaitMs: avgScheduleWaitMs,
     }
   }
 
   logMoveNetMetrics(): void {
     const metrics = this.getMoveNetMetrics()
-    console.log('[MOVENET]', `crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
+    console.log('[MOVENET]', `schedule=${metrics.scheduleWaitMs.toFixed(1)}ms crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
   }
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
@@ -916,10 +951,14 @@ Current=${summary.battery.endLevel}%
     // Reset granular MoveNet metrics
     this.moveNetRequested = 0
     this.moveNetExecuted = 0
+    this.moveNetSkipped = 0
+    this.moveNetDroppedBusy = 0
+    this.moveNetStartTime = null
     this.moveNetCropTimes = []
     this.moveNetResizeTimes = []
     this.moveNetRunTimes = []
     this.moveNetParseTimes = []
+    this.moveNetScheduleWaitTimes = []
     
     // Reset player tracking metrics
     this.playerDetected = 0
