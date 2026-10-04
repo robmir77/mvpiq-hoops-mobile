@@ -209,11 +209,16 @@ export const useMoveNetWorker = (
       return
     }
 
+    const tCallbackStart = performance.now()
+
+    telemetryLogger.recordRnMoveNetScheduled()
+
     try {
       // Measure scheduling wait time (time from scheduleOnRN to actual execution)
-      const tCallbackStart = performance.now()
       const scheduleWaitMs = tCallbackStart - tScheduleStart
       const workletPrepMs = tScheduleStart - t0
+
+      telemetryLogger.recordRnMoveNetCallbackStart()
 
       // CPU crop + resize to final size (now on JS thread, not in worklet)
       const tCropCpuStart = performance.now()
@@ -519,6 +524,10 @@ export const useMoveNetWorker = (
       }
 
       isProcessing.value = false
+    } finally {
+      const tCallbackEnd = performance.now()
+      const callbackExecutionMs = tCallbackEnd - tCallbackStart
+      telemetryLogger.recordRnMoveNetCallbackExecution(callbackExecutionMs)
     }
   }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, perfMoveNetWorkletPrepTotal, perfMoveNetScheduleWaitTotal])
 
@@ -634,6 +643,8 @@ export const useMoveNetWorker = (
   useEffect(() => {
     const interval = setInterval(() => {
       if (!telemetryHasNewData.value) return
+
+      telemetryLogger.recordRnTelemetryUpdate()
 
       recordTelemetry(
         telemetryInferenceTime.value,
@@ -785,6 +796,8 @@ export const useMoveNetWorker = (
     let cropInfo: PlayerCropResult | null = null
     let usingPlayerCrop = false
     const t0 = performance.now()
+    let cropGeometryMs = 0
+    let bufferExtractMs = 0
 
     try {
       const tCropStart = performance.now()
@@ -847,7 +860,8 @@ export const useMoveNetWorker = (
       }
 
       const tCropEnd = performance.now()
-      const cropMs = tCropEnd - tCropStart
+      cropGeometryMs = tCropEnd - tCropStart
+      const cropMs = cropGeometryMs
 
       const tResizeStart = performance.now()
 
@@ -865,6 +879,7 @@ export const useMoveNetWorker = (
       const resizeMs = tResizeEnd - tResizeStart
 
       if (resized) {
+        const tBufferStart = performance.now()
         const pixelBuffer = resized.getPixelBuffer()
 
         // Convert to Float32Array (resizer outputs float32 in range 0-255)
@@ -874,6 +889,9 @@ export const useMoveNetWorker = (
         const scale = INTERMEDIATE_RESIZE_SIZE / Math.max(frameWidth, frameHeight)
         const intermediateWidth = Math.round(frameWidth * scale)
         const intermediateHeight = Math.round(frameHeight * scale)
+
+        const tBufferEnd = performance.now()
+        bufferExtractMs = tBufferEnd - tBufferStart
 
         if (__DEV__) {
           console.log(
@@ -914,6 +932,7 @@ export const useMoveNetWorker = (
         // ASYNC: Pass intermediate buffer to JS thread for CPU crop + inference
         // CPU crop is now done on JS thread, NOT in worklet (frame processor)
         const tScheduleStart = performance.now()
+
         scheduleOnRN(runMoveNetInference, floatSource, intermediateWidth, intermediateHeight, cropRegion, cropInfo, usingPlayerCrop, frameWidth, frameHeight, timestamp, t0, tScheduleStart, cropMs, resizeMs, resized)
       }
 

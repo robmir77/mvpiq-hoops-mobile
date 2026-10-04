@@ -211,11 +211,15 @@ export const useYoloWorkerAsync = (
 
     isProcessing.value = true
     telemetryLogger.recordYoloRequested()
+    telemetryLogger.recordRnYoloScheduled()
+
+    const tCallbackStart = performance.now()
 
     try {
       const { inputBuffer, frameWidth, frameHeight, timestamp, frameCounter, resizeMs, scheduleStartMs } = frameData
-      const tCallbackStart = performance.now()
       const scheduleWaitMs = tCallbackStart - scheduleStartMs
+
+      telemetryLogger.recordRnYoloCallbackStart()
 
       // Detailed scheduling diagnostics
       console.log('[YoloWorkerAsync] scheduling diagnostics', {
@@ -348,6 +352,10 @@ export const useYoloWorkerAsync = (
     } catch (error) {
       console.error('[YoloWorkerAsync] Error processing frame:', error)
     } finally {
+      const tCallbackEnd = performance.now()
+      const callbackExecutionMs = tCallbackEnd - tCallbackStart
+      telemetryLogger.recordRnYoloCallbackExecution(callbackExecutionMs)
+
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
 
@@ -396,6 +404,7 @@ export const useYoloWorkerAsync = (
     let resized: any = null
     let inputBuffer: ArrayBuffer | null = null
     let resizeMs = 0
+    let bufferExtractMs = 0
 
     try {
       const t0 = performance.now()
@@ -403,29 +412,43 @@ export const useYoloWorkerAsync = (
       const t1 = performance.now()
       resizeMs = t1 - t0
 
+      const tBufferStart = performance.now()
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (source.length === yoloInputElements) {
           inputBuffer = source.buffer as ArrayBuffer
-
-          // Create frame data object with extracted buffer
-          const tScheduleStart = performance.now()
-          const frameData: FrameData = {
-            inputBuffer,
-            frameWidth: frame.width,
-            frameHeight: frame.height,
-            timestamp,
-            frameCounter: frameCounter || 0,
-            resizeMs,
-            scheduleStartMs: tScheduleStart,
-          }
-
-          // Mark as processing and submit to RN runtime
-          isProcessing.value = true
-          scheduleOnRN(processYoloAsync, frameData)
         }
+      }
+      const tBufferEnd = performance.now()
+      bufferExtractMs = tBufferEnd - tBufferStart
+
+      if (inputBuffer) {
+        // Create frame data object with extracted buffer
+        const tScheduleStart = performance.now()
+        const frameData: FrameData = {
+          inputBuffer,
+          frameWidth: frame.width,
+          frameHeight: frame.height,
+          timestamp,
+          frameCounter: frameCounter || 0,
+          resizeMs,
+          scheduleStartMs: tScheduleStart,
+        }
+
+        // Log worklet timing every 100 frames
+        if (frameCounter && frameCounter % 100 === 0) {
+          console.log('[YOLO WORKLET] timing:', {
+            resize: resizeMs.toFixed(1),
+            bufferExtract: bufferExtractMs.toFixed(1),
+            totalWorklet: (resizeMs + bufferExtractMs).toFixed(1)
+          })
+        }
+
+        // Mark as processing and submit to RN runtime
+        isProcessing.value = true
+        scheduleOnRN(processYoloAsync, frameData)
       }
     } catch (error) {
       console.error('[YoloWorkerAsync] Error extracting frame data:', error)

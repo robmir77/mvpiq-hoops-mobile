@@ -42,13 +42,14 @@
 
 ### Primary Bottleneck: RN Runtime Scheduling Contention
 
-**Sintomo:** Schedule wait time variabile 45-134 ms per MoveNet, alto throughput gap
+**Sintomo:** Schedule wait time variabile 45-134 ms per MoveNet, alto throughput gap, YOLO FPS drop da 15 a 4
 
 **Causa:**
 - YOLO e MoveNet eseguono async sullo stesso runtime RN/JS
 - scheduleOnRN() entra in una coda e attende disponibilità runtime
 - Contesa tra YOLO runSync() (~30-40ms) e MoveNet inference (~80-130ms)
 - Il callback async non parte immediatamente dopo scheduleOnRN()
+- **tracking.processFrame() nel BALL callback costa 38-45ms**, contribuendo significativamente alla congestione RN
 
 **Breakdown tipico MoveNet:**
 - Worklet prep: ~5 ms (crop geometry + resize + buffer extraction)
@@ -72,6 +73,8 @@
 - Misurazione scheduleWaitMs per entrambi i worker
 - Worklet prep separato da schedule wait per MoveNet
 - CPU crop spostato fuori dal worklet (non più collo di bottiglia)
+- **Throttling tracking.processFrame() a 100ms** per ridurre lavoro RN del 60-70%
+- **Telemetry RN work metrics** per identificare fonti di congestione (scheduled, callback execution, UI updates)
 
 **Mitigazione (Futuro):**
 - Ridurre contesa RN eliminando trasferimento buffer 640×360×3 (~2.64 MB)
@@ -111,6 +114,8 @@
 - scheduleOnRN per inference async
 - Camera ora 27-30 FPS (target raggiunto)
 - Frame processor non più collo di bottiglia
+- **sharedValueReads broken down per categoria** (camera, yolo, moveNet, playerCrop, tracking, writes)
+- **playerCrop identificato come SharedValue read più costoso**
 
 ### Quaternary Bottleneck: Bridge Calls
 
@@ -454,6 +459,7 @@ RN / JS
 - Log formato: `MOVE fps=3.8 exec=4 attempt=4 skip=0 avg=213.4ms max=303.7ms`
 - Log formato: `MOVE DETAIL prep=Xms schedule=Yms crop=Zms resize=Ams run=Bms parse=Cms`
 - Log formato: `CAM fps=29.6 recv=30 proc=28 drop=2 avg=17.0ms max=32.1ms`
+- Log formato: `[FRAME PROC] yolo=Xms moveNet=Yms tracking=Zms telemetry=Tms sharedValueReads=Sms (camera=C yolo=Y moveNet=M playerCrop=P tracking=T writes=W)`
 
 **NOTA IMPORTANTE sulle metriche FPS:**
 - `throughputFps` (actual): inferences reali per secondo - indica il throughput effettivo
@@ -478,6 +484,7 @@ RN / JS
 - **Detection rate calcolato correttamente:** framesWithBall/yoloExecuted e framesWithPlayer/yoloExecuted
 - **Sorgente FPS unica:** telemetryLogger.getYoloPerfMetrics() (no duplicazioni)
 - Session usage time (minuti:secondi) con persistenza tra unmount/mount
+- **RN work sources identification** (BALL CALLBACK, POSE CALLBACK, TELEMETRY OVERLAY UPDATE)
 
 **Async Queue:**
 - Telemetry queue size
@@ -540,12 +547,13 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
 - Qualità player bbox (PLAYER_CONFIDENCE_THRESH = 0.005 estremamente permissivo)
 - False-positive/suspicious rate
 - Float32 normalizzato vs modello uint8
-- Schedule wait YOLO/MoveNet (contesa RN runtime)
+- Schedule wait YOLO/MoveNet (contesa RN runtime) - **MITIGATO con throttling tracking.processFrame()**
 - ~2.64 MB di buffer intermedio
 - CPU crop su JS thread
 - Delegate MoveNet
 - Camera che resta intorno a ~25 FPS
 - Vera cancellazione di un'inferenza già partita (richiederebbe worklet-safe SharedValue)
+- **Semantic metrics da correggere:** detected vs framesWithBall, ballFrameRate vs detectionCount
 
 Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
 - Stabilizzazione pipeline async attuale

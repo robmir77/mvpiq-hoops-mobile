@@ -224,6 +224,16 @@ class TelemetryLogger {
   private ballTrackingExpired: number = 0
   private ballPredictionAgeMs: number[] = []
 
+  // RN work tracking - measures queue depth and callback execution
+  private rnYoloScheduled: number = 0
+  private rnYoloCallbackStarted: number = 0
+  private rnYoloCallbackExecutionMs: number[] = []
+  private rnMoveNetScheduled: number = 0
+  private rnMoveNetCallbackStarted: number = 0
+  private rnMoveNetCallbackExecutionMs: number[] = []
+  private rnTelemetryUpdates: number = 0
+  private rnUiUpdates: number = 0
+
   private diagnosticWindows: DiagnosticWindowSnapshot[] = []
 
   recordDiagnosticWindow(snapshot: DiagnosticWindowSnapshot): void {
@@ -238,6 +248,62 @@ class TelemetryLogger {
     console.log(`YOLO DETAIL schedule=${snapshot.yoloScheduleWaitMs.toFixed(1)}ms resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
     console.log(`MOVE fps=${snapshot.moveNetThroughputFps.toFixed(1)} exec=${snapshot.moveNetExecuted} attempt=${snapshot.moveNetRequested} skip=${snapshot.moveNetSkipped} avg=${snapshot.moveNetAvgMs.toFixed(1)}ms max=${snapshot.moveNetMaxMs?.toFixed(1) ?? '0.0'}ms`)
     console.log(`MOVE DETAIL prep=${snapshot.moveNetWorkletPrepMs.toFixed(1)}ms schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms resize=${snapshot.moveNetResizeAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
+    this.logRnWorkMetrics()
+  }
+
+  // RN work tracking methods
+  recordRnYoloScheduled(): void {
+    this.rnYoloScheduled++
+  }
+
+  recordRnYoloCallbackStart(): void {
+    this.rnYoloCallbackStarted++
+  }
+
+  recordRnYoloCallbackExecution(executionMs: number): void {
+    this.rnYoloCallbackExecutionMs.push(executionMs)
+    if (this.rnYoloCallbackExecutionMs.length > 300) {
+      this.rnYoloCallbackExecutionMs.shift()
+    }
+  }
+
+  recordRnMoveNetScheduled(): void {
+    this.rnMoveNetScheduled++
+  }
+
+  recordRnMoveNetCallbackStart(): void {
+    this.rnMoveNetCallbackStarted++
+  }
+
+  recordRnMoveNetCallbackExecution(executionMs: number): void {
+    this.rnMoveNetCallbackExecutionMs.push(executionMs)
+    if (this.rnMoveNetCallbackExecutionMs.length > 300) {
+      this.rnMoveNetCallbackExecutionMs.shift()
+    }
+  }
+
+  recordRnTelemetryUpdate(): void {
+    this.rnTelemetryUpdates++
+  }
+
+  recordRnUiUpdate(): void {
+    this.rnUiUpdates++
+  }
+
+  logRnWorkMetrics(): void {
+    const yoloPending = this.rnYoloScheduled - this.rnYoloCallbackStarted
+    const moveNetPending = this.rnMoveNetScheduled - this.rnMoveNetCallbackStarted
+    const yoloAvgCallbackMs = this.rnYoloCallbackExecutionMs.length > 0
+      ? this.rnYoloCallbackExecutionMs.reduce((a, b) => a + b, 0) / this.rnYoloCallbackExecutionMs.length
+      : 0
+    const moveNetAvgCallbackMs = this.rnMoveNetCallbackExecutionMs.length > 0
+      ? this.rnMoveNetCallbackExecutionMs.reduce((a, b) => a + b, 0) / this.rnMoveNetCallbackExecutionMs.length
+      : 0
+
+    console.log('[RN WORK]')
+    console.log(`  yoloScheduled=${this.rnYoloScheduled} yoloCallback=${this.rnYoloCallbackStarted} yoloPending=${yoloPending} yoloCallbackAvg=${yoloAvgCallbackMs.toFixed(1)}ms`)
+    console.log(`  moveNetScheduled=${this.rnMoveNetScheduled} moveNetCallback=${this.rnMoveNetCallbackStarted} moveNetPending=${moveNetPending} moveNetCallbackAvg=${moveNetAvgCallbackMs.toFixed(1)}ms`)
+    console.log(`  telemetryUpdates=${this.rnTelemetryUpdates} uiUpdates=${this.rnUiUpdates}`)
   }
 
   getDiagnosticWindows(): DiagnosticWindowSnapshot[] {

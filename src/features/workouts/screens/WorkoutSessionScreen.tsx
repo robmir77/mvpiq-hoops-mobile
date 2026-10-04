@@ -1543,11 +1543,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Pose callback
     const handlePoseResult = useCallback((result: PoseResult) => {
+        const tStart = performance.now()
         const validKeypoints = Object.values(result.keypoints).filter((kp: any) => kp && kp.score > 0).length
         // TEMP: Commented to reduce log noise during performance investigation
         // console.log('[POSE RESULT] keypoints=', Object.keys(result.keypoints).length, 'valid=', validKeypoints)
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
+        const tEnd = performance.now()
+        const duration = tEnd - tStart
+        if (duration > 5) {
+            console.log('[POSE CALLBACK] slow:', duration.toFixed(1) + 'ms')
+        }
         // console.log('[POSE STATE] setPoseKeypoints called')
     }, [])
 
@@ -1560,7 +1566,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [tracking])
 
     // Ball detection callback (trackingState for events only, visual data via SharedValue/Skia)
+    const lastTrackingProcessAt = useRef<number>(0)
+    const TRACKING_THROTTLE_MS = 100  // Process tracking at most every 100ms
+
     const handleBallDetection = useCallback((detection: BallDetection) => {
+        const tStart = performance.now()
         const ball = detection.ball
         const rim = detection.rim
         const rimForTracking = rimFromDetection ? {
@@ -1577,54 +1587,63 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             confidence: 1.0,
         } : null
 
-        const oldState = tracking.getState()
-        const newState = tracking.processFrame(
-            ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
-            rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
-            Date.now(),  // Use Date.now() for consistent timestamp domain with ballLastSeenAt
-            poseKeypoints,
-            detection.ballSizeCategory,
-            detection.adaptiveThreshold
-        )
-        incrementTrackingUpdates()
-        
-        // Update trackingState ONLY when analytics/event data changes (not visual data)
-        // This eliminates ~15 React renders/sec during tracking
-        if (
-            oldState.shotDetected !== newState.shotDetected ||
-            oldState.shotResult !== newState.shotResult ||
-            oldState.releasePoint !== newState.releasePoint ||
-            oldState.apexPoint !== newState.apexPoint ||
-            oldState.shotQuality !== newState.shotQuality ||
-            oldState.releaseAngle !== newState.releaseAngle
-        ) {
-            setTrackingState({ ...newState })
-        }
-        
-        if (ball || rimForTracking) {
-            const now = detection.timestamp
-            const workoutQueue = workoutQueueRef.current
-            const sampler = telemetrySamplerRef.current
-            if (!workoutQueue || !sampler) return
+        const now = Date.now()
+        const shouldProcess = now - lastTrackingProcessAt.current >= TRACKING_THROTTLE_MS
+
+        if (shouldProcess) {
+            lastTrackingProcessAt.current = now
+            const oldState = tracking.getState()
+            const newState: TrackingState = tracking.processFrame(
+                ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
+                rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
+                now,  // Use Date.now() for consistent timestamp domain with ballLastSeenAt
+                poseKeypoints,
+                detection.ballSizeCategory,
+                detection.adaptiveThreshold
+            )
+            incrementTrackingUpdates()
+
+            // Update trackingState ONLY when analytics/event data changes (not visual data)
+            // This eliminates ~15 React renders/sec during tracking
+            if (
+                oldState.shotDetected !== newState.shotDetected ||
+                oldState.shotResult !== newState.shotResult ||
+                oldState.releasePoint !== newState.releasePoint ||
+                oldState.apexPoint !== newState.apexPoint ||
+                oldState.shotQuality !== newState.shotQuality ||
+                oldState.releaseAngle !== newState.releaseAngle
+            ) {
+                setTrackingState({ ...newState })
+            }
 
             // Backend sampling: 2 Hz (max 2 POST-worthy samples/sec)
-            if (sampler.shouldSample(now)) {
-                workoutQueue.enqueueTelemetry({
-                    frameTimestamp:   now,
-                    ballX:            ball ? ball.x : undefined,
-                    ballY:            ball ? ball.y : undefined,
-                    ballWidth:        ball ? ball.width : undefined,
-                    ballHeight:       ball ? ball.height : undefined,
-                    ballConfidence:   ball?.confidence,
-                    hoopX:            rimForTracking ? rimForTracking.x : undefined,
-                    hoopY:            rimForTracking ? rimForTracking.y : undefined,
-                    hoopConfidence:   rimForTracking?.confidence,
-                    ballVelocityX:    newState.ballVelocity?.vx,
-                    ballVelocityY:    newState.ballVelocity?.vy,
-                    shotDetected:     newState.shotDetected,
-                    trajectoryData:   { points: newState.trajectory.slice(-10) },
-                } as FrameDataPayload)
+            if (ball || rimForTracking) {
+                const workoutQueue = workoutQueueRef.current
+                const sampler = telemetrySamplerRef.current
+                if (workoutQueue && sampler && sampler.shouldSample(now)) {
+                    workoutQueue.enqueueTelemetry({
+                        frameTimestamp:   now,
+                        ballX:            ball ? ball.x : undefined,
+                        ballY:            ball ? ball.y : undefined,
+                        ballWidth:        ball ? ball.width : undefined,
+                        ballHeight:       ball ? ball.height : undefined,
+                        ballConfidence:   ball?.confidence,
+                        hoopX:            rimForTracking ? rimForTracking.x : undefined,
+                        hoopY:            rimForTracking ? rimForTracking.y : undefined,
+                        hoopConfidence:   rimForTracking?.confidence,
+                        ballVelocityX:    newState.ballVelocity?.vx,
+                        ballVelocityY:    newState.ballVelocity?.vy,
+                        shotDetected:     newState.shotDetected,
+                        trajectoryData:   { points: newState.trajectory.slice(-10) },
+                    } as FrameDataPayload)
+                }
             }
+        }
+
+        const tEnd = performance.now()
+        const duration = tEnd - tStart
+        if (duration > 5) {
+            console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms')
         }
     }, [tracking, calibration, rimFromDetection, poseKeypoints])
 

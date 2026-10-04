@@ -876,6 +876,23 @@ export const useShotTracker = (
                 perfFramesProcessed.value += 1
                 const frameStartTime = performance.now()
 
+                // Granular timing for frame processor phases
+                let tYoloStart = 0
+                let tYoloEnd = 0
+                let tMoveNetStart = 0
+                let tMoveNetEnd = 0
+                let tTrackingStart = 0
+                let tTrackingEnd = 0
+                let tTelemetryStart = 0
+                let tTelemetryEnd = 0
+                let tSharedValueReadsStart = 0
+                let tSharedValueReadsEnd = 0
+                let tYoloSharedValueReads = 0
+                let tPlayerCropSharedValueReads = 0
+                let tTrackingSharedValueReads = 0
+                let tMoveNetSharedValueReads = 0
+                let tSharedValueWrites = 0
+
                 // Emit exactly one diagnostic record per ~1s window. The snapshot is
                 // intentionally based on current-window counters, not cumulative averages.
                 const maybeFlushDiagnosticWindow = (now: number) => {
@@ -1019,6 +1036,7 @@ export const useShotTracker = (
                     const timestamp = Date.now()
 
                     // Call YOLO worker every frame - it handles its own throttling internally
+                    tYoloStart = performance.now()
                     if (ballEnabledShared.value) {
                         if (TEST_CONFIG.ENABLE_ASYNC_YOLO_POC) {
                             // Async YOLO: submit frame and return immediately
@@ -1085,8 +1103,10 @@ export const useShotTracker = (
                             }
                         }
                     }
+                    tYoloEnd = performance.now()
 
                     // Call MoveNet worker every frame - it handles its own throttling internally
+                    tMoveNetStart = performance.now()
                     if (poseEnabledShared.value) {
                         // Get effective bbox from PlayerCropManager for MoveNet crop
                         const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
@@ -1115,12 +1135,16 @@ export const useShotTracker = (
                             moveNetWorker.processFrame(frame, timestamp)
                         }
                     }
+                    tMoveNetEnd = performance.now()
 
                     // Process worker results (get latest available from shared values)
+                    tSharedValueReadsStart = performance.now()
+
+                    // YOLO shared value reads
+                    const tYoloSvStart = performance.now()
                     const rawBall = yoloWorker.latestResultBall.value
                     const rawPlayer = yoloWorker.latestResultPlayer.value
                     const rawRim = yoloWorker.latestResultRim.value
-
                     const yoloResult = {
                         ball: rawBall ? { ...rawBall } : null,
                         player: rawPlayer ? { ...rawPlayer } : null,
@@ -1128,9 +1152,10 @@ export const useShotTracker = (
                         debug: yoloWorker.latestResultDebug.value,
                         timestamp: yoloWorker.latestResultTimestamp.value
                     }
+                    tYoloSharedValueReads = performance.now() - tYoloSvStart
 
-                    // Update playerCrop from shared values (set by handleYoloAsyncResult on RN thread)
-                    // This must happen in worklet context, not from RN thread
+                    // PlayerCrop shared value reads + writes
+                    const tPlayerCropSvStart = performance.now()
                     if (playerX.value !== 0 || playerY.value !== 0) {
                         playerCrop.update({
                             x: playerX.value,
@@ -1142,13 +1167,14 @@ export const useShotTracker = (
                     } else {
                         playerCrop.update(null)
                     }
+                    tPlayerCropSharedValueReads = performance.now() - tPlayerCropSvStart
 
-                    // Update rim tracking state
+                    // Tracking shared value writes
+                    const tTrackingSvStart = performance.now()
                     if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
                         rimTrackState.value = 'DETECTED'
                         rimTrackAge.value = 0
                     } else if (rimFromCalibration) {
-                        // Using calibration point as fallback
                         rimTrackState.value = 'PREDICTED'
                         rimTrackAge.value = 0
                     } else {
@@ -1156,19 +1182,27 @@ export const useShotTracker = (
                         rimTrackAge.value = 0
                     }
 
-                    // Update rejection reasons from debug data
                     if (yoloResult.debug) {
                         ballRejectionReason.value = yoloResult.debug.ballRejectionReason || ''
                         rimRejectionReason.value = yoloResult.debug.rimRejectionReason || ''
                     }
+                    tTrackingSharedValueReads = performance.now() - tTrackingSvStart
+
+                    // MoveNet shared value reads
+                    const tMoveNetSvStart = performance.now()
                     const poseResult = {
                         keypoints: moveNetWorker.latestResultKeypoints.value,
                         angles: moveNetWorker.latestResultAngles.value,
                         timestamp: moveNetWorker.latestResultTimestamp.value
                     }
+                    tMoveNetSharedValueReads = performance.now() - tMoveNetSvStart
 
-                    // Process YOLO result - send every result even without ball to enable Kalman prediction
+                    // Shared value writes (counters)
+                    const tSvWritesStart = performance.now()
                     perfYoloBallDetected.value += (yoloResult.ball ? 1 : 0)
+                    tSharedValueWrites = performance.now() - tSvWritesStart
+
+                    tSharedValueReadsEnd = performance.now()
 
                     const detection: BallDetection = {
                         ball: yoloResult.ball ?? undefined,
@@ -1233,11 +1267,36 @@ export const useShotTracker = (
                     }
 
                 } finally {
-
+                    tTelemetryStart = performance.now()
                     const frameDurationMs = performance.now() - frameStartTime
                     perfFrameDurationTotal.value += frameDurationMs
                     perfFrameDurationMax.value = Math.max(perfFrameDurationMax.value, frameDurationMs)
                     maybeFlushDiagnosticWindow(Date.now())
+                    tTelemetryEnd = performance.now()
+
+                    // Log frame processor phase breakdown every 100 frames
+                    if (currentFrame % 100 === 0) {
+                        const yoloMs = tYoloEnd - tYoloStart
+                        const moveNetMs = tMoveNetEnd - tMoveNetStart
+                        const sharedValueReadsMs = tSharedValueReadsEnd - tSharedValueReadsStart
+                        const telemetryMs = tTelemetryEnd - tTelemetryStart
+                        const otherMs = frameDurationMs - yoloMs - moveNetMs - sharedValueReadsMs - telemetryMs
+                        console.log('[FRAME PROC] breakdown:', {
+                            total: frameDurationMs.toFixed(1),
+                            yolo: yoloMs.toFixed(1),
+                            moveNet: moveNetMs.toFixed(1),
+                            sharedValueReads: sharedValueReadsMs.toFixed(1),
+                            telemetry: telemetryMs.toFixed(1),
+                            other: otherMs.toFixed(1)
+                        })
+                        console.log('[FRAME PROC] sharedValueReads breakdown:', {
+                            yolo: tYoloSharedValueReads.toFixed(1),
+                            playerCrop: tPlayerCropSharedValueReads.toFixed(1),
+                            tracking: tTrackingSharedValueReads.toFixed(1),
+                            moveNet: tMoveNetSharedValueReads.toFixed(1),
+                            writes: tSharedValueWrites.toFixed(1)
+                        })
+                    }
 
                     // Reset reentrancy guard
                     isProcessingFrame.value = false

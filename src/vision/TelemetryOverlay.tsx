@@ -100,6 +100,9 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     const interval = setInterval(() => {
       if (!visible) return
 
+      const tStart = performance.now()
+      telemetryLogger.recordRnUiUpdate()
+
       const yoloPerf = telemetryLogger.getYoloPerfMetrics()
       const bboxMetrics = telemetryLogger.getBboxStabilityMetrics()
       const fpMetrics = telemetryLogger.getFalsePositiveMetrics()
@@ -127,6 +130,11 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
 
       // Player metrics
       setPlayerMetrics(telemetryLogger.getPlayerDetectionMetrics(pipelineMetrics.processed))
+      const tEnd = performance.now()
+      const duration = tEnd - tStart
+      if (duration > 5) {
+        console.log('[TELEMETRY OVERLAY UPDATE] slow:', duration.toFixed(1) + 'ms')
+      }
     }, 500)
 
     return () => clearInterval(interval)
