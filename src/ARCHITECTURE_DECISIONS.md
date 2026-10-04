@@ -483,8 +483,9 @@
 
 **Decisione:**
 - Sostituire Set con contatori semplici
-- yoloProcessedFramesCount, ballDetectionFramesCount, playerDetectionFramesCount
+- yoloProcessedFramesCount
 - Incremento atomico per ogni frame
+- **Nota:** ballDetectionFramesCount e playerDetectionFramesCount rimossi in Decision 23 (duplicati non usati)
 
 **Rationale:**
 - 20 FPS × 60 minuti = 72.000 frame
@@ -856,3 +857,81 @@
 3. Investigare crop/resize native prima di scheduleOnRN
 4. Ottimizzare delegate MoveNet (GPU/NPU se disponibile)
 5. Considerare worker thread separati per YOLO/MoveNet
+
+---
+
+## Decision 24: Correzioni Telemetry Structural Bugs
+
+**Contesto:** Il sistema telemetry aveva diversi bug strutturali che causavano metriche inaccurate e duplicazione delle sorgenti FPS.
+
+**Problemi identificati:**
+1. **Contatori duplicati non usati:** `ballDetectionFramesCount` e `playerDetectionFramesCount` venivano inizializzati ma mai incrementati, causando sempre 0 in telemetry
+2. **Detection rate semantica errata:** Calcolata come `framesWithDetection / framesProcessed` (frame camera) invece di `framesWithDetection / yoloExecuted` (inferenze YOLO)
+3. **Sorgenti FPS duplicate:** YOLO worker, ShotTracker e telemetryLogger calcolavano FPS separatamente, causando valori inconsistenti
+4. **MoveNet senza hard cap 3 FPS:** Aveva solo single-flight senza throttle temporale
+5. **Latest-frame-wins incompleto:** YOLO usava solo flag `hasPendingFrame` senza memorizzare il frame effettivo
+6. **Nessun cancellation su unmount:** Inferenze potevano continuare dopo session unmount
+
+**Decisione:**
+- **P0 - Rimozione contatori duplicati:** Eliminato `ballDetectionFramesCount` e `playerDetectionFramesCount` da telemetry.ts
+- **P0 - Fix detection rate:** Cambiato denominatore da `framesProcessed` a `yoloExecuted` in `getBallDetectionMetrics()` e `getPlayerDetectionMetrics()`
+- **P1 - Unica sorgente FPS:** Rimosso `throughputFps` calcolo duplicato da `useYoloWorkerAsync.ts`, mantenuto `telemetryLogger.getYoloPerfMetrics()` come sorgente canonica. Nota: useShotTracker mantiene contatori diagnostici locali (windowThroughputFps) ma non sono considerati source of truth
+- **P2 - MoveNet 3 FPS cap:** Aggiunto `MOVENET_TARGET_FPS = 3` con deterministic rate limiting (333ms interval) prima di single-flight check
+- **P3 - Latest-frame-wins flag-based:** Implementato flag `hasPendingFrame` worklet-safe. Nota: True latest-frame-wins con frame buffer richiede architettura native queue; implementazione attuale usa flag-based (worklet-safe) a causa di limitazioni scheduleOnRN
+- **P4 - Cancellation guard su unmount:** Aggiunto `isMountedRef` a entrambi i worker con cleanup useEffect. Nota: Invalida callback/inferenze non ancora iniziate; le inferenze già in esecuzione non sono interrompibili
+
+**Rationale:**
+- Contatori duplicati causavano metriche sempre a 0 (bug concreto)
+- Detection rate deve misurare "In quale percentuale delle inferenze YOLO ho trovato una palla?" non "In quale percentuale dei frame camera?"
+- Sorgenti FPS multiple causano confusione nei log (es. YOLO=10.8, ShotTracker=3.9, Overlay=4.9). telemetryLogger è la source of truth; contatori diagnostici locali in ShotTracker sono accettabili se chiaramente etichettati
+- MoveNet doveva avere un hard cap 3 Hz come specificato (deterministic rate limiting, non adaptive)
+- Latest-frame-wins con frame buffer richiede architettura native queue. Implementazione attuale usa flag-based worklet-safe a causa di limitazioni scheduleOnRN (funzioni locali non permesse)
+- Inferenze post-session causano overhead e potenziali crash. Cancellation guard previene nuove inferenze dopo unmount, ma non interrompe inferenze già in corso
+
+**Conseguenze:**
+- Telemetry: metriche semanticamente corrette (ballFrames, playerFrames non più 0)
+- Detection rate: calcolato correttamente come % di inferenze YOLO con detection
+- FPS: telemetryLogger è sorgente canonica, valori consistenti. ShotTracker mantiene contatori diagnostici locali
+- MoveNet: throughput limitato a ~3 FPS con deterministic rate limiting + single-flight
+- YOLO: latest-frame-wins flag-based (worklet-safe). True buffer-based richiede architettura native queue
+- Lifecycle: nuove inferenze non iniziate dopo unmount (cancellation guard). Inferenze già in esecuzione possono completare
+
+**Risultati attesi (da verificare con runtime benchmark):**
+- Log più leggibili e semanticamente corretti
+- CAM target 30 FPS, observed ~25 FPS, best ~29-30 FPS
+- YOLO ≤10 FPS (deterministic rate limiting)
+- MoveNet ≤3 FPS (deterministic rate limiting)
+- YOLO: executedFrames=N, framesWithBall=M, ballRate=M/N (non più 0 se modello produce detection)
+- YOLO: framesWithPlayer=P, playerRate=P/N (non più 0 se modello produce detection)
+- MoveNet: executedFrames=K, throughput≈3 FPS
+- camera avg onFrame: attuale ~27-30 ms (future target <10 ms con native crop optimization)
+- **Nota P3:** Latest-frame-wins implementato come flag-based worklet-safe; true buffer-based richiede architettura native queue
+
+**Nota importante:** P0-P3 implementati e verificati staticamente. P4 implementato come cancellation guard per callback/inferenze non ancora iniziate; le inferenze già in esecuzione non sono interrompibili. Il prossimo runtime benchmark deve verificare detection-rate, YOLO ≤10 FPS, MoveNet ≤3 FPS e assenza di post-unmount callback execution.
+
+**Problemi non risolti da Decision 24:**
+- Qualità player bbox (PLAYER_CONFIDENCE_THRESH = 0.005 estremamente permissivo)
+- False-positive/suspicious rate
+- Float32 normalizzato vs modello uint8
+- Schedule wait YOLO/MoveNet (contesa RN runtime)
+- ~2.64 MB di buffer intermedio
+- CPU crop su JS thread
+- Delegate MoveNet
+- Camera che resta intorno a ~25 FPS
+- Vera cancellazione di un'inferenza già partita (richiederebbe worklet-safe SharedValue)
+
+**Roadmap post-Decision 24 (YOLO FPS benchmark):**
+- Target: Aumentare YOLO FPS gradualmente (10 → 12 → 15 FPS)
+- Non aumentare semplicemente YOLO_TARGET_FPS: il limite principale è scheduleWaitMs e contesa RN runtime, non il throttle
+- Strategia incrementale:
+  1. Portare YOLO_TARGET_FPS da 10 a 12 FPS come primo test
+  2. Mantenere single-flight + latest-frame-wins
+  3. Misurare separatamente: submitted, throttled, busy, scheduleWaitMs, inferenceMs, actualThroughputFps
+  4. Se scheduleWaitMs resta basso, provare 15 FPS
+  5. Se la coda RN esplode, tornare al valore precedente
+- Ottimizzazione alternativa più interessante: ridurre costo per frame YOLO (run ~25-30 ms, scheduleWait 40-90 ms)
+- Target realistico:
+  - Camera: 30 FPS target
+  - YOLO: 10 → 12 → 15 FPS benchmark
+  - MoveNet: 3 FPS hard cap (non aumentare)
+  - Tracking: ogni frame

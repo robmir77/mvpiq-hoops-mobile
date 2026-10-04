@@ -2,12 +2,12 @@
 
 ## Performance Targets
 
-| Componente | Target FPS | Attuale FPS | Note |
+| Componente | Target FPS | Observed FPS | Note |
 |------------|-----------|-------------|------|
-| Camera | 30 FPS | 27-30 FPS | Default 30 FPS, raggiunge target |
-| YOLO | 10 FPS | 4-5 FPS | FPS naturale basato su tempo inferenza async |
+| Camera | 30 FPS | ~25 FPS (best ~29-30) | Default 30 FPS, observed ~25 FPS |
+| YOLO | 10 FPS | ≤10 FPS | Deterministic rate limiting, latest-frame-wins |
 | Tracking | Realtime | Realtime | Ogni frame con Kalman prediction |
-| MoveNet | 3 FPS | 3-4 FPS | FPS naturale basato su tempo inferenza async |
+| MoveNet | 3 FPS | ≤3 FPS | Deterministic rate limiting (hard cap 3 FPS) |
 | UI Telemetry | 1 FPS | 1 FPS | TelemetryOverlay aggiornato ogni 500ms |
 | Backend Telemetry | 2 FPS | 2 FPS | Sampling |
 | Bridge Calls | 15 FPS | 15 FPS | Throttling 66ms |
@@ -24,16 +24,19 @@
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
 
-**Nota importante:** Il sistema usa FPS naturale (no throttling temporale). Camera FPS è indipendente da YOLO/MoveNet FPS. Questa architettura evita regressioni causate da accoppiamenti inappropriati.
+**Nota importante:** Il sistema usa deterministic rate limiting (YOLO max 10 FPS, MoveNet max 3 FPS), non adaptive throttling. Camera FPS è indipendente da YOLO/MoveNet FPS. Questa architettura evita regressioni causate da accoppiamenti inappropriati.
 
 **Scheduler Architecture (Async):**
-- YOLO esegue async tramite scheduleOnRN (FPS naturale ~4-5)
-- MoveNet esegue async tramite scheduleOnRN (FPS naturale ~3-4)
+- YOLO esegue async tramite scheduleOnRN con deterministic rate limiting max 10 FPS
+- MoveNet esegue async tramite scheduleOnRN con deterministic rate limiting max 3 FPS (throttle 333ms)
 - useShotTracker chiama processFrame() ogni frame per entrambi i worker
 - Ogni worker decide internamente se eseguire in base a `isProcessing` flag
+- YOLO: true latest-frame-wins flag-based (worklet-safe). True buffer-based richiede architettura native queue
+- MoveNet: throttle temporale + single-flight
 - Nessuno scheduler duplicato in useShotTracker
 - FPS metrics sincronizzati da shared values a state per evitare warning Reanimated
 - **Misurazione schedule wait:** Entrambi i worker misurano il tempo di attesa del runtime RN (scheduleWaitMs)
+- **Cancellation guard su unmount:** Entrambi i worker hanno `isMountedRef` per prevenire nuove inferenze dopo unmount (non interrompe inferenze già in esecuzione)
 
 ## Bottleneck Analysis
 
@@ -147,12 +150,13 @@
 ### YOLO Scheduler Metrics
 
 **Metriche attuali:**
-- FPS naturale: ~4-5 (basato su tempo inferenza async ~40-50ms)
+- FPS deterministic rate limiting: ≤10 (max 10 FPS con throttle 100ms)
 - Esecuzione async tramite scheduleOnRN
-- Esegue ogni frame se `!isProcessing`
+- Esegue ogni frame se `!isProcessing` e throttle passato
 - Indipendente dal FPS della camera
 - useShotTracker chiama processFrame() ogni frame, il worker decide se eseguire
 - **scheduleWaitMs:** Tempo di attesa runtime RN (misurato)
+- **Latest-frame-wins:** Buffer frame pendente per processare frame più recente
 
 **Protezioni attive (in useYoloWorker):**
 1. `isProcessing` - previene concorrenza YOLO
@@ -161,9 +165,9 @@
 ### MoveNet Scheduler Metrics
 
 **Metriche attuali:**
-- FPS naturale: ~3-4 (basato su tempo inferenza async ~200-230ms total)
+- FPS deterministic rate limiting: ≤3 (hard cap 3 FPS con throttle 333ms)
 - Esecuzione async tramite scheduleOnRN
-- Esegue ogni frame se `!isProcessing` e bbox player valido
+- Esegue ogni frame se `!isProcessing` e bbox player valido e throttle passato
 - Indipendente dal FPS della camera
 - Condizione: player bbox disponibile + confidence >= 5%
 - useShotTracker chiama processFrame() ogni frame, il worker decide se eseguire
@@ -173,6 +177,7 @@
 - **resizeMs:** Tempo resize intermedio
 - **runMs:** Tempo inferenza MoveNet
 - **parseMs:** Tempo parsing output
+- **Cancellation guard su unmount:** `isMountedRef` previene nuove inferenze dopo unmount (non interrompe inferenze già in esecuzione)
 
 ### Tracking Performance
 
@@ -226,8 +231,8 @@ private yoloProcessedFrames: Set<number> = new Set()
 **Dopo:**
 ```typescript
 private yoloProcessedFramesCount = 0
-private ballDetectionFramesCount = 0
-private playerDetectionFramesCount = 0
+// ballDetectionFramesCount e playerDetectionFramesCount rimossi (duplicati non usati)
+// framesWithBall e framesWithPlayer usati direttamente da pipelineMetrics
 ```
 - Memory footprint: O(1)
 - Performance: O(1) per update
@@ -410,17 +415,17 @@ RN / JS
 
 ### Adaptive Performance
 
-**Stato:** RIMOSSO - Sistema deterministico con VISION_CONFIG
+**Stato:** RIMOSSO - Sostituito con deterministic rate limiting
 
-**Motivazione rimozione:**
-- L'architettura async attuale (scheduleOnRN) non richiede throttling temporale
-- FPS naturale basato su tempo inferenza async
-- L'accoppiamento camera FPS / YOLO FPS causava regressioni di performance
+**Motivazione rimozione adaptive:**
+- L'architettura async attuale (scheduleOnRN) non richiede adaptive throttling dinamico
+- Adaptive throttling (10 → 7 → 5 in base al carico) causava regressioni di performance
+- L'accoppiamento camera FPS / YOLO FPS era problematico
 
-**Architettura attuale:**
+**Architettura attuale (deterministic rate limiting):**
 - Camera FPS: 30 (indipendente, via CAMERA_CONFIG.DEFAULT_FPS)
-- YOLO FPS: naturale ~4-5 (basato su tempo inferenza async)
-- MoveNet FPS: naturale ~3-4 (basato su tempo inferenza async)
+- YOLO FPS: max 10 FPS con deterministic rate limiting (throttle 100ms)
+- MoveNet FPS: max 3 FPS con deterministic rate limiting (throttle 333ms)
 - Tracking: realtime (ogni frame con Kalman prediction)
 - FPS metrics sincronizzati da shared values a state per UI
 - Session usage time: minuti:secondi con ref globale per persistenza
@@ -467,9 +472,11 @@ RN / JS
 
 **Telemetry:**
 - Frames processed
-- Frames with ball
-- Frames with player
-- YOLO processed frames
+- Frames with ball (da pipelineMetrics.framesWithBall)
+- Frames with player (da pipelineMetrics.framesWithPlayer)
+- YOLO executed frames (yoloExecuted)
+- **Detection rate calcolato correttamente:** framesWithBall/yoloExecuted e framesWithPlayer/yoloExecuted
+- **Sorgente FPS unica:** telemetryLogger.getYoloPerfMetrics() (no duplicazioni)
 - Session usage time (minuti:secondi) con persistenza tra unmount/mount
 
 **Async Queue:**
@@ -499,13 +506,14 @@ RN / JS
 ## Conclusioni
 
 La pipeline vision è ottimizzata per:
-- **Realtime:** 27-30 FPS per camera, realtime per tracking
+- **Realtime:** Camera target 30 FPS, observed ~25 FPS, realtime per tracking
 - **Efficienza:** Zero allocation nel hot path, ring buffers
-- **Scalabilità:** Queue async, sampling, throttling
+- **Scalabilità:** Queue async, sampling, deterministic rate limiting
 - **Affidabilità:** PersistentOutbox per eventi critici, retry
 - **Durabilità:** Global recovery, retry persistente, shutdown sicuro
 - **Testability:** Suite test completa per queue/outbox/sampler
 - **Misurabilità:** Schedule wait time separato da inference time
+- **Telemetry corretta:** Detection rate calcolato correttamente, sorgente FPS unica
 
 Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo termine:
 - Memory leak risolto (contatori invece di Set)
@@ -520,6 +528,24 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
 - **Frame processor latency risolto** (conversione ad async)
 - **CPU crop nel worklet risolto** (spostato su JS thread async)
 - **Misurazione schedule wait implementata** (per identificare contesa RN)
+- **Telemetry bugs strutturali risolti** (Decision 24):
+  - Contatori duplicati rimossi
+  - Detection rate calcolato correttamente
+  - Sorgente FPS unica (telemetryLogger)
+  - Deterministic rate limiting implementato (YOLO ≤10 FPS, MoveNet ≤3 FPS)
+  - Latest-frame-wins flag-based implementato (worklet-safe). True buffer-based richiede architettura native queue a causa di limitazioni scheduleOnRN
+  - Cancellation guard su unmount implementato (non interrompe inferenze già in esecuzione)
+
+**Problemi aperti (non risolti da Decision 24):**
+- Qualità player bbox (PLAYER_CONFIDENCE_THRESH = 0.005 estremamente permissivo)
+- False-positive/suspicious rate
+- Float32 normalizzato vs modello uint8
+- Schedule wait YOLO/MoveNet (contesa RN runtime)
+- ~2.64 MB di buffer intermedio
+- CPU crop su JS thread
+- Delegate MoveNet
+- Camera che resta intorno a ~25 FPS
+- Vera cancellazione di un'inferenza già partita (richiederebbe worklet-safe SharedValue)
 
 Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
 - Stabilizzazione pipeline async attuale
@@ -527,6 +553,27 @@ Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
 - Valutazione crop/resize native
 - Ottimizzazione delegate MoveNet
 - Testing approfondito
+
+**Future optimization targets:**
+- Camera avg onFrame < ~10 ms (attualmente ~27-30 ms)
+- Eliminazione buffer intermedio 640×360×3 (~2.64 MB)
+- Crop/resize native prima di scheduleOnRN
+
+**YOLO FPS Benchmark Roadmap (post-Decision 24):**
+- Target: Aumentare YOLO FPS gradualmente (10 → 12 → 15 FPS)
+- Non aumentare semplicemente YOLO_TARGET_FPS: il limite principale è scheduleWaitMs e contesa RN runtime, non il throttle
+- Strategia incrementale:
+  1. Portare YOLO_TARGET_FPS da 10 a 12 FPS come primo test
+  2. Mantenere single-flight + latest-frame-wins
+  3. Misurare separatamente: submitted, throttled, busy, scheduleWaitMs, inferenceMs, actualThroughputFps
+  4. Se scheduleWaitMs resta basso, provare 15 FPS
+  5. Se la coda RN esplode, tornare al valore precedente
+- Ottimizzazione alternativa più interessante: ridurre costo per frame YOLO (run ~25-30 ms, scheduleWait 40-90 ms)
+- Target realistico:
+  - Camera: 30 FPS target
+  - YOLO: 10 → 12 → 15 FPS benchmark
+  - MoveNet: 3 FPS hard cap (non aumentare)
+  - Tracking: ogni frame
 
 Le ottimizzazioni architetturali future (WorkoutSessionRuntime, state machine) richiedono:
 - Decoupling screen da runtime

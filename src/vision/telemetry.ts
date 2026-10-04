@@ -183,8 +183,6 @@ class TelemetryLogger {
     poseUpdates: 0,
     overlayRendered: 0,
   }
-  private ballDetectionFramesCount: number = 0
-  private playerDetectionFramesCount: number = 0
   private yoloProcessedFramesCount: number = 0
   private batteryMetrics: BatteryMetrics | null = null
   private deviceMetrics: DeviceMetrics | null = null
@@ -357,20 +355,24 @@ class TelemetryLogger {
 
   recordBallDetection(confidence: number): void {
     this.ballDetections.push({ confidence, timestamp: Date.now() })
-    this.ballDetectionFramesCount++
-    this.pipelineMetrics.framesWithBall++
     if (this.ballDetections.length > 600) {
       this.ballDetections.shift()
     }
   }
 
+  recordYoloFrameWithBall(): void {
+    this.pipelineMetrics.framesWithBall++
+  }
+
   recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }): void {
     this.playerDetections.push({ confidence, bbox, timestamp: Date.now() })
-    this.playerDetectionFramesCount++
-    this.pipelineMetrics.framesWithPlayer++
     if (this.playerDetections.length > 600) {
       this.playerDetections.shift()
     }
+  }
+
+  recordYoloFrameWithPlayer(): void {
+    this.pipelineMetrics.framesWithPlayer++
   }
 
   recordMoveNetInference(inferenceTimeMs: number): void {
@@ -563,8 +565,8 @@ class TelemetryLogger {
       dropped: droppedBusy,
       dropRate: received > 0 ? (droppedBusy / received) * 100 : 0,
       yoloExecuted: this.yoloExecuted,
-      framesWithBall: this.ballDetectionFramesCount,
-      framesWithPlayer: this.playerDetectionFramesCount,
+      framesWithBall: this.pipelineMetrics.framesWithBall,
+      framesWithPlayer: this.pipelineMetrics.framesWithPlayer,
       trackingAccepted,
       poseUpdates: this.pipelineMetrics.poseUpdates,
       overlayRendered,
@@ -639,7 +641,9 @@ class TelemetryLogger {
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
     const framesWithDetection = this.pipelineMetrics.framesWithBall
-    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
+    // Use yoloExecuted as denominator to measure: "In what percentage of YOLO inferences did I find a ball?"
+    const yoloExecuted = this.yoloExecuted
+    const detectionRate = yoloExecuted > 0 ? (framesWithDetection / yoloExecuted) * 100 : 0
 
     return {
       framesProcessed,
@@ -691,7 +695,9 @@ class TelemetryLogger {
     const minConfidence = Math.min(...confidences)
     const maxConfidence = Math.max(...confidences)
     const framesWithDetection = this.pipelineMetrics.framesWithPlayer
-    const detectionRate = framesProcessed > 0 ? (framesWithDetection / framesProcessed) * 100 : 0
+    // Use yoloExecuted as denominator to measure: "In what percentage of YOLO inferences did I find a player?"
+    const yoloExecuted = this.yoloExecuted
+    const detectionRate = yoloExecuted > 0 ? (framesWithDetection / yoloExecuted) * 100 : 0
     const bboxSizes = this.playerDetections.map(d => d.bbox.w * d.bbox.h)
     const avgBboxSize = bboxSizes.reduce((a, b) => a + b, 0) / bboxSizes.length
     if (this.playerDetections.length < 2) {
@@ -957,8 +963,6 @@ Current=${summary.battery.endLevel}%
     this.moveNetKeypoints = []
     this.falsePositives.clear()
     this.bboxHistory = []
-    this.ballDetectionFramesCount = 0
-    this.playerDetectionFramesCount = 0
     this.yoloProcessedFramesCount = 0
     this.pipelineMetrics = {
       cameraFPS: 0,

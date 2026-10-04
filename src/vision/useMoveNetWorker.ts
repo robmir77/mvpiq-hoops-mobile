@@ -19,6 +19,7 @@ import { ENABLE_MOVENET_LOGS } from '@/config/debugConfig'
 
 const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the registry
 const INTERMEDIATE_RESIZE_SIZE = 640 // Intermediate resize for crop optimization (reduces CPU crop work)
+const MOVENET_TARGET_FPS = 3 // Fixed target FPS for MoveNet
 
 // DIAGNOSTIC FLAG: Disable MoveNet execution to measure YOLO + tracking + crop calculation performance
 const ENABLE_MOVENET = true
@@ -110,6 +111,10 @@ export const useMoveNetWorker = (
   const latestCropInfo = useSharedValue<PlayerCropResult | null>(null)
 
   const isProcessing = useSharedValue(false)
+  const lastSubmitTimestamp = useSharedValue(0)
+
+  // Cancellation token to prevent post-session inferences
+  const isMountedRef = useRef(true)
 
   const executionCount = useSharedValue(0)
   const lastInferenceMs = useSharedValue(0)
@@ -191,6 +196,18 @@ export const useMoveNetWorker = (
     resizeMs: number,
     resized: any
   ) => {
+    // Skip if unmounted
+    if (!isMountedRef.current) {
+      // Release GPUFrame if unmounted
+      if (resized) {
+        try {
+          resized.dispose()
+        } catch (e) {
+        }
+      }
+      return
+    }
+
     try {
       // Measure scheduling wait time (time from scheduleOnRN to actual execution)
       const tCallbackStart = performance.now()
@@ -512,6 +529,14 @@ export const useMoveNetWorker = (
     }
   }, [poseModel.state, poseModel.model, isReady, poseInputSize])
 
+  // Cleanup on unmount: cancel pending work
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
   // Configure intermediate resizer for crop optimization
   // Resize to intermediate size first, then CPU crop, then resize to final size
   // This reduces CPU crop work compared to cropping from full resolution
@@ -657,7 +682,21 @@ export const useMoveNetWorker = (
   const processFrame = useCallback((frame: any, timestamp: number) => {
     'worklet'
 
-    // Latest-frame-wins: skip immediately if busy to avoid any preprocessing work
+    const now = Date.now()
+    const timeSinceLastSubmit = now - lastSubmitTimestamp.value
+    const minIntervalMs = 1000 / MOVENET_TARGET_FPS
+
+    // Gate 1: Throttle to target FPS (3 FPS)
+    if (timeSinceLastSubmit < minIntervalMs) {
+      telemetrySkipped.value += 1
+      if (perfMoveNetSkipped) {
+        perfMoveNetSkipped.value += 1
+      }
+      return
+    }
+    lastSubmitTimestamp.value = now
+
+    // Gate 2: Single-flight - skip if busy to avoid any preprocessing work
     if (!poseModelInstance || isProcessing.value || !enabled || !ENABLE_MOVENET) {
       if (isProcessing.value) {
         telemetryDroppedBusy.value += 1
@@ -891,7 +930,7 @@ export const useMoveNetWorker = (
 
       isProcessing.value = false
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryScheduleWaitMs, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, telemetryDroppedBusy, telemetrySkipped, telemetryRequested, telemetryExecuted, lastDisposeTimestamp, poseInputSize, perfMoveNetRequested, perfMoveNetExecuted, perfMoveNetSkipped, perfMoveNetInferenceTotal, perfMoveNetInferenceMin, perfMoveNetInferenceMax, perfMoveNetCropTotal, perfMoveNetResizeTotal, perfMoveNetRunTotal, perfMoveNetParseTotal])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryScheduleWaitMs, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, telemetryDroppedBusy, telemetrySkipped, telemetryRequested, telemetryExecuted, lastDisposeTimestamp, poseInputSize, perfMoveNetRequested, perfMoveNetExecuted, perfMoveNetSkipped, perfMoveNetInferenceTotal, perfMoveNetInferenceMin, perfMoveNetInferenceMax, perfMoveNetCropTotal, perfMoveNetResizeTotal, perfMoveNetRunTotal, perfMoveNetParseTotal])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -913,9 +952,10 @@ export const useMoveNetWorker = (
     latestResultTimestamp.value = 0
     latestCropInfo.value = null
     isProcessing.value = false
+    lastSubmitTimestamp.value = 0
     playerBbox.value = null
     playerCropRegion.value = null
-  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, playerBbox, playerCropRegion])
+  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, playerCropRegion])
 
   return {
     processFrame,

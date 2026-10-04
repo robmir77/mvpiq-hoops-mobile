@@ -153,15 +153,15 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
         <View style={styles.section}>
           <View style={styles.row}>
             <Text style={styles.label}>Camera:</Text>
-            <Text style={styles.value}>{Math.round(actualCameraFps ?? 0)} FPS</Text>
+            <Text style={styles.value}>{Math.round(pipelineMetrics.cameraFPS)} FPS</Text>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>YOLO:</Text>
-            <Text style={styles.value}>{Math.round(yoloFps ?? 0)} FPS</Text>
+            <Text style={styles.value}>{Math.round(yoloPerf.throughputFps)} FPS</Text>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>MoveNet:</Text>
-            <Text style={styles.value}>{Math.round(moveNetFps ?? 0)} FPS</Text>
+            <Text style={styles.value}>{Math.round(moveNetMetrics.throughputFps)} FPS</Text>
           </View>
         </View>
         {debugMode ? (
@@ -178,11 +178,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.value}>{yoloPerf.requested}/{yoloPerf.executed}/{yoloPerf.skipped}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Window FPS:</Text>
-                <Text style={styles.value}>{yoloFps?.toFixed(1) || '0.0'}</Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Session FPS:</Text>
+                <Text style={styles.label}>Throughput FPS:</Text>
                 <Text style={styles.value}>{yoloPerf.throughputFps.toFixed(1)}</Text>
               </View>
               <View style={styles.row}>

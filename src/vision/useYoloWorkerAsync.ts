@@ -54,7 +54,6 @@ interface YoloWorkerReturn {
   lastParseMs: SharedValue<number>
   executionCount: SharedValue<number>
   theoreticalFps: SharedValue<number>
-  throughputFps: SharedValue<number>
   latestResultBall: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
   latestResultPlayer: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
   latestResultRim: SharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>
@@ -89,10 +88,13 @@ export const useYoloWorkerAsync = (
   const yoloExecutedCount = useSharedValue(0)
   const yoloSkippedCount = useSharedValue(0)
 
-  // Latest-frame gate: use SharedValue for worklet compatibility
-  // We store only a flag indicating if there's a pending frame
-  // The actual frame data is passed directly to avoid large SharedValue
+  // Latest-frame gate: flag to indicate if there's a pending frame
+  // Note: True latest-frame-wins with frame buffer requires native queue architecture
+  // Current implementation uses flag-based approach (worklet-safe)
   const hasPendingFrame = useSharedValue(false)
+
+  // Cancellation token to prevent post-session inferences
+  const isMountedRef = useRef(true)
 
   // Callback ref for result notification
   const onResultCallbackRef = useRef(onResultCallback || null)
@@ -101,9 +103,17 @@ export const useYoloWorkerAsync = (
     onResultCallbackRef.current = onResultCallback || null
   }, [onResultCallback])
 
+  // Cleanup on unmount: cancel pending work
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      hasPendingFrame.value = false
+    }
+  }, [])
+
   const isReady = useSharedValue(false)
   const theoreticalFps = useSharedValue(0)
-  const throughputFps = useSharedValue(0)
   const inferenceCount = useSharedValue(0)
   const throughputWindowStart = useSharedValue(0)
   const lastInferenceMs = useSharedValue(0)
@@ -189,6 +199,11 @@ export const useYoloWorkerAsync = (
   // This runs on JS thread via scheduleOnRN, NOT in frame processor worklet
   // Receives pre-extracted frame data (buffer + dimensions), not the frame itself
   const processYoloAsync = useCallback((frameData: FrameData) => {
+    // Skip if unmounted
+    if (!isMountedRef.current) {
+      return
+    }
+
     if (!yoloModelInstance || !enabled) {
       return
     }
@@ -266,6 +281,14 @@ export const useYoloWorkerAsync = (
           })
         }
 
+        // Record frame-level detection metrics (once per YOLO execution)
+        if (validBall) {
+          telemetryLogger.recordYoloFrameWithBall()
+        }
+        if (player) {
+          telemetryLogger.recordYoloFrameWithPlayer()
+        }
+
         latestResultBall.value = validBall
         latestResultPlayer.value = player
         latestResultRim.value = rim
@@ -309,19 +332,8 @@ export const useYoloWorkerAsync = (
           theoreticalFps.value = calculatedFps
         }
 
-        const now = Date.now()
-        if (throughputWindowStart.value === 0) {
-          throughputWindowStart.value = now
-          inferenceCount.value = 1
-        } else {
-          inferenceCount.value += 1
-          const windowDuration = now - throughputWindowStart.value
-          if (windowDuration >= 1000) {
-            throughputFps.value = (inferenceCount.value / windowDuration) * 1000
-            throughputWindowStart.value = now
-            inferenceCount.value = 0
-          }
-        }
+        // Note: Real throughput FPS is calculated by telemetryLogger based on executed / elapsed time
+        // We don't maintain a separate throughput calculation here to avoid duplication
       }
     } catch (error) {
       console.error('[YoloWorkerAsync] Error processing frame:', error)
@@ -359,7 +371,7 @@ export const useYoloWorkerAsync = (
     }
     lastSubmitTimestamp.value = now
 
-    // Gate 2: Single-flight - if processing, skip this frame (latest-frame-wins)
+    // Gate 2: Single-flight - if processing, skip this frame (latest-frame-wins flag)
     if (isProcessing.value) {
       hasPendingFrame.value = true
       yoloSkippedCount.value += 1
@@ -457,7 +469,6 @@ export const useYoloWorkerAsync = (
     lastParseMs,
     executionCount,
     theoreticalFps,
-    throughputFps,
     latestResultBall,
     latestResultPlayer,
     latestResultRim,
