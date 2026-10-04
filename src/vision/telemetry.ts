@@ -224,7 +224,9 @@ class TelemetryLogger {
     console.log('[PERF 1s]')
     console.log(`CAM  fps=${snapshot.cameraFps.toFixed(1)} recv=${snapshot.received} proc=${snapshot.processed} drop=${snapshot.droppedBusy} avg=${snapshot.onFrameAvgMs.toFixed(1)}ms max=${snapshot.onFrameMaxMs.toFixed(1)}ms`)
     console.log(`YOLO fps=${snapshot.yoloThroughputFps.toFixed(1)} exec=${snapshot.yoloExecuted} attempt=${snapshot.yoloRequested} skip=${snapshot.yoloSkipped} avg=${snapshot.yoloAvgMs.toFixed(1)}ms max=${snapshot.yoloMaxMs?.toFixed(1) ?? '0.0'}ms`)
+    console.log(`YOLO DETAIL resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
     console.log(`MOVE fps=${snapshot.moveNetThroughputFps.toFixed(1)} exec=${snapshot.moveNetExecuted} attempt=${snapshot.moveNetRequested} skip=${snapshot.moveNetSkipped} avg=${snapshot.moveNetAvgMs.toFixed(1)}ms max=${snapshot.moveNetMaxMs?.toFixed(1) ?? '0.0'}ms`)
+    console.log(`MOVE DETAIL crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms resize=${snapshot.moveNetResizeAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
   }
 
   getDiagnosticWindows(): DiagnosticWindowSnapshot[] {

@@ -13,7 +13,7 @@ import { getYoloModel } from './yoloModels'
 import { DEFAULT_YOLO_MODEL_ID } from './yoloModels'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
-import { VISION_CONFIG } from '@/config/appConfig'
+import { VISION_CONFIG, TEST_CONFIG } from '@/config/appConfig'
 
 const YOLO_INPUT_SIZE = 512
 
@@ -59,6 +59,11 @@ export const useYoloWorker = (
 
   const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
+
+  // FPS adaptation system
+  const lastSubmitTime = useSharedValue(Date.now()) // Initialize to current time to avoid blocking first frame
+  const targetFps = useSharedValue(15) // Default target FPS
+  const adaptiveFpsEnabled = useSharedValue(TEST_CONFIG.ENABLE_ADAPTIVE_FPS)
 
   const isReady = useSharedValue(false)
   const theoreticalFps = useSharedValue(0) // Theoretical FPS based on single inference time (latency capacity)
@@ -207,6 +212,19 @@ export const useYoloWorker = (
       return
     }
 
+    // FPS adaptation: throttle frame submission based on target FPS
+    if (adaptiveFpsEnabled.value) {
+      const now = Date.now()
+      const timeSinceLastSubmit = now - lastSubmitTime.value
+      const minIntervalMs = 1000 / targetFps.value
+      
+      if (timeSinceLastSubmit < minIntervalMs) {
+        // Skip this frame - not enough time passed
+        return
+      }
+      lastSubmitTime.value = now
+    }
+
     isProcessing.value = true
 
     let resized: any = null
@@ -282,6 +300,12 @@ export const useYoloWorker = (
           const calculatedFps = 1000 / inferenceTime
           if (calculatedFps > 0) {
             theoreticalFps.value = calculatedFps
+            // Adapt target FPS based on inference time (with safety margin)
+            // Target FPS = 1000 / (inferenceTime + 20ms margin)
+            const marginMs = 20
+            const adaptiveTargetFps = 1000 / (inferenceTime + marginMs)
+            // Clamp between 5 and 30 FPS
+            targetFps.value = Math.max(5, Math.min(30, adaptiveTargetFps))
           }
 
           // Calculate actual throughput (inferences per second over time window)

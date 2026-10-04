@@ -16,7 +16,6 @@ import type { PoseKeypoints } from './types'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
 import { ENABLE_MOVENET_LOGS } from '@/config/debugConfig'
-import { VISION_CONFIG } from '@/config/appConfig'
 
 const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the registry
 const INTERMEDIATE_RESIZE_SIZE = 640 // Intermediate resize for crop optimization (reduces CPU crop work)

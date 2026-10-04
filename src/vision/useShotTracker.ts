@@ -13,6 +13,7 @@ import { scheduleOnRN } from 'react-native-worklets'
 
 import { ShotDetector } from './shotDetector'
 import { useYoloWorker } from './useYoloWorker'
+import { useYoloWorkerAsync } from './useYoloWorkerAsync'
 import { useMoveNetWorker } from './useMoveNetWorker'
 import { usePlayerCropManager } from './usePlayerCropManager'
 
@@ -146,7 +147,7 @@ export const useShotTracker = (
             t: number
         } | null>(null)
 
-    const lastPlayerDetectedRef = useRef(false)
+    const lastPlayerDetectedRef = useSharedValue(false)
 
     // Shared values
 
@@ -212,12 +213,16 @@ export const useShotTracker = (
     const lastBallY = useSharedValue(0)
     const lastValidBallTime = useSharedValue(0)
 
+
     // Parallel Workers - use selected model ID directly
-    const yoloWorker = useYoloWorker(
-        ballEnabled,
+    // Both hooks are always called; the flag selects the active implementation.
+    const yoloWorkerSync = useYoloWorker(
+        ballEnabled && !TEST_CONFIG.ENABLE_ASYNC_YOLO_POC,
         yoloDelegate,
         yoloModelId
     )
+
+    // yoloWorkerAsync will be initialized after handleYoloAsyncResult is defined
 
     const moveNetWorker = useMoveNetWorker(
         poseEnabled,
@@ -718,6 +723,96 @@ export const useShotTracker = (
         telemetryLogger.recordPlayerBboxExpired()
     }, [])
 
+    // Callback for async YOLO results - updates overlay when results are ready
+    const handleYoloAsyncResult = useCallback((result: any) => {
+        // IMPORTANT: Async YOLO must feed the same TrackingEngine path as sync YOLO.
+        const detection: BallDetection = {
+            ball: result.ball ?? undefined,
+            rim: result.rim ?? undefined,
+            timestamp: result.timestamp,
+        }
+
+        wrappedOnBallDetectionRef.current(detection)
+
+        // Update telemetry counters for async YOLO
+        perfYoloExecuted.value += 1
+
+        // Update timing metrics for YOLO DETAIL log
+        if (result.inferenceMs) {
+            perfYoloInferenceTotal.value += result.inferenceMs
+            perfYoloInferenceMin.value = perfYoloInferenceMin.value === 0
+                ? result.inferenceMs
+                : Math.min(perfYoloInferenceMin.value, result.inferenceMs)
+            perfYoloInferenceMax.value = Math.max(perfYoloInferenceMax.value, result.inferenceMs)
+        }
+        if (result.resizeMs) {
+            perfYoloResizeTotal.value += result.resizeMs
+        }
+        if (result.runMs) {
+            perfYoloRunTotal.value += result.runMs
+        }
+        if (result.parseMs) {
+            perfYoloParseTotal.value += result.parseMs
+        }
+
+        // Note: telemetryLogger metrics (executed, processedFrame, timing)
+        // are already recorded in useYoloWorkerAsync worker
+        
+        if (result.player) {
+            playerCrop.update({
+                x: result.player.x,
+                y: result.player.y,
+                width: result.player.width,
+                height: result.player.height,
+                confidence: result.player.confidence,
+            })
+            // Update shared values for direct display in overlay
+            playerX.value = result.player.x
+            playerY.value = result.player.y
+            playerWidth.value = result.player.width
+            playerHeight.value = result.player.height
+            playerConfidence.value = result.player.confidence
+            // Update visual tracking state
+            playerTrackState.value = 'DETECTED'
+            playerTrackAge.value = 0
+            // Check if the detection was accepted by the confidence filter
+            const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
+            if (trackedBbox) {
+                if (!lastPlayerDetectedRef.value) {
+                    // Transition: LOST → DETECTED
+                    lastPlayerDetectedRef.value = true
+                }
+                recordPlayerDetected()
+            }
+        } else {
+            playerCrop.update(null)
+            // Reset shared values for overlay when no player detected
+            playerX.value = 0
+            playerY.value = 0
+            playerWidth.value = 0
+            playerHeight.value = 0
+            playerConfidence.value = 0
+            if (lastPlayerDetectedRef.value) {
+                // Transition: DETECTED → LOST
+                lastPlayerDetectedRef.value = false
+                recordPlayerLost()
+            }
+        }
+    }, [playerCrop, playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge, recordPlayerDetected, recordPlayerLost])
+
+    // Initialize async YOLO worker with callback (must be after handleYoloAsyncResult)
+    const yoloWorkerAsync = useYoloWorkerAsync(
+        ballEnabled && TEST_CONFIG.ENABLE_ASYNC_YOLO_POC,
+        yoloDelegate,
+        yoloModelId,
+        undefined, // yoloScheduledCount
+        handleYoloAsyncResult
+    )
+
+    const yoloWorker = TEST_CONFIG.ENABLE_ASYNC_YOLO_POC
+        ? yoloWorkerAsync
+        : yoloWorkerSync
+
     const emitPoseResult =
         useCallback(
             (
@@ -844,6 +939,11 @@ export const useShotTracker = (
                     actualCameraFps.value = snapshot.cameraFps
                     actualYoloFps.value = snapshot.yoloThroughputFps
                     actualMoveNetFps.value = snapshot.moveNetThroughputFps
+                    console.log('[useShotTracker] FPS update:', { 
+                        cameraFps: snapshot.cameraFps, 
+                        yoloThroughputFps: snapshot.yoloThroughputFps, 
+                        moveNetThroughputFps: snapshot.moveNetThroughputFps 
+                    })
 
                     perfLastLogAt.value = now
                     perfFramesReceived.value = 0
@@ -889,60 +989,68 @@ export const useShotTracker = (
 
                     // Call YOLO worker every frame - it handles its own throttling internally
                     if (ballEnabledShared.value) {
-                        perfYoloRequested.value += 1
-                        const yoloExecutionCountBefore = yoloWorker.executionCount.value
-                        yoloWorker.processFrame(frame, timestamp, currentFrame)
-                        const yoloExecutedNow = yoloWorker.executionCount.value > yoloExecutionCountBefore
-
-                        if (yoloExecutedNow) {
-                            const yoloInferenceTime = yoloWorker.lastInferenceMs.value
-                            perfYoloExecuted.value += 1
-                            perfYoloInferenceTotal.value += yoloInferenceTime
-                            perfYoloInferenceMin.value = perfYoloInferenceMin.value === 0
-                                ? yoloInferenceTime
-                                : Math.min(perfYoloInferenceMin.value, yoloInferenceTime)
-                            perfYoloInferenceMax.value = Math.max(perfYoloInferenceMax.value, yoloInferenceTime)
-                            perfYoloResizeTotal.value += yoloWorker.lastResizeMs.value
-                            perfYoloRunTotal.value += yoloWorker.lastRunMs.value
-                            perfYoloParseTotal.value += yoloWorker.lastParseMs.value
+                        if (TEST_CONFIG.ENABLE_ASYNC_YOLO_POC) {
+                            // Async YOLO: submit frame and return immediately
+                            // perfYoloRequested is tracked internally by yoloWorkerAsync
+                            // Results are handled via onResultCallback
+                            yoloWorkerAsync.submitFrame(frame, timestamp, currentFrame)
                         } else {
-                            perfYoloSkipped.value += 1
-                        }
+                            // Sync YOLO: process frame and check execution
+                            perfYoloRequested.value += 1
+                            const yoloExecutionCountBefore = yoloWorkerSync.executionCount.value
+                            yoloWorkerSync.processFrame(frame, timestamp, currentFrame)
+                            const yoloExecutedNow = yoloWorkerSync.executionCount.value > yoloExecutionCountBefore
 
-                        // Update player bbox via PlayerCropManager (time-based tracking)
-                        const currentPlayer = yoloWorker.latestResultPlayer.value
-                        if (currentPlayer) {
-                            playerCrop.update({
-                                x: currentPlayer.x,
-                                y: currentPlayer.y,
-                                width: currentPlayer.width,
-                                height: currentPlayer.height,
-                                confidence: currentPlayer.confidence,
-                            })
-                            // Update shared values for direct display in overlay
-                            playerX.value = currentPlayer.x
-                            playerY.value = currentPlayer.y
-                            playerWidth.value = currentPlayer.width
-                            playerHeight.value = currentPlayer.height
-                            playerConfidence.value = currentPlayer.confidence
-                            // Update visual tracking state
-                            playerTrackState.value = 'DETECTED'
-                            playerTrackAge.value = 0
-                            // Check if the detection was accepted by the confidence filter
-                            const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
-                            if (trackedBbox) {
-                                if (!lastPlayerDetectedRef.current) {
-                                    // Transition: LOST → DETECTED
-                                    lastPlayerDetectedRef.current = true
-                                }
-                                scheduleOnRN(recordPlayerDetected)
+                            if (yoloExecutedNow) {
+                                const yoloInferenceTime = yoloWorkerSync.lastInferenceMs.value
+                                perfYoloExecuted.value += 1
+                                perfYoloInferenceTotal.value += yoloInferenceTime
+                                perfYoloInferenceMin.value = perfYoloInferenceMin.value === 0
+                                    ? yoloInferenceTime
+                                    : Math.min(perfYoloInferenceMin.value, yoloInferenceTime)
+                                perfYoloInferenceMax.value = Math.max(perfYoloInferenceMax.value, yoloInferenceTime)
+                                perfYoloResizeTotal.value += yoloWorkerSync.lastResizeMs.value
+                                perfYoloRunTotal.value += yoloWorkerSync.lastRunMs.value
+                                perfYoloParseTotal.value += yoloWorkerSync.lastParseMs.value
+                            } else {
+                                perfYoloSkipped.value += 1
                             }
-                        } else {
-                            playerCrop.update(null)
-                            if (lastPlayerDetectedRef.current) {
-                                // Transition: DETECTED → LOST
-                                lastPlayerDetectedRef.current = false
-                                scheduleOnRN(recordPlayerLost)
+
+                            // Update player bbox via PlayerCropManager (time-based tracking) - SYNC ONLY
+                            const currentPlayer = yoloWorkerSync.latestResultPlayer.value
+                            if (currentPlayer) {
+                                playerCrop.update({
+                                    x: currentPlayer.x,
+                                    y: currentPlayer.y,
+                                    width: currentPlayer.width,
+                                    height: currentPlayer.height,
+                                    confidence: currentPlayer.confidence,
+                                })
+                                // Update shared values for direct display in overlay
+                                playerX.value = currentPlayer.x
+                                playerY.value = currentPlayer.y
+                                playerWidth.value = currentPlayer.width
+                                playerHeight.value = currentPlayer.height
+                                playerConfidence.value = currentPlayer.confidence
+                                // Update visual tracking state
+                                playerTrackState.value = 'DETECTED'
+                                playerTrackAge.value = 0
+                                // Check if the detection was accepted by the confidence filter
+                                const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
+                                if (trackedBbox) {
+                                    if (!lastPlayerDetectedRef.value) {
+                                        // Transition: LOST → DETECTED
+                                        lastPlayerDetectedRef.value = true
+                                    }
+                                    scheduleOnRN(recordPlayerDetected)
+                                }
+                            } else {
+                                playerCrop.update(null)
+                                if (lastPlayerDetectedRef.value) {
+                                    // Transition: DETECTED → LOST
+                                    lastPlayerDetectedRef.value = false
+                                    scheduleOnRN(recordPlayerLost)
+                                }
                             }
                         }
                     }

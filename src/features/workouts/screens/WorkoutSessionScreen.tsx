@@ -841,8 +841,8 @@ const ReactOverlay = React.memo(({
             hoopX: sharedValues?.hoopX.value ?? 0,
             hoopY: sharedValues?.hoopY.value ?? 0,
             hoopConfidence: rimFromDetection?.confidence ?? 0,
-            playerX: sharedValues?.playerX.value ?? 0,
-            playerY: sharedValues?.playerY.value ?? 0,
+            playerX: (sharedValues?.playerX.value ?? 0) || 0,
+            playerY: (sharedValues?.playerY.value ?? 0) || 0,
             playerConfidence: sharedValues?.playerConfidence?.value ?? 0,
             ballTrackState: sharedValues?.ballTrackState?.value,
             ballTrackAge: sharedValues?.ballTrackAge?.value,
@@ -961,10 +961,10 @@ const ReactOverlay = React.memo(({
             hoopY: sharedValues?.hoopY.value ?? 0,
             hoopWidth: sharedValues?.hoopWidth.value ?? 0,
             hoopHeight: sharedValues?.hoopHeight.value ?? 0,
-            playerX: sharedValues?.playerX.value ?? 0,
-            playerY: sharedValues?.playerY.value ?? 0,
-            playerWidth: sharedValues?.playerWidth.value ?? 0,
-            playerHeight: sharedValues?.playerHeight.value ?? 0,
+            playerX: (sharedValues?.playerX.value ?? 0) || 0,
+            playerY: (sharedValues?.playerY.value ?? 0) || 0,
+            playerWidth: (sharedValues?.playerWidth.value ?? 0) || 0,
+            playerHeight: (sharedValues?.playerHeight.value ?? 0) || 0,
             playerConfidence: sharedValues?.playerConfidence?.value ?? 0,
             ballRejectionReason: sharedValues?.ballRejectionReason?.value ?? '',
             rimRejectionReason: sharedValues?.rimRejectionReason?.value ?? '',
@@ -1342,6 +1342,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         [effectiveFps]
     )
 
+    // Log constraints to verify FPS is being set
+    useEffect(() => {
+        console.log('[WorkoutSession] Camera constraints:', constraints)
+    }, [constraints])
+
     const [isEnding, setIsEnding]           = useState(false)
     const [isRecording, setIsRecording]     = useState(false)
     const isRecordingRef = useRef(false)
@@ -1361,11 +1366,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
     const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
+    const [cameraFps, setCameraFps] = useState(0)
     const [showTelemetry, setShowTelemetry] = useState<boolean>(TEST_CONFIG.ENABLE_TELEMETRY_OVERLAY)
     const [debugMode, setDebugMode] = useState<boolean>(TEST_CONFIG.ENABLE_DEBUG_OVERLAY)
     const [usageMinutes, setUsageMinutes] = useState(0)
+    const [usageSeconds, setUsageSeconds] = useState(0)
     const cameraViewRef = useRef<View>(null)
-    const usageMinutesTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    const sessionStartTimeRef = useRef<number | null>(null)
+    const sessionStartTimeGlobal = useRef<number | null>(null)
 
     // Zoom state for pinch-to-zoom
     const [zoom, setZoom] = useState(1)
@@ -1391,26 +1399,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }
 
-    // Track usage minutes when recording is active
-    useEffect(() => {
-        if (isRecording) {
-            setUsageMinutes(0)
-            usageMinutesTimerRef.current = setInterval(() => {
-                setUsageMinutes(prev => prev + 1)
-            }, 60000) // Update every minute
-        } else {
-            if (usageMinutesTimerRef.current) {
-                clearInterval(usageMinutesTimerRef.current)
-                usageMinutesTimerRef.current = null
-            }
-        }
-        return () => {
-            if (usageMinutesTimerRef.current) {
-                clearInterval(usageMinutesTimerRef.current)
-                usageMinutesTimerRef.current = null
-            }
-        }
-    }, [isRecording])
 
     // Lifecycle diagnostic: if ShotTracker reports UNMOUNT during an active
     // session, this tells us whether the whole WorkoutSessionScreen also
@@ -1861,13 +1849,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Update FPS metrics every second from worker SharedValues
     useEffect(() => {
         const fpsInterval = setInterval(() => {
+            const yoloFpsVal = actualYoloFps?.value ?? 0
+            const moveNetFpsVal = actualMoveNetFps?.value ?? 0
+            const cameraFpsVal = actualCameraFps?.value ?? 0
+            console.log('[WorkoutSession] FPS update:', { yoloFps: yoloFpsVal, moveNetFps: moveNetFpsVal })
             setFpsMetrics({
-                yoloFps: Math.round(actualYoloFps?.value ?? 0),
-                moveNetFps: Math.round(actualMoveNetFps?.value ?? 0),
+                yoloFps: Math.round(yoloFpsVal),
+                moveNetFps: Math.round(moveNetFpsVal),
             })
+            setCameraFps(Math.round(cameraFpsVal))
         }, 1000)
         return () => clearInterval(fpsInterval)
-    }, [actualYoloFps, actualMoveNetFps])
+    }, [actualYoloFps, actualMoveNetFps, actualCameraFps])
 
     // Request media library permissions for screenshots
     useEffect(() => {
@@ -1878,6 +1871,28 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             }
         })()
     }, [])
+
+    // Track usage minutes when session is active
+    useEffect(() => {
+        console.log('[WorkoutSession] Usage timer check:', { isActive, isModelReady, startTime: sessionStartTimeGlobal.current })
+        if (isActive && isModelReady) {
+            if (!sessionStartTimeGlobal.current) {
+                sessionStartTimeGlobal.current = Date.now()
+                console.log('[WorkoutSession] Set session start time:', sessionStartTimeGlobal.current)
+            }
+            const interval = setInterval(() => {
+                if (sessionStartTimeGlobal.current) {
+                    const elapsedMs = Date.now() - sessionStartTimeGlobal.current
+                    const minutes = Math.floor(elapsedMs / 60000)
+                    const seconds = Math.floor((elapsedMs % 60000) / 1000)
+                    console.log('[WorkoutSession] Usage update:', { elapsedMs, minutes, seconds })
+                    setUsageMinutes(minutes)
+                    setUsageSeconds(seconds)
+                }
+            }, 1000) // Update every second
+            return () => clearInterval(interval)
+        }
+    }, [isActive, isModelReady])
 
     // Lifecycle
     useEffect(() => {
@@ -2195,8 +2210,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             cameraMode={cameraMode}
                         />
 
-                        {/* Adaptive FPS overlay */}
-                        {fpsMetrics && (
+                        {/* Adaptive FPS overlay - hidden when telemetry is visible */}
+                        {fpsMetrics && !showTelemetry && (
                             <View pointerEvents="none" style={{
                                 position: 'absolute',
                                 top: 10,
@@ -2206,7 +2221,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                                 borderRadius: 8,
                             }}>
                                 <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>📊 FPS</Text>
-                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {Math.round(actualCameraFps?.value ?? 0)}</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {cameraFps}</Text>
                                 <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
                                 <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
                                 <Text style={{ color: '#9ca3af', fontSize: 8 }}>Model: {effectiveYoloModelId}</Text>
@@ -2219,6 +2234,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             onClose={() => setShowTelemetry(false)}
                             yoloFps={fpsMetrics.yoloFps}
                             moveNetFps={fpsMetrics.moveNetFps}
+                            actualCameraFps={cameraFps}
                             debugMode={debugMode}
                             cameraConfig={{
                                 resolution: effectiveResolution,
@@ -2232,6 +2248,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                                 fpsMax: getYoloModel(effectiveYoloModelId)?.fpsMax,
                                 epochs: getYoloModel(effectiveYoloModelId)?.epochs,
                                 usageMinutes: usageMinutes,
+                                usageSeconds: usageSeconds,
                             }}
                         />
 
