@@ -24,6 +24,15 @@ Creato nuova struttura modulo tracking:
 - `features/workouts/tracking/BallTrackingState.ts` - Stato puro senza React
 - `features/workouts/tracking/index.ts` - Export del modulo
 
+**Fase 3 Completata**: Tutti e tre i tracking engines sono stati integrati in parallelo con la logica legacy in `useTrackingEngine.ts`:
+- BallTrackingEngine: Kalman update/predict, TTL, trajectory
+- PlayerTrackingEngine: Player center da pose keypoints (aggiunto metodo `updateFromPose`)
+- ShotDetectionEngine: Dribble filter, shot detection (MADE/MISS/AIRBALL), trajectory management
+- Sistema di confronto A/B per tutti e tre gli engine con statistiche dettagliate
+- Log di warning in DEV per prime 10 discrepanze per ogni engine
+- Reset di tutti gli engine in `resetShot()` e `resetAll()`
+- TypeScript compila senza errori
+
 ### Fase 4: Estrazione WorkoutSessionRuntime ✓
 Creato nuova struttura modulo runtime:
 - `features/workouts/runtime/WorkoutSessionRuntime.types.ts` - Contratti del runtime
@@ -100,36 +109,60 @@ features/workouts/
 ### Fase 4.2: Integrazione Progressiva (IN CORSO)
 Integrazione graduale dei nuovi moduli nella Screen:
 
-**4.2.1: BallTrackingEngine Integration ✓**
-- Istanziato `BallTrackingEngine` in `useTrackingEngine.ts`
-- Eseguito in parallelo con logica legacy per confronto output
-- Implementato sistema di statistiche di confronto:
-  - `detectionMatches` / `detectionMismatches`
-  - `predictionMatches` / `predictionMismatches`
-  - `maxPositionDiff` / `maxVelocityDiff`
-  - `getComparisonStats()` esposto per verifica
-- Log di warning in DEV per prime 10 discrepanze
-- Reset di BallTrackingEngine in `resetShot()` e `resetAll()`
+**4.2.1: All Tracking Engines Integration ✓**
+Tutti e tre i tracking engines sono stati integrati in parallelo con la logica legacy in `useTrackingEngine.ts`:
+
+- **BallTrackingEngine**: Kalman update/predict, TTL, trajectory
+- **PlayerTrackingEngine**: Player center da pose keypoints (aggiunto metodo `updateFromPose`)
+- **ShotDetectionEngine**: Dribble filter, shot detection (MADE/MISS/AIRBALL), trajectory management
+
+Sistema di confronto A/B per tutti gli engine:
+- `detectionMatches` / `detectionMismatches` (BallTrackingEngine)
+- `predictionMatches` / `predictionMismatches` (BallTrackingEngine)
+- `maxPositionDiff` / `maxVelocityDiff` (BallTrackingEngine)
+- `playerCenterMatches` / `playerCenterMismatches` (PlayerTrackingEngine)
+- `shotDetectionMatches` / `shotDetectionMismatches` (ShotDetectionEngine)
+- `getComparisonStats()` esposto per verifica con tutti i match rate
+- Log di warning in DEV per prime 10 discrepanze per ogni engine
+- Reset di tutti gli engine in `resetShot()` e `resetAll()`
 - TypeScript compila senza errori
-- **Prossimo passo**: Eseguire test per verificare equivalenza (target: 100% match rate)
 
-**4.2.2: PlayerTrackingEngine Integration (PENDING)**
-- Da integrare dopo verifica BallTrackingEngine
+**4.2.2: All Tracking Engines Validation (PENDING)**
+Criteri di verifica prima della sostituzione:
+- `detectionMatchRate` = 100%
+- `predictionMatchRate` = 100%
+- `playerCenterMatchRate` = 100%
+- `shotDetectionMatchRate` = 100%
+- `maxPositionDiff` = 0 o tolleranza minima documentata (es. < 0.0001 per rumore float)
+- `maxVelocityDiff` = 0 o tolleranza minima documentata
+- Nessuna differenza sistematica nei frame di perdita/recupero della palla
+- Nessuna differenza dopo `resetShot()`
+- Nessuna differenza dopo `resetAll()`
 
-**4.2.3: ShotDetectionEngine Integration (PENDING)**
-- Da integrare dopo verifica PlayerTrackingEngine
+Sessioni di test richieste (2-3 sessioni reali):
+1. Sessione con tiri regolari
+2. Sessione con palla intermittente/occlusioni
+3. Sessione con movimenti più difficili
 
-**4.2.4: Runtime Integration (PENDING)**
+**Nota**: Distinguere tra mismatch logico e rumore numerico float (es. differenze < 0.000001 accettabili)
+
+**4.2.3: Runtime Integration (PENDING)**
 - Da integrare dopo verifica tutti tracking engines
 
-**4.2.5: UI Component Extraction (PENDING)**
+**4.2.4: UI Component Extraction (PENDING)**
 - Da integrare dopo verifica runtime
 
-### Fase 5: Implementare State Machine (IN ATTESA)
-- Aggiungere implementazione state machine in WorkoutSessionRuntime
-- Definire transizioni di stato e guardie
-- Integrare con lifecycle della sessione
-- Implementare stato SYNCING reale
+### Fase 5: Implementare State Machine ✓
+Completata implementazione della State Machine in WorkoutSessionRuntime:
+- Definite transizioni di stato con guardie: IDLE → STARTING → ACTIVE → PAUSED → STOPPING → SYNCING → COMPLETED → ERROR
+- Implementato metodo `canTransition()` per validare le transizioni
+- Aggiornati tutti i metodi lifecycle (start, pause, resume, stop) per usare le guardie
+- Implementato stato SYNCING reale per persistenza dati durante shutdown
+- Definite interfacce complete per sottosistemi:
+  - `ITrackingEngine`: processFrame, resetShot, resetAll, getState, getComparisonStats
+  - `IShotDetectionEngine`: processFrame, resetShot, resetAll
+- Wiring dei tracking engines nel Runtime con log di warning se non forniti
+- TypeScript compila senza errori
 
 ### Fase 6: Ottimizzazioni Performance (IN ATTESA)
 - FPS adattivo

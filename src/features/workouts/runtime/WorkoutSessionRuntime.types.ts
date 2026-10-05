@@ -38,11 +38,36 @@ export interface IVisionPipeline {
 }
 
 export interface ITrackingEngine {
-  // Placeholder - methods to be defined based on tracking engine API
+  processFrame(
+    ballDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
+    hoopDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
+    frameTs: number,
+    poseKeypoints?: any,
+    sizeCategory?: 'small' | 'medium' | 'large' | null,
+    adaptThreshold?: number,
+    rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
+  ): any
+  resetShot(): void
+  resetAll(): void
+  getState(): any
+  getComparisonStats(): any
 }
 
 export interface IShotDetectionEngine {
-  // Placeholder - methods to be defined based on shot detection API
+  processFrame(
+    ballPosition: { x: number; y: number } | null,
+    ballVelocity: { vx: number; vy: number } | null,
+    hoopPosition: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
+    frameTs: number
+  ): {
+    shotDetected: boolean
+    shotResult: 'MADE' | 'MISS' | 'AIRBALL' | null
+    inFlight: boolean
+    releasePoint: { x: number; y: number } | null
+    apexPoint: { x: number; y: number } | null
+  }
+  resetShot(): void
+  resetAll(): void
 }
 
 export interface ITelemetrySampler {

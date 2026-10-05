@@ -32,6 +32,21 @@ export class PlayerTrackingEngine {
     this.trackingValid = true
   }
 
+  // Calculate player center from pose keypoints (from useTrackingEngine lines 271-282)
+  updateFromPose(poseKeypoints: any): { x: number; y: number } | null {
+    if (poseKeypoints) {
+      const leftHip = poseKeypoints.leftHip
+      const rightHip = poseKeypoints.rightHip
+      if (leftHip && rightHip) {
+        return {
+          x: (leftHip.x + rightHip.x) / 2,
+          y: (leftHip.y + rightHip.y) / 2
+        }
+      }
+    }
+    return null
+  }
+
   predict(frameTs: number): PlayerPosition | null {
     const ageMs = frameTs - this.lastSeenAt
     if (ageMs > PLAYER_TRACK_TTL_MS) {

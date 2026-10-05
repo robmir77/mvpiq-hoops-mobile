@@ -38,13 +38,31 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private telemetrySampler: ITelemetrySampler | null = null
   private workoutQueue: IWorkoutQueue | null = null
 
+  // State machine guards
+  private stateTransitions: Record<SessionState, SessionState[]> = {
+    'IDLE': ['STARTING'],
+    'STARTING': ['ACTIVE', 'ERROR'],
+    'ACTIVE': ['PAUSED', 'STOPPING', 'ERROR'],
+    'PAUSED': ['ACTIVE', 'STOPPING', 'ERROR'],
+    'STOPPING': ['SYNCING', 'COMPLETED', 'ERROR'],
+    'SYNCING': ['COMPLETED', 'ERROR'],
+    'COMPLETED': ['IDLE'],
+    'ERROR': ['IDLE'],
+  }
+
   constructor(config: SessionConfig, callbacks?: SessionCallbacks) {
     this.config = config
     this.callbacks = callbacks
   }
 
+  // State machine transition with guard validation
+  private canTransition(from: SessionState, to: SessionState): boolean {
+    const allowed = this.stateTransitions[from]
+    return allowed.includes(to)
+  }
+
   async start(): Promise<void> {
-    if (this.state !== 'IDLE' && this.state !== 'COMPLETED') {
+    if (!this.canTransition(this.state, 'STARTING')) {
       throw new Error(`Cannot start session from state: ${this.state}`)
     }
 
@@ -71,7 +89,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   }
 
   async pause(): Promise<void> {
-    if (this.state !== 'ACTIVE') {
+    if (!this.canTransition(this.state, 'PAUSED')) {
       throw new Error(`Cannot pause session from state: ${this.state}`)
     }
 
@@ -86,7 +104,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   }
 
   async resume(): Promise<void> {
-    if (this.state !== 'PAUSED') {
+    if (!this.canTransition(this.state, 'ACTIVE')) {
       throw new Error(`Cannot resume session from state: ${this.state}`)
     }
 
@@ -101,7 +119,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   }
 
   async stop(): Promise<void> {
-    if (this.state !== 'ACTIVE' && this.state !== 'PAUSED') {
+    if (!this.canTransition(this.state, 'STOPPING')) {
       throw new Error(`Cannot stop session from state: ${this.state}`)
     }
 
@@ -113,7 +131,10 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
         this.visionPipeline.stop()
       }
 
-      // Shutdown queue
+      // Transition to SYNCING state for data persistence
+      this.setState('SYNCING')
+
+      // Shutdown queue (this will flush pending data)
       if (this.workoutQueue?.shutdown) {
         await this.workoutQueue.shutdown()
       }
@@ -186,23 +207,40 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
   private async initializeTrackingEngine(): Promise<void> {
     // Tracking engine will be initialized with the extracted classes
-    // This is a placeholder for future integration
-    console.log('[WorkoutSessionRuntime] Tracking engine initialized')
+    // For now, we rely on the React hook to provide the engine reference
+    if (this.trackingEngine) {
+      console.log('[WorkoutSessionRuntime] Tracking engine initialized')
+    } else {
+      console.warn('[WorkoutSessionRuntime] Tracking engine not set - will be provided by React hook')
+    }
   }
 
   private async initializeShotDetection(): Promise<void> {
     // Shot detection will be initialized with the extracted class
-    console.log('[WorkoutSessionRuntime] Shot detection initialized')
+    // For now, we rely on the React hook to provide the engine reference
+    if (this.shotDetectionEngine) {
+      console.log('[WorkoutSessionRuntime] Shot detection initialized')
+    } else {
+      console.warn('[WorkoutSessionRuntime] Shot detection engine not set - will be provided by React hook')
+    }
   }
 
   private async initializeTelemetry(): Promise<void> {
     // Telemetry sampler already exists in services
-    console.log('[WorkoutSessionRuntime] Telemetry initialized')
+    if (this.telemetrySampler) {
+      console.log('[WorkoutSessionRuntime] Telemetry initialized')
+    } else {
+      console.warn('[WorkoutSessionRuntime] Telemetry sampler not set - will be provided by React hook')
+    }
   }
 
   private async initializeQueue(): Promise<void> {
     // Queue already exists in services
-    console.log('[WorkoutSessionRuntime] Queue initialized')
+    if (this.workoutQueue) {
+      console.log('[WorkoutSessionRuntime] Queue initialized')
+    } else {
+      console.warn('[WorkoutSessionRuntime] Queue not set - will be provided by React hook')
+    }
   }
 
   // State management

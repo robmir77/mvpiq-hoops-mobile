@@ -5,6 +5,8 @@ import { useRef, useCallback } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
 import { TrackingState, VisionTrackState } from '../types/workouts.types'
 import { BallTrackingEngine } from '../tracking/BallTrackingEngine'
+import { PlayerTrackingEngine } from '../tracking/PlayerTrackingEngine'
+import { ShotDetectionEngine } from '../tracking/ShotDetectionEngine'
 
 interface KalmanState {
     x: number; y: number
@@ -49,6 +51,16 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         new BallTrackingEngine(callbacks)
     )
 
+    // Phase 4.2: Instantiate PlayerTrackingEngine for progressive integration
+    const playerTrackingEngine = useRef<PlayerTrackingEngine>(
+        new PlayerTrackingEngine()
+    )
+
+    // Phase 4.2: Instantiate ShotDetectionEngine for progressive integration
+    const shotDetectionEngine = useRef<ShotDetectionEngine>(
+        new ShotDetectionEngine()
+    )
+
     // Phase 4.2: Track comparison statistics for equivalence verification
     const comparisonStats = useRef<{
         detectionMatches: number
@@ -57,6 +69,10 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         predictionMismatches: number
         maxPositionDiff: number
         maxVelocityDiff: number
+        playerCenterMatches: number
+        playerCenterMismatches: number
+        shotDetectionMatches: number
+        shotDetectionMismatches: number
     }>({
         detectionMatches: 0,
         detectionMismatches: 0,
@@ -64,6 +80,10 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         predictionMismatches: 0,
         maxPositionDiff: 0,
         maxVelocityDiff: 0,
+        playerCenterMatches: 0,
+        playerCenterMismatches: 0,
+        shotDetectionMatches: 0,
+        shotDetectionMismatches: 0,
     })
 
     const kalman     = useRef<KalmanState>({ ...INITIAL_KALMAN })
@@ -301,6 +321,24 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                     x: (leftHip.x + rightHip.x) / 2,
                     y: (leftHip.y + rightHip.y) / 2
                 }
+
+                // Phase 4.2: Compare with PlayerTrackingEngine
+                const enginePlayerCenter = playerTrackingEngine.current.updateFromPose(poseKeypoints)
+                if (enginePlayerCenter) {
+                    const diff = Math.abs(playerCenter.x - enginePlayerCenter.x) + Math.abs(playerCenter.y - enginePlayerCenter.y)
+                    if (diff < 0.001) {
+                        comparisonStats.current.playerCenterMatches++
+                    } else {
+                        comparisonStats.current.playerCenterMismatches++
+                        if (__DEV__ && comparisonStats.current.playerCenterMismatches <= 10) {
+                            console.warn('[TrackingEngine] PlayerTrackingEngine mismatch:', {
+                                legacy: { x: playerCenter.x.toFixed(6), y: playerCenter.y.toFixed(6) },
+                                engine: { x: enginePlayerCenter.x.toFixed(6), y: enginePlayerCenter.y.toFixed(6) },
+                                diff: diff.toFixed(6),
+                            })
+                        }
+                    }
+                }
             }
         }
 
@@ -400,6 +438,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }
             trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
             if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+
+            // Phase 4.2: Update trajectory in ShotDetectionEngine for comparison
+            shotDetectionEngine.current.addTrajectoryPoint(smoothed.x, smoothed.y, frameTs)
 
             // Update trajectory SharedValues when inFlight
             if (inFlightRef.current) {
@@ -508,6 +549,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                 trajectoryBuffer.current[trajectoryHead.current] = { x: predX, y: predY, t: frameTs }
                 trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
                 if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
+
+                // Phase 4.2: Update trajectory in ShotDetectionEngine for comparison
+                shotDetectionEngine.current.addTrajectoryPoint(predX, predY, frameTs)
                 
                 // Update trajectory SharedValues
                 if (inFlightRef.current) {
@@ -643,6 +687,33 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             }
         }
 
+        // Phase 4.2: Compare with ShotDetectionEngine
+        const engineShotResult = shotDetectionEngine.current.processFrame(
+            current.ballPosition,
+            current.ballVelocity,
+            current.hoopPosition ? {
+                x: current.hoopPosition.x,
+                y: current.hoopPosition.y,
+                width: current.hoopPosition.width,
+                height: current.hoopPosition.height,
+                confidence: current.hoopPosition.confidence ?? 0,
+            } : null,
+            frameTs
+        )
+        if (current.shotDetected === engineShotResult.shotDetected &&
+            current.shotResult === engineShotResult.shotResult &&
+            current.inFlight === engineShotResult.inFlight) {
+            comparisonStats.current.shotDetectionMatches++
+        } else {
+            comparisonStats.current.shotDetectionMismatches++
+            if (__DEV__ && comparisonStats.current.shotDetectionMismatches <= 10) {
+                console.warn('[TrackingEngine] ShotDetectionEngine mismatch:', {
+                    legacy: { shotDetected: current.shotDetected, shotResult: current.shotResult, inFlight: current.inFlight },
+                    engine: { shotDetected: engineShotResult.shotDetected, shotResult: engineShotResult.shotResult, inFlight: engineShotResult.inFlight },
+                })
+            }
+        }
+
         lastFrameTs.current = frameTs
         return { ...current }
     }, [kalmanUpdate])
@@ -673,8 +744,10 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         ballTrackingValid.current = false
         ballLastSeenAt.current = Date.now()
         lastBallWasDetected.current = false
-        // Phase 4.2: Reset BallTrackingEngine
+        // Phase 4.2: Reset tracking engines
         ballTrackingEngine.current.reset()
+        playerTrackingEngine.current.reset()
+        shotDetectionEngine.current.resetShot()
         // Reset visual tracking state
         ballTrackState.value = 'LOST'
         ballTrackAge.value = 0
@@ -701,8 +774,10 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         ballTrackingValid.current = false
         ballLastSeenAt.current = Date.now()
         lastBallWasDetected.current = false
-        // Phase 4.2: Reset BallTrackingEngine
+        // Phase 4.2: Reset tracking engines
         ballTrackingEngine.current.reset()
+        playerTrackingEngine.current.reset()
+        shotDetectionEngine.current.resetAll()
         // Reset visual tracking state
         ballTrackState.value = 'LOST'
         ballTrackAge.value = 0
@@ -836,6 +911,12 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             : 1,
         predictionMatchRate: comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches > 0
             ? comparisonStats.current.predictionMatches / (comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches)
+            : 1,
+        playerCenterMatchRate: comparisonStats.current.playerCenterMatches + comparisonStats.current.playerCenterMismatches > 0
+            ? comparisonStats.current.playerCenterMatches / (comparisonStats.current.playerCenterMatches + comparisonStats.current.playerCenterMismatches)
+            : 1,
+        shotDetectionMatchRate: comparisonStats.current.shotDetectionMatches + comparisonStats.current.shotDetectionMismatches > 0
+            ? comparisonStats.current.shotDetectionMatches / (comparisonStats.current.shotDetectionMatches + comparisonStats.current.shotDetectionMismatches)
             : 1,
     }), [])
 
