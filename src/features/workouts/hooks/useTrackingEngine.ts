@@ -54,19 +54,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         new TrackingCoordinator()
     )
 
-    // Phase 4.2: Track comparison statistics for equivalence verification (legacy comparison removed)
-    const comparisonStats = useRef<{
-        playerCenterMatches: number
-        playerCenterMismatches: number
-        shotDetectionMatches: number
-        shotDetectionMismatches: number
-    }>({
-        playerCenterMatches: 0,
-        playerCenterMismatches: 0,
-        shotDetectionMatches: 0,
-        shotDetectionMismatches: 0,
-    })
-
     // Ring buffer for trajectory (O(1) insert, no reallocation)
     const MAX_POINTS = 90
     const trajectoryBuffer = useRef<Array<{ x: number; y: number; t: number } | null>>(new Array(MAX_POINTS).fill(null))
@@ -175,35 +162,10 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     ): TrackingState => {
         const current = state.current
 
-        // Calculate player center from pose keypoints
+        // Phase 4.3.1: PlayerTrackingEngine is now authoritative for player center calculation
         let playerCenter: { x: number; y: number } | null = null
         if (poseKeypoints) {
-            const leftHip = poseKeypoints.leftHip
-            const rightHip = poseKeypoints.rightHip
-            if (leftHip && rightHip) {
-                playerCenter = {
-                    x: (leftHip.x + rightHip.x) / 2,
-                    y: (leftHip.y + rightHip.y) / 2
-                }
-
-                // Phase 4.2: Compare with PlayerTrackingEngine
-                const enginePlayerCenter = playerTrackingEngine.current.updateFromPose(poseKeypoints)
-                if (enginePlayerCenter) {
-                    const diff = Math.abs(playerCenter.x - enginePlayerCenter.x) + Math.abs(playerCenter.y - enginePlayerCenter.y)
-                    if (diff < 0.001) {
-                        comparisonStats.current.playerCenterMatches++
-                    } else {
-                        comparisonStats.current.playerCenterMismatches++
-                        if (__DEV__ && comparisonStats.current.playerCenterMismatches <= 10) {
-                            console.warn('[TrackingEngine] PlayerTrackingEngine mismatch:', {
-                                legacy: { x: playerCenter.x.toFixed(6), y: playerCenter.y.toFixed(6) },
-                                engine: { x: enginePlayerCenter.x.toFixed(6), y: enginePlayerCenter.y.toFixed(6) },
-                                diff: diff.toFixed(6),
-                            })
-                        }
-                    }
-                }
-            }
+            playerCenter = playerTrackingEngine.current.updateFromPose(poseKeypoints)
         }
 
         // Phase 4.2: Use TrackingCoordinator for spatial constraints
@@ -439,53 +401,7 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             current.apexPoint = apexPoint.current
         }
 
-        // Shot detection (MADE / MISS / AIRBALL)
-        const hoop       = current.hoopPosition
-        const cooldownOk = (frameTs - lastShotTs.current) > SHOT_COOLDOWN_MS
-
-        if (vel && hoop && ball && cooldownOk && !current.shotDetected) {
-            const descending = vel.vy > DESCENDING_VY_THRESHOLD
-            const dynamicHoopRadius = getDynamicHoopRadius(hoop)
-
-            if (inFlightRef.current && descending) {
-                const dx   = ball.x - hoop.x
-                const dy   = ball.y - hoop.y
-                const dist = Math.sqrt(dx * dx + dy * dy)
-
-                const descendingTowardHoop = dy > 0 && dist < dynamicHoopRadius * 2
-
-                if (descendingTowardHoop && dist < dynamicHoopRadius) {
-                    current.shotDetected = true
-                    current.shotResult   = 'MADE'
-                    shotDetected.value = true
-                    shotResult.value = 'MADE'
-                    lastShotTs.current   = frameTs
-                    // Calculate shot quality
-                    const metrics = trajectoryMetrics || computeTrajectoryMetrics()
-                    current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
-                } else if (descendingTowardHoop && dist >= dynamicHoopRadius) {
-                    current.shotDetected = true
-                    current.shotResult   = 'MISS'
-                    shotDetected.value = true
-                    shotResult.value = 'MISS'
-                    lastShotTs.current   = frameTs
-                    // Calculate shot quality
-                    const metrics = trajectoryMetrics || computeTrajectoryMetrics()
-                    current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
-                } else if (descending && vel.vy > SHOT_LAUNCH_THRESHOLD * 2) {
-                    current.shotDetected = true
-                    current.shotResult   = dist < 0.25 ? 'MISS' : 'AIRBALL'
-                    shotDetected.value = true
-                    shotResult.value = dist < 0.25 ? 'MISS' : 'AIRBALL'
-                    lastShotTs.current   = frameTs
-                    // Calculate shot quality
-                    const metrics = trajectoryMetrics || computeTrajectoryMetrics()
-                    current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
-                }
-            }
-        }
-
-        // Phase 4.2: Compare with ShotDetectionEngine
+        // Phase 4.3.2: ShotDetectionEngine is now authoritative for shot detection
         const engineShotResult = shotDetectionEngine.current.processFrame(
             current.ballPosition,
             current.ballVelocity,
@@ -498,19 +414,22 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             } : null,
             frameTs
         )
-        if (current.shotDetected === engineShotResult.shotDetected &&
-            current.shotResult === engineShotResult.shotResult &&
-            current.inFlight === engineShotResult.inFlight) {
-            comparisonStats.current.shotDetectionMatches++
-        } else {
-            comparisonStats.current.shotDetectionMismatches++
-            if (__DEV__ && comparisonStats.current.shotDetectionMismatches <= 10) {
-                console.warn('[TrackingEngine] ShotDetectionEngine mismatch:', {
-                    legacy: { shotDetected: current.shotDetected, shotResult: current.shotResult, inFlight: current.inFlight },
-                    engine: { shotDetected: engineShotResult.shotDetected, shotResult: engineShotResult.shotResult, inFlight: engineShotResult.inFlight },
-                })
-            }
+
+        // Apply engine shot detection results
+        if (engineShotResult.shotDetected && !current.shotDetected) {
+            current.shotDetected = engineShotResult.shotDetected
+            current.shotResult = engineShotResult.shotResult
+            shotDetected.value = engineShotResult.shotDetected
+            shotResult.value = engineShotResult.shotResult ?? null
+            lastShotTs.current = frameTs
+            // Calculate shot quality
+            const metrics = trajectoryMetrics || computeTrajectoryMetrics()
+            current.shotQuality = calculateShotQuality(metrics, current.releaseAngle)
         }
+
+        // Update inFlight from engine
+        inFlightRef.current = engineShotResult.inFlight
+        current.inFlight = engineShotResult.inFlight
 
         lastFrameTs.current = frameTs
         return { ...current }
@@ -690,17 +609,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         inFlight: inFlightRef.current,
     }), [])
 
-    // Phase 4.2: Get comparison statistics for Player and Shot engine equivalence verification
-    const getComparisonStats = useCallback(() => ({
-        ...comparisonStats.current,
-        playerCenterMatchRate: comparisonStats.current.playerCenterMatches + comparisonStats.current.playerCenterMismatches > 0
-            ? comparisonStats.current.playerCenterMatches / (comparisonStats.current.playerCenterMatches + comparisonStats.current.playerCenterMismatches)
-            : 1,
-        shotDetectionMatchRate: comparisonStats.current.shotDetectionMatches + comparisonStats.current.shotDetectionMismatches > 0
-            ? comparisonStats.current.shotDetectionMatches / (comparisonStats.current.shotDetectionMatches + comparisonStats.current.shotDetectionMismatches)
-            : 1,
-    }), [])
-
     return {
         processFrame,
         resetShot,
@@ -711,8 +619,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         computeTrajectoryMetrics,
         calculateShotQuality,
         getState,
-        // Phase 4.2: Expose comparison stats for BallTrackingEngine verification
-        getComparisonStats,
         // Shared Values for Skia overlay
         sharedValues: {
             ballX,
