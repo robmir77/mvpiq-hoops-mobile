@@ -1,0 +1,131 @@
+# Progresso Refactoring Modulo Workout
+
+## Fasi Completate
+
+### Fase 1: Documentare Comportamento Attuale ✓
+- Creato REFACTORING_PLAN.md che documenta la struttura attuale
+- Identificate tutte le responsabilità in WorkoutSessionScreen.tsx (~2490 righe)
+- Mappati i flussi di dati tra i componenti
+
+### Fase 2: Estrazione Vision Pipeline ✓
+Creato nuova struttura modulo vision:
+- `features/workouts/vision/WorkoutVisionPipeline.types.ts` - Definizioni dei tipi
+- `features/workouts/vision/WorkoutVisionPipeline.ts` - Coordinatore basato su classi (futuro)
+- `features/workouts/vision/useWorkoutVisionPipeline.ts` - Wrapper hook (attuale)
+- `features/workouts/vision/index.ts` - Export del modulo
+
+L'hook `useWorkoutVisionPipeline` avvolge l'esistente `useCameraPipeline` con un'API più pulita mantenendo il comportamento.
+
+### Fase 3: Estrazione Tracking Runtime ✓
+Creato nuova struttura modulo tracking:
+- `features/workouts/tracking/BallTrackingEngine.ts` - Filtro Kalman e stato palla
+- `features/workouts/tracking/PlayerTrackingEngine.ts` - Tracking bbox player
+- `features/workouts/tracking/ShotDetectionEngine.ts` - Analisi traiettoria tiro
+- `features/workouts/tracking/BallTrackingState.ts` - Stato puro senza React
+- `features/workouts/tracking/index.ts` - Export del modulo
+
+### Fase 4: Estrazione WorkoutSessionRuntime ✓
+Creato nuova struttura modulo runtime:
+- `features/workouts/runtime/WorkoutSessionRuntime.types.ts` - Contratti del runtime
+- `features/workouts/runtime/WorkoutSessionRuntime.ts` - Classe coordinatore sessione
+- `features/workouts/runtime/index.ts` - Export del modulo
+
+La classe `WorkoutSessionRuntime` fornisce:
+- Lifecycle della sessione: start(), pause(), resume(), stop()
+- Registrazione tiro manuale
+- Gestione stati (IDLE, STARTING, ACTIVE, PAUSED, STOPPING, SYNCING, COMPLETED, ERROR)
+- Tracking delle metriche
+- Metodi placeholder per coordinamento sottosistemi
+
+### Fase 4.1: Stabilizzazione Estrazioni ✓
+Fix critici per rendere i moduli pronti all'integrazione:
+
+**4.1.1: Fix Runtime syntax error**
+- Corretto errore `await this initializeQueue()` → `await this.initializeQueue()`
+- Il runtime è ora compilabile
+
+**4.1.2: Fix ShotDetectionEngine**
+- Riallineato all'algoritmo originale da `useTrackingEngine.ts` (linee 466-556)
+- Implementato filtro dribble: `risingFrames`, `MIN_RISING_FRAMES = 3`, `MIN_ARC_HEIGHT = 0.08`
+- Implementato `getDynamicHoopRadius()` con calcolo dinamico
+- Implementato distinzione completa: MADE, MISS, AIRBALL
+- Implementato ring buffer per traiettoria (O(1) insert)
+- L'equivalenza funzionale con l'originale deve essere verificata con test prima dell'integrazione definitiva
+
+**4.1.3: Separare algoritmo da SharedValue**
+- Creato `BallTrackingState.ts` con stato puro senza dipendenze React
+- `BallTrackingEngine` ora usa stato puro invece di `useSharedValue`
+- `PlayerTrackingEngine` uniformato per usare `frameTs` invece di `Date.now()`
+- Questo rende i tracking engines testabili senza React Native
+
+**4.1.4: Tipizzare Runtime**
+- Eliminati tutti i tipi `any` da `WorkoutSessionRuntime`
+- Aggiunte interfacce minime: `IVisionPipeline`, `ITrackingEngine`, `IShotDetectionEngine`, `ITelemetrySampler`, `IWorkoutQueue`
+- Sostituito `any` con `unknown` in `SessionConfig` per delegate
+- Il runtime ora ha contratti espliciti per tutti i sottosistemi
+
+## Struttura Attuale
+
+```
+features/workouts/
+├── vision/              (NUOVO)
+│   ├── WorkoutVisionPipeline.types.ts
+│   ├── WorkoutVisionPipeline.ts
+│   ├── useWorkoutVisionPipeline.ts
+│   └── index.ts
+├── tracking/            (NUOVO)
+│   ├── BallTrackingEngine.ts
+│   ├── PlayerTrackingEngine.ts
+│   ├── ShotDetectionEngine.ts
+│   └── index.ts
+├── runtime/             (NUOVO)
+│   ├── WorkoutSessionRuntime.types.ts
+│   ├── WorkoutSessionRuntime.ts
+│   └── index.ts
+├── screens/
+│   └── WorkoutSessionScreen.tsx (originale, ~2490 righe)
+├── hooks/
+│   ├── useTrackingEngine.ts
+│   ├── usePerformanceMonitor.ts
+│   └── ...
+├── services/
+│   ├── workoutAsyncQueue.ts
+│   ├── telemetrySampler.ts
+│   └── ...
+└── REFACTORING_PLAN.md
+```
+
+## Prossimi Passi
+
+### Fase 4.2: Integrazione Progressiva (IN ATTESA)
+Integrazione graduale dei nuovi moduli nella Screen:
+1. Integrare `useWorkoutVisionPipeline` per sostituire `useCameraPipeline`
+2. Integrare i tracking engines per sostituire parti di `useTrackingEngine`
+3. Integrare `WorkoutSessionRuntime` come coordinatore della sessione
+4. Estrarre componenti UI (BallOverlay, PoseOverlay, ecc.) dalla Screen
+5. Verificare equivalenza funzionale con test prima di eliminare il codice legacy
+
+### Fase 5: Implementare State Machine (IN ATTESA)
+- Aggiungere implementazione state machine in WorkoutSessionRuntime
+- Definire transizioni di stato e guardie
+- Integrare con lifecycle della sessione
+- Implementare stato SYNCING reale
+
+### Fase 6: Ottimizzazioni Performance (IN ATTESA)
+- FPS adattivo
+- Regolazione frequenza YOLO
+- Regolazione frequenza MoveNet
+- Scaling risoluzione
+- Selezione delegate GPU/CPU
+- Thermal throttling
+- Ottimizzazione batteria
+
+## Note sull'Integrazione
+
+I nuovi moduli sono attualmente **indipendenti** e non ancora integrati in WorkoutSessionScreen.tsx. La Fase 4.1 ha completato la stabilizzazione:
+- Il runtime è compilabile
+- ShotDetectionEngine replica l'algoritmo originale
+- I tracking engines sono separati dalle SharedValue
+- Il runtime ha contratti tipizzati
+
+La Fase 4.2 procederà con l'integrazione graduale, mantenendo `useTrackingEngine.ts` come reference implementation fino a dimostrazione di equivalenza funzionale.
