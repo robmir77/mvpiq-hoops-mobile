@@ -28,9 +28,9 @@ export interface UseWorkoutVisionPipelineResult {
   
   // FPS metrics
   fpsMetrics: {
-    yoloFps: any
-    moveNetFps: any
-    actualCameraFps: any
+    yoloFps: number
+    moveNetFps: number
+    actualCameraFps: number
   }
   
   // Shared values for overlay
@@ -95,23 +95,23 @@ export const useWorkoutVisionPipeline = (
     requestPermission,
     setIsActive,
     frameOutput,
-    
+
     // Vision state
     isModelReady,
-    
+
     // Actions
     start,
     stop,
     resetShotTracking,
-    
-    // FPS metrics
+
+    // FPS metrics (extract values from SharedValues)
     fpsMetrics: {
-      yoloFps: actualYoloFps,
-      moveNetFps: actualMoveNetFps,
-      actualCameraFps,
+      yoloFps: actualYoloFps?.value ?? 0,
+      moveNetFps: actualMoveNetFps?.value ?? 0,
+      actualCameraFps: actualCameraFps?.value ?? 0,
     },
-    
-    // Shared values
+
+    // Shared values (for overlay)
     sharedValues,
   }
 }

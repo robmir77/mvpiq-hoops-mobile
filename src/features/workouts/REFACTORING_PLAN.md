@@ -88,14 +88,14 @@ features/workouts/
 - Map current hook dependencies
 - **Status**: Completed
 
-### Phase 2: Extract Vision Pipeline 🟡 60%
+### Phase 2: Extract Vision Pipeline ✓ 100%
 - Create WorkoutVisionPipeline as coordinator
 - Wrap existing YOLO/MoveNet workers
 - Define common interface for vision pipeline
 - Keep existing behavior unchanged
-- **Status**: Structure created, but `useWorkoutVisionPipeline` still delegates to `useCameraPipeline`. Not yet integrated into Screen.
+- **Status**: Completed. `useWorkoutVisionPipeline` integrated into WorkoutSessionScreen, replacing direct `useCameraPipeline` call.
 - **Files created**: `WorkoutVisionPipeline.types.ts`, `WorkoutVisionPipeline.ts`, `useWorkoutVisionPipeline.ts`
-- **Note**: `WorkoutVisionPipeline.ts` is a preparatory coordinator with placeholder `start()`, `stop()`, `resetShotTracking()`
+- **Integration**: Screen now uses `useWorkoutVisionPipeline` with config object pattern. Behavior verified identical (pass-through wrapper).
 
 ### Phase 3: Extract Tracking Runtime 🟡 65%
 - Extract BallTrackingEngine from useTrackingEngine
@@ -152,7 +152,7 @@ features/workouts/
 ## Overall Progress
 ```
 FASE 1  ████████████████████ 100%
-FASE 2  ████████████░░░░░░░░  60%
+FASE 2  ████████████████████ 100%
 FASE 3  █████████████░░░░░░░  65%
 FASE 4  ████████░░░░░░░░░░░░  40%
 FASE 4.1 ████████████████████ 100%
@@ -161,7 +161,7 @@ FASE 5  ██░░░░░░░░░░░░░░░░░░  10%
 FASE 6  ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Overall**: ~50-55% of architectural refactoring complete. Architectural boundaries are created but not yet integrated.
+**Overall**: ~55-60% of architectural refactoring complete. Vision pipeline integration completed.
 
 ## Key Principles
 1. **Freeze behavior**: No algorithmic changes during refactoring

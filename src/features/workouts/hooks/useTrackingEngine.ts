@@ -4,6 +4,7 @@
 import { useRef, useCallback } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
 import { TrackingState, VisionTrackState } from '../types/workouts.types'
+import { BallTrackingEngine } from '../tracking/BallTrackingEngine'
 
 interface KalmanState {
     x: number; y: number
@@ -43,6 +44,28 @@ interface BallTrackingCallbacks {
 }
 
 export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
+    // Phase 4.2: Instantiate BallTrackingEngine for progressive integration
+    const ballTrackingEngine = useRef<BallTrackingEngine>(
+        new BallTrackingEngine(callbacks)
+    )
+
+    // Phase 4.2: Track comparison statistics for equivalence verification
+    const comparisonStats = useRef<{
+        detectionMatches: number
+        detectionMismatches: number
+        predictionMatches: number
+        predictionMismatches: number
+        maxPositionDiff: number
+        maxVelocityDiff: number
+    }>({
+        detectionMatches: 0,
+        detectionMismatches: 0,
+        predictionMatches: 0,
+        predictionMismatches: 0,
+        maxPositionDiff: 0,
+        maxVelocityDiff: 0,
+    })
+
     const kalman     = useRef<KalmanState>({ ...INITIAL_KALMAN })
     // Ring buffer for trajectory (O(1) insert, no reallocation)
     const MAX_POINTS = 90
@@ -318,6 +341,32 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             ballTrackingValid.current = true
             lastBallWasDetected.current = true
 
+            // Phase 4.2: Use BallTrackingEngine in parallel for comparison
+            const engineResult = ballTrackingEngine.current.update(ballDetection.x, ballDetection.y, frameTs)
+            const engineState = ballTrackingEngine.current.getState()
+
+            // Compare legacy vs engine output
+            const posDiff = Math.abs(smoothed.x - engineResult.x) + Math.abs(smoothed.y - engineResult.y)
+            const velDiff = engineState.ballVelocity
+                ? Math.abs(kalman.current.vx - engineState.ballVelocity.vx) + Math.abs(kalman.current.vy - engineState.ballVelocity.vy)
+                : 0
+
+            if (posDiff < 0.001 && velDiff < 0.001) {
+                comparisonStats.current.detectionMatches++
+            } else {
+                comparisonStats.current.detectionMismatches++
+                comparisonStats.current.maxPositionDiff = Math.max(comparisonStats.current.maxPositionDiff, posDiff)
+                comparisonStats.current.maxVelocityDiff = Math.max(comparisonStats.current.maxVelocityDiff, velDiff)
+                if (__DEV__ && comparisonStats.current.detectionMismatches <= 10) {
+                    console.warn('[TrackingEngine] BallTrackingEngine mismatch:', {
+                        legacy: { x: smoothed.x.toFixed(6), y: smoothed.y.toFixed(6), vx: kalman.current.vx.toFixed(6), vy: kalman.current.vy.toFixed(6) },
+                        engine: { x: engineResult.x.toFixed(6), y: engineResult.y.toFixed(6), vx: engineState.ballVelocity?.vx.toFixed(6), vy: engineState.ballVelocity?.vy.toFixed(6) },
+                        posDiff: posDiff.toFixed(6),
+                        velDiff: velDiff.toFixed(6),
+                    })
+                }
+            }
+
             // Update visual tracking state
             ballTrackState.value = 'DETECTED'
             ballTrackAge.value = 0
@@ -378,7 +427,7 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             // Prediction step when ball not detected
             const k = kalman.current
             const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
-            
+
             // Check TTL - if expired, invalidate tracking
             const ageMs = frameTs - ballLastSeenAt.current
             if (ageMs > BALL_TRACK_TTL_MS) {
@@ -398,6 +447,17 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                 ballXRaw.value = 0
                 ballYRaw.value = 0
                 confidence.value = 0
+
+                // Phase 4.2: Use BallTrackingEngine predict for comparison
+                const enginePrediction = ballTrackingEngine.current.predict(frameTs)
+                if (enginePrediction === null) {
+                    comparisonStats.current.predictionMatches++
+                } else {
+                    comparisonStats.current.predictionMismatches++
+                    if (__DEV__ && comparisonStats.current.predictionMismatches <= 10) {
+                        console.warn('[TrackingEngine] BallTrackingEngine prediction mismatch: expected null, got', enginePrediction)
+                    }
+                }
             } else {
                 // Predict position from last velocity
                 const predX = k.x + k.vx * dt
@@ -416,6 +476,33 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                 // Update Shared Values with prediction
                 ballX.value = predX
                 ballY.value = predY
+
+                // Phase 4.2: Use BallTrackingEngine predict for comparison
+                const enginePrediction = ballTrackingEngine.current.predict(frameTs)
+                const engineState = ballTrackingEngine.current.getState()
+
+                // Compare legacy vs engine prediction
+                if (enginePrediction) {
+                    const posDiff = Math.abs(predX - enginePrediction.x) + Math.abs(predY - enginePrediction.y)
+                    if (posDiff < 0.001) {
+                        comparisonStats.current.predictionMatches++
+                    } else {
+                        comparisonStats.current.predictionMismatches++
+                        comparisonStats.current.maxPositionDiff = Math.max(comparisonStats.current.maxPositionDiff, posDiff)
+                        if (__DEV__ && comparisonStats.current.predictionMismatches <= 10) {
+                            console.warn('[TrackingEngine] BallTrackingEngine prediction mismatch:', {
+                                legacy: { x: predX.toFixed(6), y: predY.toFixed(6) },
+                                engine: { x: enginePrediction.x.toFixed(6), y: enginePrediction.y.toFixed(6) },
+                                posDiff: posDiff.toFixed(6),
+                            })
+                        }
+                    }
+                } else {
+                    comparisonStats.current.predictionMismatches++
+                    if (__DEV__ && comparisonStats.current.predictionMismatches <= 10) {
+                        console.warn('[TrackingEngine] BallTrackingEngine prediction mismatch: expected position, got null')
+                    }
+                }
                 
                 // Add predicted point to trajectory
                 trajectoryBuffer.current[trajectoryHead.current] = { x: predX, y: predY, t: frameTs }
@@ -586,6 +673,8 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         ballTrackingValid.current = false
         ballLastSeenAt.current = Date.now()
         lastBallWasDetected.current = false
+        // Phase 4.2: Reset BallTrackingEngine
+        ballTrackingEngine.current.reset()
         // Reset visual tracking state
         ballTrackState.value = 'LOST'
         ballTrackAge.value = 0
@@ -612,6 +701,8 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         ballTrackingValid.current = false
         ballLastSeenAt.current = Date.now()
         lastBallWasDetected.current = false
+        // Phase 4.2: Reset BallTrackingEngine
+        ballTrackingEngine.current.reset()
         // Reset visual tracking state
         ballTrackState.value = 'LOST'
         ballTrackAge.value = 0
@@ -735,6 +826,19 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         inFlight: inFlightRef.current,
     }), [])
 
+    // Phase 4.2: Get comparison statistics for BallTrackingEngine equivalence verification
+    const getComparisonStats = useCallback(() => ({
+        ...comparisonStats.current,
+        totalDetections: comparisonStats.current.detectionMatches + comparisonStats.current.detectionMismatches,
+        totalPredictions: comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches,
+        detectionMatchRate: comparisonStats.current.detectionMatches + comparisonStats.current.detectionMismatches > 0
+            ? comparisonStats.current.detectionMatches / (comparisonStats.current.detectionMatches + comparisonStats.current.detectionMismatches)
+            : 1,
+        predictionMatchRate: comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches > 0
+            ? comparisonStats.current.predictionMatches / (comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches)
+            : 1,
+    }), [])
+
     return {
         processFrame,
         predictFrame,
@@ -747,6 +851,8 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         computeTrajectoryMetrics,
         calculateShotQuality,
         getState,
+        // Phase 4.2: Expose comparison stats for BallTrackingEngine verification
+        getComparisonStats,
         // Shared Values for Skia overlay
         sharedValues: {
             ballX,

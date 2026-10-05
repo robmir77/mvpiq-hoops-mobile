@@ -11,10 +11,10 @@
 Creato nuova struttura modulo vision:
 - `features/workouts/vision/WorkoutVisionPipeline.types.ts` - Definizioni dei tipi
 - `features/workouts/vision/WorkoutVisionPipeline.ts` - Coordinatore basato su classi (futuro)
-- `features/workouts/vision/useWorkoutVisionPipeline.ts` - Wrapper hook (attuale)
+- `features/workouts/vision/useWorkoutVisionPipeline.ts` - Wrapper hook
 - `features/workouts/vision/index.ts` - Export del modulo
 
-L'hook `useWorkoutVisionPipeline` avvolge l'esistente `useCameraPipeline` con un'API più pulita mantenendo il comportamento.
+**Integrazione completata**: `useWorkoutVisionPipeline` ora è integrato in WorkoutSessionScreen, sostituendo la chiamata diretta a `useCameraPipeline`. L'hook usa un pattern config object per raggruppare i parametri e delega a `useCameraPipeline` mantenendo il comportamento identico.
 
 ### Fase 3: Estrazione Tracking Runtime ✓
 Creato nuova struttura modulo tracking:
@@ -97,13 +97,33 @@ features/workouts/
 
 ## Prossimi Passi
 
-### Fase 4.2: Integrazione Progressiva (IN ATTESA)
+### Fase 4.2: Integrazione Progressiva (IN CORSO)
 Integrazione graduale dei nuovi moduli nella Screen:
-1. Integrare `useWorkoutVisionPipeline` per sostituire `useCameraPipeline`
-2. Integrare i tracking engines per sostituire parti di `useTrackingEngine`
-3. Integrare `WorkoutSessionRuntime` come coordinatore della sessione
-4. Estrarre componenti UI (BallOverlay, PoseOverlay, ecc.) dalla Screen
-5. Verificare equivalenza funzionale con test prima di eliminare il codice legacy
+
+**4.2.1: BallTrackingEngine Integration ✓**
+- Istanziato `BallTrackingEngine` in `useTrackingEngine.ts`
+- Eseguito in parallelo con logica legacy per confronto output
+- Implementato sistema di statistiche di confronto:
+  - `detectionMatches` / `detectionMismatches`
+  - `predictionMatches` / `predictionMismatches`
+  - `maxPositionDiff` / `maxVelocityDiff`
+  - `getComparisonStats()` esposto per verifica
+- Log di warning in DEV per prime 10 discrepanze
+- Reset di BallTrackingEngine in `resetShot()` e `resetAll()`
+- TypeScript compila senza errori
+- **Prossimo passo**: Eseguire test per verificare equivalenza (target: 100% match rate)
+
+**4.2.2: PlayerTrackingEngine Integration (PENDING)**
+- Da integrare dopo verifica BallTrackingEngine
+
+**4.2.3: ShotDetectionEngine Integration (PENDING)**
+- Da integrare dopo verifica PlayerTrackingEngine
+
+**4.2.4: Runtime Integration (PENDING)**
+- Da integrare dopo verifica tutti tracking engines
+
+**4.2.5: UI Component Extraction (PENDING)**
+- Da integrare dopo verifica runtime
 
 ### Fase 5: Implementare State Machine (IN ATTESA)
 - Aggiungere implementazione state machine in WorkoutSessionRuntime

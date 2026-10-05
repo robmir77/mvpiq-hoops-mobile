@@ -23,7 +23,7 @@ import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
-import { useCameraPipeline, type CameraPipelineResult } from '@/vision'
+import { useWorkoutVisionPipeline } from '../vision/useWorkoutVisionPipeline'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
 import { telemetryLogger } from '@/vision/telemetry'
 import {
@@ -1806,18 +1806,35 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return null
     }, [trackingState?.ballPosition, trackingState?.ballVelocity])
 
-    // useCameraPipeline integration
-    useEffect(() => {
-        console.log('[WorkoutSession] Calling useCameraPipeline with params:', {
-            selectedResolution: effectiveResolution,
-            selectedFps: effectiveFps,
-            selectedPoseResolution: effectivePoseResolution,
-            yoloModelId: effectiveYoloModelId,
-            moveNetModelId: effectiveMoveNetModelId,
-            yoloDelegate,
-            poseDelegate,
-        })
-    }, [effectiveResolution, effectiveFps, effectivePoseResolution, effectiveYoloModelId, effectiveMoveNetModelId, yoloDelegate, poseDelegate])
+    // useWorkoutVisionPipeline integration (Phase 2: replacing useCameraPipeline)
+    const visionConfig = React.useMemo(() => ({
+        enabled: true,
+        poseEnabled,
+        ballEnabled,
+        rimEnabled: rimDetectionEnabled,
+        yoloDelegate,
+        poseDelegate,
+        yoloModelId: effectiveYoloModelId,
+        moveNetModelId: effectiveMoveNetModelId,
+        selectedResolution: effectiveResolution,
+        selectedFps: effectiveFps,
+        selectedPoseResolution: effectivePoseResolution,
+        rimFromCalibration: effectiveRim,
+        kalmanFilteredBall,
+    }), [
+        poseEnabled,
+        ballEnabled,
+        rimDetectionEnabled,
+        yoloDelegate,
+        poseDelegate,
+        effectiveYoloModelId,
+        effectiveMoveNetModelId,
+        effectiveResolution,
+        effectiveFps,
+        effectivePoseResolution,
+        effectiveRim,
+        kalmanFilteredBall,
+    ])
 
     const {
         device,
@@ -1828,30 +1845,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         frameOutput,
         isModelReady,
         resetShotTracking,
-        yoloFps,
-        moveNetFps,
-        actualCameraFps,
-        actualYoloFps,
-        actualMoveNetFps,
+        fpsMetrics: pipelineFpsMetrics,
         sharedValues: pipelineSharedValues,
-    } = useCameraPipeline(
+    } = useWorkoutVisionPipeline(
+        visionConfig,
         handleBallDetection,
         handlePoseResult,
         handleShotEvent,
         rimDetectionEnabled ? handleRimDetection : undefined,
-        effectiveRim,
-        kalmanFilteredBall,
-        true, // enabled
-        poseEnabled,
-        ballEnabled,
-        rimDetectionEnabled,
-        yoloDelegate,
-        poseDelegate,
-        effectiveYoloModelId,
-        effectiveResolution,
-        effectiveFps,
-        effectivePoseResolution,
-        effectiveMoveNetModelId
     )
 
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
@@ -1870,12 +1871,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [pipelineSharedValues, tracking])
 
-    // Update FPS metrics every second from worker SharedValues
+    // Update FPS metrics every second from pipeline
     useEffect(() => {
         const fpsInterval = setInterval(() => {
-            const yoloFpsVal = actualYoloFps?.value ?? 0
-            const moveNetFpsVal = actualMoveNetFps?.value ?? 0
-            const cameraFpsVal = actualCameraFps?.value ?? 0
+            const yoloFpsVal = pipelineFpsMetrics.yoloFps
+            const moveNetFpsVal = pipelineFpsMetrics.moveNetFps
+            const cameraFpsVal = pipelineFpsMetrics.actualCameraFps
             console.log('[WorkoutSession] FPS update:', { yoloFps: yoloFpsVal, moveNetFps: moveNetFpsVal })
             setFpsMetrics({
                 yoloFps: Math.round(yoloFpsVal),
@@ -1884,7 +1885,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setCameraFps(Math.round(cameraFpsVal))
         }, 1000)
         return () => clearInterval(fpsInterval)
-    }, [actualYoloFps, actualMoveNetFps, actualCameraFps])
+    }, [pipelineFpsMetrics])
 
     // Request media library permissions for screenshots
     useEffect(() => {
@@ -2060,10 +2061,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 }
 
                 // Log telemetry summary before ending session
-                telemetryLogger.logTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
+                telemetryLogger.logTestSummary(pipelineFpsMetrics.yoloFps, pipelineFpsMetrics.moveNetFps)
 
                 // Export telemetry summary for saving with session
-                const telemetrySummary = telemetryLogger.exportTestSummary(yoloFps?.value ?? 0, moveNetFps?.value ?? 0)
+                const telemetrySummary = telemetryLogger.exportTestSummary(pipelineFpsMetrics.yoloFps, pipelineFpsMetrics.moveNetFps)
                 console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
 
                 // Shutdown queue with bounded timeout
