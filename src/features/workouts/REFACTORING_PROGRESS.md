@@ -21,7 +21,7 @@ Il refactoring ha raggiunto un **milestone critico**: la nuova architettura trac
 │  Tracking Coordinator       ██████████ 100% │
 │  Runtime                    ████░░░░░░  40% │
 │  State machine              ████░░░░░░  40% │
-│  Screen decomposition        █░░░░░░░░░  10% │
+│  Screen decomposition       ██████████ 100% │
 │  Legacy removal (ALL)        ██████████ 100% │
 │  New architecture tests     ██████████ 100% │
 │                                             │
@@ -128,18 +128,34 @@ features/workouts/
 
 ## Prossimi Passi
 
-### Fase 4.4: Screen Decomposition
+### Fase 4.4: Screen Decomposition (COMPLETATA)
 
-**4.4.1: Estrazione Componenti UI (IN CORSO)**
+**4.4.1: Estrazione Componenti UI ✓**
 - Estrarre overlay components da WorkoutSessionScreen
 - Estrarre calibration components
 - Estrarre shot result display components
 - Ridurre Screen da ~2490 righe a < 1000 righe
+- **Risultato**: WorkoutSessionScreen ridotto a 977 righe
+- **Componenti estratti**:
+  - `WorkoutHeader.tsx` - Header con stats e controlli
+  - `WorkoutControls.tsx` - Pannello controlli e toggle
+  - `ShotFeedback.tsx` - Feedback shot e tracking badge
+  - `useScreenshotCapture.ts` - Hook per screenshot
+  - `useVideoRecording.ts` - Hook per registrazione video
+  - `useTrackingStatus.ts` - Hook per stato tracking
+  - `useVisionConfig.ts` - Hook per configurazione vision
+- Rimozione duplicato `ReactOverlay` da WorkoutSessionScreen
 
-**4.4.2: Collegamento Completo Runtime (PENDING)**
+**4.4.2: Collegamento Completo Runtime ✓**
 - WorkoutSessionScreen usa WorkoutSessionRuntime come coordinatore principale
 - Screen diventa puramente UI/orchestration React
 - Runtime gestisce lifecycle, tracking, shot detection, telemetry
+- **Implementazione**:
+  - Inizializzazione di WorkoutSessionRuntime con callbacks per stato sessione, shot detection, telemetry, errori
+  - Connessione sottosistemi (TrackingEngine, TelemetrySampler, WorkoutQueue) al runtime
+  - Integrazione handleManualShot con runtime.registerManualShot (con fallback)
+  - Callback onShotDetected del runtime aggiorna UI (shotCount, lastShotResult, feedbackOpacity)
+- **Nota**: Vision pipeline rimane gestita da React hooks (useWorkoutVisionPipeline) - integrazione ibrida
 
 ### Fase 4.5: ShotDetectionUIAdapter Refactoring (DEFERRED)
 - Refactor ShotDetectionUIAdapter per rimuovere useSharedValue da classe

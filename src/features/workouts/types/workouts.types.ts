@@ -124,6 +124,12 @@ export interface PoseKeypoints {
     rightAnkle?: { x: number; y: number; score: number }
 }
 
+export interface JointAngles {
+    elbowAngle?: number
+    shoulderAngle?: number
+    kneeAngle?: number
+}
+
 export interface FrameDataPayload {
     frameTimestamp: number
     ballX?: number
