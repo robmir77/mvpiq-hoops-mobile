@@ -1,9 +1,8 @@
 // ShotDetectionEngine
-// Phase 4.1: Extract shot detection logic from useTrackingEngine
+// Phase 4.2: Pure shot detection logic without React dependencies
 // This replicates EXACTLY the original algorithm to maintain behavior
 // Reference: useTrackingEngine.ts lines 466-556
-
-import { useSharedValue } from 'react-native-reanimated'
+// NO React Native / Reanimated dependencies - pure business logic
 
 // Constants from useTrackingEngine
 const SHOT_LAUNCH_THRESHOLD = 1.5
@@ -63,20 +62,6 @@ export class ShotDetectionEngine {
   private risingFrames = 0
   private flightStartY = 1.0
 
-  // Shared values for overlay (maintained for compatibility)
-  public readonly inFlightShared = useSharedValue(false)
-  public readonly shotDetectedShared = useSharedValue(false)
-  public readonly showShotTrail = useSharedValue(false)
-  public readonly shotResultShared = useSharedValue<string | null>(null)
-  public readonly releasePointX = useSharedValue(0)
-  public readonly releasePointY = useSharedValue(0)
-  public readonly apexPointX = useSharedValue(0)
-  public readonly apexPointY = useSharedValue(0)
-
-  // Trajectory shared values (flat array: [x1, y1, x2, y2, ...])
-  public readonly trajectoryPoints = useSharedValue(new Float32Array(this.MAX_POINTS * 2).fill(0))
-  public readonly trajectoryPointCount = useSharedValue(0)
-
   // Get trajectory as ordered array from ring buffer
   private getTrajectory(): TrajectoryPoint[] {
     const result: TrajectoryPoint[] = []
@@ -102,25 +87,7 @@ export class ShotDetectionEngine {
     if (y < this.peakY) {
       this.peakY = y
       this.apexPoint = { x, y }
-      this.apexPointX.value = x
-      this.apexPointY.value = y
     }
-
-    // Update trajectory SharedValues when inFlight
-    if (this.inFlight) {
-      this.updateTrajectorySharedValues()
-    }
-  }
-
-  private updateTrajectorySharedValues(): void {
-    const traj = this.getTrajectory()
-    const points = this.trajectoryPoints.value
-    for (let i = 0; i < Math.min(traj.length, this.MAX_POINTS); i++) {
-      points[i * 2] = traj[i].x
-      points[i * 2 + 1] = traj[i].y
-    }
-    this.trajectoryPoints.value = points
-    this.trajectoryPointCount.value = traj.length
   }
 
   // Process frame for shot detection (replicates useTrackingEngine logic)
@@ -159,12 +126,8 @@ export class ShotDetectionEngine {
         const arcSoFar = this.flightStartY - ball.y  // positivo = salita
         if (arcSoFar >= MIN_ARC_HEIGHT && this.trajectoryCount >= MIN_TRAJECTORY_FRAMES) {
           this.inFlight = true
-          this.inFlightShared.value = true
-          this.showShotTrail.value = true
           // Save release point
           this.releasePoint = { x: ball.x, y: ball.y }
-          this.releasePointX.value = ball.x
-          this.releasePointY.value = ball.y
         }
       }
     }
@@ -187,20 +150,14 @@ export class ShotDetectionEngine {
         if (descendingTowardHoop && dist < dynamicHoopRadius) {
           this.shotDetected = true
           this.shotResult = 'MADE'
-          this.shotDetectedShared.value = true
-          this.shotResultShared.value = 'MADE'
           this.lastShotTs = frameTs
         } else if (descendingTowardHoop && dist >= dynamicHoopRadius) {
           this.shotDetected = true
           this.shotResult = 'MISS'
-          this.shotDetectedShared.value = true
-          this.shotResultShared.value = 'MISS'
           this.lastShotTs = frameTs
         } else if (descending && vel.vy > SHOT_LAUNCH_THRESHOLD * 2) {
           this.shotDetected = true
           this.shotResult = dist < 0.25 ? 'MISS' : 'AIRBALL'
-          this.shotDetectedShared.value = true
-          this.shotResultShared.value = dist < 0.25 ? 'MISS' : 'AIRBALL'
           this.lastShotTs = frameTs
         }
       }
@@ -223,18 +180,6 @@ export class ShotDetectionEngine {
     this.apexPoint = null
     this.risingFrames = 0
     this.flightStartY = 1.0
-
-    // Reset Shared Values
-    this.inFlightShared.value = false
-    this.showShotTrail.value = false
-    this.shotDetectedShared.value = false
-    this.shotResultShared.value = null
-    this.releasePointX.value = 0
-    this.releasePointY.value = 0
-    this.apexPointX.value = 0
-    this.apexPointY.value = 0
-    this.trajectoryPoints.value = new Float32Array(this.MAX_POINTS * 2).fill(0)
-    this.trajectoryPointCount.value = 0
   }
 
   resetAll(): void {
@@ -257,5 +202,22 @@ export class ShotDetectionEngine {
 
   getTrajectoryPoints(): TrajectoryPoint[] {
     return this.getTrajectory()
+  }
+
+  // Get current state for UI adapter
+  getState(): {
+    shotDetected: boolean
+    shotResult: 'MADE' | 'MISS' | 'AIRBALL' | null
+    inFlight: boolean
+    releasePoint: BallPosition | null
+    apexPoint: BallPosition | null
+  } {
+    return {
+      shotDetected: this.shotDetected,
+      shotResult: this.shotResult,
+      inFlight: this.inFlight,
+      releasePoint: this.releasePoint,
+      apexPoint: this.apexPoint,
+    }
   }
 }

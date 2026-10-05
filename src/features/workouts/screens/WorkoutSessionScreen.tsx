@@ -1361,7 +1361,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [jointAngles, setJointAngles]     = useState<Partial<JointAngles>>({})
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
-    const modelsReadyShared = useSharedValue(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const [poseEnabled, setPoseEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_MOVENET)
     const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
@@ -1431,42 +1430,40 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
     
-    // Derived values per tracking badge
-    const trackingBallX = useDerivedValue(() => sharedValues?.ballX.value ?? 0)
-    const trackingConfidence = useDerivedValue(() => sharedValues?.confidence.value ?? 0)
-    const trackingIsActive = useDerivedValue(() => (trackingBallX.value > 0))
-    
     // React state for tracking badge text and dot color
     const [trackingBadgeText, setTrackingBadgeText] = React.useState('Cerca palla...')
     const [trackingDotActive, setTrackingDotActive] = React.useState(false)
     const [trackingDotColor, setTrackingDotColor] = React.useState('#555')
     
-    const yoloModelNameShared = useSharedValue(yoloModelName)
+    // Update tracking badge text and dot color using useAnimatedReaction
+    const updateTrackingBadge = React.useCallback((isActive: boolean, confidence: number) => {
+        if (isActive) {
+            setTrackingBadgeText(`🏀 ${Math.round(confidence * 100)}%`)
+            setTrackingDotActive(true)
+            setTrackingDotColor('#4ade80')
+        } else {
+            setTrackingBadgeText(modelsReady ? 'Cerca palla...' : `Caricamento ${yoloModelName}...`)
+            setTrackingDotActive(false)
+            setTrackingDotColor('#555')
+        }
+    }, [modelsReady, yoloModelName])
     
-    // Update yoloModelName shared value when it changes
-    useEffect(() => {
-        yoloModelNameShared.value = yoloModelName
-    }, [yoloModelName])
+    const lastTrackingBadgeUpdate = React.useRef(0)
     
-    // Update tracking badge text and dot color using useEffect (React state, not worklet)
-    useEffect(() => {
-        const interval = setInterval(() => {
-            const isActive = (sharedValues?.ballX.value ?? 0) > 0
-            const confidence = sharedValues?.confidence.value ?? 0
-            
-            if (isActive) {
-                setTrackingBadgeText(`🏀 ${Math.round(confidence * 100)}%`)
-                setTrackingDotActive(true)
-                setTrackingDotColor('#4ade80')
-            } else {
-                setTrackingBadgeText(modelsReady ? 'Cerca palla...' : `Caricamento ${yoloModelName}...`)
-                setTrackingDotActive(false)
-                setTrackingDotColor('#555')
+    useAnimatedReaction(
+        () => ({
+            isActive: (sharedValues?.ballX.value ?? 0) > 0,
+            confidence: sharedValues?.confidence.value ?? 0,
+        }),
+        (current) => {
+            'worklet'
+            const now = Date.now()
+            if (now - lastTrackingBadgeUpdate.current > 150) {
+                lastTrackingBadgeUpdate.current = now
+                runOnJS(updateTrackingBadge)(current.isActive, current.confidence)
             }
-        }, 150)
-        
-        return () => clearInterval(interval)
-    }, [modelsReady, yoloModelName, sharedValues])
+        }
+    )
     
     const [autoStatusText, setAutoStatusText] = React.useState('In attesa della palla…')
     const [autoDotActive, setAutoDotActive] = React.useState(false)
@@ -1871,21 +1868,32 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [pipelineSharedValues, tracking])
 
-    // Update FPS metrics every second from pipeline
-    useEffect(() => {
-        const fpsInterval = setInterval(() => {
-            const yoloFpsVal = pipelineFpsMetrics.yoloFps
-            const moveNetFpsVal = pipelineFpsMetrics.moveNetFps
-            const cameraFpsVal = pipelineFpsMetrics.actualCameraFps
-            console.log('[WorkoutSession] FPS update:', { yoloFps: yoloFpsVal, moveNetFps: moveNetFpsVal })
+    // Update FPS metrics from pipeline using useAnimatedReaction
+    const lastFpsUpdate = React.useRef(0)
+    const updateFpsMetrics = React.useCallback((yoloFps: number, moveNetFps: number, cameraFps: number) => {
+        const now = Date.now()
+        if (now - lastFpsUpdate.current > 1000) {
+            lastFpsUpdate.current = now
+            console.log('[WorkoutSession] FPS update:', { yoloFps, moveNetFps })
             setFpsMetrics({
-                yoloFps: Math.round(yoloFpsVal),
-                moveNetFps: Math.round(moveNetFpsVal),
+                yoloFps: Math.round(yoloFps),
+                moveNetFps: Math.round(moveNetFps),
             })
-            setCameraFps(Math.round(cameraFpsVal))
-        }, 1000)
-        return () => clearInterval(fpsInterval)
-    }, [pipelineFpsMetrics])
+            setCameraFps(Math.round(cameraFps))
+        }
+    }, [])
+
+    useAnimatedReaction(
+        () => ({
+            yoloFps: pipelineFpsMetrics.yoloFps?.value ?? 0,
+            moveNetFps: pipelineFpsMetrics.moveNetFps?.value ?? 0,
+            cameraFps: pipelineFpsMetrics.actualCameraFps?.value ?? 0,
+        }),
+        (current) => {
+            'worklet'
+            runOnJS(updateFpsMetrics)(current.yoloFps, current.moveNetFps, current.cameraFps)
+        }
+    )
 
     // Request media library permissions for screenshots
     useEffect(() => {
@@ -1933,7 +1941,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         console.log('[WorkoutSession] isModelReady:', isModelReady)
         setModelsReady(isModelReady)
-        modelsReadyShared.value = isModelReady
     }, [isModelReady])
 
     const loadSession = async () => {
@@ -2061,10 +2068,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 }
 
                 // Log telemetry summary before ending session
-                telemetryLogger.logTestSummary(pipelineFpsMetrics.yoloFps, pipelineFpsMetrics.moveNetFps)
+                telemetryLogger.logTestSummary(pipelineFpsMetrics.yoloFps?.value ?? 0, pipelineFpsMetrics.moveNetFps?.value ?? 0)
 
                 // Export telemetry summary for saving with session
-                const telemetrySummary = telemetryLogger.exportTestSummary(pipelineFpsMetrics.yoloFps, pipelineFpsMetrics.moveNetFps)
+                const telemetrySummary = telemetryLogger.exportTestSummary(pipelineFpsMetrics.yoloFps?.value ?? 0, pipelineFpsMetrics.moveNetFps?.value ?? 0)
                 console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
 
                 // Shutdown queue with bounded timeout

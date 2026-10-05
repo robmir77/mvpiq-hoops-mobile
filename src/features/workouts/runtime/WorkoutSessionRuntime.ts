@@ -202,12 +202,17 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private async initializeVisionPipeline(): Promise<void> {
     // Vision pipeline will be initialized with the React hook
     // This is a placeholder for future non-React implementation
-    console.log('[WorkoutSessionRuntime] Vision pipeline initialized')
+    if (this.visionPipeline) {
+      console.log('[WorkoutSessionRuntime] Vision pipeline initialized')
+    } else {
+      console.warn('[WorkoutSessionRuntime] Vision pipeline not set - will be provided by React hook')
+    }
   }
 
   private async initializeTrackingEngine(): Promise<void> {
-    // Tracking engine will be initialized with the extracted classes
-    // For now, we rely on the React hook to provide the engine reference
+    // Tracking engine is now provided via setTrackingEngine()
+    // The Runtime coordinates the tracking engines but doesn't own them
+    // They are owned by the React hook (useTrackingEngine) for now
     if (this.trackingEngine) {
       console.log('[WorkoutSessionRuntime] Tracking engine initialized')
     } else {
@@ -216,8 +221,8 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   }
 
   private async initializeShotDetection(): Promise<void> {
-    // Shot detection will be initialized with the extracted class
-    // For now, we rely on the React hook to provide the engine reference
+    // Shot detection engine is now provided via setShotDetectionEngine()
+    // The Runtime coordinates shot detection but doesn't own the engine
     if (this.shotDetectionEngine) {
       console.log('[WorkoutSessionRuntime] Shot detection initialized')
     } else {

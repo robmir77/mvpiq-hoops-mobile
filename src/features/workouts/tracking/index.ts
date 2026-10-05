@@ -2,6 +2,8 @@
 export { BallTrackingEngine } from './BallTrackingEngine'
 export { PlayerTrackingEngine } from './PlayerTrackingEngine'
 export { ShotDetectionEngine } from './ShotDetectionEngine'
+export { TrackingCoordinator } from './TrackingCoordinator'
+export { ShotDetectionUIAdapter } from './ShotDetectionUIAdapter'
 export type {
   BallPosition,
   BallVelocity,

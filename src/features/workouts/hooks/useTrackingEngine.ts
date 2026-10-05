@@ -1,5 +1,6 @@
 // Shot detection: MADE requires descending ball + hoop proximity, MISS requires trajectory past peak
 // Dribble filter: risingFrames + MIN_ARC_HEIGHT to exclude ground bounces
+// Phase 4.2: BallTrackingEngine is now authoritative - legacy Kalman removed
 
 import { useRef, useCallback } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
@@ -7,19 +8,7 @@ import { TrackingState, VisionTrackState } from '../types/workouts.types'
 import { BallTrackingEngine } from '../tracking/BallTrackingEngine'
 import { PlayerTrackingEngine } from '../tracking/PlayerTrackingEngine'
 import { ShotDetectionEngine } from '../tracking/ShotDetectionEngine'
-
-interface KalmanState {
-    x: number; y: number
-    vx: number; vy: number
-    px: number; py: number
-    mx: number; my: number
-}
-
-const INITIAL_KALMAN: KalmanState = {
-    x: 0, y: 0, vx: 0, vy: 0,
-    px: 1.5, py: 1.5,  // Increased to trust predictive model less
-    mx: 0.3, my: 0.3,  // Reduced to trust current measurements more
-}
+import { TrackingCoordinator } from '../tracking/TrackingCoordinator'
 
 // Shot detection thresholds
 const SHOT_LAUNCH_THRESHOLD  = 1.5  // Min vertical velocity (normalized/s)
@@ -27,7 +16,6 @@ const HOOP_RADIUS_MADE       = 0.10  // Dynamic radius for MADE detection
 const DESCENDING_VY_THRESHOLD = 0.3  // Descending threshold (vy > 0 = falling)
 const MIN_TRAJECTORY_FRAMES  = 4  // Min frames before shot detection
 const SHOT_COOLDOWN_MS       = 600  // Cooldown between shots
-const BALL_TRACK_TTL_MS      = 500  // Time-based TTL for ball tracking validity
 
 // Dynamic hoop radius from detected dimensions
 const getDynamicHoopRadius = (hoop: { width?: number; height?: number } | null): number => {
@@ -61,32 +49,24 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         new ShotDetectionEngine()
     )
 
-    // Phase 4.2: Track comparison statistics for equivalence verification
+    // Phase 4.2: Instantiate TrackingCoordinator for spatial constraints
+    const trackingCoordinator = useRef<TrackingCoordinator>(
+        new TrackingCoordinator()
+    )
+
+    // Phase 4.2: Track comparison statistics for equivalence verification (legacy comparison removed)
     const comparisonStats = useRef<{
-        detectionMatches: number
-        detectionMismatches: number
-        predictionMatches: number
-        predictionMismatches: number
-        maxPositionDiff: number
-        maxVelocityDiff: number
         playerCenterMatches: number
         playerCenterMismatches: number
         shotDetectionMatches: number
         shotDetectionMismatches: number
     }>({
-        detectionMatches: 0,
-        detectionMismatches: 0,
-        predictionMatches: 0,
-        predictionMismatches: 0,
-        maxPositionDiff: 0,
-        maxVelocityDiff: 0,
         playerCenterMatches: 0,
         playerCenterMismatches: 0,
         shotDetectionMatches: 0,
         shotDetectionMismatches: 0,
     })
 
-    const kalman     = useRef<KalmanState>({ ...INITIAL_KALMAN })
     // Ring buffer for trajectory (O(1) insert, no reallocation)
     const MAX_POINTS = 90
     const trajectoryBuffer = useRef<Array<{ x: number; y: number; t: number } | null>>(new Array(MAX_POINTS).fill(null))
@@ -165,11 +145,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     const apexPoint    = useRef<{ x: number; y: number } | null>(null)
     const inFlightRef  = useRef<boolean>(false)
 
-    // Ball tracking state for TTL
-    const ballLastSeenAt = useRef<number>(Date.now())
-    const ballTrackingValid = useRef<boolean>(false)
-    const lastBallWasDetected = useRef<boolean>(false)
-
     // Dribble filter state
     const risingFrames  = useRef<number>(0)  // Consecutive rising frames
     const flightStartY  = useRef<number>(1.0)  // Y at first rising frame
@@ -188,117 +163,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         }
         return result
     }, [MAX_POINTS])
-
-    const kalmanUpdate = useCallback((measX: number, measY: number, frameTs: number): { x: number; y: number } => {
-        const k  = kalman.current
-        const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
-
-        const predX = k.x + k.vx * dt
-        const predY = k.y + k.vy * dt
-
-        const gx = k.px / (k.px + k.mx)
-        const gy = k.py / (k.py + k.my)
-
-        k.x  = predX + gx * (measX - predX)
-        k.y  = predY + gy * (measY - predY)
-        k.vx = (k.x - predX) / dt
-        k.vy = (k.y - predY) / dt
-        k.px = (1 - gx) * k.px
-        k.py = (1 - gy) * k.py
-
-        return { x: k.x, y: k.y }
-    }, [])
-
-    const kalmanPredict = useCallback((frameTs: number): { x: number; y: number } | null => {
-        const k  = kalman.current
-        const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
-        
-        // Check TTL - if expired, return null
-        const ageMs = frameTs - ballLastSeenAt.current
-        if (ageMs > BALL_TRACK_TTL_MS) {
-            ballTrackingValid.current = false
-            if (lastBallWasDetected.current) {
-                callbacks?.onBallTrackingExpired?.()
-                lastBallWasDetected.current = false
-            }
-            return null
-        }
-        
-        // Predict position from last velocity
-        const predX = k.x + k.vx * dt
-        const predY = k.y + k.vy * dt
-        
-        return { x: predX, y: predY }
-    }, [callbacks])
-
-    const predictFrame = useCallback((frameTs: number): boolean => {
-        const current = state.current
-        
-        // Only predict if we have a valid ball position and tracking is valid
-        if (!current.ballPosition || !ballTrackingValid.current) {
-            return false
-        }
-        
-        const prediction = kalmanPredict(frameTs)
-        if (!prediction) {
-            // TTL expired - invalidate tracking
-            current.ballPosition = null
-            current.ballVelocity = null
-            current.ballPositionRaw = null
-            current.confidence = 0
-            
-            // Reset Shared Values
-            ballX.value = 0
-            ballY.value = 0
-            ballXRaw.value = 0
-            ballYRaw.value = 0
-            confidence.value = 0
-            return false
-        }
-        
-        // Update state with prediction
-        current.ballPosition = prediction
-        current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }
-        
-        // Call telemetry callback for prediction
-        const ageMs = frameTs - ballLastSeenAt.current
-        callbacks?.onBallPrediction?.(ageMs)
-        
-        // Update Shared Values with prediction
-        ballX.value = prediction.x
-        ballY.value = prediction.y
-        
-        // Add predicted point to trajectory
-        trajectoryBuffer.current[trajectoryHead.current] = { x: prediction.x, y: prediction.y, t: frameTs }
-        trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
-        if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
-        
-        // Update trajectory SharedValues when inFlight
-        if (inFlightRef.current) {
-            const traj = getTrajectory()
-            const points = trajectoryPoints.value
-            for (let i = 0; i < Math.min(traj.length, MAX_POINTS); i++) {
-                points[i * 2] = traj[i].x
-                points[i * 2 + 1] = traj[i].y
-            }
-            trajectoryPoints.value = points
-            trajectoryPointCount.value = traj.length
-        }
-        
-        // Copy trajectory for UI every 5 frames when inFlight
-        if (inFlightRef.current && trajectoryCount.current % 5 === 0) {
-            current.trajectory = getTrajectory()
-        }
-        
-        // Update peak with prediction
-        if (prediction.y < peakY.current) {
-            peakY.current = prediction.y
-            apexPoint.current = { x: prediction.x, y: prediction.y }
-        }
-        
-        lastFrameTs.current = frameTs
-        return true
-    }, [kalmanPredict, getTrajectory, ballX, ballY, ballXRaw, ballYRaw, confidence, trajectoryPoints, trajectoryPointCount, MAX_POINTS])
 
     const processFrame = useCallback((
         ballDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
@@ -342,15 +206,10 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             }
         }
 
-        // Spatial constraint: ball should be near player when not shooting
-        const MAX_PLAYER_BALL_DISTANCE = 0.35
-        if (ballDetection && playerCenter && !current.inFlight) {
-            const dx = ballDetection.x - playerCenter.x
-            const dy = ballDetection.y - playerCenter.y
-            const distance = Math.sqrt(dx * dx + dy * dy)
-            if (distance > MAX_PLAYER_BALL_DISTANCE) {
-                ballDetection = null  // Too far from player when not shooting
-            }
+        // Phase 4.2: Use TrackingCoordinator for spatial constraints
+        if (!trackingCoordinator.current.shouldAcceptBallDetection(ballDetection, playerCenter, current.inFlight)) {
+            ballDetection = null
+            ballRejectionReason.value = trackingCoordinator.current.getRejectionReason(ballDetection, playerCenter, current.inFlight)
         }
 
         // Handle rejected detections for visualization
@@ -366,44 +225,26 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         }
 
         if (ballDetection) {
-            const smoothed = kalmanUpdate(ballDetection.x, ballDetection.y, frameTs)
-            current.ballPosition = smoothed
-            current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
-            current.ballVelocity = { vx: kalman.current.vx, vy: kalman.current.vy }
-            current.confidence   = ballDetection.confidence
-            current.ballWidth    = ballDetection.width
-            current.ballHeight   = ballDetection.height
-
-            // Update ball tracking TTL state
-            ballLastSeenAt.current = frameTs
-            ballTrackingValid.current = true
-            lastBallWasDetected.current = true
-
-            // Phase 4.2: Use BallTrackingEngine in parallel for comparison
+            // Phase 4.2: BallTrackingEngine is now authoritative
             const engineResult = ballTrackingEngine.current.update(ballDetection.x, ballDetection.y, frameTs)
             const engineState = ballTrackingEngine.current.getState()
 
-            // Compare legacy vs engine output
-            const posDiff = Math.abs(smoothed.x - engineResult.x) + Math.abs(smoothed.y - engineResult.y)
-            const velDiff = engineState.ballVelocity
-                ? Math.abs(kalman.current.vx - engineState.ballVelocity.vx) + Math.abs(kalman.current.vy - engineState.ballVelocity.vy)
-                : 0
+            // Set raw detection data
+            ballTrackingEngine.current.setRawDetection(
+                ballDetection.x,
+                ballDetection.y,
+                ballDetection.width || 0,
+                ballDetection.height || 0,
+                ballDetection.confidence
+            )
 
-            if (posDiff < 0.001 && velDiff < 0.001) {
-                comparisonStats.current.detectionMatches++
-            } else {
-                comparisonStats.current.detectionMismatches++
-                comparisonStats.current.maxPositionDiff = Math.max(comparisonStats.current.maxPositionDiff, posDiff)
-                comparisonStats.current.maxVelocityDiff = Math.max(comparisonStats.current.maxVelocityDiff, velDiff)
-                if (__DEV__ && comparisonStats.current.detectionMismatches <= 10) {
-                    console.warn('[TrackingEngine] BallTrackingEngine mismatch:', {
-                        legacy: { x: smoothed.x.toFixed(6), y: smoothed.y.toFixed(6), vx: kalman.current.vx.toFixed(6), vy: kalman.current.vy.toFixed(6) },
-                        engine: { x: engineResult.x.toFixed(6), y: engineResult.y.toFixed(6), vx: engineState.ballVelocity?.vx.toFixed(6), vy: engineState.ballVelocity?.vy.toFixed(6) },
-                        posDiff: posDiff.toFixed(6),
-                        velDiff: velDiff.toFixed(6),
-                    })
-                }
-            }
+            // Use engine output as authoritative
+            current.ballPosition = { x: engineResult.x, y: engineResult.y }
+            current.ballPositionRaw = { x: ballDetection.x, y: ballDetection.y }
+            current.ballVelocity = engineState.ballVelocity
+            current.confidence = ballDetection.confidence
+            current.ballWidth = ballDetection.width
+            current.ballHeight = ballDetection.height
 
             // Update visual tracking state
             ballTrackState.value = 'DETECTED'
@@ -435,12 +276,12 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             // }
 
             // Ring buffer insert (O(1))
-            trajectoryBuffer.current[trajectoryHead.current] = { x: smoothed.x, y: smoothed.y, t: frameTs }
+            trajectoryBuffer.current[trajectoryHead.current] = { x: engineResult.x, y: engineResult.y, t: frameTs }
             trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
             if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
 
             // Phase 4.2: Update trajectory in ShotDetectionEngine for comparison
-            shotDetectionEngine.current.addTrajectoryPoint(smoothed.x, smoothed.y, frameTs)
+            shotDetectionEngine.current.addTrajectoryPoint(engineResult.x, engineResult.y, frameTs)
 
             // Update trajectory SharedValues when inFlight
             if (inFlightRef.current) {
@@ -460,19 +301,17 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
             }
 
             // Update peak (min y = highest point)
-            if (smoothed.y < peakY.current) {
-                peakY.current = smoothed.y
-                apexPoint.current = { x: smoothed.x, y: smoothed.y }
+            if (engineResult.y < peakY.current) {
+                peakY.current = engineResult.y
+                apexPoint.current = { x: engineResult.x, y: engineResult.y }
             }
         } else if (current.ballPosition && lastFrameTs.current > 0) {
-            // Prediction step when ball not detected
-            const k = kalman.current
-            const dt = Math.max(0.01, Math.min(0.1, (frameTs - lastFrameTs.current) / 1000))
+            // Phase 4.2: BallTrackingEngine predict is now authoritative
+            const enginePrediction = ballTrackingEngine.current.predict(frameTs)
+            const engineState = ballTrackingEngine.current.getState()
 
-            // Check TTL - if expired, invalidate tracking
-            const ageMs = frameTs - ballLastSeenAt.current
-            if (ageMs > BALL_TRACK_TTL_MS) {
-                ballTrackingValid.current = false
+            if (enginePrediction === null) {
+                // TTL expired - invalidate tracking
                 current.ballPosition = null
                 current.ballVelocity = null
                 current.ballPositionRaw = null
@@ -488,70 +327,29 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                 ballXRaw.value = 0
                 ballYRaw.value = 0
                 confidence.value = 0
-
-                // Phase 4.2: Use BallTrackingEngine predict for comparison
-                const enginePrediction = ballTrackingEngine.current.predict(frameTs)
-                if (enginePrediction === null) {
-                    comparisonStats.current.predictionMatches++
-                } else {
-                    comparisonStats.current.predictionMismatches++
-                    if (__DEV__ && comparisonStats.current.predictionMismatches <= 10) {
-                        console.warn('[TrackingEngine] BallTrackingEngine prediction mismatch: expected null, got', enginePrediction)
-                    }
-                }
             } else {
-                // Predict position from last velocity
-                const predX = k.x + k.vx * dt
-                const predY = k.y + k.vy * dt
-
-                current.ballPosition = { x: predX, y: predY }
-                current.ballVelocity = { vx: k.vx, vy: k.vy }
+                // Use engine prediction as authoritative
+                current.ballPosition = { x: enginePrediction.x, y: enginePrediction.y }
+                current.ballVelocity = engineState.ballVelocity
 
                 // Update visual tracking state to PREDICTED
                 ballTrackState.value = 'PREDICTED'
-                ballTrackAge.value = ageMs
+                ballTrackAge.value = engineState.trackAge
 
                 // Call telemetry callback for prediction
-                callbacks?.onBallPrediction?.(ageMs)
+                callbacks?.onBallPrediction?.(engineState.trackAge)
 
                 // Update Shared Values with prediction
-                ballX.value = predX
-                ballY.value = predY
+                ballX.value = enginePrediction.x
+                ballY.value = enginePrediction.y
 
-                // Phase 4.2: Use BallTrackingEngine predict for comparison
-                const enginePrediction = ballTrackingEngine.current.predict(frameTs)
-                const engineState = ballTrackingEngine.current.getState()
-
-                // Compare legacy vs engine prediction
-                if (enginePrediction) {
-                    const posDiff = Math.abs(predX - enginePrediction.x) + Math.abs(predY - enginePrediction.y)
-                    if (posDiff < 0.001) {
-                        comparisonStats.current.predictionMatches++
-                    } else {
-                        comparisonStats.current.predictionMismatches++
-                        comparisonStats.current.maxPositionDiff = Math.max(comparisonStats.current.maxPositionDiff, posDiff)
-                        if (__DEV__ && comparisonStats.current.predictionMismatches <= 10) {
-                            console.warn('[TrackingEngine] BallTrackingEngine prediction mismatch:', {
-                                legacy: { x: predX.toFixed(6), y: predY.toFixed(6) },
-                                engine: { x: enginePrediction.x.toFixed(6), y: enginePrediction.y.toFixed(6) },
-                                posDiff: posDiff.toFixed(6),
-                            })
-                        }
-                    }
-                } else {
-                    comparisonStats.current.predictionMismatches++
-                    if (__DEV__ && comparisonStats.current.predictionMismatches <= 10) {
-                        console.warn('[TrackingEngine] BallTrackingEngine prediction mismatch: expected position, got null')
-                    }
-                }
-                
                 // Add predicted point to trajectory
-                trajectoryBuffer.current[trajectoryHead.current] = { x: predX, y: predY, t: frameTs }
+                trajectoryBuffer.current[trajectoryHead.current] = { x: enginePrediction.x, y: enginePrediction.y, t: frameTs }
                 trajectoryHead.current = (trajectoryHead.current + 1) % MAX_POINTS
                 if (trajectoryCount.current < MAX_POINTS) trajectoryCount.current++
 
                 // Phase 4.2: Update trajectory in ShotDetectionEngine for comparison
-                shotDetectionEngine.current.addTrajectoryPoint(predX, predY, frameTs)
+                shotDetectionEngine.current.addTrajectoryPoint(enginePrediction.x, enginePrediction.y, frameTs)
                 
                 // Update trajectory SharedValues
                 if (inFlightRef.current) {
@@ -571,9 +369,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
                 }
                 
                 // Update peak with prediction
-                if (predY < peakY.current) {
-                    peakY.current = predY
-                    apexPoint.current = { x: predX, y: predY }
+                if (enginePrediction.y < peakY.current) {
+                    peakY.current = enginePrediction.y
+                    apexPoint.current = { x: enginePrediction.x, y: enginePrediction.y }
                 }
             }
         }
@@ -716,7 +514,7 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
 
         lastFrameTs.current = frameTs
         return { ...current }
-    }, [kalmanUpdate])
+    }, [])
 
     // Reset ring buffer
     const resetTrajectoryBuffer = useCallback(() => {
@@ -740,10 +538,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         inFlightRef.current       = false
         risingFrames.current       = 0
         flightStartY.current       = 1.0
-        // Reset ball tracking TTL state with valid timestamp
-        ballTrackingValid.current = false
-        ballLastSeenAt.current = Date.now()
-        lastBallWasDetected.current = false
         // Phase 4.2: Reset tracking engines
         ballTrackingEngine.current.reset()
         playerTrackingEngine.current.reset()
@@ -762,7 +556,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
     }, [resetTrajectoryBuffer, inFlight, showShotTrail, shotDetected, shotResult, trajectoryPoints, trajectoryPointCount, MAX_POINTS])
 
     const resetAll = useCallback(() => {
-        kalman.current      = { ...INITIAL_KALMAN }
         resetTrajectoryBuffer()
         peakY.current       = Infinity
         apexPoint.current  = null
@@ -770,10 +563,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         risingFrames.current = 0
         flightStartY.current = 1.0
         lastShotTs.current  = 0
-        // Reset ball tracking TTL state with valid timestamp
-        ballTrackingValid.current = false
-        ballLastSeenAt.current = Date.now()
-        lastBallWasDetected.current = false
         // Phase 4.2: Reset tracking engines
         ballTrackingEngine.current.reset()
         playerTrackingEngine.current.reset()
@@ -901,17 +690,9 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         inFlight: inFlightRef.current,
     }), [])
 
-    // Phase 4.2: Get comparison statistics for BallTrackingEngine equivalence verification
+    // Phase 4.2: Get comparison statistics for Player and Shot engine equivalence verification
     const getComparisonStats = useCallback(() => ({
         ...comparisonStats.current,
-        totalDetections: comparisonStats.current.detectionMatches + comparisonStats.current.detectionMismatches,
-        totalPredictions: comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches,
-        detectionMatchRate: comparisonStats.current.detectionMatches + comparisonStats.current.detectionMismatches > 0
-            ? comparisonStats.current.detectionMatches / (comparisonStats.current.detectionMatches + comparisonStats.current.detectionMismatches)
-            : 1,
-        predictionMatchRate: comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches > 0
-            ? comparisonStats.current.predictionMatches / (comparisonStats.current.predictionMatches + comparisonStats.current.predictionMismatches)
-            : 1,
         playerCenterMatchRate: comparisonStats.current.playerCenterMatches + comparisonStats.current.playerCenterMismatches > 0
             ? comparisonStats.current.playerCenterMatches / (comparisonStats.current.playerCenterMatches + comparisonStats.current.playerCenterMismatches)
             : 1,
@@ -922,8 +703,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
 
     return {
         processFrame,
-        predictFrame,
-        kalmanPredict,
         resetShot,
         resetAll,
         setHoopFromCalibration,

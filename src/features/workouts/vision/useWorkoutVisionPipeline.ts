@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react'
 import { useCameraPipeline } from '@/vision'
+import { useDerivedValue } from 'react-native-reanimated'
 import type { BallDetection, PoseResult, ShotEvent } from '@/vision'
 import type { AndroidDelegateOption, IosDelegateOption } from '@/vision/delegates'
 import type { VisionPipelineConfig } from './WorkoutVisionPipeline.types'
@@ -17,22 +18,22 @@ export interface UseWorkoutVisionPipelineResult {
   requestPermission: () => Promise<boolean>
   setIsActive: (v: boolean) => void
   frameOutput: any
-  
+
   // Vision state
   isModelReady: boolean
-  
+
   // Actions
   start(): void
   stop(): void
   resetShotTracking(): void
-  
-  // FPS metrics
+
+  // FPS metrics (SharedValues - use .value only in worklets or via useAnimatedReaction)
   fpsMetrics: {
-    yoloFps: number
-    moveNetFps: number
-    actualCameraFps: number
+    yoloFps: any
+    moveNetFps: any
+    actualCameraFps: any
   }
-  
+
   // Shared values for overlay
   sharedValues: any
 }
@@ -104,11 +105,11 @@ export const useWorkoutVisionPipeline = (
     stop,
     resetShotTracking,
 
-    // FPS metrics (extract values from SharedValues)
+    // FPS metrics (SharedValues - use .value only in worklets or via useAnimatedReaction)
     fpsMetrics: {
-      yoloFps: actualYoloFps?.value ?? 0,
-      moveNetFps: actualMoveNetFps?.value ?? 0,
-      actualCameraFps: actualCameraFps?.value ?? 0,
+      yoloFps: actualYoloFps,
+      moveNetFps: actualMoveNetFps,
+      actualCameraFps: actualCameraFps,
     },
 
     // Shared values (for overlay)
