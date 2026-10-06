@@ -488,7 +488,9 @@ export const useShotTracker = (
             timestamp: result.timestamp,
         }
 
-        wrappedOnBallDetectionRef.current(detection)
+        // Pass detection directly to TrackingEngine (no legacy filtering)
+        perfTrackingAccepted.value += 1
+        onBallDetection(detection)
 
         // Update telemetry counters for async YOLO
         perfYoloExecuted.value += 1
@@ -1117,9 +1119,6 @@ export const useShotTracker = (
         useCallback(() => {
 
             // ShotDetector removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine
-
-            lastBallRef.current =
-                null
 
             playerCrop.reset()
 
