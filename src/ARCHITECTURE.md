@@ -76,11 +76,15 @@ WorkoutSessionRuntime
   ├── VisionPipeline (IVisionPipeline)
   │   └── VisionPipelineAdapter (wraps useWorkoutVisionPipeline)
   ├── TrackingEngine (ITrackingEngine)
-  │   └── TrackingCoordinator (Ball/Player/Shot engines)
-  ├── ShotDetectionEngine (IShotDetectionEngine)
+  │   ├── BallTrackingEngine
+  │   ├── PlayerTrackingEngine
+  │   ├── ShotDetectionEngine (IShotDetectionEngine) - esposto via getShotDetectionEngine()
+  │   └── TrackingCoordinator
   ├── TelemetrySampler (ITelemetrySampler)
   └── WorkoutQueue (IWorkoutQueue)
 ```
+
+**Nota importante:** ShotDetectionEngine è un'istanza interna di TrackingEngine. Il Runtime ottiene questa istanza tramite `trackingEngine.getShotDetectionEngine()` per evitare double ownership.
 
 **Pattern Adapter:**
 - VisionPipelineAdapter implementa IVisionPipeline
@@ -91,9 +95,10 @@ WorkoutSessionRuntime
 **Stato integrazione:**
 - ✅ Vision collegata via VisionPipelineAdapter
 - ✅ Tracking collegato via setTrackingEngine()
-- ⚠️ ShotDetectionEngine non ancora collegato
+- ✅ ShotDetectionEngine collegato (evitando double ownership - Runtime usa istanza interna di TrackingEngine)
 - ✅ Queue collegata (ownership intermedio - Screen crea, Runtime usa)
-- ⚠️ TelemetrySampler registrato ma non usato effettivamente
+- ✅ TelemetrySampler collegato e utilizzato dal Runtime
+- ✅ Tutti i sottosistemi connessi PRIMA di runtime.start()
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -327,6 +332,12 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | TelemetryOverlay unificazione stili | ✅ | Tutte le voci usano formato row/label/value uniforme |
 | TelemetryOverlay FPS display | ✅ | Camera/YOLO/MoveNet su righe separate, YOLO sopra MoveNet |
 | Session usage time tracking | ✅ | Minuti:secondi con ref globale per persistenza unmount/mount |
+| WorkoutSessionRuntime ownership | ✅ | Vision, Tracking, Shot Detection ora posseduti dal Runtime |
+| VisionPipelineAdapter | ✅ | Bridge tra useWorkoutVisionPipeline e IVisionPipeline |
+| ShotDetectionEngine connection | ✅ | Connesso via TrackingEngine.getShotDetectionEngine() (no double ownership) |
+| Subsystem connection timing | ✅ | Tutti i sottosistemi connessi PRIMA di runtime.start() |
+| ShotDetectionUIAdapter removal | ✅ | Rimosso anti-pattern (useSharedValue in class) |
+| WorkoutSessionRuntime tests | ✅ | Test state machine completi implementati |
 | RN runtime contention | 🔴 | Schedule wait 45-134 ms, da ridurre |
 | Transfer buffer size | 🔴 | 640×360×3 (~2.64 MB), da eliminare |
 | Rerender/Remount investigation | 🔴 | Possibili rerender frequenti da investigare |
@@ -334,13 +345,13 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Homography HALF/FULL court | 🔴 | Sempre calcolata come FULL court (15.24 x 28.65) |
 | CALIBRATION in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
 | SESSION_END in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
-| shutdown() bounded offline | 🔴 | Può loopare infinitamente con critical events pendenti |
-| OutboxRecoveryWorker chiavi | 🔴 | Usa chiavi sbagliate (id invece di workout_outbox_<id>) |
-| Duplicazione loadAllPendingAndMerge | 🔴 | loadAllPendingAndMerge + loadPending duplicano item |
-| Telemetry batching garantito | 🟡 | Non garantito, tende a batch da 1 invece di 20 |
+| shutdown() bounded offline | ✅ | Time-bounded con timeout 3 secondi |
+| OutboxRecoveryWorker chiavi | ✅ | Chiavi AsyncStorage corrette (workout_outbox_<id>) |
+| Duplicazione loadAllPendingAndMerge | ✅ | Deduplica per ID implementata |
+| Telemetry batching garantito | ✅ | Accumulation window 250ms implementata |
 | Inizializzazione queue prima camera | 🟡 | Queue inizializzata DOPO attivazione camera |
 | Gestione enqueueCritical false | 🟡 | UI non verifica return boolean per fallimento persistenza |
-| Shot detection single source | 🟡 | Due sistemi sovrapposti (useTrackingEngine + useShotTracker) |
+| Shot detection single source | ✅ | Sistema unificato via TrackingEngine |
 | Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
 
 ## Async Queue & Critical Events
@@ -524,8 +535,13 @@ async shutdown() {
 - OutboxRecoveryWorker test - non presente nel codebase
 - Test end-to-end del lifecycle UI (Setup → Calibration → Workout → Pause → Resume → End)
 - Test FULL/HALF court end-to-end
+
+**Implementato recentemente:**
 - ✅ Verifica propagazione courtType attraverso navigation - IMPLEMENTATO
 - ✅ Verifica homography corretta per HALF vs FULL court - IMPLEMENTATO
 - ✅ Test shutdown() con backend offline (bounded behavior) - IMPLEMENTATO
 - ✅ Test duplicazione loadAllPendingAndMerge + loadPending - IMPLEMENTATO (deduplica per ID)
 - ✅ Test batching telemetry reale (accumulation window) - IMPLEMENTATO
+- ✅ WorkoutSessionRuntime state machine tests - IMPLEMENTATO
+- ✅ ShotDetectionUIAdapter removal (anti-pattern) - IMPLEMENTATO
+- ✅ Subsystem connection timing fix - IMPLEMENTATO

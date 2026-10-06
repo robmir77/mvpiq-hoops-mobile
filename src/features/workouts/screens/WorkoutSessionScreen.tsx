@@ -205,6 +205,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Initialize WorkoutSessionRuntime (Phase 4.4.2)
     const runtimeRef = useRef<WorkoutSessionRuntime | null>(null)
     const visionAdapterRef = useRef<VisionPipelineAdapter | null>(null)
+    const [trackingConnected, setTrackingConnected] = useState(false)
+    const [visionConnected, setVisionConnected] = useState(false)
+    const trackingConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
+    const visionConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
     
     // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
@@ -571,20 +575,51 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Phase 4.5: Connect TrackingEngine to Runtime after both are initialized
     useEffect(() => {
+        if (trackingConnectedRef.current) return // Already connected
+
         const trackingEngine = tracking.getTrackingEngine()
         if (trackingEngine && runtimeRef.current) {
             runtimeRef.current.setTrackingEngine(trackingEngine)
             console.log('[WorkoutSession] TrackingEngine connected to runtime')
+
+            // Connect internal ShotDetectionEngine to avoid double ownership
+            const shotDetectionEngine = trackingEngine.getShotDetectionEngine()
+            if (shotDetectionEngine) {
+                runtimeRef.current.setShotDetectionEngine(shotDetectionEngine)
+                console.log('[WorkoutSession] ShotDetectionEngine connected to runtime')
+            }
+
+            trackingConnectedRef.current = true
+            setTrackingConnected(true)
         }
     }, [tracking])
 
     // Phase 4.5: Connect VisionPipelineAdapter to Runtime after both are initialized
     useEffect(() => {
+        if (visionConnectedRef.current) return // Already connected
+
         if (visionAdapterRef.current && runtimeRef.current) {
             runtimeRef.current.setVisionPipeline(visionAdapterRef.current)
             console.log('[WorkoutSession] VisionPipelineAdapter connected to runtime')
+            visionConnectedRef.current = true
+            setVisionConnected(true)
         }
-    }, [runtimeRef.current])
+    }, [visionAdapterRef.current, runtimeRef.current])
+
+    // Phase 4.5: Start runtime after both TrackingEngine and VisionPipelineAdapter are connected
+    useEffect(() => {
+        if (trackingConnected && visionConnected && runtimeRef.current) {
+            const runtime = runtimeRef.current
+            // Only start if still in IDLE state (not already started)
+            if (runtime.getState() === 'IDLE') {
+                runtime.start().then(() => {
+                    console.log('[WorkoutSession] Runtime session started')
+                }).catch((error) => {
+                    console.error('[WorkoutSession] Failed to start runtime:', error)
+                })
+            }
+        }
+    }, [trackingConnected, visionConnected])
 
     const loadSession = async () => {
         if (!user?.id || !sessionId) return
@@ -645,13 +680,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 console.log('[WorkoutSession] WorkoutQueue connected to runtime')
             }
 
-            // Note: TrackingEngine will be connected after useTrackingEngine is initialized
-            // This happens in the component body, not in loadSession
-            // We'll connect it via a ref update after the hook is called
-
-            // Start the runtime session
-            await runtime.start()
-            console.log('[WorkoutSession] Runtime session started')
+            // Note: TrackingEngine and VisionPipelineAdapter will be connected via useEffect
+            // after the component renders. Runtime.start() will be called after both are connected.
 
             // Load calibration
             try {

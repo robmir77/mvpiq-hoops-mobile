@@ -970,3 +970,75 @@
 - `VisionPipelineAdapter.ts` creato
 - Collegato a Runtime in WorkoutSessionScreen
 - Runtime controlla vision pipeline tramite lifecycle
+
+---
+
+## Decision 26: WorkoutSessionRuntime Ownership Transfer
+
+**Contesto:** Il WorkoutSessionRuntime era istanziato ma non possedeva i sottosistemi critici (Vision, Tracking, Shot Detection). La Screen gestiva ancora il lifecycle di questi componenti, causando warning e accoppiamento inappropriato. Inoltre, c'era un problema di timing: runtime.start() veniva chiamato PRIMA che i sottosistemi fossero connessi.
+
+**Problemi identificati:**
+1. **Ownership non chiaro:** TrackingEngine, VisionPipeline e ShotDetectionEngine erano gestiti dalla Screen, non dal Runtime
+2. **Timing di connessione:** runtime.start() veniva chiamato prima che i sottosistemi fossero connessi
+3. **Anti-pattern ShotDetectionUIAdapter:** Classe che usava useSharedValue (hook React) all'interno di una classe
+4. **Double ownership potenziale:** ShotDetectionEngine poteva essere istanziato sia da TrackingEngine che dal Runtime
+5. **useEffect ripetuti:** Connessioni ripetute causate da dependency array non corretto
+
+**Decisione:**
+- **P0 - Transfer ownership al Runtime:** 
+  - Vision: collegata via VisionPipelineAdapter (già implementato in Decision 25)
+  - Tracking: collegata via setTrackingEngine()
+  - Shot Detection: collegata via TrackingEngine.getShotDetectionEngine() per evitare double ownership
+  - TelemetrySampler: collegato e utilizzato dal Runtime
+  - WorkoutQueue: già collegato (ownership intermedio - Screen crea, Runtime usa)
+- **P0 - Fix timing connessioni:** 
+  - Aggiungere state flags (trackingConnected, visionConnected)
+  - Aggiungere ref flags (trackingConnectedRef, visionConnectedRef) per evitare connessioni ripetute
+  - runtime.start() chiamato SOLO dopo che tutti i sottosistemi sono connessi
+  - useEffect per TrackingEngine connection con check trackingConnectedRef
+  - useEffect per VisionPipelineAdapter connection con check visionConnectedRef
+- **P1 - Rimozione ShotDetectionUIAdapter:** 
+  - Rimuovere file ShotDetectionUIAdapter.ts (anti-pattern)
+  - Rimuovere export da tracking/index.ts
+- **P2 - Test state machine:** 
+  - Creare WorkoutSessionRuntime.test.ts
+  - Test tutte le transizioni di stato (IDLE → STARTING → ACTIVE → PAUSED → STOPPING → SYNCING → COMPLETED → ERROR)
+  - Test transizioni illegali
+  - Test interazione con sottosistemi
+
+**Rationale:**
+- Il Runtime deve coordinare il lifecycle di tutti i sottosistemi per garantire consistenza
+- I sottosistemi devono essere connessi PRIMA che il Runtime inizi per evitare warning
+- ShotDetectionUIAdapter è un anti-pattern (useSharedValue in class) e non usato
+- Double ownership di ShotDetectionEngine causa confusione e potenziali bug
+- Le ref flags prevengono connessioni ripetute causate da dependency array non corretto
+- I test garantiscono che la state machine funzioni come previsto
+
+**Conseguenze:**
+- Runtime ora possiede Vision, Tracking e Shot Detection
+- Tutti i sottosistemi connessi PRIMA di runtime.start()
+- Nessun warning di sottosistemi mancanti
+- ShotDetectionEngine ottenuto da TrackingEngine (no double ownership)
+- Nessuna connessione ripetuta (log singoli)
+- ShotDetectionUIAdapter rimosso (codice più pulito)
+- Test state machine completi implementati
+
+**Risultati (post-implementazione):**
+- Log mostrano connessioni singole (non più ripetute):
+  - `TrackingEngine connected to runtime` - appare solo una volta
+  - `ShotDetectionEngine connected to runtime` - appare solo una volta
+  - `VisionPipelineAdapter connected to runtime` - appare solo una volta
+- Runtime state machine corretta: IDLE → STARTING → ACTIVE → STOPPING → SYNCING → COMPLETED
+- Performance pipeline vision normale:
+  - YOLO: 6-25fps (normalmente 6-7fps)
+  - MoveNet: 2.9-3.9fps
+  - Camera: 18-26fps
+  - Detection rate: 98%+
+
+**Stato:** ✅ IMPLEMENTATO
+- VisionPipelineAdapter collegato (Decision 25)
+- TrackingEngine collegato via setTrackingEngine()
+- ShotDetectionEngine collegato via getShotDetectionEngine()
+- Timing fix con state flags e ref flags
+- ShotDetectionUIAdapter rimosso
+- WorkoutSessionRuntime.test.ts creato con test state machine completi
