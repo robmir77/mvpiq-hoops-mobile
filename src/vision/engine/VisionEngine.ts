@@ -33,7 +33,9 @@ export class VisionEngine implements IVisionEngine {
 
   // Process a frame and return detection results
   // Worklet-safe - marked with 'worklet' directive for Reanimated
-  // Accepts raw model outputs from workers and delegates parsing to pure classes
+  // Accepts either raw model outputs OR already-parsed results from workers
+  // Workers do inference + parsing (due to React Native dependencies)
+  // VisionEngine forwards parsed results to maintain single responsibility
   processFrame(frame: {
     width: number
     height: number
@@ -41,6 +43,11 @@ export class VisionEngine implements IVisionEngine {
     data?: Uint8Array
     yoloOutput?: Float32Array
     moveNetOutput?: Float32Array
+    // Parsed results from workers (alternative to raw outputs)
+    ball?: BallDetection | null
+    player?: PlayerDetection | null
+    rim?: RimDetection | null
+    pose?: PoseResult | null
   }): VisionEngineResult {
     'worklet'
 
@@ -52,48 +59,64 @@ export class VisionEngine implements IVisionEngine {
       timestamp: frame.timestamp,
     }
 
-    // YOLO detection - parse raw output using YoloDetector
-    if (this.ballDetectionEnabled || this.playerDetectionEnabled || this.rimDetectionEnabled) {
-      if (frame.yoloOutput) {
-        const yoloResult: YoloResult = this.yoloDetector.parseOutput(
-          frame.yoloOutput,
-          frame.width,
-          frame.height
+    // Priority 1: Use already-parsed results from workers (current path)
+    // Workers do inference + parsing using YoloDetector/MoveNetPoseEstimator
+    // VisionEngine forwards these results without re-parsing
+    if (frame.ball !== undefined || frame.player !== undefined || frame.rim !== undefined) {
+      if (this.ballDetectionEnabled && frame.ball) {
+        result.ball = frame.ball
+      }
+      if (this.playerDetectionEnabled && frame.player) {
+        result.player = frame.player
+      }
+      if (this.rimDetectionEnabled && frame.rim) {
+        result.rim = frame.rim
+      }
+    }
+    // Priority 2: Parse raw outputs (fallback for future pure implementation)
+    else if (frame.yoloOutput) {
+      const yoloResult: YoloResult = this.yoloDetector.parseOutput(
+        frame.yoloOutput,
+        frame.width,
+        frame.height
+      )
+
+      if (this.ballDetectionEnabled && yoloResult.ball) {
+        const ballProcessed = this.ballProcessor.processDetection(
+          yoloResult.ball
         )
+        result.ball = ballProcessed.detection
+      }
 
-        if (this.ballDetectionEnabled && yoloResult.ball) {
-          const ballProcessed = this.ballProcessor.processDetection(
-            yoloResult.ball
-          )
-          result.ball = ballProcessed.detection
-        }
+      if (this.playerDetectionEnabled && yoloResult.player) {
+        result.player = yoloResult.player
+      }
 
-        if (this.playerDetectionEnabled && yoloResult.player) {
-          result.player = yoloResult.player
-        }
-
-        if (this.rimDetectionEnabled && yoloResult.rim) {
-          result.rim = yoloResult.rim
-        }
+      if (this.rimDetectionEnabled && yoloResult.rim) {
+        result.rim = yoloResult.rim
       }
     }
 
-    // MoveNet pose estimation - parse raw output using MoveNetPoseEstimator
-    if (this.poseDetectionEnabled && frame.moveNetOutput) {
-      const poseResult: MoveNetPoseResult = this.moveNetEstimator.parseOutput(
-        frame.moveNetOutput
-      )
+    // Pose: use parsed result from worker or parse raw output
+    if (this.poseDetectionEnabled) {
+      if (frame.pose) {
+        result.pose = frame.pose
+      } else if (frame.moveNetOutput) {
+        const poseResult: MoveNetPoseResult = this.moveNetEstimator.parseOutput(
+          frame.moveNetOutput
+        )
 
-      // Convert MoveNetPoseResult to PoseResult interface
-      const keypointsArray = Object.values(poseResult.keypoints).map(kp => ({
-        x: kp.x,
-        y: kp.y,
-        confidence: kp.confidence,
-      }))
+        // Convert MoveNetPoseResult to PoseResult interface
+        const keypointsArray = Object.values(poseResult.keypoints).map(kp => ({
+          x: kp.x,
+          y: kp.y,
+          confidence: kp.confidence,
+        }))
 
-      result.pose = {
-        keypoints: keypointsArray,
-        confidence: poseResult.confidence,
+        result.pose = {
+          keypoints: keypointsArray,
+          confidence: poseResult.confidence,
+        }
       }
     }
 

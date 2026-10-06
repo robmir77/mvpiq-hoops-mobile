@@ -31,6 +31,7 @@ export interface SessionCallbacks {
   onSessionStateChanged?: (state: SessionState) => void
   onError?: (error: Error) => void
   onTelemetryUpdate?: (metrics: SessionMetrics) => void
+  onTrackingStateUpdate?: (trackingState: any) => void // Phase 4: Callback for Runtime.processFrame() tracking results
 }
 
 // Minimal subsystem interfaces (will be refined as subsystems are integrated)

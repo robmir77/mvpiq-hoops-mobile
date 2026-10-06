@@ -25,6 +25,7 @@ import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useWorkoutVisionPipeline } from '../vision/useWorkoutVisionPipeline'
 import { VisionPipelineAdapter } from '../vision/VisionPipelineAdapter'
+import { VisionEngineAdapter } from '@/vision/VisionEngineAdapter'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
 import { telemetryLogger } from '@/vision/telemetry'
 import {
@@ -205,10 +206,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Initialize WorkoutSessionRuntime (Phase 4.4.2)
     const runtimeRef = useRef<WorkoutSessionRuntime | null>(null)
     const visionAdapterRef = useRef<VisionPipelineAdapter | null>(null)
+    const visionEngineAdapterRef = useRef<VisionEngineAdapter | null>(null)
     const [trackingConnected, setTrackingConnected] = useState(false)
     const [visionConnected, setVisionConnected] = useState(false)
     const trackingConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
     const visionConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
+    const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
+    const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
     
     // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
@@ -247,6 +251,40 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         // console.log('[POSE RESULT] keypoints=', Object.keys(result.keypoints).length, 'valid=', validKeypoints)
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
+
+        // Update VisionEngineAdapter with parsed pose result (Phase 3)
+        // Convert from vision/types to VisionEngine.types format
+        const keypointsArray = Object.values(result.keypoints).map(kp => ({
+            x: kp.x,
+            y: kp.y,
+            confidence: kp.score,
+        }))
+        const avgConfidence = validKeypoints > 0
+            ? Object.values(result.keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints
+            : 0
+
+        visionEngineAdapterRef.current?.updateParsedResults(
+            null, // ball
+            null, // player
+            null, // rim
+            {
+                keypoints: keypointsArray,
+                confidence: avgConfidence,
+            }, // pose (VisionEngine.types format)
+            Date.now()
+        )
+
+        // Phase 4: Call Runtime.processFrame() with VisionEngine data
+        const runtime = runtimeRef.current
+        if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
+            const resolution = effectiveResolutionRef.current
+            runtime.processFrame({
+                width: resolution.width,
+                height: resolution.height,
+                timestamp: Date.now(),
+            })
+        }
+
         const tEnd = performance.now()
         const duration = tEnd - tStart
         if (duration > 5) {
@@ -261,6 +299,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         setRimFromDetection(rim)
         // Update tracking engine to update overlay shared values
         tracking.setHoopFromCalibration(rim.x, rim.y, rim.width, rim.height)
+
+        // Update VisionEngineAdapter with parsed rim result (Phase 3)
+        visionEngineAdapterRef.current?.updateParsedResults(
+            null, // ball
+            null, // player
+            rim, // rim
+            null, // pose
+            Date.now()
+        )
     }, [tracking])
 
     // Ball detection callback (trackingState for events only, visual data via SharedValue/Skia)
@@ -271,6 +318,32 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const tStart = performance.now()
         const ball = detection.ball
         const rim = detection.rim
+        const now = Date.now()
+
+        // Update VisionEngineAdapter with parsed ball/rim results (Phase 3)
+        // Convert from vision/types to VisionEngine.types format
+        visionEngineAdapterRef.current?.updateParsedResults(
+            ball || null, // BallDetection (flat)
+            null, // player (not in BallDetection type)
+            rim || null, // RimDetection
+            null, // pose (updated separately)
+            now
+        )
+
+        // Phase 4: Call Runtime.processFrame() with VisionEngine data
+        const runtime = runtimeRef.current
+        if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
+            const resolution = effectiveResolutionRef.current
+            runtime.processFrame({
+                width: resolution.width,
+                height: resolution.height,
+                timestamp: now,
+            })
+            // Skip legacy tracking path when Runtime.processFrame() is active
+            // Runtime.processFrame() already calls TrackingEngine internally
+            return
+        }
+
         const rimForTracking = rimFromDetection ? {
             x: rimFromDetection.x,
             y: rimFromDetection.y,
@@ -285,7 +358,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             confidence: 1.0,
         } : null
 
-        const now = Date.now()
         const shouldProcess = now - lastTrackingProcessAt.current >= TRACKING_THROTTLE_MS
 
         if (shouldProcess) {
@@ -470,8 +542,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         )
         visionAdapterRef.current = adapter
 
+        // Create VisionEngineAdapter for Runtime (Phase 3)
+        const visionEngineAdapter = new VisionEngineAdapter(
+            YOLO_CONFIG.BALL_CONF_THRESHOLD,
+            YOLO_CONFIG.RIM_CONF_THRESHOLD,
+            0.03 // pose score threshold
+        )
+        visionEngineAdapterRef.current = visionEngineAdapter
+
         return () => {
             visionAdapterRef.current = null
+            visionEngineAdapterRef.current = null
         }
     }, [])
 
@@ -606,6 +687,21 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [visionAdapterRef.current, runtimeRef.current])
 
+    // Phase 3: Connect VisionEngineAdapter to Runtime (VisionEngine integration)
+    useEffect(() => {
+        if (visionEngineConnectedRef.current) return // Already connected
+
+        if (visionEngineAdapterRef.current && runtimeRef.current) {
+            runtimeRef.current.setVisionEngine(visionEngineAdapterRef.current)
+            console.log('[WorkoutSession] VisionEngineAdapter connected to runtime')
+            visionEngineAdapterRef.current.start()
+            visionEngineConnectedRef.current = true
+            // Phase 4: Enable Runtime.processFrame() path
+            useRuntimeProcessingRef.current = true
+            console.log('[WorkoutSession] Runtime.processFrame() path ENABLED')
+        }
+    }, [visionEngineAdapterRef.current, runtimeRef.current])
+
     // Phase 4.5: Start runtime after both TrackingEngine and VisionPipelineAdapter are connected
     useEffect(() => {
         if (trackingConnected && visionConnected && runtimeRef.current) {
@@ -663,6 +759,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     },
                     onError: (error) => {
                         showError('Errore Runtime', error.message)
+                    },
+                    onTrackingStateUpdate: (trackingState) => {
+                        // Phase 4: Update tracking state from Runtime.processFrame()
+                        setTrackingState(trackingState)
+                        // Update SharedValues for Skia overlay
+                        tracking.updateSharedValuesFromState(trackingState)
                     },
                 }
             )

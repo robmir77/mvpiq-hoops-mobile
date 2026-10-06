@@ -190,6 +190,73 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         return engineState
     }, [MAX_POINTS, ballX, ballY, ballXRaw, ballYRaw, ballWidth, ballHeight, confidence, hoopX, hoopY, hoopWidth, hoopHeight, ballSizeCategory, adaptiveThreshold, inFlight, shotDetected, shotResult, releasePointX, releasePointY, apexPointX, apexPointY, trajectoryPoints, trajectoryPointCount, rejectedBallX, rejectedBallY, rejectedBallConfidence, ballTrackState, ballTrackAge])
 
+    // Phase 4: Update SharedValues from external tracking state (Runtime.processFrame())
+    const updateSharedValuesFromState = useCallback((engineState: TrackingState) => {
+        // Update ball SharedValues
+        if (engineState.ballPosition) {
+            ballX.value = engineState.ballPosition.x
+            ballY.value = engineState.ballPosition.y
+        } else {
+            ballX.value = 0
+            ballY.value = 0
+        }
+
+        if (engineState.ballPositionRaw) {
+            ballXRaw.value = engineState.ballPositionRaw.x
+            ballYRaw.value = engineState.ballPositionRaw.y
+        } else {
+            ballXRaw.value = 0
+            ballYRaw.value = 0
+        }
+
+        ballWidth.value = engineState.ballWidth || 0
+        ballHeight.value = engineState.ballHeight || 0
+        confidence.value = engineState.confidence || 0
+
+        // Update hoop SharedValues
+        if (engineState.hoopPosition) {
+            hoopX.value = engineState.hoopPosition.x
+            hoopY.value = engineState.hoopPosition.y
+            hoopWidth.value = engineState.hoopPosition.width || 0
+            hoopHeight.value = engineState.hoopPosition.height || 0
+        }
+
+        // Update shot SharedValues
+        inFlight.value = engineState.inFlight
+        shotDetected.value = engineState.shotDetected
+        shotResult.value = engineState.shotResult ?? null
+
+        if (engineState.releasePoint) {
+            releasePointX.value = engineState.releasePoint.x
+            releasePointY.value = engineState.releasePoint.y
+        }
+
+        if (engineState.apexPoint) {
+            apexPointX.value = engineState.apexPoint.x
+            apexPointY.value = engineState.apexPoint.y
+        }
+
+        // Update trajectory SharedValues when inFlight
+        if (engineState.inFlight && engineState.trajectory.length > 0) {
+            const points = trajectoryPoints.value
+            for (let i = 0; i < Math.min(engineState.trajectory.length, MAX_POINTS); i++) {
+                points[i * 2] = engineState.trajectory[i].x
+                points[i * 2 + 1] = engineState.trajectory[i].y
+            }
+            trajectoryPoints.value = points
+            trajectoryPointCount.value = engineState.trajectory.length
+        }
+
+        // Update visual tracking state based on ball position
+        if (engineState.ballPosition) {
+            ballTrackState.value = 'DETECTED'
+            ballTrackAge.value = 0
+        } else {
+            ballTrackState.value = 'LOST'
+            ballTrackAge.value = 0
+        }
+    }, [ballX, ballY, ballXRaw, ballYRaw, ballWidth, ballHeight, confidence, hoopX, hoopY, hoopWidth, hoopHeight, inFlight, shotDetected, shotResult, releasePointX, releasePointY, apexPointX, apexPointY, trajectoryPoints, trajectoryPointCount, ballTrackState, ballTrackAge, MAX_POINTS])
+
     const resetShot = useCallback(() => {
         // Phase 4.5: Delegate to TrackingEngine
         trackingEngine.current.resetShot()
@@ -337,6 +404,7 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         setHoopFromCalibration,
         setPlayerFromYolo,
         updatePlayerFromPipeline,
+        updateSharedValuesFromState, // Phase 4: Update SharedValues from Runtime.processFrame()
         computeTrajectoryMetrics,
         calculateShotQuality,
         getState,

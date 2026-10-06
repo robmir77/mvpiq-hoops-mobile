@@ -185,42 +185,37 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       visionResult.pose
     )
 
-    // Step 3: Shot detection (if shot detected by tracking)
-    if (trackingState?.shotDetected && this.shotDetectionEngine) {
-      const shotResult = this.shotDetectionEngine.processFrame(
-        trackingState.ballPosition,
-        trackingState.ballVelocity,
-        visionResult.rim,
-        frame.timestamp
-      )
+    // Notify callback of tracking state update (Phase 4)
+    this.callbacks?.onTrackingStateUpdate?.(trackingState)
 
-      if (shotResult.shotDetected && shotResult.shotResult) {
-        // Convert AIRBALL to MISS for callback (AIRBALL is internal tracking state)
-        const callbackResult = shotResult.shotResult === 'AIRBALL' ? 'MISS' : shotResult.shotResult
+    // Step 3: Shot detection (already performed by TrackingEngine internally)
+    // TrackingEngine.processFrame() calls ShotDetectionEngine and includes result in trackingState
+    if (trackingState?.shotDetected && trackingState?.shotResult) {
+      // Convert AIRBALL to MISS for callback (AIRBALL is internal tracking state)
+      const callbackResult = trackingState.shotResult === 'AIRBALL' ? 'MISS' : trackingState.shotResult
 
-        // Enqueue shot event to critical queue
-        this.enqueueCritical({
-          type: 'SHOT',
-          sessionId: this.config.sessionId,
-          userId: this.config.userId,
-          payload: {
-            timestampMs: frame.timestamp,
-            shotResult: shotResult.shotResult,
-            detectionConfidence: 1.0,
-            trackingData: JSON.stringify(trackingState),
-          },
-        })
+      // Enqueue shot event to critical queue
+      this.enqueueCritical({
+        type: 'SHOT',
+        sessionId: this.config.sessionId,
+        userId: this.config.userId,
+        payload: {
+          timestampMs: frame.timestamp,
+          shotResult: trackingState.shotResult,
+          detectionConfidence: 1.0,
+          trackingData: JSON.stringify(trackingState),
+        },
+      })
 
-        // Update metrics
-        this.metrics.totalShots++
-        if (shotResult.shotResult === 'MADE') {
-          this.metrics.madeShots++
-        }
-
-        // Notify callback (AIRBALL converted to MISS)
-        this.callbacks?.onShotDetected?.(callbackResult)
-        this.notifyTelemetryUpdate()
+      // Update metrics
+      this.metrics.totalShots++
+      if (trackingState.shotResult === 'MADE') {
+        this.metrics.madeShots++
       }
+
+      // Notify callback (AIRBALL converted to MISS)
+      this.callbacks?.onShotDetected?.(callbackResult)
+      this.notifyTelemetryUpdate()
     }
   }
 
