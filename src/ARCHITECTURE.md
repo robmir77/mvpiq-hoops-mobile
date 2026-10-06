@@ -120,7 +120,8 @@ WorkoutSessionRuntime
 - Fase 4.2 COMPLETATA (Runtime.processFrame() debounce 50ms - evita chiamate duplicate)
 - Fase 4.3 COMPLETATA (Legacy Shot Detection disattivata - single source of truth shot events)
 - Fase 4.4 COMPLETATA (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
-- Fase 5 COMPLETATA (Legacy cleanup - ShotDetector rimosso da useShotTracker, handleShotEvent rimosso, VisionPipelineAdapter rimosso)
+- Fase 5 COMPLETATA (Legacy cleanup - ShotDetector.ts rimosso completamente, handleShotEvent rimosso)
+- Fase 6 COMPLETATA (setPlayerFromYolo() rimosso, test PlayerDetection aggiunti, Kalman filter ottimizzato)
 
 **Stato integrazione:**
 - ✅ Vision collegata via VisionEngineAdapter
@@ -129,7 +130,11 @@ WorkoutSessionRuntime
 - ✅ Queue collegata (ownership intermedio - Screen crea, Runtime usa)
 - ✅ TelemetrySampler collegato e utilizzato dal Runtime
 - ✅ Tutti i sottosistemi connessi PRIMA di runtime.start()
-- ✅ PlayerDetection fluisce nel nuovo percorso Runtime
+- ✅ PlayerDetection fluisce nel nuovo percorso Runtime (YOLO → VisionEngine → Runtime → TrackingEngine → PlayerTrackingEngine)
+- ✅ Policy YOLO bbox + MoveNet pose implementata (YOLO = coarse bbox, MoveNet = articulated/precise position)
+- ✅ setPlayerFromYolo() rimosso (legacy bridge eliminato)
+- ✅ Test TrackingEngine.test.ts per PlayerDetection aggiunti
+- ✅ Kalman filter ottimizzato per massima reattività (px/py: 0.001, mx/my: 0.05, dt: 0.02)
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -391,8 +396,11 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Shot detection single source | ✅ | Sistema unificato via TrackingEngine |
 | Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
 | Vision extraction YOLO/MoveNet | ✅ | Fase 1 completata, Fase 2 COMPLETATA, Fase 3 COMPLETATA, Fase 4 COMPLETATA (Runtime.processFrame() attivo) |
-| useShotTracker.ts legacy removal | ✅ | ShotDetector rimosso, handleShotEvent rimosso, VisionPipelineAdapter rimosso (Fase 5 completata) |
+| useShotTracker.ts legacy removal | ✅ | ShotDetector.ts rimosso completamente, handleShotEvent rimosso (Fase 5 completata) |
 | PlayerDetection integration | ✅ | onPlayerDetection callback aggiunto, fluisce nel nuovo percorso Runtime (Fase 4.4 completata) |
+| setPlayerFromYolo() removal | ✅ | Legacy bridge eliminato, TrackingEngine.processFrame() usa playerDetection (Fase 6 completata) |
+| PlayerDetection tests | ✅ | TrackingEngine.test.ts aggiunti per YOLO + MoveNet integration (Fase 6 completata) |
+| Kalman filter optimization | ✅ | Massima reattività: px/py 0.001, mx/my 0.05, dt 0.02 (Fase 6 completata) |
 
 ## Async Queue & Critical Events
 

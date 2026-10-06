@@ -20,10 +20,14 @@
 | **Vision FPS** | YOLO_TARGET_FPS rimosso | useYoloWorkerAsync.ts:381-384 | Commento: "Phase 4.4: Removed FPS throttling" | minIntervalMs e YOLO_TARGET_FPS rimossi | ✅ COMPLETATO | Nessuno |
 | **Shot Detection** | Dual systems intentionally retained | REFACTORING_PROGRESS.md:253-264 | Documentazione dettagliata di ShotDetectionEngine vs ShotDetector | Documentazione accurata | ✅ DOCUMENTATO | Nessuno |
 | **Shot Detection** | ShotDetectionEngine authoritative | useTrackingEngine.ts:48-50 | `new ShotDetectionEngine()` istanziato e usato | Engine istanziato nel hook | ✅ OPERATIVO | Nessuno |
-| **Shot Detection** | ShotDetector legacy rimosso | useShotTracker.ts | ShotDetector import e chiamate rimosse | ShotDetector non più presente | ✅ RIMOSSO | Fase 5 completata |
+| **Shot Detection** | ShotDetector legacy rimosso | useShotTracker.ts, vision/index.ts | ShotDetector.ts rimosso completamente | File rimosso, export rimosso | ✅ RIMOSSO | Fase 5 completata |
+| **Shot Detection** | ShotDetector tests rimossi | vision/__tests__/ | shotDetector.test.ts, modelIntegration.test.ts rimosso | File rimosso | ✅ RIMOSSO | Fase 5 completata |
 | **Shot Detection** | handleShotEvent rimosso | WorkoutSessionScreen.tsx | handleShotEvent callback rimosso | handleShotEvent non più presente | ✅ RIMOSSO | Fase 5 completata |
 | **Vision Pipeline** | VisionPipelineAdapter rimosso | WorkoutSessionRuntime.ts | IVisionPipeline e visionPipeline rimossi | Runtime usa solo VisionEngine | ✅ RIMOSSO | Fase 5 completata |
 | **Player Detection** | PlayerDetection integrato | useShotTracker.ts, WorkoutSessionScreen.tsx | onPlayerDetection callback aggiunto | Player fluisce nel nuovo percorso Runtime | ✅ COMPLETATO | Fase 4.4 completata |
+| **Player Detection** | setPlayerFromYolo() rimosso | TrackingEngine.ts, useTrackingEngine.ts | Metodo rimosso, bridge legacy eliminato | setPlayerFromYolo non più presente | ✅ RIMOSSO | Fase 4.4 completata |
+| **Player Detection** | Test PlayerDetection aggiunti | tracking/__tests__/TrackingEngine.test.ts | Test per YOLO + MoveNet integration | Test aggiunti | ✅ COMPLETATO | Fase 4.4 completata |
+| **Kalman Filter** | Ottimizzato per massima reattività | BallTrackingState.ts, BallTrackingEngine.ts | px/py: 0.001, mx/my: 0.05, dt: 0.02 | Parametri aggiornati | ✅ COMPLETATO | Fase 4.5 completata |
 
 ## Problemi Critici Identificati
 
@@ -70,9 +74,22 @@
 
 ### Shot Detection: Single Source of Truth (RISOLTO)
 - ✅ ShotDetectionEngine autorevole per tracking state
-- ✅ ShotDetector legacy rimosso (Fase 5)
+- ✅ ShotDetector.ts legacy rimosso completamente (Fase 5)
+- ✅ ShotDetector tests rimossi (Fase 5)
 - ✅ handleShotEvent rimosso (Fase 5)
 - ✅ Single source of truth: Runtime → TrackingEngine → ShotDetectionEngine
+
+### Player Detection: Complete Integration (RISOLTO)
+- ✅ PlayerDetection integrato nel nuovo percorso Runtime (Fase 4.4)
+- ✅ setPlayerFromYolo() rimosso (Fase 4.4)
+- ✅ Test TrackingEngine.test.ts aggiunti (Fase 4.4)
+- ✅ Policy YOLO bbox + MoveNet pose implementata
+
+### Kalman Filter: Optimized (RISOLTO)
+- ✅ px/py ridotti a 0.001 (Fase 4.5)
+- ✅ mx/my ridotti a 0.05 (Fase 4.5)
+- ✅ dt max ridotto a 0.02 (Fase 4.5)
+- ✅ Massima reattività per tracking real-time
 
 ## Raccomandazioni
 

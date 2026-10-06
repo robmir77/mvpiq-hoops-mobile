@@ -1124,12 +1124,15 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
 - VisionEngine è la sorgente unica di detection (ball, player, rim, pose)
 - Runtime.processFrame() è il PRIMARY path quando VisionEngine è connesso
 - Path legacy esiste come fallback (skippato quando Runtime è attivo)
-- useShotTracker.ts ridotto a wrapper di workers (ShotDetector rimosso)
+- useShotTracker.ts ridotto a wrapper di workers (ShotDetector.ts rimosso completamente)
 - Architettura più pulita con separazione responsabilità
 - Shot detection non duplicata (solo TrackingEngine chiama ShotDetectionEngine)
 - PlayerDetection ora fluisce nel nuovo percorso Runtime
+- setPlayerFromYolo() rimosso (legacy bridge eliminato)
+- Test TrackingEngine.test.ts per PlayerDetection aggiunti
+- Kalman filter ottimizzato per massima reattività
 
-**Stato:** ✅ FASE 3, 4 & 5 COMPLETATE (CON CORREZIONI 4.1-4.4)
+**Stato:** ✅ FASE 3, 4, 5 & 6 COMPLETATE (CON CORREZIONI 4.1-4.4)
 - Fase 1: ✅ COMPLETATO (IVisionEngine, VisionEngine, Runtime.processFrame, VisionEngineAdapter)
 - Fase 2: ✅ COMPLETATO (Estrazione YOLO/MoveNet in classi pure worklet-safe + integrazione worker + rimozione legacy)
 - Fase 3: ✅ COMPLETATO (VisionEngine integration - parsed results path, callbacks aggiornati, type conversion)
@@ -1138,4 +1141,5 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
   - Fase 4.2: ✅ COMPLETATO (Runtime.processFrame() debounce 50ms - evita chiamate duplicate)
   - Fase 4.3: ✅ COMPLETATO (Legacy Shot Detection disattivata - single source of truth shot events)
   - Fase 4.4: ✅ COMPLETATO (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
-- Fase 5: ✅ COMPLETATO (Legacy cleanup - ShotDetector rimosso da useShotTracker, handleShotEvent rimosso, VisionPipelineAdapter rimosso)
+- Fase 5: ✅ COMPLETATO (Legacy cleanup - ShotDetector.ts rimosso completamente, handleShotEvent rimosso)
+- Fase 6: ✅ COMPLETATO (setPlayerFromYolo() rimosso, test PlayerDetection aggiunti, Kalman filter ottimizzato)

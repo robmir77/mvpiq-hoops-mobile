@@ -279,14 +279,29 @@ features/workouts/
 - Player passato a VisionEngineAdapter.updateParsedResults()
 - PlayerDetection fluisce nel nuovo percorso Runtime
 - Path legacy per player (pipelineSharedValues) ancora presente per overlay Skia
+- **Fase 4.4 completata**: playerDetection aggiunto come parametro a TrackingEngine.processFrame()
+- Policy implementata: YOLO bbox (coarse) + MoveNet pose (articulated/precise)
+- setPlayerFromYolo() rimosso (legacy bridge eliminato)
+- Test TrackingEngine.test.ts aggiunti per PlayerDetection
 
 **4.6.8: Legacy Cleanup Completato ✓ (Fase 5)**
-- ShotDetector rimosso da useShotTracker (tutte le chiamate eliminate)
+- ShotDetector.ts rimosso completamente dal codebase
+- shotDetector.test.ts rimosso
+- modelIntegration.test.ts rimosso
+- ShotDetector export rimosso da vision/index.ts
 - handleShotEvent rimosso da WorkoutSessionScreen
 - VisionPipelineAdapter rimosso da Runtime e Screen
 - IVisionPipeline rimosso dai tipi Runtime
 - Runtime ora usa solo VisionEngine (no VisionPipeline)
 - useShotTracker ridotto a wrapper di workers (no shot detection)
+- Documentation aggiornata (ARCHITECTURE.md, ARCHITECTURE_DECISIONS.md, README.md)
+
+**4.6.9: Kalman Filter Optimization ✓ (Fase 4.5)**
+- px/py ridotti a 0.001 (near-zero confidence in prediction)
+- mx/my ridotti a 0.05 (very high confidence in measurements)
+- dt max ridotto a 0.02 (20ms, ~50 FPS)
+- Kalman filter ora segue misurazioni quasi istantaneamente
+- Ottimizzato per tracking palla real-time con ritardo minimo
 
 **Architettura risultante (Single Path):**
 ```
@@ -385,7 +400,7 @@ La nuova architettura tracking è **operativa in produzione** per Ball e Player.
 **Problemi Aperti:**
 
 1. **Shot Detection Single Source of Truth — RISOLTO** ✅
-   - ShotDetector legacy rimosso (Fase 5)
+   - ShotDetector.ts legacy rimosso completamente (Fase 5)
    - ShotDetectionEngine è ora l'unica source of truth per shot detection
    - Path: Runtime → TrackingEngine → ShotDetectionEngine → onShotDetected callback
    - Nessun duplicato computazionale shot detection

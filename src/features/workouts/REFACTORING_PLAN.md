@@ -132,12 +132,33 @@ features/workouts/
 - **Status**: Vision and Tracking connected to Runtime via VisionEngineAdapter. Queue ownership intermediate. Shot detection connected via TrackingEngine. Legacy cleanup completed (ShotDetector, handleShotEvent, VisionPipelineAdapter removed). PlayerDetection integrated in new path.
 - **Strategy**: `useTrackingEngine.ts` remains for SharedValues management, but tracking engines are authoritative for logic.
 
-### Phase 5: Implement State Machine 🔴 10%
+### Phase 4.3: PlayerDetection Integration ✅ 100%
+- Integrate YOLO player detection into new Runtime path
+- Add playerDetection parameter to TrackingEngine.processFrame()
+- Implement YOLO bbox + MoveNet pose policy
+- Remove setPlayerFromYolo() legacy bridge
+- Add tests for PlayerDetection
+- **Status**: PlayerDetection flows YOLO → VisionEngine → Runtime → TrackingEngine → PlayerTrackingEngine. Policy implemented: YOLO provides coarse bbox, MoveNet provides precise articulated position. setPlayerFromYolo() removed. Tests added in TrackingEngine.test.ts.
+
+### Phase 4.4: Legacy Cleanup ✅ 100%
+- Remove ShotDetector.ts completely
+- Remove ShotDetector tests
+- Remove ShotDetector export from vision/index.ts
+- Update documentation to remove ShotDetector references
+- **Status**: ShotDetector.ts, shotDetector.test.ts, modelIntegration.test.ts removed. vision/index.ts updated. Documentation updated (ARCHITECTURE.md, ARCHITECTURE_DECISIONS.md, README.md). Shot detection now handled exclusively by Runtime → TrackingEngine → ShotDetectionEngine.
+
+### Phase 4.5: Kalman Filter Optimization ✅ 100%
+- Optimize Kalman filter for maximum responsiveness
+- Adjust px/py to 0.001 (near-zero prediction confidence)
+- Adjust mx/my to 0.05 (very high measurement confidence)
+- Reduce dt max to 0.02 (20ms, ~50 FPS)
+- **Status**: Kalman filter now follows measurements almost instantly with minimal delay. Parameters tuned for real-time ball tracking.
+
+### Phase 5: Implement State Machine ✅ 100%
 - Add state machine for session lifecycle
 - States: IDLE, STARTING, ACTIVE, PAUSED, STOPPING, SYNCING, COMPLETED, ERROR
 - Only after runtime is isolated
-- **Status**: States exist as enum and in Runtime state variable, but no formal state machine with defined transitions. Missing: `STOPPING → SYNCING → COMPLETED` transition.
-- **Note**: Simple guards exist (`if (this.state !== 'ACTIVE')`) but no formal transition definition.
+- **Status**: State machine fully implemented in WorkoutSessionRuntime with formal transitions and guards. All lifecycle methods (start, pause, resume, stop) use state machine. Tests added for state transitions.
 
 ### Phase 6: Performance Optimizations ⏸️ 0%
 - Adaptive FPS
@@ -159,11 +180,12 @@ FASE 4.1 ████████████████████ 100%
 FASE 4.2 ████████████████████ 100%
 FASE 4.3 ████████████████████ 100% (PlayerDetection integration)
 FASE 4.4 ████████████████████ 100% (Legacy cleanup)
+FASE 4.5 ████████████████████ 100% (Kalman filter optimization)
 FASE 5  ████████████████████ 100%
 FASE 6  ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Overall**: ~90% of architectural refactoring complete. Vision and Tracking connected to Runtime via VisionEngineAdapter. Legacy cleanup completed. PlayerDetection integrated in new path. Performance optimizations deferred.
+**Overall**: ~95% of architectural refactoring complete. Vision and Tracking connected to Runtime via VisionEngineAdapter. Legacy cleanup completed. PlayerDetection integrated in new path. Kalman filter optimized. State machine implemented. Performance optimizations deferred.
 
 ## Key Principles
 1. **Freeze behavior**: No algorithmic changes during refactoring
