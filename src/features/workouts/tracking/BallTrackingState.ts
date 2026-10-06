@@ -40,10 +40,10 @@ export const INITIAL_KALMAN: KalmanState = {
   y: 0,
   vx: 0,
   vy: 0,
-  px: 0.01,  // Ultra-low confidence in prediction - follow measurements closely
-  py: 0.01,  // Ultra-low confidence in prediction - follow measurements closely
-  mx: 0.1,   // High confidence in measurements - react instantly
-  my: 0.1,   // High confidence in measurements - react instantly
+  px: 0.001,  // Near-zero confidence in prediction - follow measurements almost instantly
+  py: 0.001,  // Near-zero confidence in prediction - follow measurements almost instantly
+  mx: 0.05,   // Very high confidence in measurements - maximum responsiveness
+  my: 0.05,   // Very high confidence in measurements - maximum responsiveness
 }
 
 export const INITIAL_BALL_TRACKING_STATE: BallTrackingState = {

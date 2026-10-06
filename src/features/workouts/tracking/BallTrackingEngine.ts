@@ -47,7 +47,7 @@ export class BallTrackingEngine {
   // Kalman update (from useTrackingEngine lines 149-167)
   update(measX: number, measY: number, frameTs: number): BallPosition {
     const k = this.kalman
-    const dt = Math.max(0.0001, Math.min(0.033, (frameTs - this.lastFrameTs) / 1000))
+    const dt = Math.max(0.0001, Math.min(0.02, (frameTs - this.lastFrameTs) / 1000))
 
     const predX = k.x + k.vx * dt
     const predY = k.y + k.vy * dt
@@ -82,7 +82,7 @@ export class BallTrackingEngine {
   // Kalman predict (from useTrackingEngine lines 169-189)
   predict(frameTs: number): BallPosition | null {
     const k = this.kalman
-    const dt = Math.max(0.0001, Math.min(0.033, (frameTs - this.lastFrameTs) / 1000))
+    const dt = Math.max(0.0001, Math.min(0.02, (frameTs - this.lastFrameTs) / 1000))
 
     const ageMs = frameTs - this.ballLastSeenAt
     if (ageMs > BALL_TRACK_TTL_MS) {

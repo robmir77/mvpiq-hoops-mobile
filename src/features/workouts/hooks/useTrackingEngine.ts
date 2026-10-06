@@ -306,16 +306,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         if (height !== undefined) hoopHeight.value = height
     }, [hoopX, hoopY, hoopWidth, hoopHeight])
 
-    const setPlayerFromYolo = useCallback((x: number, y: number, width: number, height: number) => {
-        // Phase 4.5: Delegate to TrackingEngine
-        trackingEngine.current.setPlayerFromYolo(x, y, width, height)
-        // Update Shared Values
-        playerX.value = x
-        playerY.value = y
-        playerWidth.value = width
-        playerHeight.value = height
-    }, [playerX, playerY, playerWidth, playerHeight])
-
     const updatePlayerFromPipeline = useCallback((pipelineSharedValues: any) => {
         if (pipelineSharedValues?.playerX !== undefined) {
             playerX.value = pipelineSharedValues.playerX.value
@@ -402,7 +392,6 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         resetShot,
         resetAll,
         setHoopFromCalibration,
-        setPlayerFromYolo,
         updatePlayerFromPipeline,
         updateSharedValuesFromState, // Phase 4: Update SharedValues from Runtime.processFrame()
         computeTrajectoryMetrics,

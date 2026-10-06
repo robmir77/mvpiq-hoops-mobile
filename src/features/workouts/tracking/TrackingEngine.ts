@@ -409,12 +409,6 @@ export class TrackingEngine implements ITrackingEngine {
     this.state.hoopPosition = { x, y, width, height }
   }
 
-  // Additional methods for player updates from YOLO
-  setPlayerFromYolo(x: number, y: number, width: number, height: number): void {
-    // This would update player state if needed
-    // Currently handled by updateFromPose
-  }
-
   // Expose internal ShotDetectionEngine for Runtime integration
   // This avoids double ownership - Runtime uses the same instance that TrackingEngine owns
   getShotDetectionEngine(): ShotDetectionEngine {
