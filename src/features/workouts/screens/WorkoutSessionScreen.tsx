@@ -270,9 +270,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         // Convert from vision/types to VisionEngine.types format
 
         visionEngineAdapterRef.current?.updateParsedResults(
-            null, // ball
-            null, // player
-            null, // rim
+            undefined, // ball
+            undefined, // player
+            undefined, // rim
             {
                 keypoints: keypointsArray,
                 confidence: avgConfidence,
@@ -312,10 +312,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
         // Update VisionEngineAdapter with parsed rim result (Phase 3)
         visionEngineAdapterRef.current?.updateParsedResults(
-            null, // ball
-            null, // player
+            undefined, // ball
+            undefined, // player
             rim, // rim
-            null, // pose
+            undefined, // pose
             Date.now()
         )
     }, [tracking])
@@ -324,10 +324,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const handlePlayerDetection = useCallback((player: { x: number; y: number; width: number; height: number; confidence: number }) => {
         // Update VisionEngineAdapter with parsed player result
         visionEngineAdapterRef.current?.updateParsedResults(
-            null, // ball
+            undefined, // ball
             player, // player
-            null, // rim
-            null, // pose
+            undefined, // rim
+            undefined, // pose
             Date.now()
         )
     }, [])
@@ -346,9 +346,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         // Convert from vision/types to VisionEngine.types format
         visionEngineAdapterRef.current?.updateParsedResults(
             ball || null, // BallDetection (flat)
-            null, // player (not in BallDetection type)
+            undefined, // player (not in BallDetection type)
             rim || null, // RimDetection
-            null, // pose (updated separately)
+            undefined, // pose (updated separately)
             now
         )
 

@@ -558,10 +558,11 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
   - MoveNet schedule wait: P50=75.5ms, P95=161.0ms, P99=185.3ms
   - Nessun tuning aggressivo richiesto al momento
 - **useShotTracker disabilitato quando Runtime attivo** (Decision 29):
-  - Flag runtimeActive aggiunto per eliminare lavoro duplicato YOLO/MoveNet
-  - Quando Runtime è ACTIVE: solo VisionEngineAdapter esegue YOLO/MoveNet
-  - Quando Runtime non è ACTIVE: useShotTracker mantiene comportamento legacy
-  - Potenziale riduzione schedule wait (da verificare con test)
+  - **REVERTATA:** Flag runtimeActive rimosso dal frame processor
+  - useShotTracker continua a eseguire YOLO/MoveNet anche quando Runtime è attivo
+  - VisionEngineAdapter non esegue inferenza, solo forward parsed results
+  - **Bug semantico corretto:** VisionEngineAdapter.updateParsedResults() distingue undefined vs null
+  - undefined = non aggiornare canale, null = detection persa, object = detection presente
 
 **Problemi aperti (non risolti da Decision 24):**
 - Qualità player bbox (PLAYER_CONFIDENCE_THRESH = 0.005 estremamente permissivo)

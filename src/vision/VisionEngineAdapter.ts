@@ -35,18 +35,20 @@ export class VisionEngineAdapter implements IVisionEngine {
 
   // Update parsed results from workers
   // Called by useShotTracker when workers produce new inference results
-  // null means "not detected" - always update to reflect current detection state
+  // undefined = don't update this channel
+  // null = update channel: detection lost
+  // object = update channel: detection present
   updateParsedResults(
-    ball: BallDetection | null,
-    player: PlayerDetection | null,
-    rim: RimDetection | null,
-    pose: PoseResult | null,
+    ball: BallDetection | null | undefined,
+    player: PlayerDetection | null | undefined,
+    rim: RimDetection | null | undefined,
+    pose: PoseResult | null | undefined,
     timestamp: number
   ): void {
-    this.lastBall = ball
-    this.lastPlayer = player
-    this.lastRim = rim
-    this.lastPose = pose
+    if (ball !== undefined) this.lastBall = ball
+    if (player !== undefined) this.lastPlayer = player
+    if (rim !== undefined) this.lastRim = rim
+    if (pose !== undefined) this.lastPose = pose
     this.lastTimestamp = timestamp
   }
 

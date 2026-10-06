@@ -116,7 +116,7 @@ WorkoutSessionRuntime
 - Path legacy esiste come fallback (skippato quando Runtime è attivo)
 - Fix double ShotDetectionEngine call (rimosso da Runtime.processFrame())
 - Fix TypeScript type mismatches (BallDetection senza player, PoseResult conversion)
-- Fase 4.1 COMPLETATA (VisionEngineAdapter partial update - non cancella altri risultati)
+- Fase 4.1 COMPLETATA (VisionEngineAdapter partial update - undefined/null semantica corretta)
 - Fase 4.2 COMPLETATA (Runtime.processFrame() debounce 50ms - evita chiamate duplicate)
 - Fase 4.3 COMPLETATA (Legacy Shot Detection disattivata - single source of truth shot events)
 - Fase 4.4 COMPLETATA (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
@@ -317,6 +317,8 @@ export const COURT_CONFIG = {
 - MoveNet: FPS naturale (~3-4 FPS) basato su tempo inferenza async (~200-230ms) e disponibilità bbox player
 - Tracking: realtime (ogni frame)
 - Bridge calls: 15 FPS (throttled a 66ms)
+- **Decision 29 REVERTATA:** useShotTracker continua a eseguire YOLO/MoveNet anche quando Runtime è attivo (VisionEngineAdapter non esegue inferenza, solo forward parsed results)
+- **Semantica VisionEngineAdapter:** undefined = non aggiornare canale, null = detection persa, object = detection presente
 
 Questa architettura evita limiti artificiali che riducono la detection rate, lasciando che i modelli girino al massimo FPS possibile dato il tempo di inferenza async. La conversione ad async permette di misurare la contesa del runtime RN separatamente dal tempo di inferenza.
 
@@ -381,7 +383,7 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Runtime.processFrame() | ✅ | Implementato per orchestrare Vision → Tracking → Shot |
 | VisionEngineAdapter placeholder | ✅ | Creato (bridge temporaneo per migrazione) |
 | Vision migration plan | ✅ | Documentato in ARCHITECTURE_DECISIONS.md (Decision 27) |
-| RN runtime contention | 🟡 | Schedule wait identificato come principale collo di bottiglia (40-60% latenza totale), monitorato con P50/P95/P99, useShotTracker disabilitato quando Runtime attivo per ridurre lavoro duplicato |
+| RN runtime contention | 🟡 | Schedule wait identificato come principale collo di bottiglia (40-60% latenza totale), monitorato con P50/P95/P99, Decision 29 revertata (useShotTracker continua a eseguire quando Runtime attivo - VisionEngineAdapter non esegue inferenza) |
 | Transfer buffer size | 🔴 | 640×360×3 (~2.64 MB), da eliminare |
 | Rerender/Remount investigation | 🔴 | Possibili rerender frequenti da investigare |
 | Propagazione courtType (FULL/HALF) | 🔴 | NON propagato tra Setup → Calibration → Workout |
@@ -403,7 +405,7 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | PlayerDetection tests | ✅ | TrackingEngine.test.ts aggiunti per YOLO + MoveNet integration (Fase 6 completata) |
 | Kalman filter optimization | ✅ | Massima reattività: px/py 0.001, mx/my 0.05, dt 0.02 (Fase 6 completata) |
 | Performance audit (Decision 28) | ✅ | Telemetry A→F con P50/P95/P99, Kalman analysis completata, schedule wait identificato come principale collo di bottiglia |
-| Legacy useShotTracker disable (Decision 29) | ✅ | Flag runtimeActive aggiunto per disabilitare useShotTracker quando Runtime è attivo, elimina lavoro duplicato YOLO/MoveNet |
+| Legacy useShotTracker disable (Decision 29) | ✅ | REVERTATA - Flag runtimeActive rimosso dal frame processor, useShotTracker continua a eseguire quando Runtime è attivo (VisionEngineAdapter non esegue inferenza, solo forward risultati) |
 
 ## Async Queue & Critical Events
 

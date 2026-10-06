@@ -1286,10 +1286,64 @@ Questo causa:
 - FPS camera migliorato (meno frame processor overhead)
 - Comportamento identico quando Runtime non è attivo
 
-**Stato:** ✅ IMPLEMENTATO
-- Flag `runtimeActive` aggiunto a useShotTracker
-- Check in onFrame worklet implementato
-- useCameraPipeline aggiornato
-- useWorkoutVisionPipeline aggiornato
-- WorkoutSessionScreen aggiornato
-- Test richiesto per verificare riduzione schedule wait
+**Stato:** ✅ REVERTATA
+- Flag `runtimeActive` rimosso dal frame processor in useShotTracker
+- Il parametro runtimeActive esiste ancora nella firma per compatibilità API, ma non viene usato nel frame processor
+- Pipeline Vision continua a funzionare anche quando Runtime è ACTIVE
+- **Motivo revert:** VisionEngineAdapter non esegue YOLO/MoveNet, è solo un adapter che riceve risultati dai worker. Spegnere useShotTracker spegneva l'intera pipeline Vision.
+- **Bug semantico aggiuntivo corretto:** VisionEngineAdapter.updateParsedResults() ora distingue undefined vs null:
+  - undefined = non aggiornare questo canale (preserva valore precedente)
+  - null = aggiorna canale: detection persa
+  - object = aggiorna canale: detection presente
+- Tutte le chiamate da WorkoutSessionScreen aggiornate per usare undefined per canali non aggiornati
+
+---
+
+## Decision 30: Correzione Semantica VisionEngineAdapter (Undefined vs Null)
+
+**Contesto:** VisionEngineAdapter.updateParsedResults() aveva una semantica errata dove `null` significava "non aggiornare questo canale" invece di "detection persa". Le chiamate dai callbacks (handlePoseResult, handleBallDetection, handleRimDetection, handlePlayerDetection) passavano `null` per i canali non aggiornati, causando:
+- Quando Pose arriva: ball=null, pose=P → ball viene cancellato anche se YOLO aveva rilevato la palla
+- Quando Ball arriva: ball=B, pose=null → pose viene cancellato anche se MoveNet aveva rilevato la pose
+- Stale detection data persisteva nell'Adapter
+- TrackingEngine non vedeva correttamente l'assenza di detection per attivare Kalman prediction
+
+**Problema identificato:**
+Due semantiche diverse erano confuse:
+1. `null` come "non sto aggiornando questo canale" (usato nelle chiamate callbacks)
+2. `null` come "detection persa" (richiesto per Kalman prediction)
+
+**Decisione:**
+- Distinguere `undefined` da `null` in VisionEngineAdapter.updateParsedResults()
+- `undefined` = non aggiornare questo canale (preserva valore precedente)
+- `null` = aggiorna canale: detection persa
+- `object` = aggiorna canale: detection presente
+- Aggiornare firma metodo: parametri ora `| null | undefined` invece di solo `| null`
+- Aggiornare logica: controlli `if (ball !== undefined)` invece di `if (ball !== null)`
+- Aggiornare tutte le chiamate da WorkoutSessionScreen:
+  - handlePoseResult: passa undefined per ball/player/rim
+  - handleRimDetection: passa undefined per ball/player/pose
+  - handlePlayerDetection: passa undefined per ball/rim/pose
+  - handleBallDetection: passa undefined per player/pose
+
+**Rationale:**
+- Callbacks diversi (Pose, Ball, Rim, Player) arrivano a frequenze diverse
+- Ogni callback deve aggiornare solo il proprio canale senza cancellare gli altri
+- TrackingEngine deve vedere correttamente "detection persa" (null) per attivare Kalman prediction
+- La distinzione undefined/null permette partial update semanticamente corretto
+
+**Conseguenze:**
+- Quando YOLO perde la palla e passa null, Runtime riceve correttamente "detection persa"
+- Pose/Player/Rim non vengono cancellati quando Ball arriva
+- Ball non viene cancellato quando Pose arriva
+- Kalman prediction può essere attivato correttamente quando detection è persa
+- Semantica consistente in tutto il pipeline Vision
+
+**Risultati attesi:**
+- TrackingEngine vede correttamente assenza detection per attivare Kalman fallback
+- Nessuna cancellazione accidentale di detection da altri callbacks
+- Comportamento deterministico quando YOLO perde deliberatamente la palla per alcuni frame
+
+**Stato:** ✅ COMPLETATO
+- VisionEngineAdapter.updateParsedResults() aggiornato con undefined/null distinction
+- Tutte le chiamate da WorkoutSessionScreen aggiornate per usare undefined
+- Documentazione aggiornata (ARCHITECTURE.md, VISION_PERFORMANCE.md, REFACTORING_PROGRESS.md)

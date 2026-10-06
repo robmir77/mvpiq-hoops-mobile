@@ -256,10 +256,14 @@ features/workouts/
 - Tracking state e SharedValues sincronizzati correttamente
 
 **4.6.4: VisionEngineAdapter Partial Update ✓**
-- updateParsedResults() ora aggiorna solo campi non-null
+- updateParsedResults() ora distingue undefined vs null
+- undefined = non aggiornare questo canale (preserva valore precedente)
+- null = aggiorna canale: detection persa
+- object = aggiorna canale: detection presente
+- Tutte le chiamate da WorkoutSessionScreen aggiornate per usare undefined per canali non aggiornati
 - Risolve problema: Pose arriva → ball=null, pose=P; Ball arriva → ball=B, pose=null
 - Ora VisionEngine vede sempre tutti i risultati disponibili (ball + pose + rim)
-- Semantica partial update, non replacement
+- Semantica partial update corretta con undefined/null distinction
 
 **4.6.5: Runtime.processFrame() Debounce ✓**
 - Aggiunto debounce 50ms per evitare chiamate duplicate per lo stesso frame logico
