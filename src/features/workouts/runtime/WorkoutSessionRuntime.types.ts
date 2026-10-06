@@ -1,6 +1,8 @@
 // WorkoutSessionRuntime Types
 // Defines the contract for the workout session runtime
 
+import type { FrameDataPayload } from '../services/workoutAsyncQueue'
+
 export type SessionState = 'IDLE' | 'STARTING' | 'ACTIVE' | 'PAUSED' | 'STOPPING' | 'SYNCING' | 'COMPLETED' | 'ERROR'
 
 export interface SessionConfig {
@@ -71,21 +73,20 @@ export interface IShotDetectionEngine {
 }
 
 export interface ITelemetrySampler {
-  // Placeholder - methods to be defined based on telemetry API
+  shouldSample(timestamp: number): boolean
+  reset(): void
+  getLastSampleTime(): number
+  setSampleInterval(intervalMs: number): void
 }
 
 export interface IWorkoutQueue {
   enqueueCritical(event: {
-    type: string
+    type: 'SHOT' | 'SESSION_START' | 'SESSION_END' | 'CALIBRATION'
     sessionId: string
     userId: string
-    payload: {
-      timestampMs: number
-      shotResult: 'MADE' | 'MISS'
-      detectionConfidence: number
-      trackingData: string
-    }
-  }): Promise<void>
+    payload?: any
+  }): Promise<boolean>
+  enqueueTelemetry(payload: Omit<FrameDataPayload, 'sessionId' | 'userId'>): void
   shutdown(): Promise<void>
 }
 
@@ -98,6 +99,13 @@ export interface WorkoutSessionRuntime {
 
   // Actions
   registerManualShot(result: 'MADE' | 'MISS'): Promise<void>
+  enqueueCritical(event: {
+    type: 'SHOT' | 'SESSION_START' | 'SESSION_END' | 'CALIBRATION'
+    sessionId: string
+    userId: string
+    payload?: any
+  }): Promise<boolean>
+  enqueueTelemetry(payload: Omit<FrameDataPayload, 'sessionId' | 'userId'>): void
 
   // State
   getState(): SessionState

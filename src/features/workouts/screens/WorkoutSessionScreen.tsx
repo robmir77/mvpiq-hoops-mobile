@@ -237,6 +237,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             runtimeRef.current = runtime
 
             return () => {
+                // Cleanup on unmount: stop runtime if active
+                if (runtimeRef.current && runtimeRef.current.getState() === 'ACTIVE') {
+                    runtimeRef.current.stop().catch((error) => {
+                        console.error('[WorkoutSession] Error stopping runtime on unmount:', error)
+                    })
+                }
                 runtimeRef.current = null
             }
         }
@@ -348,10 +354,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
             // Backend sampling: 2 Hz (max 2 POST-worthy samples/sec)
             if (ball || rimForTracking) {
-                const workoutQueue = workoutQueueRef.current
                 const sampler = telemetrySamplerRef.current
-                if (workoutQueue && sampler && sampler.shouldSample(now)) {
-                    workoutQueue.enqueueTelemetry({
+                const runtimeForTelemetry = runtimeRef.current as WorkoutSessionRuntime | null
+                if (sampler && sampler.shouldSample(now) && runtimeForTelemetry) {
+                    runtimeForTelemetry.enqueueTelemetry({
                         frameTimestamp:   now,
                         ballX:            ball ? ball.x : undefined,
                         ballY:            ball ? ball.y : undefined,
@@ -390,12 +396,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 state.ballPosition?.y ?? 0.5,
                 calibration
             )
-            
-            // Enqueue to critical queue - non-blocking with error logging
-            const workoutQueue = workoutQueueRef.current
-            if (!workoutQueue) return
 
-            workoutQueue.enqueueCritical({
+            // Enqueue to critical queue via Runtime - non-blocking with error logging
+            const runtimeForAutoShot = runtimeRef.current as WorkoutSessionRuntime | null
+            if (!runtimeForAutoShot) return
+
+            runtimeForAutoShot.enqueueCritical({
                 type: 'SHOT',
                 sessionId,
                 userId: user.id,
@@ -603,9 +609,21 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Connect subsystems to runtime (Phase 4.4.2)
             // Note: TrackingEngine and WorkoutQueue interfaces don't match exactly yet
             // This is a temporary integration - full interface alignment deferred
-            if (runtimeRef.current && telemetrySamplerRef.current) {
-                runtimeRef.current.setTelemetrySampler(telemetrySamplerRef.current)
+            const runtimeForLoad = runtimeRef.current as WorkoutSessionRuntime | null
+            if (runtimeForLoad && telemetrySamplerRef.current) {
+                runtimeForLoad.setTelemetrySampler(telemetrySamplerRef.current)
                 console.log('[WorkoutSession] Telemetry sampler connected to runtime')
+            }
+
+            if (runtimeForLoad && workoutQueueRef.current) {
+                runtimeForLoad.setWorkoutQueue(workoutQueueRef.current)
+                console.log('[WorkoutSession] WorkoutQueue connected to runtime')
+            }
+
+            // Start the runtime session
+            if (runtimeForLoad) {
+                await runtimeForLoad.start()
+                console.log('[WorkoutSession] Runtime session started')
             }
 
             // Load calibration
@@ -647,8 +665,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Use runtime to register manual shot (Phase 4.4.2)
             // Note: Runtime only accepts "MADE" | "MISS", convert AIRBALL to MISS
             const runtimeResult = result === 'AIRBALL' ? 'MISS' : result
-            if (runtimeRef.current) {
-                await runtimeRef.current.registerManualShot(runtimeResult as 'MADE' | 'MISS')
+            const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+            if (runtimeForManual) {
+                await runtimeForManual.registerManualShot(runtimeResult as 'MADE' | 'MISS')
             } else {
                 // Fallback to direct queue if runtime not available
                 const state = tracking.getState()
@@ -665,14 +684,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     trackingData: JSON.stringify({ manualEntry: true }),
                 }
 
-                const workoutQueue = workoutQueueRef.current
-                if (workoutQueue) {
-                    await workoutQueue.enqueueCritical({
+                const runtimeFallback = runtimeRef.current as WorkoutSessionRuntime | null
+                if (runtimeFallback) {
+                    await runtimeFallback.enqueueCritical({
                         type: 'SHOT',
                         sessionId,
                         userId: user.id,
                         payload
-                    } as CriticalPayload)
+                    })
                 }
 
                 // Update UI immediately
@@ -708,18 +727,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     isVideoRecordingRef.current = false
                 }
 
-                // Enqueue SESSION_END as critical event before shutdown
-                const workoutQueue = workoutQueueRef.current
-                if (workoutQueue) {
-                    const persisted = await workoutQueue.enqueueCritical({
+                // Enqueue SESSION_END as critical event before shutdown via Runtime
+                const runtimeForEnd = runtimeRef.current as WorkoutSessionRuntime | null
+                if (runtimeForEnd) {
+                    const persisted = await runtimeForEnd.enqueueCritical({
                         type: 'SESSION_END',
                         sessionId,
                         userId: user!.id,
                     })
-                    if (!persisted) {
+                    if (persisted === false) {
                         throw new Error('Unable to persist SESSION_END')
                     }
-                    console.log('[WorkoutSession] SESSION_END enqueued to critical queue')
+                    console.log('[WorkoutSession] SESSION_END enqueued to critical queue via Runtime')
                 }
 
                 // Log telemetry summary before ending session
@@ -729,9 +748,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 const telemetrySummary = telemetryLogger.exportTestSummary(pipelineFpsMetrics.yoloFps?.value ?? 0, pipelineFpsMetrics.moveNetFps?.value ?? 0)
                 console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
 
-                // Shutdown queue with bounded timeout
-                if (workoutQueue) {
-                    await workoutQueue.shutdown()
+                // Stop runtime session (includes queue shutdown via Runtime.stop())
+                if (runtimeForEnd) {
+                    await runtimeForEnd.stop()
+                    console.log('[WorkoutSession] Runtime stopped')
                 }
 
                 workoutQueueRef.current = null

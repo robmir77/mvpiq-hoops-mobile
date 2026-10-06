@@ -182,6 +182,28 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     this.notifyTelemetryUpdate()
   }
 
+  async enqueueCritical(event: {
+    type: 'SHOT' | 'SESSION_START' | 'SESSION_END' | 'CALIBRATION'
+    sessionId: string
+    userId: string
+    payload?: any
+  }): Promise<boolean> {
+    if (this.workoutQueue) {
+      return await this.workoutQueue.enqueueCritical(event)
+    } else {
+      console.warn('[WorkoutSessionRuntime] Queue not set, cannot enqueue critical event')
+      return false
+    }
+  }
+
+  enqueueTelemetry(payload: Omit<any, 'sessionId' | 'userId'>): void {
+    if (this.workoutQueue) {
+      this.workoutQueue.enqueueTelemetry(payload)
+    } else {
+      console.warn('[WorkoutSessionRuntime] Queue not set, cannot enqueue telemetry')
+    }
+  }
+
   getState(): SessionState {
     return this.state
   }

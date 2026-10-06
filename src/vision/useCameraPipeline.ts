@@ -29,6 +29,10 @@ export interface CameraPipelineResult {
     playerConfidence: any
     ballRejectionReason: any
     rimRejectionReason: any
+    playerTrackState: any
+    playerTrackAge: any
+    rimTrackState: any
+    rimTrackAge: any
   }
 }
 

@@ -19,7 +19,7 @@ import { ENABLE_MOVENET_LOGS } from '@/config/debugConfig'
 
 const DEFAULT_POSE_INPUT_SIZE = 192 // Only 192 is currently available in the registry
 const INTERMEDIATE_RESIZE_SIZE = 640 // Intermediate resize for crop optimization (reduces CPU crop work)
-const MOVENET_TARGET_FPS = 3 // Fixed target FPS for MoveNet
+// Phase 4.4: Removed MOVENET_TARGET_FPS throttling - no temporal throttling per ARCHITECTURE.md
 
 // DIAGNOSTIC FLAG: Disable MoveNet execution to measure YOLO + tracking + crop calculation performance
 const ENABLE_MOVENET = true
@@ -691,21 +691,14 @@ export const useMoveNetWorker = (
   }, [recordTelemetry])
 
   // Process frame immediately (no buffering)
+  // Phase 4.4: Removed FPS throttling - no temporal throttling per ARCHITECTURE.md
   const processFrame = useCallback((frame: any, timestamp: number) => {
     'worklet'
 
     const now = Date.now()
     const timeSinceLastSubmit = now - lastSubmitTimestamp.value
-    const minIntervalMs = 1000 / MOVENET_TARGET_FPS
 
-    // Gate 1: Throttle to target FPS (3 FPS)
-    if (timeSinceLastSubmit < minIntervalMs) {
-      telemetrySkipped.value += 1
-      if (perfMoveNetSkipped) {
-        perfMoveNetSkipped.value += 1
-      }
-      return
-    }
+    // No FPS throttling - process every frame
     lastSubmitTimestamp.value = now
 
     // Gate 2: Single-flight - skip if busy to avoid any preprocessing work

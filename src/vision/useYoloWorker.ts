@@ -61,10 +61,8 @@ export const useYoloWorker = (
   const lastInferenceAt = useSharedValue(0)
   const isProcessing = useSharedValue(false)
 
-  // FPS adaptation system
-  const lastSubmitTime = useSharedValue(Date.now()) // Initialize to current time to avoid blocking first frame
-  const targetFps = useSharedValue(15) // Default target FPS
-  const adaptiveFpsEnabled = useSharedValue(TEST_CONFIG.ENABLE_ADAPTIVE_FPS)
+  // Phase 4.4: Removed adaptive FPS system - no temporal throttling per ARCHITECTURE.md
+  // Legacy adaptive FPS code removed (was controlled by TEST_CONFIG.ENABLE_ADAPTIVE_FPS)
 
   const isReady = useSharedValue(false)
   const theoreticalFps = useSharedValue(0) // Theoretical FPS based on single inference time (latency capacity)
@@ -280,12 +278,7 @@ export const useYoloWorker = (
       const calculatedFps = 1000 / inferenceTime
       if (calculatedFps > 0) {
         theoreticalFps.value = calculatedFps
-        // Adapt target FPS based on inference time (with safety margin)
-        // Target FPS = 1000 / (inferenceTime + 20ms margin)
-        const marginMs = 20
-        const adaptiveTargetFps = 1000 / (inferenceTime + marginMs)
-        // Clamp between 5 and 30 FPS
-        targetFps.value = Math.max(5, Math.min(30, adaptiveTargetFps))
+        // Phase 4.4: Removed adaptive FPS throttling - no temporal throttling per ARCHITECTURE.md
       }
 
       // Calculate actual throughput (inferences per second over time window)
@@ -318,27 +311,15 @@ export const useYoloWorker = (
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [yoloModelInstance, latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp, lastInferenceMs, lastResizeMs, lastRunMs, lastParseMs, executionCount, theoreticalFps, targetFps, throughputFps, throughputWindowStart, inferenceCount, adaptiveFpsEnabled, lastSubmitTime, isProcessing, lastInferenceAt, recordTelemetry, perfYoloScheduleWaitTotal])
+  }, [yoloModelInstance, latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp, lastInferenceMs, lastResizeMs, lastRunMs, lastParseMs, executionCount, theoreticalFps, throughputFps, throughputWindowStart, inferenceCount, isProcessing, lastInferenceAt, recordTelemetry, perfYoloScheduleWaitTotal])
 
   // Process frame in worklet, then schedule async inference on JS thread
+  // Phase 4.4: Removed adaptive FPS throttling - no temporal throttling per ARCHITECTURE.md
   const processFrame = useCallback((frame: any, timestamp: number, frameCounter?: number) => {
     'worklet'
 
     if (!yoloModelInstance || isProcessing.value || !enabled) {
       return
-    }
-
-    // FPS adaptation: throttle frame submission based on target FPS
-    if (adaptiveFpsEnabled.value) {
-      const now = Date.now()
-      const timeSinceLastSubmit = now - lastSubmitTime.value
-      const minIntervalMs = 1000 / targetFps.value
-
-      if (timeSinceLastSubmit < minIntervalMs) {
-        // Skip this frame - not enough time passed
-        return
-      }
-      lastSubmitTime.value = now
     }
 
     isProcessing.value = true
@@ -377,7 +358,7 @@ export const useYoloWorker = (
 
       isProcessing.value = false
     }
-  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, theoreticalFps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt, runYoloInference, adaptiveFpsEnabled, lastSubmitTime, targetFps])
+  }, [yoloModelInstance, yoloResizer, yoloInputElements, enabled, theoreticalFps, latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, isProcessing, lastInferenceAt, runYoloInference])
 
   const getLatestResult = useCallback((): YoloWorkerResult | null => {
     if (latestResultBall.value === null && latestResultTimestamp.value === 0) {

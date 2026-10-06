@@ -378,15 +378,9 @@ export const useYoloWorkerAsync = (
       return
     }
 
+    // Phase 4.4: Removed FPS throttling - no temporal throttling per ARCHITECTURE.md
     const now = Date.now()
     const timeSinceLastSubmit = now - lastSubmitTimestamp.value
-    const minIntervalMs = 1000 / YOLO_TARGET_FPS
-    
-    // Gate 1: Throttle to target FPS (10 FPS)
-    if (timeSinceLastSubmit < minIntervalMs) {
-      yoloSkippedCount.value += 1
-      return
-    }
     lastSubmitTimestamp.value = now
 
     // Gate 2: Single-flight - if processing, skip this frame (latest-frame-wins flag)
