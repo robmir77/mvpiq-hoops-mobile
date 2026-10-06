@@ -1,4 +1,5 @@
 // Shared performance monitoring for inference and rendering
+import { ENABLE_PERFORMANCE_LOGGING } from '@/config/debugConfig'
 
 const perfMetrics = {
     yoloFps: 0,
@@ -38,7 +39,7 @@ export function recordOverlayRenderTime(ms: number) {
 export function startPerfMonitor() {
     if (perfTimer) return
     perfTimer = setInterval(() => {
-        if (__DEV__) {
+        if (ENABLE_PERFORMANCE_LOGGING) {
             console.log(`[PERF] YOLO: ${perfMetrics.yoloFps}fps | Tracking: ${perfMetrics.trackingUpdates}/s | Overlay: ${perfMetrics.overlayRenders}/s (JS FPS)`)
         }
         // Reset counters

@@ -12,7 +12,7 @@ import { useSharedValue } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
 // ShotDetector removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine
-import { useYoloWorker } from './useYoloWorker'
+// useYoloWorker removed - only useYoloWorkerAsync is used to avoid duplicate TFLite model loading
 import { useYoloWorkerAsync } from './useYoloWorkerAsync'
 import { useMoveNetWorker } from './useMoveNetWorker'
 import { usePlayerCropManager } from './usePlayerCropManager'
@@ -209,18 +209,8 @@ export const useShotTracker = (
     const perfYoloBallDetected = useSharedValue(0)
     const perfTrackingAccepted = useSharedValue(0)
 
-    // Parallel Workers - use selected model ID directly
-    // Both hooks are always called; the flag selects the active implementation.
-    const yoloWorkerSync = useYoloWorker(
-        ballEnabled && !TEST_CONFIG.ENABLE_ASYNC_YOLO_POC,
-        yoloDelegate,
-        yoloModelId,
-        undefined,
-        perfYoloScheduleWaitTotal,
-        perfYoloWorkletPrepTotal,
-        perfYoloJsPreprocessTotal,
-        perfYoloPostprocessTotal
-    )
+    // Removed yoloWorkerSync to avoid duplicate TFLite model loading
+    // Only useYoloWorkerAsync is used (ENABLE_ASYNC_YOLO_POC = true)
 
     // yoloWorkerAsync will be initialized after handleYoloAsyncResult is defined
 
@@ -547,9 +537,8 @@ export const useShotTracker = (
         handleYoloAsyncResult
     )
 
-    const yoloWorker = TEST_CONFIG.ENABLE_ASYNC_YOLO_POC
-        ? yoloWorkerAsync
-        : yoloWorkerSync
+    // Only use async YOLO worker (sync removed to avoid duplicate model loading)
+    const yoloWorker = yoloWorkerAsync
 
     const emitPoseResult =
         useCallback(
@@ -781,72 +770,10 @@ export const useShotTracker = (
                     // Call YOLO worker every frame - it handles its own throttling internally
                     tYoloStart = performance.now()
                     if (ballEnabledShared.value) {
-                        if (TEST_CONFIG.ENABLE_ASYNC_YOLO_POC) {
-                            // Async YOLO: submit frame and return immediately
-                            // perfYoloRequested is tracked internally by yoloWorkerAsync
-                            // Results are handled via onResultCallback
-                            yoloWorkerAsync.submitFrame(frame, timestamp, currentFrame)
-                        } else {
-                            // Sync YOLO: process frame and check execution
-                            perfYoloRequested.value += 1
-                            const yoloExecutionCountBefore = yoloWorkerSync.executionCount.value
-                            yoloWorkerSync.processFrame(frame, timestamp, currentFrame)
-                            const yoloExecutedNow = yoloWorkerSync.executionCount.value > yoloExecutionCountBefore
-
-                            if (yoloExecutedNow) {
-                                const yoloInferenceTime = yoloWorkerSync.lastInferenceMs.value
-                                perfYoloExecuted.value += 1
-                                perfYoloInferenceTotal.value += yoloInferenceTime
-                                perfYoloInferenceMin.value = perfYoloInferenceMin.value === 0
-                                    ? yoloInferenceTime
-                                    : Math.min(perfYoloInferenceMin.value, yoloInferenceTime)
-                                perfYoloInferenceMax.value = Math.max(perfYoloInferenceMax.value, yoloInferenceTime)
-                                perfYoloResizeTotal.value += yoloWorkerSync.lastResizeMs.value
-                                perfYoloRunTotal.value += yoloWorkerSync.lastRunMs.value
-                                perfYoloParseTotal.value += yoloWorkerSync.lastParseMs.value
-                            } else {
-                                perfYoloSkipped.value += 1
-                            }
-
-                            // Update player bbox via PlayerCropManager (time-based tracking) - SYNC ONLY
-                            const currentPlayer = yoloWorkerSync.latestResultPlayer.value
-                            if (currentPlayer) {
-                                playerCrop.update({
-                                    x: currentPlayer.x,
-                                    y: currentPlayer.y,
-                                    width: currentPlayer.width,
-                                    height: currentPlayer.height,
-                                    confidence: currentPlayer.confidence,
-                                })
-                                // Update shared values for direct display in overlay
-                                playerX.value = currentPlayer.x
-                                playerY.value = currentPlayer.y
-                                playerWidth.value = currentPlayer.width
-                                playerHeight.value = currentPlayer.height
-                                playerConfidence.value = currentPlayer.confidence
-                                // Update visual tracking state
-                                playerTrackState.value = 'DETECTED'
-                                playerTrackAge.value = 0
-                                // Call onPlayerDetection callback for VisionEngine integration
-                                onPlayerDetectionRef.current?.(currentPlayer)
-                                // Check if the detection was accepted by the confidence filter
-                                const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
-                                if (trackedBbox) {
-                                    if (!lastPlayerDetectedRef.value) {
-                                        // Transition: LOST → DETECTED
-                                        lastPlayerDetectedRef.value = true
-                                    }
-                                    scheduleOnRN(recordPlayerDetected)
-                                }
-                            } else {
-                                playerCrop.update(null)
-                                if (lastPlayerDetectedRef.value) {
-                                    // Transition: DETECTED → LOST
-                                    lastPlayerDetectedRef.value = false
-                                    scheduleOnRN(recordPlayerLost)
-                                }
-                            }
-                        }
+                        // Async YOLO: submit frame and return immediately
+                        // perfYoloRequested is tracked internally by yoloWorkerAsync
+                        // Results are handled via onResultCallback
+                        yoloWorkerAsync.submitFrame(frame, timestamp, currentFrame)
                     }
                     tYoloEnd = performance.now()
 

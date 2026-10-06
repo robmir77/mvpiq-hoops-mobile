@@ -90,12 +90,7 @@ const RealtimeBallOverlay = React.memo(({
 }: RealtimeBallOverlayProps) => {
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
 
-    // Log for diagnostics - track when ball overlay renders
-    React.useEffect(() => {
-        console.log('[BALL OVERLAY] render')
-        console.log('[BALL OVERLAY] effectiveResolution:', effectiveResolution)
-        console.log('[BALL OVERLAY] SCREEN_W:', SCREEN_W, 'CAMERA_H:', CAMERA_H)
-    }, [effectiveResolution])
+    // Removed hot-path logging to reduce overhead during workout
 
     const ballXPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0

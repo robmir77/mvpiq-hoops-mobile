@@ -33,7 +33,7 @@ interface TelemetryOverlayProps {
 }
 
 export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onClose, yoloFps, moveNetFps, actualCameraFps, debugMode = false, cameraConfig, modelConfig }) => {
-  const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, skipped: 0, scheduleWaitMs: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
+  const [yoloPerf, setYoloPerf] = useState<YoloPerfMetrics>({ throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: 0, executed: 0, skipped: 0, scheduleWaitMs: 0, scheduleWaitP50: 0, scheduleWaitP95: 0, scheduleWaitP99: 0, resizeMs: 0, runMs: 0, parseMs: 0 })
   const [ballMetrics, setBallMetrics] = useState<BallDetectionMetrics>({
     framesProcessed: 0,
     framesDetected: 0,
@@ -89,14 +89,18 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     workletPrepMs: 0,
     cropMs: 0,
     resizeMs: 0,
+    quantizationMs: 0,
     runMs: 0,
     parseMs: 0,
     scheduleWaitMs: 0,
+    scheduleWaitP50: 0,
+    scheduleWaitP95: 0,
+    scheduleWaitP99: 0,
   })
 
   // Aggiorna le metriche ogni 500ms
   useEffect(() => {
-    console.log('[TelemetryOverlay] Visible:', visible)
+    // Removed hot-path logging to reduce overhead during workout
     const interval = setInterval(() => {
       if (!visible) return
 
@@ -113,15 +117,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
       const displayYoloFps = yoloFps ?? yoloPerf.throughputFps
       const displayMoveNetFps = moveNetFps ?? moveNetMetrics.throughputFps
 
-      console.log('[TelemetryOverlay] Updating metrics:', {
-        yoloFps: displayYoloFps.toFixed(1),
-        yoloMinMs: yoloPerf.minMs?.toFixed(1) || '0.0',
-        yoloMaxMs: yoloPerf.maxMs?.toFixed(1) || '0.0',
-        yoloSamples: yoloPerf.samples,
-        detectionRate: telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed).detectionRate.toFixed(1),
-        pipelineProcessed: pipelineMetrics.processed,
-        usageMinutes: modelConfig?.usageMinutes
-      })
+      // Removed hot-path logging to reduce overhead during workout
 
       // Update yoloPerf with prop FPS but keep latency data from logger
       setYoloPerf({
@@ -162,11 +158,8 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
   }, [visible, modelConfig?.usageMinutes, modelConfig?.usageSeconds, modelConfig?.fpsMin, modelConfig?.fpsMax, yoloFps, moveNetFps])
 
   if (!visible) {
-    console.log('[TelemetryOverlay] Not rendering - visible is false')
     return null
   }
-  
-  console.log('[TelemetryOverlay] Rendering overlay')
 
   return (
     <View style={styles.container}>

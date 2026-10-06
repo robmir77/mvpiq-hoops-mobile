@@ -114,10 +114,25 @@
 5. ✅ Documentare interpretazione metriche latenza YOLO (Decision 0.9)
 6. ✅ Marcare Decision 29 come REVERTED/SUPERSEDED (legacy vision removal)
 7. ✅ Esperimento YOLO 320 vs 384 (Decision 0.91) - concluso: mantenere 384 come default
-8. Misurare separatamente tempo totale del frame processor
-9. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
-10. Investigare parallelizzazione YOLO/MoveNet
-11. Verificare rerender/remount di WorkoutSession/ShotTracker
+8. ✅ Analisi Expo Debug vs Release (Decision 0.91 aggiornata) - ipotesi: Debug overhead maschera performance reali
+9. **🔴 CRITICO: Verificare saturazione/lifecycle ShotTracker** - PRIORE ASSOLUTA
+   - Numero ShotTracker mount simultanei (verificare log MOUNT/UNMOUNT)
+   - Numero modelli YOLO caricati (verificare log MODEL STATE)
+   - Modelli ancora caricati dopo unmount
+   - Callback scheduleOnRN pendenti
+   - MoveNet model lifecycle
+   - Eventuali Frame/GPUBuffer non rilasciati
+10. **🔴 CRITICO: Eliminare doppio useTensorflowModel in useShotTracker**
+    - Attualmente: useYoloWorker + useYoloWorkerAsync caricano entrambi useTensorflowModel
+    - Solo useYoloWorkerAsync viene usato per inferenza (ENABLE_ASYNC_YOLO_POC = true)
+    - Obiettivo: caricare solo un modello TFLite
+11. **Testare 5 workout consecutivi per confermare saturazione**
+    - Confrontare: Workout #1, #2, #3, #4, #5
+    - Metriche: YOLO FPS, YOLO inference P50, YOLO schedule P50, MoveNet FPS, Camera FPS
+12. Test controllato Expo Debug vs Release (60 secondi ciascuno)
+13. Misurare separatamente tempo totale del frame processor
+14. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
+15. Investigare parallelizzazione YOLO/MoveNet
 
 ---
 
@@ -221,6 +236,97 @@ YOLO 320 offre un guadagno marginale di latenza (~15-25ms) ma peggiora significa
 - La detection quality è più importante del throughput marginale
 - Player detection peggiore (34-48% vs 40-58%) è un segnale negativo
 - Il guadagno di latenza ~15-25ms non è sufficiente a giustificare la perdita di accuracy
+
+**Nuova evidenza importante (Release Build):**
+Il build release sul dispositivo reale mostra:
+- YOLO: 14-22 FPS (picco ~18 FPS)
+- Camera: ~28 FPS
+- MoveNet: ~7 FPS
+- Ball detection: 73%
+- Player detection: 31%
+
+Questo è perfettamente compatibile con il range atteso del modello 384 dal registry (20-21 FPS). Questo suggerisce che i benchmark precedenti in Expo Debug non erano rappresentativi delle performance reali del prodotto.
+
+**Ipotesi: Expo Debug vs Release**
+La differenza tra Expo Debug e Release può essere dovuta a:
+- Overhead JS in modalità development
+- Logging più pesante
+- DevTools/debug infrastructure
+- Fast Refresh overhead
+- runSync() eseguito sul thread JS/RN tramite scheduleOnRN
+
+L'architettura async attuale (worklet → scheduleOnRN → runSync()) è particolarmente sensibile al carico del thread JS/RN. Se il runtime di sviluppo rende il thread JS più pesante, c'è un effetto moltiplicativo sul schedule wait e quindi sul throughput.
+
+**Prossima azione: Test controllato**
+Non ottimizzare ulteriormente il modello (input size, pruning, quantization) finché non viene confermato tramite test controllato:
+- Test A: Expo Debug (60 secondi)
+- Test B: Release build (60 secondi)
+
+Metriche da raccogliere:
+- Camera FPS
+- YOLO executed FPS
+- YOLO inference P50/P95/P99
+- YOLO schedule P50/P95/P99
+- MoveNet FPS
+- Ball detection %
+- Player detection %
+
+Se il release build conferma ~15-20 FPS con inference significativamente più bassa, abbiamo dimostrato che i benchmark Expo Debug non erano rappresentativi.
+
+---
+
+## Decision 0.92: Saturazione Progressiva - Doppio Caricamento Modello YOLO
+
+**Contesto:** L'utente ha osservato che dopo più workout consecutivi, le prestazioni YOLO peggiorano progressivamente fino a raggiungere le stesse prestazioni di Expo Debug (~18 FPS). Questo pattern indica una possibile saturazione/leak di risorse.
+
+**Problema Identificato:**
+In `useShotTracker.ts`, vengono chiamati entrambi:
+```typescript
+const yoloWorkerSync = useYoloWorker(
+  ballEnabled && !TEST_CONFIG.ENABLE_ASYNC_YOLO_POC,
+  ...
+)
+
+const yoloWorkerAsync = useYoloWorkerAsync(
+  ballEnabled && TEST_CONFIG.ENABLE_ASYNC_YOLO_POC,
+  ...
+)
+```
+
+Con `ENABLE_ASYNC_YOLO_POC = true`, il worker sincrono è disabilitato logicamente, ma entrambi gli hook vengono comunque eseguiti. Dentro `useYoloWorker` e `useYoloWorkerAsync`, entrambi chiamano:
+```typescript
+const yoloModel = useTensorflowModel(yoloModelSource, yoloDelegates)
+```
+
+**Architettura Attuale:**
+```
+useShotTracker
+       │
+       ├── useYoloWorker() → useTensorflowModel() → modello A
+       │
+       └── useYoloWorkerAsync() → useTensorflowModel() → modello B
+```
+
+Solo il modello B viene usato per l'inferenza, ma entrambi sono caricati in memoria. Questo spiega la saturazione progressiva dopo più workout.
+
+**Problema Secondario:**
+In `useYoloWorkerAsync`, il callback schedulato con `scheduleOnRN(runYoloInference, ...)` può essere in coda quando la sessione viene smontata. Dentro `runYoloInference()` non c'è un controllo iniziale `if (!isMountedRef.current) return` prima di eseguire `yoloModelInstance!.runSync(...)`.
+
+**Decisione:**
+Eliminare il doppio caricamento del modello TFLite. Obiettivo: caricare solo un modello YOLO.
+
+**Soluzione Architetturale:**
+1. ✅ Rimuovere `useYoloWorker` da `useShotTracker` (non più necessario con ENABLE_ASYNC_YOLO_POC = true)
+2. ✅ Mantenere solo `useYoloWorkerAsync`
+3. ✅ Aggiungere controllo `isMountedRef` in `processYoloAsync` (già presente alla riga 227)
+4. Verificare che il modello venga rilasciato correttamente all'unmount
+
+**Roadmap:**
+1. ✅ Verificare saturazione/lifecycle ShotTracker (log MOUNT/UNMOUNT, MODEL STATE)
+2. ✅ Eliminare doppio useTensorflowModel
+3. **Testare 4 workout consecutivi (60s ciascuno) per confermare risoluzione**
+   - Metriche: YOLO FPS, YOLO inference P50/P95/P99, YOLO schedule P50/P95/P99, Camera FPS, MoveNet FPS
+   - Confrontare Workout 1 vs Workout 4 per verificare degradazione
 
 ---
 

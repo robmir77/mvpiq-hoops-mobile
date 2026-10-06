@@ -572,7 +572,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const now = Date.now()
         if (now - lastFpsUpdate.current > 1000) {
             lastFpsUpdate.current = now
-            console.log('[WorkoutSession] FPS update:', { yoloFps, moveNetFps })
+            if (__DEV__) {
+                console.log('[WorkoutSession] FPS update:', { yoloFps, moveNetFps })
+            }
             setFpsMetrics({
                 yoloFps: Math.round(yoloFps),
                 moveNetFps: Math.round(moveNetFps),

@@ -727,15 +727,7 @@ const MODE_META: Record<CameraMode, { title: string; icon: string; description: 
 
 export default function CalibrationScreen({ navigation, route }: any) {
     const { sessionId, cameraMode: rawMode, courtType: rawCourtType, selectedResolution: initialResolution, selectedFps: initialFps, selectedPoseResolution: initialPoseResolution, yoloDelegate: initialYoloDelegate, poseDelegate: initialPoseDelegate, yoloModelId: initialYoloModelId, moveNetModelId: initialMoveNetModelId } = route.params || {}
-    console.log('[Calibration] Received params from route.params:', {
-        selectedResolution: initialResolution,
-        selectedFps: initialFps,
-        selectedPoseResolution: initialPoseResolution,
-        yoloDelegate: initialYoloDelegate,
-        poseDelegate: initialPoseDelegate,
-        yoloModelId: initialYoloModelId,
-        moveNetModelId: initialMoveNetModelId,
-    })
+    // Removed hot-path logging to reduce overhead during workout
     const cameraMode: CameraMode = rawMode || 'ANGLE_45'
     const courtType: 'HALF_COURT' | 'FULL_COURT' = rawCourtType || 'HALF_COURT'
     const { user } = useContext(AuthContext) || {}
