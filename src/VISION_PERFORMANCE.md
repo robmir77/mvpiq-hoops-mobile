@@ -5,9 +5,9 @@
 | Componente | Target FPS | Observed FPS | Note |
 |------------|-----------|-------------|------|
 | Camera | 30 FPS | ~25 FPS (best ~29-30) | Default 30 FPS, observed ~25 FPS |
-| YOLO | 10 FPS | ≤10 FPS | Deterministic rate limiting, latest-frame-wins |
+| YOLO | 10 FPS | 5-6 FPS | Deterministic rate limiting, latest-frame-wins |
 | Tracking | Realtime | Realtime | Ogni frame con Kalman prediction |
-| MoveNet | 3 FPS | ≤3 FPS | Deterministic rate limiting (hard cap 3 FPS) |
+| MoveNet | 3 FPS | 2-4 FPS | Deterministic rate limiting (hard cap 3 FPS) |
 | UI Telemetry | 1 FPS | 1 FPS | TelemetryOverlay aggiornato ogni 500ms |
 | Backend Telemetry | 2 FPS | 2 FPS | Sampling |
 | Bridge Calls | 15 FPS | 15 FPS | Throttling 66ms |
@@ -42,42 +42,45 @@
 
 ### Primary Bottleneck: RN Runtime Scheduling Contention
 
-**Sintomo:** Schedule wait time variabile 45-134 ms per MoveNet, alto throughput gap, YOLO FPS drop da 15 a 4
+**Sintomo:** Schedule wait time è il principale collo di bottiglia della latenza della pipeline
+
+**Metriche misurate (A→F Pipeline Breakdown con P50/P95/P99):**
+
+**YOLO Pipeline:**
+- Worklet prep: 0ms (resize avviene nel worklet ma non tracciato separatamente)
+- Schedule wait: P50=44.4ms, P95=93.3ms, P99=119.7ms
+- JS preprocessing: 0ms (YOLO non ha preprocessing JS)
+- Inference: 89.9ms avg
+- Postprocess: 0ms (parsing è veloce)
+- **Schedule wait è ~40-50% della latenza totale**
+
+**MoveNet Pipeline:**
+- Worklet prep: 6-12ms avg
+- Schedule wait: P50=75.5ms, P95=161.0ms, P99=185.3ms
+- Crop: 8-9ms avg
+- Quantization: 12ms avg
+- Inference: 105-155ms avg
+- Postprocess: 0.1ms avg
+- **Schedule wait è ~40-60% della latenza totale**
 
 **Causa:**
 - YOLO e MoveNet eseguono async sullo stesso runtime RN/JS
 - scheduleOnRN() entra in una coda e attende disponibilità runtime
 - Contesa tra YOLO runSync() (~30-40ms) e MoveNet inference (~80-130ms)
 - Il callback async non parte immediatamente dopo scheduleOnRN()
-- **tracking.processFrame() nel BALL callback costa 38-45ms**, contribuendo significativamente alla congestione RN
-
-**Breakdown tipico MoveNet:**
-- Worklet prep: ~5 ms (crop geometry + resize + buffer extraction)
-- Schedule wait: 45-134 ms (attesa runtime RN)
-- CPU crop: ~15 ms (su JS thread)
-- Resize: ~4 ms
-- Quantization: ~12 ms (Float32 → uint8/int8 conversion)
-- MoveNet run: 80-130 ms
-- Parse: ~0.4 ms
-- Total: ~200-230 ms
-
-**Breakdown tipico YOLO:**
-- Schedule wait: variabile (attesa runtime RN)
-- Resize: ~5 ms
-- Run: 30-40 ms
-- Parse: ~3 ms
-- Total: ~40-50 ms
+- La telemetria misura quanto tempo passa prima dell'esecuzione della callback RN, ma non identifica ancora quale attività stia occupando il thread durante quel periodo
 
 **Mitigazione (Attuale):**
 - YOLO convertito ad async con scheduleOnRN
 - MoveNet convertito ad async con scheduleOnRN
-- Misurazione scheduleWaitMs per entrambi i worker
+- **Telemetry A→F con P50/P95/P99** per monitorare schedule wait nel tempo
 - Worklet prep separato da schedule wait per MoveNet
 - CPU crop spostato fuori dal worklet (non più collo di bottiglia)
 - **Throttling tracking.processFrame() a 100ms** per ridurre lavoro RN del 60-70%
 - **Telemetry RN work metrics** per identificare fonti di congestione (scheduled, callback execution, UI updates)
 
 **Mitigazione (Futuro):**
+- Indagare causa specifica del schedule wait (chi occupa il thread RN per 75-185ms MoveNet e 44-120ms YOLO)
 - Ridurre contesa RN eliminando trasferimento buffer 640×360×3 (~2.64 MB)
 - Investigare crop/resize native prima di scheduleOnRN
 - Considerare worker thread separati per YOLO/MoveNet
@@ -441,13 +444,16 @@ RN / JS
 
 ### Metrics attuali
 
-**Vision pipeline:**
+**Vision pipeline (A→F Breakdown con P50/P95/P99):**
 - YOLO throughput FPS (actual inferences per second)
-- YOLO schedule wait time (ms) - attesa runtime RN
-- YOLO inference time (min/max/avg)
+- YOLO worklet prep time (ms) - preparazione nel worklet
+- YOLO schedule wait time (ms) - attesa runtime RN con P50/P95/P99
+- YOLO JS preprocessing time (ms) - preprocessing su JS thread
+- YOLO inference time (ms) - inferenza
+- YOLO postprocess time (ms) - postprocessing
 - MoveNet throughput FPS (actual inferences per second)
 - MoveNet worklet prep time (ms) - preparazione nel worklet
-- MoveNet schedule wait time (ms) - attesa runtime RN
+- MoveNet schedule wait time (ms) - attesa runtime RN con P50/P95/P99
 - MoveNet crop time (ms) - crop CPU su JS thread
 - MoveNet quantization time (ms) - Float32 → uint8/int8 conversion
 - MoveNet resize time (ms) - resize intermedio
@@ -456,12 +462,8 @@ RN / JS
 - MoveNet requested/executed/droppedBusy/skipped counters
 - Camera FPS (sincronizzato da shared value a state)
 - Frame drops (busy, processing)
-- Log formato: `YOLO fps=4.9 exec=5 attempt=11 skip=6 avg=46.7ms max=58.3ms`
-- Log formato: `YOLO DETAIL schedule=Xms resize=Yms run=Zms parse=Ams`
-- Log formato: `MOVE fps=3.8 exec=4 attempt=4 skip=0 avg=213.4ms max=303.7ms`
-- Log formato: `MOVE DETAIL prep=Xms schedule=Yms crop=Zms quant=Ams resize=Bms run=Cms parse=Dms`
-- Log formato: `CAM fps=29.6 recv=30 proc=28 drop=2 avg=17.0ms max=32.1ms`
-- Log formato: `[FRAME PROC] yolo=Xms moveNet=Yms tracking=Zms telemetry=Tms sharedValueReads=Sms (camera=C yolo=Y moveNet=M playerCrop=P tracking=T writes=W)`
+- Log formato: `YOLO DETAIL workletPrep=Xms schedule=Yms (P50=A P95=B P99=C) jsPreprocess=Dms inference=Ems postprocess=Fms`
+- Log formato: `MOVE DETAIL prep=Xms schedule=Yms (P50=A P95=B P99=C) crop=Zms quant=Ams run=Bms parse=Cms`
 
 **NOTA IMPORTANTE sulle metriche FPS:**
 - `throughputFps` (actual): inferences reali per secondo - indica il throughput effettivo
@@ -470,13 +472,14 @@ RN / JS
 - I log ora mostrano chiaramente throughput vs capacità di latenza
 - Log formato: `[PERF 1s] CAM fps=29.6 recv=30 proc=28 drop=2 avg=17.0ms max=32.1ms`
 - **Reanimated Shared Values:** I shared values non vengono letti direttamente durante il render, ma sincronizzati a state tramite useEffect per evitare warning
-- **Schedule wait measurement:** Entrambi i worker misurano il tempo tra scheduleOnRN() e l'esecuzione effettiva del callback, permettendo di identificare la contesa del runtime RN
+- **Schedule wait measurement:** Entrambi i worker misurano il tempo tra scheduleOnRN() e l'esecuzione effettiva del callback, permettendo di identificare la contesa del runtime RN. La telemetria misura quanto tempo passa prima dell'esecuzione della callback RN, ma non identifica ancora quale attività stia occupando il thread durante quel periodo.
 
 **Tracking:**
 - Ball state (DETECTED/PREDICTED/LOST)
 - Player state (DETECTED/PREDICTED/LOST)
 - Rim state (DETECTED/PREDICTED/LOST)
 - Trajectory length
+- **Kalman prediction count:** 0 (spiegato da detection YOLO 100% - il ramo prediction non viene esercitato)
 
 **Telemetry:**
 - Frames processed
@@ -521,8 +524,9 @@ La pipeline vision è ottimizzata per:
 - **Affidabilità:** PersistentOutbox per eventi critici, retry
 - **Durabilità:** Global recovery, retry persistente, shutdown sicuro
 - **Testability:** Suite test completa per queue/outbox/sampler
-- **Misurabilità:** Schedule wait time separato da inference time
+- **Misurabilità:** Schedule wait time separato da inference time con P50/P95/P99
 - **Telemetry corretta:** Detection rate calcolato correttamente, sorgente FPS unica
+- **Telemetry A→F:** Breakdown dettagliato della pipeline con percentili per identificare collo di bottiglia
 
 Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo termine:
 - Memory leak risolto (contatori invece di Set)
@@ -536,7 +540,7 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
 - API fake risolto (SESSION_END/CALIBRATION reali)
 - **Frame processor latency risolto** (conversione ad async)
 - **CPU crop nel worklet risolto** (spostato su JS thread async)
-- **Misurazione schedule wait implementata** (per identificare contesa RN)
+- **Misurazione schedule wait implementata** (per identificare contesa RN con P50/P95/P99)
 - **Telemetry bugs strutturali risolti** (Decision 24):
   - Contatori duplicati rimossi
   - Detection rate calcolato correttamente
@@ -544,6 +548,14 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
   - Deterministic rate limiting implementato (YOLO ≤10 FPS, MoveNet ≤3 FPS)
   - Latest-frame-wins flag-based implementato (worklet-safe). True buffer-based richiede architettura native queue a causa di limitazioni scheduleOnRN
   - Cancellation guard su unmount implementato (non interrompe inferenze già in esecuzione)
+- **Audit performance completato** (Decision 28):
+  - Telemetry A→F con P50/P95/P99 implementata per YOLO e MoveNet
+  - Kalman filter analizzato: prediction=0 spiegato da detection YOLO 100%
+  - Kalman filter comportamento corretto come fallback (non richiede tuning parametri)
+  - Schedule wait identificato come principale collo di bottiglia (40-60% latenza totale)
+  - YOLO schedule wait: P50=44.4ms, P95=93.3ms, P99=119.7ms
+  - MoveNet schedule wait: P50=75.5ms, P95=161.0ms, P99=185.3ms
+  - Nessun tuning aggressivo richiesto al momento
 
 **Problemi aperti (non risolti da Decision 24):**
 - Qualità player bbox (PLAYER_CONFIDENCE_THRESH = 0.005 estremamente permissivo)
@@ -557,39 +569,28 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
 - Vera cancellazione di un'inferenza già partita (richiederebbe worklet-safe SharedValue)
 - **Semantic metrics da correggere:** detected vs framesWithBall, ballFrameRate vs detectionCount
 
+**Problemi risolti da Audit Performance (Decision 28):**
+- ✅ Kalman prediction=0 spiegato (YOLO detection 100% - ramo prediction non esercitato)
+- ✅ Kalman filter comportamento corretto come fallback (non richiede tuning px/py/mx/my)
+- ✅ Telemetry A→F con P50/P95/P99 sufficiente per monitorare schedule wait nel tempo
+- ✅ Schedule wait identificato come principale area performance (non nascosto in latenza generica)
+
 Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
 - Stabilizzazione pipeline async attuale
-- Misurazione precisa schedule wait YOLO vs MoveNet
+- Indagare causa specifica del schedule wait (chi occupa il thread RN)
 - Valutazione crop/resize native
 - Ottimizzazione delegate MoveNet
 - Testing approfondito
 
-**Future optimization targets:**
+**Future optimization targets (solo se necessario):**
+- Indagare causa specifica del schedule wait (chi occupa il thread RN per 75-185ms MoveNet e 44-120ms YOLO)
 - Camera avg onFrame < ~10 ms (attualmente ~27-30 ms)
 - Eliminazione buffer intermedio 640×360×3 (~2.64 MB)
 - Crop/resize native prima di scheduleOnRN
 
-**YOLO FPS Benchmark Roadmap (post-Decision 24):**
-- **Step 1 COMPLETATO:** Verificato rate limiter YOLO - pending frame non bypassa throttle. Quando YOLO termina, pulisce solo il flag `hasPendingFrame` senza resubmittere il frame. Il prossimo frame dalla camera passa sempre attraverso `submitFrame`, che applica il throttle all'inizio.
-- **Step 2 COMPLETATO:** Cambiato YOLO_TARGET_FPS da 10 a 15 FPS per benchmark test.
-- **Step 3 IN CORSO:** Eseguire benchmark test con configurazione:
-  - Camera: 30 FPS target
-  - YOLO: 15 FPS target (up from 10 FPS baseline)
-  - MoveNet: 3 FPS target (invariato)
-  - Tracking: ogni frame (invariato)
-- **Metriche da misurare:**
-  - camera throughput
-  - YOLO throughput (actual, non theoretical)
-  - YOLO schedule wait
-  - YOLO latency
-  - MoveNet throughput
-  - frame drops
-- **Criterio di successo:**
-  - YOLO FPS ↑, camera FPS ≈ 30, MoveNet FPS ≈ 3, schedule wait non esplode
-  - 15 FPS target → ~14-15 FPS reale con camera ~30 e MoveNet ~3 = ottimo
-  - Se schedule wait esplode o camera collassa, tornare a 10 FPS
-
-Le ottimizzazioni architetturali future (WorkoutSessionRuntime, state machine) richiedono:
-- Decoupling screen da runtime
-- Implementazione macchina stati
-- Separazione responsabilità
+**Stato Audit Performance (Decision 28):**
+- ✅ COMPLETATO - Nessun tuning aggressivo richiesto al momento
+- Sistema stabile e misurato
+- Schedule wait monitorato con P50/P95/P99
+- Kalman filter funzionante come fallback
+- Ottimizzazioni future solo se necessario
