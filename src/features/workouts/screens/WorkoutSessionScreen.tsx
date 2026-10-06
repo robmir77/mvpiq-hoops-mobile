@@ -24,6 +24,7 @@ import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useWorkoutVisionPipeline } from '../vision/useWorkoutVisionPipeline'
+import { VisionPipelineAdapter } from '../vision/VisionPipelineAdapter'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
 import { telemetryLogger } from '@/vision/telemetry'
 import {
@@ -203,6 +204,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Initialize WorkoutSessionRuntime (Phase 4.4.2)
     const runtimeRef = useRef<WorkoutSessionRuntime | null>(null)
+    const visionAdapterRef = useRef<VisionPipelineAdapter | null>(null)
     
     // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
@@ -456,6 +458,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         rimDetectionEnabled ? handleRimDetection : undefined,
     )
 
+    // Create vision pipeline adapter for Runtime (Phase 4.5)
+    useEffect(() => {
+        const adapter = new VisionPipelineAdapter(
+            () => setIsActive(true),
+            () => setIsActive(false)
+        )
+        visionAdapterRef.current = adapter
+
+        return () => {
+            visionAdapterRef.current = null
+        }
+    }, [])
+
     // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
     resetShotTrackingRef.current = resetShotTracking
 
@@ -562,6 +577,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             console.log('[WorkoutSession] TrackingEngine connected to runtime')
         }
     }, [tracking])
+
+    // Phase 4.5: Connect VisionPipelineAdapter to Runtime after both are initialized
+    useEffect(() => {
+        if (visionAdapterRef.current && runtimeRef.current) {
+            runtimeRef.current.setVisionPipeline(visionAdapterRef.current)
+            console.log('[WorkoutSession] VisionPipelineAdapter connected to runtime')
+        }
+    }, [runtimeRef.current])
 
     const loadSession = async () => {
         if (!user?.id || !sessionId) return

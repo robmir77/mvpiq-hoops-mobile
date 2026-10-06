@@ -939,3 +939,34 @@
   - YOLO FPS ↑, camera FPS ≈ 30, MoveNet FPS ≈ 3, schedule wait non esplode
   - 15 FPS target → ~14-15 FPS reale con camera ~30 e MoveNet ~3 = ottimo
   - Se schedule wait esplode o camera collassa, tornare a 10 FPS
+
+---
+
+## Decision 25: VisionPipelineAdapter Pattern
+
+**Contesto:** Il Runtime deve controllare la vision pipeline per coordinare il lifecycle della sessione, ma la vision pipeline è implementata come hook React (useWorkoutVisionPipeline) che non può essere direttamente istanziato dal Runtime puro.
+
+**Decisione:**
+- Creare `VisionPipelineAdapter` che implementa `IVisionPipeline`
+- Adapter wrappa le funzioni `setIsActive(true/false)` dell'hook React
+- Screen crea l'adapter e lo passa al Runtime via `setVisionPipeline()`
+- Runtime chiama `visionPipeline.start()/stop()` per controllare la vision pipeline
+- Runtime lifecycle (start/pause/resume/stop) controlla la vision pipeline
+- Pattern: React Hook → Adapter → IVisionPipeline Interface → Runtime
+
+**Rationale:**
+- Il Runtime non può dipendere da React Native/Skia (principio architetturale)
+- L'adapter permette al Runtime di controllare la vision pipeline senza dipendenze React
+- Separazione chiara: Screen possiede l'hook, Runtime coordina il lifecycle
+- Il pattern adapter è reversibile e testabile
+
+**Conseguenze:**
+- Runtime può coordinare effettivamente la vision pipeline
+- Vision pipeline controllata da Runtime.start/pause/resume/stop
+- Screen possiede ancora l'hook ma delega il controllo al Runtime
+- Architettura più pulita con separazione responsabilità
+
+**Stato:** ✅ IMPLEMENTATO
+- `VisionPipelineAdapter.ts` creato
+- Collegato a Runtime in WorkoutSessionScreen
+- Runtime controlla vision pipeline tramite lifecycle

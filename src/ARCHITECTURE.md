@@ -59,6 +59,42 @@ Tutto ciò che può essere asincrono deve essere separato dal percorso realtime.
 
 ## Architettura Corrente
 
+### WorkoutSessionRuntime (Session Coordinator)
+
+**Responsabilità:**
+- Coordinamento lifecycle sessione (IDLE → STARTING → ACTIVE → PAUSED → STOPPING → SYNCING → COMPLETED → ERROR)
+- Controllo vision pipeline tramite IVisionPipeline interface
+- Coordinamento tracking engine (non ownership, ma coordinamento)
+- Gestione critical events (SHOT, SESSION_START, SESSION_END, CALIBRATION)
+- Gestione telemetry sampling e enqueue
+- Metrics tracking (totalShots, madeShots, sessionDuration, FPS metrics)
+- State machine con guardie di transizione
+
+**Architettura Runtime:**
+```
+WorkoutSessionRuntime
+  ├── VisionPipeline (IVisionPipeline)
+  │   └── VisionPipelineAdapter (wraps useWorkoutVisionPipeline)
+  ├── TrackingEngine (ITrackingEngine)
+  │   └── TrackingCoordinator (Ball/Player/Shot engines)
+  ├── ShotDetectionEngine (IShotDetectionEngine)
+  ├── TelemetrySampler (ITelemetrySampler)
+  └── WorkoutQueue (IWorkoutQueue)
+```
+
+**Pattern Adapter:**
+- VisionPipelineAdapter implementa IVisionPipeline
+- Wrappa useWorkoutVisionPipeline hook React
+- Permette al Runtime di controllare vision pipeline senza dipendenze React
+- Runtime chiama visionPipeline.start()/stop() per lifecycle
+
+**Stato integrazione:**
+- ✅ Vision collegata via VisionPipelineAdapter
+- ✅ Tracking collegato via setTrackingEngine()
+- ⚠️ ShotDetectionEngine non ancora collegato
+- ✅ Queue collegata (ownership intermedio - Screen crea, Runtime usa)
+- ⚠️ TelemetrySampler registrato ma non usato effettivamente
+
 ### Vision Pipeline Layer (useShotTracker)
 
 **Responsabilità:**

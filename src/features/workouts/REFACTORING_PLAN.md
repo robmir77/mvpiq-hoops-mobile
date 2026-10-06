@@ -106,14 +106,14 @@ features/workouts/
 - **Files created**: `BallTrackingEngine.ts`, `PlayerTrackingEngine.ts`, `ShotDetectionEngine.ts`, `BallTrackingState.ts`
 - **Note**: `ShotDetectionEngine.ts` still contains `useSharedValue` - not pure business logic yet. `BallTrackingEngine` and `PlayerTrackingEngine` are pure.
 
-### Phase 4: Extract WorkoutSessionRuntime 🟠 40%
+### Phase 4: Extract WorkoutSessionRuntime 🟢 70%
 - Create runtime as session coordinator
 - Move camera, vision, tracking, shot, telemetry, persistence under runtime
 - Define clean API: start(), pause(), resume(), stop(), registerManualShot()
 - Screen becomes pure UI component
-- **Status**: Class created with typed interfaces, but initialization methods are placeholders (`console.log`). Runtime is a skeleton, not yet a real coordinator.
-- **Files created**: `WorkoutSessionRuntime.ts`, `WorkoutSessionRuntime.types.ts`
-- **Note**: Runtime has references to subsystems but no actual coordination. Not imported by Screen.
+- **Status**: Runtime is now a partial coordinator. Vision and Tracking are connected via adapters. Queue ownership is intermediate (Screen creates, Runtime uses). Shot detection not yet connected.
+- **Files created**: `WorkoutSessionRuntime.ts`, `WorkoutSessionRuntime.types.ts`, `VisionPipelineAdapter.ts`
+- **Note**: Runtime coordinates Vision (via VisionPipelineAdapter), Tracking (via setTrackingEngine), and Queue (via setWorkoutQueue). TelemetrySampler registered but not used. ShotDetectionEngine not yet connected.
 
 ### Phase 4.1: Stabilization ✓ 100%
 - Fix Runtime syntax error (`initializeQueue`)
@@ -123,13 +123,13 @@ features/workouts/
 - Fix TypeScript errors
 - **Status**: Completed. All modules are now compilable.
 
-### Phase 4.2: Progressive Integration ❌ 0%
-- Integrate `useWorkoutVisionPipeline` to replace `useCameraPipeline`
-- Integrate tracking engines to replace parts of `useTrackingEngine`
-- Integrate `WorkoutSessionRuntime` as session coordinator
-- Extract UI components (BallOverlay, PoseOverlay) from Screen
+### Phase 4.2: Progressive Integration 🟡 70%
+- Integrate `useWorkoutVisionPipeline` to replace `useCameraPipeline` ✅
+- Integrate tracking engines to replace parts of `useTrackingEngine` ✅
+- Integrate `WorkoutSessionRuntime` as session coordinator 🟡
+- Extract UI components (BallOverlay, PoseOverlay) from Screen ✅
 - Verify functional equivalence with tests before eliminating legacy code
-- **Status**: Not started. New modules are parallel islands, not connected to Screen.
+- **Status**: Vision and Tracking connected to Runtime via adapters. Queue ownership intermediate. Shot detection not connected.
 - **Strategy**: Keep `useTrackingEngine.ts` as reference implementation until functional equivalence is proven.
 
 ### Phase 5: Implement State Machine 🔴 10%
@@ -154,14 +154,14 @@ features/workouts/
 FASE 1  ████████████████████ 100%
 FASE 2  ████████████████████ 100%
 FASE 3  █████████████░░░░░░░  65%
-FASE 4  ████████░░░░░░░░░░░░  40%
+FASE 4  ████████░░░░░░░░░░░░  70%
 FASE 4.1 ████████████████████ 100%
-FASE 4.2 ░░░░░░░░░░░░░░░░░░░░   0%
+FASE 4.2 ████████░░░░░░░░░░░░  70%
 FASE 5  ██░░░░░░░░░░░░░░░░░░  10%
 FASE 6  ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Overall**: ~55-60% of architectural refactoring complete. Vision pipeline integration completed.
+**Overall**: ~70% of architectural refactoring complete. Vision and Tracking connected to Runtime via adapters.
 
 ## Key Principles
 1. **Freeze behavior**: No algorithmic changes during refactoring

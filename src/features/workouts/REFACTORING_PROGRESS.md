@@ -19,7 +19,7 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
 │  Shot engine (AUTHORITATIVE)███████████ 100% ⚠️
 │                                             │
 │  Tracking Coordinator       ██████████ 100% │
-│  Runtime                    █████░░░░░  50% │
+│  Runtime                    ███████░░░  70% │
 │  State machine              ████████░░  80% │
 │  Screen decomposition       █████████░  90% │
 │  Legacy removal              ███████░░░  70% │
@@ -30,15 +30,20 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
 
 **Legenda:**
 - ⚠️ ShotDetectionEngine autorevole ma ShotDetector legacy ancora presente (dual systems)
-- Runtime: 50% - FASE A completata (Queue ownership):
+- Runtime: 70% - FASE B completata (Vision + Tracking ownership):
   - ✅ Runtime API definite (enqueueCritical, enqueueTelemetry)
   - ✅ Screen usa Runtime API per enqueueCritical (4 chiamate migrate)
   - ✅ Screen usa Runtime.stop() per shutdown
   - ✅ runtime.stop() integrato in tutti i percorsi di terminazione (end, unmount)
+  - ✅ VisionPipelineAdapter creato per collegare useWorkoutVisionPipeline a IVisionPipeline
+  - ✅ Runtime.setVisionPipeline() chiamato da Screen
+  - ✅ Runtime può controllare vision pipeline (start/stop) tramite lifecycle
+  - ✅ Runtime.setTrackingEngine() chiamato da Screen
   - ⚠️ TelemetrySampler registrato ma non usato dal Runtime (solo log)
   - ⚠️ Screen crea ancora Queue e la passa al Runtime (ownership intermedio)
+  - ⚠️ ShotDetectionEngine non ancora collegato al Runtime
 - State machine: implementata nel Runtime ma non utilizzata
-- Screen decomposition: ridotta a 1032 righe ma ancora possiede tracking/vision direttamente
+- Screen decomposition: ridotta a 1043 righe ma ancora possiede tracking/vision hooks (collegati al Runtime)
 - Legacy removal: ShotDetector e architettura vision legacy ancora presenti
 
 ### Fase 4.2 Completata: Production Switch Ball Tracking
@@ -162,37 +167,70 @@ features/workouts/
   - `useVisionConfig.ts` - Hook per configurazione vision
 - Rimozione duplicato `ReactOverlay` da WorkoutSessionScreen
 
-**4.4.2: Collegamento Runtime 🟡**
-- WorkoutSessionRuntime è istanziato ma **NON è coordinatore operativo**
-- Screen continua a possedere e orchestrare direttamente:
-  - useTrackingEngine() → tracking engines
-  - useWorkoutVisionPipeline() → vision pipeline
+**4.4.2: Collegamento Runtime 🟢**
+- WorkoutSessionRuntime è ora **coordinatore operativo parziale**
+- Screen possiede ancora:
+  - useTrackingEngine() → tracking engines (ma collegato al Runtime)
+  - useWorkoutVisionPipeline() → vision pipeline (ma collegato al Runtime)
   - TelemetrySampler
-  - WorkoutQueue
-- **Runtime status**: skeleton/integration layer (~40%)
+  - WorkoutQueue (creato da Screen, passato al Runtime)
+- **Runtime status**: coordinatore parziale (~70%)
   - Implementa lifecycle e state transitions
-  - Dispone delle API per collegare sottosistemi (setVisionPipeline, setTrackingEngine, setShotDetectionEngine, setWorkoutQueue)
-  - **MA**: nessuna chiamata a runtimeRef.current?.start(), setVisionPipeline(), setTrackingEngine(), ecc.
-  - Commenti nel Runtime confermano: "Vision pipeline will be initialized with the React hook", "Tracking engine is now provided via setTrackingEngine() - They are owned by the React hook (useTrackingEngine) for now"
+  - ✅ TrackingEngine collegato via setTrackingEngine()
+  - ✅ VisionPipeline collegato via VisionPipelineAdapter + setVisionPipeline()
+  - ✅ Runtime può controllare vision pipeline tramite start/pause/resume/stop
+  - ⚠️ ShotDetectionEngine non ancora collegato
+  - ⚠️ TelemetrySampler registrato ma non usato effettivamente
 - **Architettura attuale**:
   ```
   WorkoutSessionScreen
-   ├── useTrackingEngine()          ← realmente operativo
-   ├── useWorkoutVisionPipeline()   ← realmente operativo
-   ├── WorkoutSessionRuntime        ← istanziato ma NON coordinatore
+   ├── useTrackingEngine()          ← operativo, collegato al Runtime
+   ├── useWorkoutVisionPipeline()   ← operativo, collegato al Runtime via Adapter
+   ├── WorkoutSessionRuntime        ← coordinatore Vision + Tracking + Queue
    ├── TelemetrySampler             ← operativo
-   └── WorkoutQueue                 ← operativo
+   └── WorkoutQueue                 ← operativo, ownership intermedio
   ```
-- **Target architettura (non ancora raggiunta)**:
+- **Target architettura (parzialmente raggiunta)**:
   ```
   WorkoutSessionScreen
           ↓
-  WorkoutSessionRuntime (coordinatore)
-          ↓
-  Vision / Tracking / Queue / Telemetry
+  WorkoutSessionRuntime (coordinatore Vision/Tracking/Queue)
+          ├── Vision ✓ (collegato)
+          ├── Tracking ✓ (collegato)
+          ├── Shot ✗ (non collegato)
+          ├── Queue ✓ (ownership intermedio)
+          └── Telemetry ⚠️ (registrato ma non usato)
   ```
 
-### Fase 4.5: ShotDetectionUIAdapter Refactoring (DEFERRED)
+### Fase 4.5: Vision Pipeline Integration ✅ COMPLETATA
+
+**4.5.1: VisionPipelineAdapter Creato ✓**
+- Creato `VisionPipelineAdapter.ts` che implementa `IVisionPipeline`
+- Adapter wrappa le funzioni `setIsActive(true/false)` di useWorkoutVisionPipeline
+- Permette al Runtime di controllare la vision pipeline senza dipendenze React
+- Pattern: React Hook → Adapter → IVisionPipeline Interface → Runtime
+
+**4.5.2: Runtime Vision Control ✓**
+- Screen crea VisionPipelineAdapter e lo passa al Runtime via setVisionPipeline()
+- Runtime.start() chiama visionPipeline.start() per attivare la camera
+- Runtime.pause() chiama visionPipeline.stop() per mettere in pausa
+- Runtime.resume() chiama visionPipeline.start() per riprendere
+- Runtime.stop() chiama visionPipeline.stop() per spegnere
+- Il Runtime ora coordina effettivamente il lifecycle della vision pipeline
+
+**4.5.3: Tracking Engine Connection ✓**
+- useTrackingEngine.getTrackingEngine() restituisce l'istanza TrackingCoordinator
+- Screen passa l'istanza al Runtime via setTrackingEngine()
+- Runtime può coordinare il tracking engine (anche se non lo possiede)
+- TrackingCoordinator è già autorevole per constraint spaziali
+
+### Fase 4.6: Shot Detection Integration (PROSSIMO STEP)
+- Collegare ShotDetectionEngine al Runtime
+- Evitare doppio ownership (Screen → Shot, Runtime → Shot)
+- Deve diventare: Runtime → Shot
+- ShotDetectionUIAdapter refactoring (rimuovere useSharedValue da classe)
+
+### Fase 4.7: ShotDetectionUIAdapter Refactoring (DEFERRED)
 - Refactor ShotDetectionUIAdapter per rimuovere useSharedValue da classe
 - Convertire a hook React o pattern compatibile
 - Integrare nella Screen per completa separazione engine/UI
@@ -269,18 +307,26 @@ La nuova architettura tracking è **operativa in produzione** per Ball e Player.
    - **Nota**: non è un semplice problema di "legacy code", ma una duplicazione funzionale con due consumer diversi
    - Domanda futura: "Quale deve essere la source of truth dello shot event?" non "Come eliminiamo ShotDetector?"
 
-2. **Runtime Queue Ownership - RISOLTO** ✅
-   - FASE A completata: Runtime ora possiede WorkoutQueue
+2. **Runtime Subsystem Ownership - IN CORSO** 🟡
+   - FASE A completata: Runtime ora possiede WorkoutQueue (ownership intermedio)
    - ✅ Runtime API definite: enqueueCritical(), enqueueTelemetry()
    - ✅ Tutte le chiamate Screen → Queue migrate a Runtime (enqueueCritical ×4, enqueueTelemetry)
    - ✅ Screen chiama runtime.stop() per shutdown (non più workoutQueue.shutdown())
    - ✅ runtime.stop() integrato in tutti i percorsi di terminazione (end, unmount)
+   - ✅ FASE B completata: Vision collegata via VisionPipelineAdapter
+   - ✅ FASE B completata: Tracking collegato via setTrackingEngine()
    - ⚠️ Screen crea ancora Queue e la passa al Runtime (ownership intermedio, futuro: Runtime crea Queue)
-   - Stato: 50% - pattern coordinatore parzialmente raggiunto
-3. **Vision Extraction Incompleta**: useWorkoutVisionPipeline è solo un adapter su useCameraPipeline
+   - ⚠️ ShotDetectionEngine non ancora collegato al Runtime
+   - ⚠️ TelemetrySampler registrato ma non usato effettivamente
+   - Stato: 70% - pattern coordinatore parzialmente raggiunto (Vision + Tracking + Queue)
+3. **Vision Extraction - COMPLETATA** ✅
+   - useWorkoutVisionPipeline è adapter su useCameraPipeline
+   - VisionPipelineAdapter collega l'hook React all'interfaccia IVisionPipeline
+   - Runtime ora controlla vision pipeline tramite adapter
+   - Estrazione completa richiede refactor di useCameraPipeline (fase successiva)
 4. **useShotTracker Sovraccarico**: continua a fare frame processing, YOLO/MoveNet orchestration, player crop, shot detection legacy, rim filtering, telemetry, tracking callback, performance diagnostics, frame scheduling, error recovery, SharedValues, camera frame output
 5. **Vision FPS Remnants - RIMOSSI** ✅
    - MoveNet 3 FPS limit rimosso (MOVENET_TARGET_FPS eliminato)
    - Adaptive FPS code rimosso da useYoloWorker.ts (lastSubmitTime, targetFps, adaptiveFpsEnabled eliminati)
    - Ora nessun throttling temporale per YOLO e MoveNet per ARCHITECTURE.md
-6. **Screen Non UI-Only**: 1032 righe, ancora possiede direttamente tracking e vision hooks
+6. **Screen Non UI-Only**: 1043 righe, possiede tracking e vision hooks ma collegati al Runtime
