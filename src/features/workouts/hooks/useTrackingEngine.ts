@@ -537,29 +537,16 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
 
     const updatePlayerFromPipeline = useCallback((pipelineSharedValues: any) => {
         if (pipelineSharedValues?.playerX !== undefined) {
-            const px = pipelineSharedValues.playerX.value
-            const py = pipelineSharedValues.playerY.value
-            const pw = pipelineSharedValues.playerWidth.value
-            const ph = pipelineSharedValues.playerHeight.value
-            const pconf = pipelineSharedValues.playerConfidence?.value ?? 0
-
-            if (px > 0 && py > 0) {
-                console.log('[TrackingEngine] Player data from pipeline:', { px, py, pw, ph, pconf })
-            }
-
-            playerX.value = px
-            playerY.value = py
-            playerWidth.value = pw
-            playerHeight.value = ph
-            playerConfidence.value = pconf
+            playerX.value = pipelineSharedValues.playerX.value
+            playerY.value = pipelineSharedValues.playerY.value
+            playerWidth.value = pipelineSharedValues.playerWidth.value
+            playerHeight.value = pipelineSharedValues.playerHeight.value
+            playerConfidence.value = pipelineSharedValues.playerConfidence?.value ?? 0
         }
         // Copy visual tracking states from pipeline
         if (pipelineSharedValues?.playerTrackState !== undefined) {
-            const pState = pipelineSharedValues.playerTrackState.value
-            const pAge = pipelineSharedValues.playerTrackAge?.value ?? 0
-            console.log('[TrackingEngine] Player track state from pipeline:', { pState, pAge })
-            playerTrackState.value = pState
-            playerTrackAge.value = pAge
+            playerTrackState.value = pipelineSharedValues.playerTrackState.value
+            playerTrackAge.value = pipelineSharedValues.playerTrackAge?.value ?? 0
         }
         if (pipelineSharedValues?.rimTrackState !== undefined) {
             rimTrackState.value = pipelineSharedValues.rimTrackState.value

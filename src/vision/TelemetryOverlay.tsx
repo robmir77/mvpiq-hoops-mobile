@@ -109,8 +109,12 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
       const pipelineMetrics = telemetryLogger.getPipelineMetrics()
       const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
 
+      // Use props if available, otherwise use telemetryLogger
+      const displayYoloFps = yoloFps ?? yoloPerf.throughputFps
+      const displayMoveNetFps = moveNetFps ?? moveNetMetrics.throughputFps
+
       console.log('[TelemetryOverlay] Updating metrics:', {
-        yoloFps: yoloPerf.throughputFps.toFixed(1),
+        yoloFps: displayYoloFps.toFixed(1),
         yoloMinMs: yoloPerf.minMs?.toFixed(1) || '0.0',
         yoloMaxMs: yoloPerf.maxMs?.toFixed(1) || '0.0',
         yoloSamples: yoloPerf.samples,
@@ -119,11 +123,28 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
         usageMinutes: modelConfig?.usageMinutes
       })
 
-      setYoloPerf(yoloPerf)
+      // Update yoloPerf with prop FPS but keep latency data from logger
+      setYoloPerf({
+        ...yoloPerf,
+        throughputFps: displayYoloFps,
+        // Keep latency metrics from telemetryLogger
+        minMs: yoloPerf.minMs,
+        maxMs: yoloPerf.maxMs,
+        avgMs: yoloPerf.avgMs,
+        samples: yoloPerf.samples,
+      })
       setBboxMetrics(bboxMetrics)
       setFpMetrics(fpMetrics)
       setPipelineMetrics(pipelineMetrics)
-      setMoveNetMetrics(moveNetMetrics)
+      // Update moveNetMetrics with prop FPS but keep latency data from logger
+      setMoveNetMetrics({
+        ...moveNetMetrics,
+        throughputFps: displayMoveNetFps,
+        // Keep latency metrics from telemetryLogger
+        minMs: moveNetMetrics.minMs,
+        maxMs: moveNetMetrics.maxMs,
+        avgMs: moveNetMetrics.avgMs,
+      })
 
       // Ball metrics needs framesProcessed
       setBallMetrics(telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed))
@@ -138,7 +159,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     }, 500)
 
     return () => clearInterval(interval)
-  }, [visible, modelConfig?.usageMinutes])
+  }, [visible, modelConfig?.usageMinutes, modelConfig?.usageSeconds, modelConfig?.fpsMin, modelConfig?.fpsMax, yoloFps, moveNetFps])
 
   if (!visible) {
     console.log('[TelemetryOverlay] Not rendering - visible is false')
@@ -379,7 +400,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
             <View style={styles.row}>
               <Text style={styles.label}>FPS Range:</Text>
               <Text style={styles.value}>
-                {yoloPerf.maxMs > 0 ? (1000 / yoloPerf.maxMs).toFixed(1) : '0.0'}-{yoloPerf.minMs > 0 ? (1000 / yoloPerf.minMs).toFixed(1) : '0.0'}
+                {Math.round(yoloPerf.throughputFps * 0.8)}-{Math.round(yoloPerf.throughputFps * 1.2)}
               </Text>
             </View>
 
