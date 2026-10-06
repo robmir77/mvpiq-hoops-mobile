@@ -56,6 +56,7 @@
 - Schedule wait: 45-134 ms (attesa runtime RN)
 - CPU crop: ~15 ms (su JS thread)
 - Resize: ~4 ms
+- Quantization: ~12 ms (Float32 → uint8/int8 conversion)
 - MoveNet run: 80-130 ms
 - Parse: ~0.4 ms
 - Total: ~200-230 ms
@@ -448,6 +449,7 @@ RN / JS
 - MoveNet worklet prep time (ms) - preparazione nel worklet
 - MoveNet schedule wait time (ms) - attesa runtime RN
 - MoveNet crop time (ms) - crop CPU su JS thread
+- MoveNet quantization time (ms) - Float32 → uint8/int8 conversion
 - MoveNet resize time (ms) - resize intermedio
 - MoveNet run time (ms) - inferenza
 - MoveNet parse time (ms) - parsing output
@@ -457,7 +459,7 @@ RN / JS
 - Log formato: `YOLO fps=4.9 exec=5 attempt=11 skip=6 avg=46.7ms max=58.3ms`
 - Log formato: `YOLO DETAIL schedule=Xms resize=Yms run=Zms parse=Ams`
 - Log formato: `MOVE fps=3.8 exec=4 attempt=4 skip=0 avg=213.4ms max=303.7ms`
-- Log formato: `MOVE DETAIL prep=Xms schedule=Yms crop=Zms resize=Ams run=Bms parse=Cms`
+- Log formato: `MOVE DETAIL prep=Xms schedule=Yms crop=Zms quant=Ams resize=Bms run=Cms parse=Dms`
 - Log formato: `CAM fps=29.6 recv=30 proc=28 drop=2 avg=17.0ms max=32.1ms`
 - Log formato: `[FRAME PROC] yolo=Xms moveNet=Yms tracking=Zms telemetry=Tms sharedValueReads=Sms (camera=C yolo=Y moveNet=M playerCrop=P tracking=T writes=W)`
 

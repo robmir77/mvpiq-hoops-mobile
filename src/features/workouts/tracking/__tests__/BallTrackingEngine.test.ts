@@ -156,8 +156,8 @@ describe('BallTrackingEngine', () => {
       
       const result = engine.update(x, y, frameTs)
       
-      // With INITIAL_KALMAN px=1.5, py=1.5, mx=0.3, my=0.3
-      // First update should heavily weight the measurement
+      // With INITIAL_KALMAN px=0.1, py=0.1, mx=0.5, my=0.5
+      // First update should weight the measurement moderately
       expect(result.x).toBeCloseTo(x, 2)
       expect(result.y).toBeCloseTo(y, 2)
     })

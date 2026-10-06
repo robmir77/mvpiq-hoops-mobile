@@ -27,7 +27,7 @@
 | **Player Detection** | PlayerDetection integrato | useShotTracker.ts, WorkoutSessionScreen.tsx | onPlayerDetection callback aggiunto | Player fluisce nel nuovo percorso Runtime | ✅ COMPLETATO | Fase 4.4 completata |
 | **Player Detection** | playerDetection parameter | TrackingEngine.ts, useTrackingEngine.ts | Ottavo parametro aggiunto a processFrame() | playerDetection fluisce nel nuovo percorso | ✅ COMPLETATO | Fase 4.4 completata |
 | **Player Detection** | Test PlayerDetection aggiunti | tracking/__tests__/TrackingEngine.test.ts | Test per YOLO + MoveNet integration | Test aggiunti | ✅ COMPLETATO | Fase 4.4 completata |
-| **Kalman Filter** | Ottimizzato per massima reattività | BallTrackingState.ts, BallTrackingEngine.ts | px/py: 0.001, mx/my: 0.05, dt: 0.02 | Parametri aggiornati | ✅ COMPLETATO | Fase 4.5 completata |
+| **Kalman Filter** | Ottimizzato per smoothing bilanciato | BallTrackingState.ts, BallTrackingEngine.ts | px/py: 0.1, mx/my: 0.5, dt: 0.02 | Parametri aggiornati | ✅ COMPLETATO | Fase 4.5 completata |
 
 ## Problemi Critici Identificati
 

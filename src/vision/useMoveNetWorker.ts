@@ -96,6 +96,7 @@ export const useMoveNetWorker = (
   perfMoveNetWorkletPrepTotal?: any,
   perfMoveNetRnScheduleWaitTotal?: any,
   perfMoveNetCropTotal?: any,
+  perfMoveNetQuantizationTotal?: any,
   // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
   perfMoveNetRunTotal?: any,
   perfMoveNetParseTotal?: any,
@@ -146,6 +147,7 @@ export const useMoveNetWorker = (
   const telemetryWorkletPrepMs = useSharedValue(0)
   const telemetryCropMs = useSharedValue(0)
   const telemetryResizeMs = useSharedValue(0)
+  const telemetryQuantizationMs = useSharedValue(0)
   const telemetryRunMs = useSharedValue(0)
   const telemetryParseMs = useSharedValue(0)
   const telemetryKeypointsConfidence = useSharedValue(0)
@@ -503,6 +505,7 @@ export const useMoveNetWorker = (
       telemetryScheduleWaitMs.value = scheduleWaitMs
       telemetryCropMs.value = totalCropMs
       telemetryResizeMs.value = 0 // No longer measured separately (included in jsPreprocessMs)
+      telemetryQuantizationMs.value = quantizationMs
       telemetryRunMs.value = runMs
       telemetryParseMs.value = parseMs
 
@@ -548,6 +551,9 @@ export const useMoveNetWorker = (
       }
       if (perfMoveNetCropTotal) {
         perfMoveNetCropTotal.value += totalCropMs
+      }
+      if (perfMoveNetQuantizationTotal) {
+        perfMoveNetQuantizationTotal.value += quantizationMs
       }
       // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
       if (perfMoveNetRunTotal) {
@@ -689,7 +695,7 @@ export const useMoveNetWorker = (
     return target
   }
 
-  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, workletPrepMs?: number, cropMs?: number, resizeMs?: number, runMs?: number, parseMs?: number, scheduleWaitMs?: number, requested?: boolean, executed?: boolean) => {
+  const recordTelemetry = useCallback((inferenceTime: number, keypoints: any, workletPrepMs?: number, cropMs?: number, resizeMs?: number, quantizationMs?: number, runMs?: number, parseMs?: number, scheduleWaitMs?: number, requested?: boolean, executed?: boolean) => {
     if (requested) telemetryLogger.recordMoveNetRequested()
     if (executed) telemetryLogger.recordMoveNetExecuted()
     telemetryLogger.recordMoveNetInference(inferenceTime)
@@ -697,6 +703,7 @@ export const useMoveNetWorker = (
     if (workletPrepMs !== undefined) telemetryLogger.recordMoveNetWorkletPrep(workletPrepMs)
     if (cropMs !== undefined) telemetryLogger.recordMoveNetCrop(cropMs)
     if (resizeMs !== undefined) telemetryLogger.recordMoveNetResize(resizeMs)
+    if (quantizationMs !== undefined) telemetryLogger.recordMoveNetQuantization(quantizationMs)
     if (runMs !== undefined) telemetryLogger.recordMoveNetRun(runMs)
     if (parseMs !== undefined) telemetryLogger.recordMoveNetParse(parseMs)
     if (scheduleWaitMs !== undefined) telemetryLogger.recordMoveNetScheduleWait(scheduleWaitMs)
@@ -734,6 +741,7 @@ export const useMoveNetWorker = (
         telemetryWorkletPrepMs.value,
         telemetryCropMs.value,
         telemetryResizeMs.value,
+        telemetryQuantizationMs.value,
         telemetryRunMs.value,
         telemetryParseMs.value,
         telemetryScheduleWaitMs.value,

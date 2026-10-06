@@ -206,6 +206,7 @@ export const useShotTracker = (
     const perfMoveNetWorkletPrepTotal = useSharedValue(0)
     const perfMoveNetRnScheduleWaitTotal = useSharedValue(0)
     const perfMoveNetCropTotal = useSharedValue(0)
+    const perfMoveNetQuantizationTotal = useSharedValue(0)
     // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
     const perfMoveNetRunTotal = useSharedValue(0)
     const perfMoveNetParseTotal = useSharedValue(0)
@@ -253,6 +254,7 @@ export const useShotTracker = (
         perfMoveNetWorkletPrepTotal,
         perfMoveNetRnScheduleWaitTotal,
         perfMoveNetCropTotal,
+        perfMoveNetQuantizationTotal,
         // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
         perfMoveNetRunTotal,
         perfMoveNetParseTotal
@@ -884,6 +886,9 @@ export const useShotTracker = (
                         moveNetCropAvgMs: moveNetExecuted > 0
                             ? perfMoveNetCropTotal.value / moveNetExecuted
                             : 0,
+                        moveNetQuantizationAvgMs: moveNetExecuted > 0
+                            ? perfMoveNetQuantizationTotal.value / moveNetExecuted
+                            : 0,
                         // moveNetResizeAvgMs removed - resize is now included in jsPreprocessMs
                         moveNetRunAvgMs: moveNetExecuted > 0
                             ? perfMoveNetRunTotal.value / moveNetExecuted
@@ -938,6 +943,7 @@ export const useShotTracker = (
                     perfMoveNetWorkletPrepTotal.value = 0
                     perfMoveNetRnScheduleWaitTotal.value = 0
                     perfMoveNetCropTotal.value = 0
+                    perfMoveNetQuantizationTotal.value = 0
                     // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
                     perfMoveNetRunTotal.value = 0
                     perfMoveNetParseTotal.value = 0
@@ -1257,6 +1263,7 @@ export const useShotTracker = (
                 perfMoveNetWorkletPrepTotal,
                 perfMoveNetRnScheduleWaitTotal,
                 perfMoveNetCropTotal,
+                perfMoveNetQuantizationTotal,
                 // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
                 perfMoveNetRunTotal,
                 perfMoveNetParseTotal,

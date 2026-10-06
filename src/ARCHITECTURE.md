@@ -134,7 +134,7 @@ WorkoutSessionRuntime
 - ✅ Policy YOLO bbox + MoveNet pose implementata (YOLO = coarse bbox, MoveNet = articulated/precise position)
 - ✅ PlayerDetection integrato via TrackingEngine.processFrame() (ottavo parametro)
 - ✅ Test TrackingEngine.test.ts per PlayerDetection aggiunti
-- ✅ Kalman filter ottimizzato per massima reattività (px/py: 0.001, mx/my: 0.05, dt: 0.02)
+- ✅ Kalman filter ottimizzato per smoothing bilanciato (px/py: 0.1, mx/my: 0.5, dt: 0.02)
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -213,6 +213,7 @@ Shot Analysis + Basketball Logic
 - **workletPrepMs misurato:** tempo preparazione worklet
 - **scheduleWaitMs misurato:** tempo di attesa runtime RN
 - **cropMs misurato:** tempo crop CPU su JS thread
+- **quantizationMs misurato:** tempo conversione Float32 → uint8/int8 (~12 ms)
 
 ### Tracking Policies
 

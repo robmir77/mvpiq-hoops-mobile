@@ -40,10 +40,10 @@ export const INITIAL_KALMAN: KalmanState = {
   y: 0,
   vx: 0,
   vy: 0,
-  px: 0.00001, // Almost zero confidence in prediction - follow measurements instantly
-  py: 0.00001, // Almost zero confidence in prediction - follow measurements instantly
-  mx: 1.0,     // Maximum confidence in measurements - almost identical to raw detection
-  my: 1.0,     // Maximum confidence in measurements - almost identical to raw detection
+  px: 0.1,     // Moderate confidence in prediction - balanced smoothing
+  py: 0.1,     // Moderate confidence in prediction - balanced smoothing
+  mx: 0.5,     // Moderate confidence in measurements - balanced smoothing
+  my: 0.5,     // Moderate confidence in measurements - balanced smoothing
 }
 
 export const INITIAL_BALL_TRACKING_STATE: BallTrackingState = {

@@ -53,7 +53,7 @@
 **Rationale:**
 - L'architettura sincrona attuale (runSync() nel worklet) ha un limite naturale basato sul tempo di inferenza
 - Ogni inferenza YOLO costa ~35-45ms (resize + run + parse)
-- Ogni inferenza MoveNet costa ~150-160ms (crop + resize + run + parse)
+- Ogni inferenza MoveNet costa ~150-160ms (crop + resize + quantization + run + parse)
 - Rimuovere limiti artificiali massimizza la detection rate
 - FPS naturale dipende solo dal tempo di inferenza sincrono
 - Sistema più semplice senza logica di throttling temporale
@@ -139,7 +139,7 @@
   - Aggiunti parametri performance tracking SharedValues a `useMoveNetWorker`
   - `perfMoveNetRequested`, `perfMoveNetExecuted`, `perfMoveNetSkipped`
   - `perfMoveNetInferenceTotal/Min/Max`
-  - `perfMoveNetCropTotal`, `perfMoveNetResizeTotal`, `perfMoveNetRunTotal`, `perfMoveNetParseTotal`
+  - `perfMoveNetCropTotal`, `perfMoveNetQuantizationTotal`, `perfMoveNetResizeTotal`, `perfMoveNetRunTotal`, `perfMoveNetParseTotal`
   - Passati da `useShotTracker` e aggiornati nel worklet quando le inferenze completano
 
 **Rationale:**
