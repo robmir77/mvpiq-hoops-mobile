@@ -1109,6 +1109,9 @@ export const useShotTracker = (
                 height: 720,
             },
 
+            // Limit frame processor FPS to match camera constraint
+            frameProcessorFps: selectedFps || 30,
+
             // dropFramesWhileBusy: prevents overlapping onFrame calls when inference takes longer than frame interval
 
             onFrame,
