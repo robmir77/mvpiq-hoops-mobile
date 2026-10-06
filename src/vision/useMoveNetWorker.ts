@@ -25,8 +25,8 @@ const INTERMEDIATE_RESIZE_SIZE = 640 // Intermediate resize for crop optimizatio
 const ENABLE_MOVENET = true
 
 // Validation thresholds for player bbox (worklet-safe inline checks)
-// Aligned with YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE
-const PLAYER_CONFIDENCE_THRESH = 0.005
+// Aligned with YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE (5%)
+const PLAYER_CONFIDENCE_THRESH = 0.05
 const PLAYER_MIN_WIDTH = 0.05
 const PLAYER_MAX_WIDTH = 0.80
 const PLAYER_MIN_HEIGHT = 0.1

@@ -814,7 +814,8 @@ class TelemetryLogger {
 
   logBallDetectionMetrics(framesProcessed: number): void {
     const metrics = this.getBallDetectionMetrics(framesProcessed)
-    console.log('[YOLO][BALL]', `frames=${metrics.framesProcessed} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
+    // Use yoloExecuted in log for consistency with detectionRate calculation (both are cumulative)
+    console.log('[YOLO][BALL]', `yoloExec=${this.yoloExecuted} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
   }
 
   getFalsePositiveMetrics(): FalsePositiveMetrics {
@@ -898,7 +899,8 @@ class TelemetryLogger {
 
   logPlayerDetectionMetrics(framesProcessed: number): void {
     const metrics = this.getPlayerDetectionMetrics(framesProcessed)
-    console.log('[YOLO][PLAYER]', `frames=${metrics.framesProcessed} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
+    // Use yoloExecuted in log for consistency with detectionRate calculation (both are cumulative)
+    console.log('[YOLO][PLAYER]', `yoloExec=${this.yoloExecuted} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
   }
 
   getMoveNetMetrics(): MoveNetMetrics {
