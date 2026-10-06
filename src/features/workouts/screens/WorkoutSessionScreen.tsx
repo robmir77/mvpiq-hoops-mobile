@@ -821,15 +821,27 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     const handlePauseResume = async () => {
         if (!user?.id || !sessionId || !session) return
+        const runtime = runtimeRef.current
+        if (!runtime) {
+            showError('Errore', 'Runtime non disponibile')
+            return
+        }
+
         try {
             if (session.status === 'ACTIVE') {
+                // Pause via Runtime
+                await runtime.pause()
                 await pauseWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'PAUSED' })
                 setIsActive(false)
+                console.log('[WorkoutSession] Session paused via Runtime')
             } else {
+                // Resume via Runtime
+                await runtime.resume()
                 await resumeWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'ACTIVE' })
                 setIsActive(true)
+                console.log('[WorkoutSession] Session resumed via Runtime')
             }
         } catch (e: any) { showError('Errore', e.message) }
     }

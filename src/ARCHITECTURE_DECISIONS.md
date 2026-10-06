@@ -1042,3 +1042,4 @@
 - Timing fix con state flags e ref flags
 - ShotDetectionUIAdapter rimosso
 - WorkoutSessionRuntime.test.ts creato con test state machine completi
+- Lifecycle responsibilities migrate al Runtime (handlePauseResume, handleEndSession, handleManualShot)
