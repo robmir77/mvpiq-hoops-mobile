@@ -391,12 +391,17 @@ export const useMoveNetWorker = (
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart
 
-      // Enhanced logging with valid keypoints
+      // Enhanced logging with valid keypoints (single pass optimization)
       const keypointsCount = Object.keys(keypoints).length
-      const validKeypoints = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).length
-      const avgConfidence = validKeypoints > 0 
-        ? Object.values(keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints 
-        : 0
+      let validKeypoints = 0
+      let confidenceSum = 0
+      for (const kp of Object.values(keypoints) as any[]) {
+        if (kp && kp.score > 0) {
+          validKeypoints++
+          confidenceSum += kp.score
+        }
+      }
+      const avgConfidence = validKeypoints > 0 ? confidenceSum / validKeypoints : 0
       
       if (ENABLE_MOVENET_LOGS) {
         console.log('[POSE RESULT] keypoints=', keypointsCount, 'valid=', validKeypoints, 'avgConf=', avgConfidence.toFixed(2))
@@ -477,7 +482,18 @@ export const useMoveNetWorker = (
       telemetryResizeMs.value = resizeMs
       telemetryRunMs.value = runMs
       telemetryParseMs.value = parseMs
-      telemetryKeypointsConfidence.value = finalKeypoints ? Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / Object.values(finalKeypoints).filter((kp: any) => kp && kp.score > 0).length : 0
+      // Single pass for keypoints confidence calculation
+      let finalValidCount = 0
+      let finalConfidenceSum = 0
+      if (finalKeypoints) {
+        for (const kp of Object.values(finalKeypoints) as any[]) {
+          if (kp && kp.score > 0) {
+            finalValidCount++
+            finalConfidenceSum += kp.score
+          }
+        }
+      }
+      telemetryKeypointsConfidence.value = finalValidCount > 0 ? finalConfidenceSum / finalValidCount : 0
       telemetryHasNewData.value = true
 
       // Record MoveNet executed when inference completes
@@ -587,6 +603,12 @@ export const useMoveNetWorker = (
    * Optimized CPU crop from Float32 RGB interleaved buffer
    * Crops a region from source buffer and resizes to target size using nearest neighbor
    * This is much faster than the old approach because we work directly on Float32
+   *
+   * Optimizations:
+   * - Pre-compute constants outside loop
+   * - Use bitwise OR 0 instead of Math.floor for truncation
+   * - Reduce variable lookups
+   * - Single-pass per-pixel processing
    */
   const cropAndResizeFloat32 = (
     source: Float32Array,
@@ -602,25 +624,32 @@ export const useMoveNetWorker = (
 
     const target = new Float32Array(targetSize * targetSize * 3)
 
-    // Scale factors
+    // Pre-compute constants
+    const sourceWidth3 = sourceWidth * 3
+    const targetSize3 = targetSize * 3
+    const sourceWidthMinus1 = sourceWidth - 1
+    const sourceHeightMinus1 = sourceHeight - 1
     const scaleX = cropWidth / targetSize
     const scaleY = cropHeight / targetSize
 
     for (let ty = 0; ty < targetSize; ty++) {
+      const targetRowOffset = ty * targetSize3
+      const syBase = cropY + ty * scaleY
+
       for (let tx = 0; tx < targetSize; tx++) {
-        // Source coordinates (nearest neighbor)
-        const sx = Math.floor(cropX + tx * scaleX)
-        const sy = Math.floor(cropY + ty * scaleY)
+        // Source coordinates (nearest neighbor) - use bitwise OR 0 for faster truncation
+        const sx = (cropX + tx * scaleX) | 0
+        const sy = syBase | 0
 
         // Clamp to source bounds
-        const clampedSx = Math.max(0, Math.min(sourceWidth - 1, sx))
-        const clampedSy = Math.max(0, Math.min(sourceHeight - 1, sy))
+        const clampedSx = sx < 0 ? 0 : (sx > sourceWidthMinus1 ? sourceWidthMinus1 : sx)
+        const clampedSy = sy < 0 ? 0 : (sy > sourceHeightMinus1 ? sourceHeightMinus1 : sy)
 
         // Source index (RGB interleaved)
-        const sourceIdx = (clampedSy * sourceWidth + clampedSx) * 3
+        const sourceIdx = clampedSy * sourceWidth3 + clampedSx * 3
 
         // Target index
-        const targetIdx = (ty * targetSize + tx) * 3
+        const targetIdx = targetRowOffset + tx * 3
 
         // Copy RGB
         target[targetIdx] = source[sourceIdx]
@@ -645,10 +674,17 @@ export const useMoveNetWorker = (
     if (scheduleWaitMs !== undefined) telemetryLogger.recordMoveNetScheduleWait(scheduleWaitMs)
 
     if (keypoints) {
-      const keypointValues = Object.values(keypoints).filter((kp: any) => kp && kp.score > 0)
-      if (keypointValues.length > 0) {
-        const avgConfidence = keypointValues.reduce((sum: number, kp: any) => sum + kp.score, 0) / keypointValues.length
-        telemetryLogger.recordMoveNetKeypoints(avgConfidence)
+      // Single pass for keypoints confidence calculation
+      let validCount = 0
+      let confidenceSum = 0
+      for (const kp of Object.values(keypoints) as any[]) {
+        if (kp && kp.score > 0) {
+          validCount++
+          confidenceSum += kp.score
+        }
+      }
+      if (validCount > 0) {
+        telemetryLogger.recordMoveNetKeypoints(confidenceSum / validCount)
       }
     }
 

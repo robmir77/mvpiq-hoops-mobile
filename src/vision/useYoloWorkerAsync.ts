@@ -227,14 +227,16 @@ export const useYoloWorkerAsync = (
 
       telemetryLogger.recordRnYoloCallbackStart()
 
-      // Detailed scheduling diagnostics
-      console.log('[YoloWorkerAsync] scheduling diagnostics', {
-        frameCounter,
-        scheduleStartMs,
-        callbackStart: tCallbackStart,
-        scheduleWaitMs,
-        queueDepth: scheduleWaitMs.toFixed(1) + 'ms'
-      })
+      // Detailed scheduling diagnostics (gated to reduce overhead)
+      if (__DEV__ && frameCounter && frameCounter % 100 === 0) {
+        console.log('[YoloWorkerAsync] scheduling diagnostics', {
+          frameCounter,
+          scheduleStartMs,
+          callbackStart: tCallbackStart,
+          scheduleWaitMs,
+          queueDepth: scheduleWaitMs.toFixed(1) + 'ms'
+        })
+      }
 
       // Record schedule wait time if tracking is enabled
       if (perfYoloScheduleWaitTotal) {
@@ -415,10 +417,11 @@ export const useYoloWorkerAsync = (
       const tBufferStart = performance.now()
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
-        const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
+        // Check buffer size directly without creating Float32Array copy
+        const elementCount = (pixelBuffer as ArrayBufferLike).byteLength / Float32Array.BYTES_PER_ELEMENT
 
-        if (source.length === yoloInputElements) {
-          inputBuffer = source.buffer as ArrayBuffer
+        if (elementCount === yoloInputElements) {
+          inputBuffer = pixelBuffer as ArrayBuffer
         }
       }
       const tBufferEnd = performance.now()

@@ -244,7 +244,23 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Pose callback
     const handlePoseResult = useCallback((result: PoseResult) => {
         const tStart = performance.now()
-        const validKeypoints = Object.values(result.keypoints).filter((kp: any) => kp && kp.score > 0).length
+
+        // Single pass optimization: calculate validKeypoints, keypointsArray, and avgConfidence
+        let validKeypoints = 0
+        let confidenceSum = 0
+        const keypointsArray = Object.values(result.keypoints).map(kp => {
+            if (kp && kp.score > 0) {
+                validKeypoints++
+                confidenceSum += kp.score
+            }
+            return {
+                x: kp.x,
+                y: kp.y,
+                confidence: kp.score,
+            }
+        })
+        const avgConfidence = validKeypoints > 0 ? confidenceSum / validKeypoints : 0
+
         // TEMP: Commented to reduce log noise during performance investigation
         // console.log('[POSE RESULT] keypoints=', Object.keys(result.keypoints).length, 'valid=', validKeypoints)
         setPoseKeypoints(result.keypoints)
@@ -252,14 +268,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
         // Update VisionEngineAdapter with parsed pose result (Phase 3)
         // Convert from vision/types to VisionEngine.types format
-        const keypointsArray = Object.values(result.keypoints).map(kp => ({
-            x: kp.x,
-            y: kp.y,
-            confidence: kp.score,
-        }))
-        const avgConfidence = validKeypoints > 0
-            ? Object.values(result.keypoints).filter((kp: any) => kp && kp.score > 0).reduce((sum: number, kp: any) => sum + kp.score, 0) / validKeypoints
-            : 0
 
         visionEngineAdapterRef.current?.updateParsedResults(
             null, // ball
