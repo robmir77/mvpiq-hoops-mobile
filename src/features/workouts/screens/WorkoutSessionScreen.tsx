@@ -534,6 +534,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         undefined, // onShotEvent removed - handled by Runtime
         rimDetectionEnabled ? handleRimDetection : undefined,
         handlePlayerDetection,
+        false // runtimeActive: Decision 29 reverted - not used in frame processor
     )
 
     // Create VisionEngineAdapter for Runtime (Phase 3)

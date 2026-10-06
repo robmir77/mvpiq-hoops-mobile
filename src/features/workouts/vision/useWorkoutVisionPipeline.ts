@@ -45,6 +45,7 @@ export const useWorkoutVisionPipeline = (
   onShotEvent?: (event: ShotEvent) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }) => void,
+  runtimeActive: boolean = false, // Parameter kept for API compatibility, but not used (Decision 29 reverted)
 ): UseWorkoutVisionPipelineResult => {
   const {
     device,
@@ -73,13 +74,14 @@ export const useWorkoutVisionPipeline = (
     config.poseEnabled,
     config.ballEnabled,
     config.rimEnabled,
+    runtimeActive, // Passed but not used in frame processor (Decision 29 reverted)
     config.yoloDelegate as AndroidDelegateOption | IosDelegateOption | null,
     config.poseDelegate as AndroidDelegateOption | IosDelegateOption | null,
     config.yoloModelId,
     config.selectedResolution,
     config.selectedFps,
     config.selectedPoseResolution,
-    config.moveNetModelId,
+    config.moveNetModelId
   )
 
   const start = () => {

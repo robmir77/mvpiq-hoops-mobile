@@ -1231,3 +1231,65 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
 - Schedule wait monitorato con P50/P95/P99
 - Kalman filter funzionante come fallback
 - Ottimizzazioni future solo se necessario
+
+---
+
+## Decision 29: Disabilitazione useShotTracker Legacy Quando Runtime è Attivo
+
+**Contesto:** Quando WorkoutSessionRuntime è attivo, useShotTracker continua a eseguire YOLO/MoveNet ogni frame, creando lavoro duplicato. L'architettura attuale è:
+
+```
+Camera
+  │
+  ├── VisionEngineAdapter → YOLO/MoveNet (Runtime path)
+  │
+  ├── Runtime → TrackingEngine
+  │
+  └── useShotTracker → YOLO/MoveNet (legacy path)
+             ↓
+       lavoro duplicato
+```
+
+Questo causa:
+- Doppia esecuzione YOLO/MoveNet per ogni frame
+- Più lavoro JS/RN
+- Più callback
+- Più contention
+- Più CPU
+- Schedule wait più alto
+
+**Decisione:**
+- Aggiungere flag `runtimeActive` a `useShotTracker` (default false)
+- Aggiungere check in `onFrame` worklet: se `runtimeActive` è true, dispose frame e return immediatamente
+- Aggiornare `useCameraPipeline` per passare `runtimeActive` flag
+- Aggiornare `useWorkoutVisionPipeline` per passare `runtimeActive` flag
+- Aggiornare `WorkoutSessionScreen` per passare `runtimeRef.current?.state === 'ACTIVE'`
+
+**Rationale:**
+- Quando Runtime è attivo, VisionEngineAdapter gestisce YOLO/MoveNet execution
+- useShotTracker non è più authoritative per il risultato quando Runtime è attivo
+- Disabilitare useShotTracker elimina il lavoro duplicato
+- Riduce schedule wait eliminando callback RN duplicati
+- Mantieni useShotTracker come fallback per quando Runtime non è attivo
+
+**Conseguenze:**
+- Quando Runtime è ACTIVE: useShotTracker disabilitato, solo VisionEngineAdapter esegue YOLO/MoveNet
+- Quando Runtime non è ACTIVE: useShotTracker attivo, mantiene comportamento legacy
+- Meno lavoro JS/RN quando Runtime è attivo
+- Meno callback RN
+- Meno contention
+- Potenziale riduzione schedule wait (da verificare con test)
+
+**Risultati attesi (da verificare con runtime test):**
+- Schedule wait ridotto (meno callback RN in competizione)
+- CPU ridotta (solo una esecuzione YOLO/MoveNet per frame)
+- FPS camera migliorato (meno frame processor overhead)
+- Comportamento identico quando Runtime non è attivo
+
+**Stato:** ✅ IMPLEMENTATO
+- Flag `runtimeActive` aggiunto a useShotTracker
+- Check in onFrame worklet implementato
+- useCameraPipeline aggiornato
+- useWorkoutVisionPipeline aggiornato
+- WorkoutSessionScreen aggiornato
+- Test richiesto per verificare riduzione schedule wait

@@ -100,6 +100,10 @@ export const useShotTracker = (
     ballEnabled: boolean = true,
     rimEnabled: boolean = true,
 
+    // When Runtime is active, useShotTracker should be disabled to avoid duplicate work
+    // VisionEngineAdapter handles YOLO/MoveNet execution when Runtime is active
+    runtimeActive: boolean = false,
+
     yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
     poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
     yoloModelId?: string,

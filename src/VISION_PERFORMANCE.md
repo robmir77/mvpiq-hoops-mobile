@@ -78,6 +78,7 @@
 - CPU crop spostato fuori dal worklet (non più collo di bottiglia)
 - **Throttling tracking.processFrame() a 100ms** per ridurre lavoro RN del 60-70%
 - **Telemetry RN work metrics** per identificare fonti di congestione (scheduled, callback execution, UI updates)
+- **useShotTracker disabilitato quando Runtime è attivo** (Decision 29) per eliminare lavoro duplicato YOLO/MoveNet
 
 **Mitigazione (Futuro):**
 - Indagare causa specifica del schedule wait (chi occupa il thread RN per 75-185ms MoveNet e 44-120ms YOLO)
@@ -556,6 +557,11 @@ Le ottimizzazioni implementate risolvono i problemi di degradazione a lungo term
   - YOLO schedule wait: P50=44.4ms, P95=93.3ms, P99=119.7ms
   - MoveNet schedule wait: P50=75.5ms, P95=161.0ms, P99=185.3ms
   - Nessun tuning aggressivo richiesto al momento
+- **useShotTracker disabilitato quando Runtime attivo** (Decision 29):
+  - Flag runtimeActive aggiunto per eliminare lavoro duplicato YOLO/MoveNet
+  - Quando Runtime è ACTIVE: solo VisionEngineAdapter esegue YOLO/MoveNet
+  - Quando Runtime non è ACTIVE: useShotTracker mantiene comportamento legacy
+  - Potenziale riduzione schedule wait (da verificare con test)
 
 **Problemi aperti (non risolti da Decision 24):**
 - Qualità player bbox (PLAYER_CONFIDENCE_THRESH = 0.005 estremamente permissivo)

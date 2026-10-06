@@ -48,6 +48,7 @@ export const useCameraPipeline = (
   poseEnabled: boolean = true,
   ballEnabled: boolean = false,
   rimEnabled: boolean = false,
+  runtimeActive: boolean = false, // Parameter kept for API compatibility, but not used (Decision 29 reverted)
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   yoloModelId?: string,
@@ -79,6 +80,7 @@ export const useCameraPipeline = (
   }
 
   // Initialize shot tracker with the new architecture
+  // Note: runtimeActive parameter is passed but not used in frame processor (Decision 29 reverted)
   const { frameOutput, isModelReady, resetShotTracking, yoloFps, moveNetFps, sharedValues: shotTrackerSharedValues, actualCameraFps, actualYoloFps, actualMoveNetFps } = useShotTracker(
     onBallDetection,
     onPoseResult,
@@ -91,6 +93,7 @@ export const useCameraPipeline = (
     poseEnabled,
     ballEnabled,
     rimEnabled,
+    runtimeActive, // Passed but not used in frame processor
     yoloDelegate,
     poseDelegate,
     yoloModelId,
