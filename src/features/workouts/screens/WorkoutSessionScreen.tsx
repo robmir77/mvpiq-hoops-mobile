@@ -203,50 +203,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Initialize WorkoutSessionRuntime (Phase 4.4.2)
     const runtimeRef = useRef<WorkoutSessionRuntime | null>(null)
-    useEffect(() => {
-        if (user?.id && sessionId) {
-            const runtime = new WorkoutSessionRuntime(
-                {
-                    sessionId,
-                    userId: user.id,
-                },
-                {
-                    onSessionStateChanged: (newState) => {
-                        console.log('[WorkoutSession] Runtime state changed:', newState)
-                    },
-                    onShotDetected: (result) => {
-                        setLastShotResult(result)
-                        setShotCount(prev => ({
-                            total: prev.total + 1,
-                            made: result === 'MADE' ? prev.made + 1 : prev.made,
-                        }))
-                        feedbackOpacity.setValue(1)
-                        Animated.timing(feedbackOpacity, {
-                            toValue: 0, duration: 1400,
-                            easing: Easing.out(Easing.ease), useNativeDriver: true,
-                        }).start()
-                    },
-                    onTelemetryUpdate: (metrics) => {
-                        console.log('[WorkoutSession] Telemetry update:', metrics)
-                    },
-                    onError: (error) => {
-                        showError('Errore Runtime', error.message)
-                    },
-                }
-            )
-            runtimeRef.current = runtime
-
-            return () => {
-                // Cleanup on unmount: stop runtime if active
-                if (runtimeRef.current && runtimeRef.current.getState() === 'ACTIVE') {
-                    runtimeRef.current.stop().catch((error) => {
-                        console.error('[WorkoutSession] Error stopping runtime on unmount:', error)
-                    })
-                }
-                runtimeRef.current = null
-            }
-        }
-    }, [user?.id, sessionId, feedbackOpacity, showError])
     
     // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
@@ -582,6 +538,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return () => {
             isActiveRef.current = false
             setIsActive(false)
+            // Cleanup on unmount: stop runtime if active
+            if (runtimeRef.current && runtimeRef.current.getState() === 'ACTIVE') {
+                runtimeRef.current.stop().catch((error) => {
+                    console.error('[WorkoutSession] Error stopping runtime on unmount:', error)
+                })
+            }
+            runtimeRef.current = null
         }
     }, [])
 
@@ -606,25 +569,53 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             telemetrySamplerRef.current = new TelemetrySampler({ sampleIntervalMs: 500 })
             console.log('[WorkoutSession] Telemetry sampler initialized')
 
+            // Initialize WorkoutSessionRuntime (Phase 4.4.2)
+            const runtime = new WorkoutSessionRuntime(
+                {
+                    sessionId,
+                    userId: user.id,
+                },
+                {
+                    onSessionStateChanged: (newState) => {
+                        console.log('[WorkoutSession] Runtime state changed:', newState)
+                    },
+                    onShotDetected: (result) => {
+                        setLastShotResult(result)
+                        setShotCount(prev => ({
+                            total: prev.total + 1,
+                            made: result === 'MADE' ? prev.made + 1 : prev.made,
+                        }))
+                        feedbackOpacity.setValue(1)
+                        Animated.timing(feedbackOpacity, {
+                            toValue: 0, duration: 1400,
+                            easing: Easing.out(Easing.ease), useNativeDriver: true,
+                        }).start()
+                    },
+                    onTelemetryUpdate: (metrics) => {
+                        console.log('[WorkoutSession] Telemetry update:', metrics)
+                    },
+                    onError: (error) => {
+                        showError('Errore Runtime', error.message)
+                    },
+                }
+            )
+            runtimeRef.current = runtime
+            console.log('[WorkoutSession] Runtime initialized')
+
             // Connect subsystems to runtime (Phase 4.4.2)
-            // Note: TrackingEngine and WorkoutQueue interfaces don't match exactly yet
-            // This is a temporary integration - full interface alignment deferred
-            const runtimeForLoad = runtimeRef.current as WorkoutSessionRuntime | null
-            if (runtimeForLoad && telemetrySamplerRef.current) {
-                runtimeForLoad.setTelemetrySampler(telemetrySamplerRef.current)
+            if (telemetrySamplerRef.current) {
+                runtime.setTelemetrySampler(telemetrySamplerRef.current)
                 console.log('[WorkoutSession] Telemetry sampler connected to runtime')
             }
 
-            if (runtimeForLoad && workoutQueueRef.current) {
-                runtimeForLoad.setWorkoutQueue(workoutQueueRef.current)
+            if (workoutQueueRef.current) {
+                runtime.setWorkoutQueue(workoutQueueRef.current)
                 console.log('[WorkoutSession] WorkoutQueue connected to runtime')
             }
 
             // Start the runtime session
-            if (runtimeForLoad) {
-                await runtimeForLoad.start()
-                console.log('[WorkoutSession] Runtime session started')
-            }
+            await runtime.start()
+            console.log('[WorkoutSession] Runtime session started')
 
             // Load calibration
             try {
