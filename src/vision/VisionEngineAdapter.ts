@@ -35,6 +35,8 @@ export class VisionEngineAdapter implements IVisionEngine {
 
   // Update parsed results from workers
   // Called by useShotTracker when workers produce new inference results
+  // Implements partial update: only updates non-null fields to preserve
+  // results from other callbacks that arrive at different times
   updateParsedResults(
     ball: BallDetection | null,
     player: PlayerDetection | null,
@@ -42,10 +44,10 @@ export class VisionEngineAdapter implements IVisionEngine {
     pose: PoseResult | null,
     timestamp: number
   ): void {
-    this.lastBall = ball
-    this.lastPlayer = player
-    this.lastRim = rim
-    this.lastPose = pose
+    if (ball !== null) this.lastBall = ball
+    if (player !== null) this.lastPlayer = player
+    if (rim !== null) this.lastRim = rim
+    if (pose !== null) this.lastPose = pose
     this.lastTimestamp = timestamp
   }
 

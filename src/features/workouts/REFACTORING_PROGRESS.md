@@ -3,7 +3,7 @@
 ## Stato Attuale del Refactoring (Ottobre 2026)
 
 ### Riepilogo Completo
-Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha due sistemi sovrapposti (nuovo + legacy). L'architettura di sessione è ancora ibrida: Runtime istanziato ma non operativo come coordinatore.
+Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha due sistemi sovrapposti (nuovo + legacy). L'architettura di sessione è ancora ibrida: Runtime istanziato ma non operativo come coordinatore. **Vision Migration Fase 3 & 4 COMPLETATE** - Runtime.processFrame() è ora il PRIMARY path.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -12,14 +12,14 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
 │                                             │
 │  Documentazione             ██████████ 100% │
 │  Vision adapter             ██████████ 100% │
-│  Vision extraction          ████░░░░░░  40% │
+│  Vision extraction          ██████████ 100% │
 │                                             │
 │  Ball engine (AUTHORITATIVE)███████████ 100% │
 │  Player engine (AUTHORITATIVE)███████████ 100% │
 │  Shot engine (AUTHORITATIVE)███████████ 100% ⚠️
 │                                             │
 │  Tracking Coordinator       ██████████ 100% │
-│  Runtime                    ███████░░░  70% │
+│  Runtime                    █████████░  90% │
 │  State machine              ████████░░  80% │
 │  Screen decomposition       █████████░  90% │
 │  Legacy removal              ███████░░░  70% │
@@ -30,7 +30,7 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
 
 **Legenda:**
 - ⚠️ ShotDetectionEngine autorevole ma ShotDetector legacy ancora presente (dual systems)
-- Runtime: 70% - FASE B completata (Vision + Tracking ownership):
+- Runtime: 90% - FASE B completata (Vision + Tracking ownership) + FASE 3 & 4 COMPLETATE (Vision Migration):
   - ✅ Runtime API definite (enqueueCritical, enqueueTelemetry)
   - ✅ Screen usa Runtime API per enqueueCritical (4 chiamate migrate)
   - ✅ Screen usa Runtime.stop() per shutdown
@@ -39,9 +39,15 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
   - ✅ Runtime.setVisionPipeline() chiamato da Screen
   - ✅ Runtime può controllare vision pipeline (start/stop) tramite lifecycle
   - ✅ Runtime.setTrackingEngine() chiamato da Screen
-  - ⚠️ TelemetrySampler registrato ma non usato dal Runtime (solo log)
-  - ⚠️ Screen crea ancora Queue e la passa al Runtime (ownership intermedio)
-  - ⚠️ ShotDetectionEngine non ancora collegato al Runtime
+  - ✅ Runtime.setVisionEngine() chiamato da Screen (Fase 3)
+  - ✅ Runtime.processFrame() attivo come PRIMARY path (Fase 4)
+  - ✅ onTrackingStateUpdate callback per sync stato tracking
+  - ✅ SharedValues aggiornati da callback Runtime
+  - ✅ Flag useRuntimeProcessingRef per toggle path Runtime/legacy
+  - ✅ Fix double ShotDetectionEngine call
+  - 🟡 TelemetrySampler registrato ma non usato dal Runtime (solo log)
+  - 🟡 Screen crea ancora Queue e la passa al Runtime (ownership intermedio)
+  - 🟡 Path legacy esiste come fallback (skippato quando Runtime è attivo)
 - State machine: implementata nel Runtime ma non utilizzata
 - Screen decomposition: ridotta a 1043 righe ma ancora possiede tracking/vision hooks (collegati al Runtime)
 - Legacy removal: ShotDetector e architettura vision legacy ancora presenti
@@ -224,13 +230,85 @@ features/workouts/
 - Runtime può coordinare il tracking engine (anche se non lo possiede)
 - TrackingCoordinator è già autorevole per constraint spaziali
 
-### Fase 4.6: Shot Detection Integration (PROSSIMO STEP)
+### Fase 4.6: Vision Migration Fase 3 & 4 ✅ COMPLETATE
+
+**4.6.1: VisionEngine Integration (Fase 3) ✓**
+- Decisione architetturale: Workers restituiscono parsed results (non raw output)
+- VisionEngine accetta parsed results con fallback per raw outputs
+- Workers fanno inference + parsing (dipendenze React Native)
+- VisionEngine orchestrazione con parsed results (no duplicate parsing)
+- VisionEngineAdapter istanzia VisionEngine e gli passa parsed results
+- VisionEngineAdapter aggiunto metodo getCurrentResults() per esporre dati correnti
+- Callbacks (handleBallDetection, handlePoseResult, handleRimDetection) aggiornati per feed VisionEngineAdapter
+- Conversione tipo: vision/types → VisionEngine.types (pose keypoints oggetto → array + confidence)
+
+**4.6.2: Runtime.processFrame() Activation (Fase 4) ✓**
+- VisionEngineAdapter istanziato in WorkoutSessionScreen
+- Collegato a Runtime via setVisionEngine()
+- Runtime.processFrame() chiamato dai callbacks quando Runtime è ACTIVE
+- Flag useRuntimeProcessingRef per toggle tra path Runtime e legacy
+- Path legacy esiste come fallback (skippato quando Runtime è attivo)
+- Fix double ShotDetectionEngine call (rimosso da Runtime.processFrame())
+- Fix TypeScript type mismatches (BallDetection senza player, PoseResult conversion)
+
+**4.6.3: Tracking State Sync ✓**
+- Aggiunto onTrackingStateUpdate callback a SessionCallbacks
+- Runtime.processFrame() chiama callback dopo TrackingEngine.processFrame()
+- Aggiunto updateSharedValuesFromState() a useTrackingEngine
+- SharedValues aggiornati da callback Runtime per Skia overlay
+- Tracking state e SharedValues sincronizzati correttamente
+
+**4.6.4: VisionEngineAdapter Partial Update ✓**
+- updateParsedResults() ora aggiorna solo campi non-null
+- Risolve problema: Pose arriva → ball=null, pose=P; Ball arriva → ball=B, pose=null
+- Ora VisionEngine vede sempre tutti i risultati disponibili (ball + pose + rim)
+- Semantica partial update, non replacement
+
+**4.6.5: Runtime.processFrame() Debounce ✓**
+- Aggiunto debounce 50ms per evitare chiamate duplicate per lo stesso frame logico
+- lastRuntimeProcessTimestampRef traccia ultima chiamata
+- Risolve problema: YOLO callback → processFrame(), MoveNet callback → processFrame()
+- Ora un frame logico = una elaborazione Tracking (max 20 FPS)
+
+**4.6.6: Legacy Shot Detection Disattivata ✓**
+- handleShotEvent skip quando useRuntimeProcessingRef = true
+- Logica screenshot spostata da handleShotEvent a Runtime.onShotDetected callback
+- Single source of truth shot events: Runtime → TrackingEngine → ShotDetectionEngine
+- Eliminato rischio doppio conteggio/doppia persistenza
+
+**Architettura risultante (Single Path):**
+```
+Camera
+  ↓
+useWorkoutVisionPipeline (useCameraPipeline)
+  ↓
+Workers (useYoloWorker, useMoveNetWorker)
+  ↓ (inference + parsing)
+  ↓
+Callbacks (handleBallDetection, handlePoseResult, handleRimDetection)
+  ↓
+VisionEngineAdapter.updateParsedResults()
+  ↓
+Runtime.processFrame() [ATTIVO QUANDO useRuntimeProcessingRef = true]
+  ↓
+VisionEngine.processFrame() (orchestrazione)
+  ↓
+TrackingEngine.processFrame()
+  ↓
+ShotDetectionEngine (interno)
+  ↓
+onTrackingStateUpdate callback
+  ↓
+setTrackingState + tracking.updateSharedValuesFromState()
+```
+
+### Fase 4.7: Shot Detection Integration (DEFERRED)
 - Collegare ShotDetectionEngine al Runtime
 - Evitare doppio ownership (Screen → Shot, Runtime → Shot)
 - Deve diventare: Runtime → Shot
 - ShotDetectionUIAdapter refactoring (rimuovere useSharedValue da classe)
 
-### Fase 4.7: ShotDetectionUIAdapter Refactoring (DEFERRED)
+### Fase 4.8: ShotDetectionUIAdapter Refactoring (DEFERRED)
 - Refactor ShotDetectionUIAdapter per rimuovere useSharedValue da classe
 - Convertire a hook React o pattern compatibile
 - Integrare nella Screen per completa separazione engine/UI

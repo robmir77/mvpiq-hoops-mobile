@@ -105,6 +105,22 @@ WorkoutSessionRuntime
 - Codice legacy rimosso (poseParser.ts, yoloParserFloat16.ts, VisionEngine.ts placeholder)
 - Test aggiornati per usare YoloDetector
 - VisionEngineAdapter semplificato per forward parsed results
+- Fase 3 COMPLETATA (VisionEngine integration - parsed results path, callbacks aggiornati, type conversion)
+- Fase 4 COMPLETATA (Runtime.processFrame() attivo, callback onTrackingStateUpdate, SharedValues sync, double call fix)
+- VisionEngineAdapter istanziato in WorkoutSessionScreen
+- Collegato a Runtime via setVisionEngine()
+- Runtime.processFrame() chiamato dai callbacks quando Runtime è ACTIVE
+- Flag useRuntimeProcessingRef per toggle tra path Runtime e legacy
+- Aggiunto onTrackingStateUpdate callback a SessionCallbacks
+- Runtime.processFrame() chiama callback dopo TrackingEngine.processFrame()
+- Aggiunto updateSharedValuesFromState() a useTrackingEngine
+- SharedValues aggiornati da callback Runtime per Skia overlay
+- Path legacy esiste come fallback (skippato quando Runtime è attivo)
+- Fix double ShotDetectionEngine call (rimosso da Runtime.processFrame())
+- Fix TypeScript type mismatches (BallDetection senza player, PoseResult conversion)
+- Fase 4.1 COMPLETATA (VisionEngineAdapter partial update - non cancella altri risultati)
+- Fase 4.2 COMPLETATA (Runtime.processFrame() debounce 50ms - evita chiamate duplicate)
+- Fase 4.3 COMPLETATA (Legacy Shot Detection disattivata - single source of truth shot events)
 
 **Pattern Adapter:**
 - VisionPipelineAdapter implementa IVisionPipeline
@@ -379,8 +395,8 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Gestione enqueueCritical false | 🟡 | UI non verifica return boolean per fallimento persistenza |
 | Shot detection single source | ✅ | Sistema unificato via TrackingEngine |
 | Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
-| Vision extraction YOLO/MoveNet | ✅ | Fase 1 completata, Fase 2 COMPLETATA (classi pure worklet-safe integrate) |
-| useShotTracker.ts removal | 🟡 | Legacy 1.447 righe, rimozione pianificata dopo Fase 5 |
+| Vision extraction YOLO/MoveNet | ✅ | Fase 1 completata, Fase 2 COMPLETATA, Fase 3 COMPLETATA, Fase 4 COMPLETATA (Runtime.processFrame() attivo) |
+| useShotTracker.ts removal | 🟡 | Legacy 1.447 righe, rimozione pianificata dopo Fase 5 (cleanup legacy path) |
 
 ## Async Queue & Critical Events
 

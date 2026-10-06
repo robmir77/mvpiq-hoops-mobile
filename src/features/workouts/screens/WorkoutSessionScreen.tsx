@@ -213,6 +213,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const visionConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
     const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
     const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
+    const lastRuntimeProcessTimestampRef = useRef(0) // Track last timestamp to avoid duplicate processFrame() calls
+    const RUNTIME_PROCESS_DEBOUNCE_MS = 50 // Debounce to avoid duplicate calls for same logical frame
     
     // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
@@ -274,15 +276,19 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             Date.now()
         )
 
-        // Phase 4: Call Runtime.processFrame() with VisionEngine data
+        // Phase 4: Call Runtime.processFrame() with VisionEngine data (debounced)
         const runtime = runtimeRef.current
+        const now = Date.now()
         if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
-            const resolution = effectiveResolutionRef.current
-            runtime.processFrame({
-                width: resolution.width,
-                height: resolution.height,
-                timestamp: Date.now(),
-            })
+            if (now - lastRuntimeProcessTimestampRef.current >= RUNTIME_PROCESS_DEBOUNCE_MS) {
+                lastRuntimeProcessTimestampRef.current = now
+                const resolution = effectiveResolutionRef.current
+                runtime.processFrame({
+                    width: resolution.width,
+                    height: resolution.height,
+                    timestamp: now,
+                })
+            }
         }
 
         const tEnd = performance.now()
@@ -330,15 +336,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             now
         )
 
-        // Phase 4: Call Runtime.processFrame() with VisionEngine data
+        // Phase 4: Call Runtime.processFrame() with VisionEngine data (debounced)
         const runtime = runtimeRef.current
         if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
-            const resolution = effectiveResolutionRef.current
-            runtime.processFrame({
-                width: resolution.width,
-                height: resolution.height,
-                timestamp: now,
-            })
+            if (now - lastRuntimeProcessTimestampRef.current >= RUNTIME_PROCESS_DEBOUNCE_MS) {
+                lastRuntimeProcessTimestampRef.current = now
+                const resolution = effectiveResolutionRef.current
+                runtime.processFrame({
+                    width: resolution.width,
+                    height: resolution.height,
+                    timestamp: now,
+                })
+            }
             // Skip legacy tracking path when Runtime.processFrame() is active
             // Runtime.processFrame() already calls TrackingEngine internally
             return
@@ -472,9 +481,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
 
-    // Shot event callback
+    // Shot event callback (legacy path from useShotTracker)
+    // When Runtime.processFrame() is active, shot detection is handled by
+    // Runtime → TrackingEngine → ShotDetectionEngine → onShotDetected callback
+    // This legacy callback is disabled to avoid duplicate shot events
     const handleShotEvent = useCallback(async (event: ShotEvent) => {
-        console.log('[WorkoutSession] Shot event:', event)
+        // Skip legacy shot detection when Runtime is active
+        // Shot events are now handled by Runtime.onShotDetected callback
+        if (useRuntimeProcessingRef.current) {
+            return
+        }
+
+        console.log('[WorkoutSession] Legacy Shot event:', event)
         if (event.shotReleased) {
             shotCounter.current += 1
             const screenshotData = await captureShotScreenshot(shotCounter.current)
@@ -742,7 +760,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     onSessionStateChanged: (newState) => {
                         console.log('[WorkoutSession] Runtime state changed:', newState)
                     },
-                    onShotDetected: (result) => {
+                    onShotDetected: async (result) => {
                         setLastShotResult(result)
                         setShotCount(prev => ({
                             total: prev.total + 1,
@@ -753,6 +771,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             toValue: 0, duration: 1400,
                             easing: Easing.out(Easing.ease), useNativeDriver: true,
                         }).start()
+
+                        // Handle screenshot capture and persistence (moved from legacy handleShotEvent)
+                        shotCounter.current += 1
+                        const screenshotData = await captureShotScreenshot(shotCounter.current)
+                        if (screenshotData) {
+                            pendingScreenshotUri.current = JSON.stringify(screenshotData)
+                        }
+
+                        // Save screenshot with result
+                        if (pendingScreenshotUri.current) {
+                            const data = JSON.parse(pendingScreenshotUri.current)
+                            void saveScreenshotWithResult(data, result)
+                            pendingScreenshotUri.current = null
+                        }
                     },
                     onTelemetryUpdate: (metrics) => {
                         console.log('[WorkoutSession] Telemetry update:', metrics)

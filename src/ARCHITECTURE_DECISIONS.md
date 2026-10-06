@@ -1082,17 +1082,34 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
   - Aggiornare test per usare YoloDetector
   - Semplificare VisionEngineAdapter per forward parsed results
   - Nota: L'inference rimane nei worker React hooks perché dipende da react-native-fast-tflite e react-native-vision-camera-resizer. Le classi pure gestiscono solo il parsing, non l'inference.
-- **Fase 3 - Integrazione VisionEngine:**
-  - Integrare classi YOLO/MoveNet pure in VisionEngine
-  - Implementare processFrame() in VisionEngine
-  - Gestire player crop logic
-- **Fase 4 - Migrazione Runtime:**
-  - Collegare VisionEngine al Runtime
-  - Spostare chiamata processFrame() da Screen a Runtime
-  - Rimuovere callback diretti da useShotTracker
-- **Fase 5 - Cleanup:**
+- **Fase 3 - Integrazione VisionEngine (COMPLETATO):**
+  - Decisione architetturale: Workers restituiscono parsed results (non raw output)
+  - VisionEngine accetta parsed results con fallback per raw outputs
+  - Workers fanno inference + parsing (dipendenze React Native)
+  - VisionEngine orchestrazione con parsed results (no duplicate parsing)
+  - VisionEngineAdapter istanzia VisionEngine e gli passa parsed results
+  - VisionEngineAdapter aggiunto metodo getCurrentResults() per esporre dati correnti
+  - Callbacks (handleBallDetection, handlePoseResult, handleRimDetection) aggiornati per feed VisionEngineAdapter
+  - Conversione tipo: vision/types → VisionEngine.types (pose keypoints oggetto → array + confidence)
+- **Fase 4 - Migrazione Runtime (COMPLETATO):**
+  - VisionEngineAdapter istanziato in WorkoutSessionScreen
+  - Collegato a Runtime via setVisionEngine()
+  - Runtime.processFrame() chiamato dai callbacks quando Runtime è ACTIVE
+  - Flag useRuntimeProcessingRef per toggle tra path Runtime e legacy
+  - Aggiunto onTrackingStateUpdate callback a SessionCallbacks
+  - Runtime.processFrame() chiama callback dopo TrackingEngine.processFrame()
+  - Aggiunto updateSharedValuesFromState() a useTrackingEngine
+  - SharedValues aggiornati da callback Runtime per Skia overlay
+  - Path legacy esiste come fallback (skippato quando Runtime è attivo)
+  - Fix double ShotDetectionEngine call (rimosso da Runtime.processFrame())
+  - Fix TypeScript type mismatches (BallDetection senza player, PoseResult conversion)
+  - **Fase 4.1 - Fix VisionEngineAdapter partial update:** updateParsedResults() ora aggiorna solo campi non-null per preservare risultati da altri callbacks
+  - **Fase 4.2 - Unificare trigger Runtime.processFrame():** aggiunto debounce 50ms per evitare chiamate duplicate per lo stesso frame logico
+  - **Fase 4.3 - Disattivare legacy Shot Detection:** handleShotEvent skip quando Runtime è attivo, logica screenshot spostata in onShotDetected callback
+- **Fase 5 - Cleanup (PENDING):**
+  - Rimuovere path legacy dai callbacks (tracking.processFrame diretto)
   - Rimuovere useShotTracker.ts legacy
-  - Rimuovere VisionEngineAdapter
+  - Rimuovere VisionEngineAdapter (se non più necessario)
   - Aggiornare test
 
 **Rationale:**
@@ -1100,16 +1117,23 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
 - Mantenere worklet-safe è critico per performance
 - SharedValues rimangono come bridge React → worklet
 - VisionEngine diventa il centro di elaborazione vision puro
+- Workers restituiscono parsed results per rispettare dipendenze React Native
+- Path legacy mantenuto come fallback durante transizione
 
 **Conseguenze:**
-- VisionEngine sarà la sorgente unica di detection (ball, player, rim, pose)
-- Runtime.processFrame() orchestrerà l'intera pipeline
+- VisionEngine è la sorgente unica di detection (ball, player, rim, pose)
+- Runtime.processFrame() è il PRIMARY path quando VisionEngine è connesso
+- Path legacy esiste come fallback (skippato quando Runtime è attivo)
 - useShotTracker.ts verrà eliminato (1.447 righe legacy rimosse)
 - Architettura più pulita con separazione responsabilità
+- Shot detection non duplicata (solo TrackingEngine chiama ShotDetectionEngine)
 
-**Stato:** 🔄 IN CORSO
+**Stato:** ✅ FASE 3 & 4 COMPLETATE (CON CORREZIONI 4.1-4.3)
 - Fase 1: ✅ COMPLETATO (IVisionEngine, VisionEngine, Runtime.processFrame, VisionEngineAdapter)
 - Fase 2: ✅ COMPLETATO (Estrazione YOLO/MoveNet in classi pure worklet-safe + integrazione worker + rimozione legacy)
-- Fase 3: ⏳ PENDING (Integrazione VisionEngine)
-- Fase 4: ⏳ PENDING (Migrazione Runtime)
-- Fase 5: ⏳ PENDING (Cleanup useShotTracker)
+- Fase 3: ✅ COMPLETATO (VisionEngine integration - parsed results path, callbacks aggiornati, type conversion)
+- Fase 4: ✅ COMPLETATO (Runtime.processFrame() attivo, callback onTrackingStateUpdate, SharedValues sync, double call fix)
+  - Fase 4.1: ✅ COMPLETATO (VisionEngineAdapter partial update - non cancella altri risultati)
+  - Fase 4.2: ✅ COMPLETATO (Runtime.processFrame() debounce 50ms - evita chiamate duplicate)
+  - Fase 4.3: ✅ COMPLETATO (Legacy Shot Detection disattivata - single source of truth shot events)
+- Fase 5: ⏳ PENDING (Cleanup useShotTracker, rimozione path legacy)
