@@ -204,7 +204,7 @@ export const useShotTracker = (
     const perfMoveNetInferenceMin = useSharedValue(0)
     const perfMoveNetInferenceMax = useSharedValue(0)
     const perfMoveNetWorkletPrepTotal = useSharedValue(0)
-    const perfMoveNetScheduleWaitTotal = useSharedValue(0)
+    const perfMoveNetRnScheduleWaitTotal = useSharedValue(0)
     const perfMoveNetCropTotal = useSharedValue(0)
     // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
     const perfMoveNetRunTotal = useSharedValue(0)
@@ -251,7 +251,7 @@ export const useShotTracker = (
         perfMoveNetInferenceMin,
         perfMoveNetInferenceMax,
         perfMoveNetWorkletPrepTotal,
-        perfMoveNetScheduleWaitTotal,
+        perfMoveNetRnScheduleWaitTotal,
         perfMoveNetCropTotal,
         // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
         perfMoveNetRunTotal,
@@ -879,7 +879,7 @@ export const useShotTracker = (
                             ? perfMoveNetWorkletPrepTotal.value / moveNetExecuted
                             : 0,
                         moveNetScheduleWaitMs: moveNetExecuted > 0
-                            ? perfMoveNetScheduleWaitTotal.value / moveNetExecuted
+                            ? perfMoveNetRnScheduleWaitTotal.value / moveNetExecuted
                             : 0,
                         moveNetCropAvgMs: moveNetExecuted > 0
                             ? perfMoveNetCropTotal.value / moveNetExecuted
@@ -936,7 +936,7 @@ export const useShotTracker = (
                     perfMoveNetInferenceMin.value = 0
                     perfMoveNetInferenceMax.value = 0
                     perfMoveNetWorkletPrepTotal.value = 0
-                    perfMoveNetScheduleWaitTotal.value = 0
+                    perfMoveNetRnScheduleWaitTotal.value = 0
                     perfMoveNetCropTotal.value = 0
                     // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
                     perfMoveNetRunTotal.value = 0
@@ -1255,7 +1255,7 @@ export const useShotTracker = (
                 perfMoveNetInferenceMin,
                 perfMoveNetInferenceMax,
                 perfMoveNetWorkletPrepTotal,
-                perfMoveNetScheduleWaitTotal,
+                perfMoveNetRnScheduleWaitTotal,
                 perfMoveNetCropTotal,
                 // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
                 perfMoveNetRunTotal,

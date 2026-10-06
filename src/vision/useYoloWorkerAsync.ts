@@ -67,9 +67,9 @@ interface YoloWorkerReturn {
   yoloSkippedCount: SharedValue<number>
   onResultCallback: ((result: YoloWorkerResult) => void) | null
   // Profiling A→F timestamps
-  // Pipeline: WORKLET(A→B) → scheduleWait(B→C) → JS/RN(C→D→E→F)
+  // Pipeline: WORKLET(A→B) → rnScheduleWait(B→C) → JS/RN(C→D→E→F)
   profWorkletPrepMs: SharedValue<number>  // A→B: worklet preprocessing (resize + buffer extraction)
-  profScheduleWaitMs: SharedValue<number> // B→C: worklet → JS scheduling wait
+  profRnScheduleWaitMs: SharedValue<number> // B→C: worklet → RN scheduling wait
   profJsPreprocessMs: SharedValue<number>  // C→D: JS preprocessing (none for YOLO, resize is in worklet)
   profInferenceMs: SharedValue<number>     // D→E: TFLite inference (runSync)
   profPostprocessMs: SharedValue<number>   // E→F: postprocess/callback (parsing + SharedValue updates)
@@ -138,9 +138,9 @@ export const useYoloWorkerAsync = (
   const lastParseMs = useSharedValue(0)
 
   // Profiling A→F timestamps (for detailed scheduling analysis)
-  // Pipeline: WORKLET(A→B) → scheduleWait(B→C) → JS/RN(C→D→E→F)
+  // Pipeline: WORKLET(A→B) → rnScheduleWait(B→C) → JS/RN(C→D→E→F)
   const profWorkletPrepMs = useSharedValue(0)  // A→B: worklet preprocessing (resize + buffer extraction)
-  const profScheduleWaitMs = useSharedValue(0) // B→C: worklet → JS scheduling wait
+  const profRnScheduleWaitMs = useSharedValue(0) // B→C: worklet → RN scheduling wait
   const profJsPreprocessMs = useSharedValue(0)  // C→D: JS preprocessing (none for YOLO, resize is in worklet)
   const profInferenceMs = useSharedValue(0)     // D→E: TFLite inference (runSync)
   const profPostprocessMs = useSharedValue(0)   // E→F: postprocess/callback (parsing + SharedValue updates)
@@ -358,7 +358,7 @@ export const useYoloWorkerAsync = (
 
         // Update profiling A→F timestamps
         profWorkletPrepMs.value = workletPrepMs
-        profScheduleWaitMs.value = scheduleWaitMs
+        profRnScheduleWaitMs.value = scheduleWaitMs
         profJsPreprocessMs.value = jsPreprocessMs
         profInferenceMs.value = runMs
         profPostprocessMs.value = postprocessMs
@@ -537,7 +537,7 @@ export const useYoloWorkerAsync = (
     executionCount,
     theoreticalFps,
     profWorkletPrepMs,
-    profScheduleWaitMs,
+    profRnScheduleWaitMs,
     profJsPreprocessMs,
     profInferenceMs,
     profPostprocessMs,
