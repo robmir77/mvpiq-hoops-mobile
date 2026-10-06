@@ -35,11 +35,6 @@ export interface SessionCallbacks {
 }
 
 // Minimal subsystem interfaces (will be refined as subsystems are integrated)
-export interface IVisionPipeline {
-  start(): void
-  stop(): void
-}
-
 export interface IVisionEngine {
   processFrame(frame: {
     width: number
@@ -143,6 +138,5 @@ export interface WorkoutSessionRuntime {
   getMetrics(): SessionMetrics
 
   // Subsystems
-  getVisionPipeline(): IVisionPipeline | null
   getTrackingEngine(): ITrackingEngine | null
 }

@@ -73,12 +73,10 @@ Tutto ciò che può essere asincrono deve essere separato dal percorso realtime.
 **Architettura Runtime:**
 ```
 WorkoutSessionRuntime
-  ├── VisionPipeline (IVisionPipeline)
-  │   └── VisionPipelineAdapter (wraps useWorkoutVisionPipeline)
-  ├── VisionEngine (IVisionEngine) - 🔄 IN CORSO (placeholder)
+  ├── VisionEngine (IVisionEngine) - ✅ COMPLETATO
   │   ├── YOLO detection
   │   ├── MoveNet pose detection
-  │   ├── Player crop management
+  │   ├── Player detection
   │   └── Detection filtering
   ├── TrackingEngine (ITrackingEngine)
   │   ├── BallTrackingEngine
@@ -93,16 +91,16 @@ WorkoutSessionRuntime
 
 **Vision Migration (Decision 27):**
 - IVisionEngine interface creato
-- VisionEngine placeholder class creato
+- VisionEngine class creato
 - Runtime.processFrame() implementato per orchestrare Vision → Tracking → Shot
-- VisionEngineAdapter placeholder creato
+- VisionEngineAdapter creato
 - Piano di migrazione documentato in ARCHITECTURE_DECISIONS.md
 - Fase 1 completata, Fase 2 COMPLETATA (estrazione YOLO/MoveNet in classi pure worklet-safe)
 - YoloDetector.ts creato (parsing YOLO puro worklet-safe)
 - MoveNetPoseEstimator.ts creato (parsing MoveNet puro worklet-safe)
 - VisionEngine.ts in vision/engine/ (orchestrazione YOLO + MoveNet)
 - Integrazione completata in useYoloWorker, useYoloWorkerAsync, useMoveNetWorker
-- Codice legacy rimosso (poseParser.ts, yoloParserFloat16.ts, VisionEngine.ts placeholder)
+- Codice legacy rimosso (poseParser.ts, yoloParserFloat16.ts)
 - Test aggiornati per usare YoloDetector
 - VisionEngineAdapter semplificato per forward parsed results
 - Fase 3 COMPLETATA (VisionEngine integration - parsed results path, callbacks aggiornati, type conversion)
@@ -121,20 +119,17 @@ WorkoutSessionRuntime
 - Fase 4.1 COMPLETATA (VisionEngineAdapter partial update - non cancella altri risultati)
 - Fase 4.2 COMPLETATA (Runtime.processFrame() debounce 50ms - evita chiamate duplicate)
 - Fase 4.3 COMPLETATA (Legacy Shot Detection disattivata - single source of truth shot events)
-
-**Pattern Adapter:**
-- VisionPipelineAdapter implementa IVisionPipeline
-- Wrappa useWorkoutVisionPipeline hook React
-- Permette al Runtime di controllare vision pipeline senza dipendenze React
-- Runtime chiama visionPipeline.start()/stop() per lifecycle
+- Fase 4.4 COMPLETATA (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
+- Fase 5 COMPLETATA (Legacy cleanup - ShotDetector rimosso da useShotTracker, handleShotEvent rimosso, VisionPipelineAdapter rimosso)
 
 **Stato integrazione:**
-- ✅ Vision collegata via VisionPipelineAdapter
+- ✅ Vision collegata via VisionEngineAdapter
 - ✅ Tracking collegato via setTrackingEngine()
 - ✅ ShotDetectionEngine collegato (evitando double ownership - Runtime usa istanza interna di TrackingEngine)
 - ✅ Queue collegata (ownership intermedio - Screen crea, Runtime usa)
 - ✅ TelemetrySampler collegato e utilizzato dal Runtime
 - ✅ Tutti i sottosistemi connessi PRIMA di runtime.start()
+- ✅ PlayerDetection fluisce nel nuovo percorso Runtime
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -396,7 +391,8 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Shot detection single source | ✅ | Sistema unificato via TrackingEngine |
 | Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
 | Vision extraction YOLO/MoveNet | ✅ | Fase 1 completata, Fase 2 COMPLETATA, Fase 3 COMPLETATA, Fase 4 COMPLETATA (Runtime.processFrame() attivo) |
-| useShotTracker.ts removal | 🟡 | Legacy 1.447 righe, rimozione pianificata dopo Fase 5 (cleanup legacy path) |
+| useShotTracker.ts legacy removal | ✅ | ShotDetector rimosso, handleShotEvent rimosso, VisionPipelineAdapter rimosso (Fase 5 completata) |
+| PlayerDetection integration | ✅ | onPlayerDetection callback aggiunto, fluisce nel nuovo percorso Runtime (Fase 4.4 completata) |
 
 ## Async Queue & Critical Events
 

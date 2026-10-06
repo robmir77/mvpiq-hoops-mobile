@@ -44,6 +44,7 @@ export const useWorkoutVisionPipeline = (
   onPoseResult: (result: PoseResult) => void,
   onShotEvent: (event: ShotEvent) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
+  onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }) => void,
 ): UseWorkoutVisionPipelineResult => {
   const {
     device,
@@ -65,6 +66,7 @@ export const useWorkoutVisionPipeline = (
     onPoseResult,
     onShotEvent,
     onRimDetection,
+    onPlayerDetection,
     config.rimFromCalibration,
     config.kalmanFilteredBall,
     config.enabled,

@@ -9,7 +9,6 @@ import type {
   SessionMetrics,
   SessionState,
   WorkoutSessionRuntime as IWorkoutSessionRuntime,
-  IVisionPipeline,
   IVisionEngine,
   ITrackingEngine,
   IShotDetectionEngine,
@@ -33,7 +32,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private sessionDurationInterval: ReturnType<typeof setInterval> | null = null
 
   // Subsystem references (to be initialized)
-  private visionPipeline: IVisionPipeline | null = null
   private visionEngine: IVisionEngine | null = null
   private trackingEngine: ITrackingEngine | null = null
   private shotDetectionEngine: IShotDetectionEngine | null = null
@@ -97,10 +95,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
     this.setState('PAUSED')
     
-    // Pause vision pipeline
-    if (this.visionPipeline?.stop) {
-      this.visionPipeline.stop()
-    }
+    // Vision processing paused via VisionEngineAdapter
 
     console.log('[WorkoutSessionRuntime] Session paused')
   }
@@ -112,10 +107,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
     this.setState('ACTIVE')
     
-    // Resume vision pipeline
-    if (this.visionPipeline?.start) {
-      this.visionPipeline.start()
-    }
+    // Vision processing resumed via VisionEngineAdapter
 
     console.log('[WorkoutSessionRuntime] Session resumed')
   }
@@ -128,10 +120,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     this.setState('STOPPING')
 
     try {
-      // Stop vision pipeline
-      if (this.visionPipeline?.stop) {
-        this.visionPipeline.stop()
-      }
+      // Vision processing stopped via VisionEngineAdapter
 
       // Transition to SYNCING state for data persistence
       this.setState('SYNCING')
@@ -280,23 +269,14 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     return { ...this.metrics }
   }
 
-  getVisionPipeline(): IVisionPipeline | null {
-    return this.visionPipeline
-  }
-
   getTrackingEngine(): ITrackingEngine | null {
     return this.trackingEngine
   }
 
   // Private initialization methods
   private async initializeVisionPipeline(): Promise<void> {
-    // Vision pipeline will be initialized with the React hook
-    // This is a placeholder for future non-React implementation
-    if (this.visionPipeline) {
-      console.log('[WorkoutSessionRuntime] Vision pipeline initialized')
-    } else {
-      console.warn('[WorkoutSessionRuntime] Vision pipeline not set - will be provided by React hook')
-    }
+    // Vision processing handled by VisionEngineAdapter
+    console.log('[WorkoutSessionRuntime] Vision processing via VisionEngineAdapter')
   }
 
   private async initializeTrackingEngine(): Promise<void> {
@@ -368,10 +348,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   }
 
   // Set subsystem references (called by the Screen during initialization)
-  setVisionPipeline(pipeline: IVisionPipeline): void {
-    this.visionPipeline = pipeline
-  }
-
   setVisionEngine(engine: IVisionEngine): void {
     this.visionEngine = engine
   }

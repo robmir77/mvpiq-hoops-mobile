@@ -24,7 +24,6 @@ import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
 import { useWorkoutVisionPipeline } from '../vision/useWorkoutVisionPipeline'
-import { VisionPipelineAdapter } from '../vision/VisionPipelineAdapter'
 import { VisionEngineAdapter } from '@/vision/VisionEngineAdapter'
 import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
 import { telemetryLogger } from '@/vision/telemetry'
@@ -205,12 +204,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Initialize WorkoutSessionRuntime (Phase 4.4.2)
     const runtimeRef = useRef<WorkoutSessionRuntime | null>(null)
-    const visionAdapterRef = useRef<VisionPipelineAdapter | null>(null)
     const visionEngineAdapterRef = useRef<VisionEngineAdapter | null>(null)
     const [trackingConnected, setTrackingConnected] = useState(false)
-    const [visionConnected, setVisionConnected] = useState(false)
     const trackingConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
-    const visionConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
     const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
     const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
     const lastRuntimeProcessTimestampRef = useRef(0) // Track last timestamp to avoid duplicate processFrame() calls
@@ -315,6 +311,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             Date.now()
         )
     }, [tracking])
+
+    // Player detection callback (for VisionEngine integration)
+    const handlePlayerDetection = useCallback((player: { x: number; y: number; width: number; height: number; confidence: number }) => {
+        // Update VisionEngineAdapter with parsed player result
+        visionEngineAdapterRef.current?.updateParsedResults(
+            null, // ball
+            player, // player
+            null, // rim
+            null, // pose
+            Date.now()
+        )
+    }, [])
 
     // Ball detection callback (trackingState for events only, visual data via SharedValue/Skia)
     const lastTrackingProcessAt = useRef<number>(0)
@@ -481,40 +489,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
 
-    // Shot event callback (legacy path from useShotTracker)
-    // When Runtime.processFrame() is active, shot detection is handled by
-    // Runtime → TrackingEngine → ShotDetectionEngine → onShotDetected callback
-    // This legacy callback is disabled to avoid duplicate shot events
-    const handleShotEvent = useCallback(async (event: ShotEvent) => {
-        // Skip legacy shot detection when Runtime is active
-        // Shot events are now handled by Runtime.onShotDetected callback
-        if (useRuntimeProcessingRef.current) {
-            return
-        }
-
-        console.log('[WorkoutSession] Legacy Shot event:', event)
-        if (event.shotReleased) {
-            shotCounter.current += 1
-            const screenshotData = await captureShotScreenshot(shotCounter.current)
-            if (screenshotData) {
-                pendingScreenshotUri.current = JSON.stringify(screenshotData)
-            }
-        } else if (event.shotMade) {
-            void handleAutoShotDetected('MADE')
-            if (pendingScreenshotUri.current) {
-                const data = JSON.parse(pendingScreenshotUri.current)
-                void saveScreenshotWithResult(data, 'MADE')
-                pendingScreenshotUri.current = null
-            }
-        } else if (event.shotMiss) {
-            void handleAutoShotDetected('MISS')
-            if (pendingScreenshotUri.current) {
-                const data = JSON.parse(pendingScreenshotUri.current)
-                void saveScreenshotWithResult(data, 'MISS')
-                pendingScreenshotUri.current = null
-            }
-        }
-    }, [handleAutoShotDetected, captureShotScreenshot, saveScreenshotWithResult])
+    // Shot event callback removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine → onShotDetected callback
 
     // Vision configuration hook
     const { visionConfig, effectiveRim, kalmanFilteredBall } = useVisionConfig({
@@ -548,19 +523,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         visionConfig,
         handleBallDetection,
         handlePoseResult,
-        handleShotEvent,
+        undefined, // onShotEvent removed - handled by Runtime
         rimDetectionEnabled ? handleRimDetection : undefined,
+        handlePlayerDetection,
     )
 
-    // Create vision pipeline adapter for Runtime (Phase 4.5)
+    // Create VisionEngineAdapter for Runtime (Phase 3)
     useEffect(() => {
-        const adapter = new VisionPipelineAdapter(
-            () => setIsActive(true),
-            () => setIsActive(false)
-        )
-        visionAdapterRef.current = adapter
-
-        // Create VisionEngineAdapter for Runtime (Phase 3)
         const visionEngineAdapter = new VisionEngineAdapter(
             YOLO_CONFIG.BALL_CONF_THRESHOLD,
             YOLO_CONFIG.RIM_CONF_THRESHOLD,
@@ -569,7 +538,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         visionEngineAdapterRef.current = visionEngineAdapter
 
         return () => {
-            visionAdapterRef.current = null
             visionEngineAdapterRef.current = null
         }
     }, [])
@@ -693,18 +661,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [tracking])
 
-    // Phase 4.5: Connect VisionPipelineAdapter to Runtime after both are initialized
-    useEffect(() => {
-        if (visionConnectedRef.current) return // Already connected
-
-        if (visionAdapterRef.current && runtimeRef.current) {
-            runtimeRef.current.setVisionPipeline(visionAdapterRef.current)
-            console.log('[WorkoutSession] VisionPipelineAdapter connected to runtime')
-            visionConnectedRef.current = true
-            setVisionConnected(true)
-        }
-    }, [visionAdapterRef.current, runtimeRef.current])
-
     // Phase 3: Connect VisionEngineAdapter to Runtime (VisionEngine integration)
     useEffect(() => {
         if (visionEngineConnectedRef.current) return // Already connected
@@ -720,9 +676,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         }
     }, [visionEngineAdapterRef.current, runtimeRef.current])
 
-    // Phase 4.5: Start runtime after both TrackingEngine and VisionPipelineAdapter are connected
+    // Phase 4.5: Start runtime after both TrackingEngine and VisionEngineAdapter are connected
     useEffect(() => {
-        if (trackingConnected && visionConnected && runtimeRef.current) {
+        if (trackingConnected && visionEngineConnectedRef.current && runtimeRef.current) {
             const runtime = runtimeRef.current
             // Only start if still in IDLE state (not already started)
             if (runtime.getState() === 'IDLE') {
@@ -733,7 +689,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 })
             }
         }
-    }, [trackingConnected, visionConnected])
+    }, [trackingConnected])
 
     const loadSession = async () => {
         if (!user?.id || !sessionId) return

@@ -20,7 +20,10 @@
 | **Vision FPS** | YOLO_TARGET_FPS rimosso | useYoloWorkerAsync.ts:381-384 | Commento: "Phase 4.4: Removed FPS throttling" | minIntervalMs e YOLO_TARGET_FPS rimossi | ✅ COMPLETATO | Nessuno |
 | **Shot Detection** | Dual systems intentionally retained | REFACTORING_PROGRESS.md:253-264 | Documentazione dettagliata di ShotDetectionEngine vs ShotDetector | Documentazione accurata | ✅ DOCUMENTATO | Nessuno |
 | **Shot Detection** | ShotDetectionEngine authoritative | useTrackingEngine.ts:48-50 | `new ShotDetectionEngine()` istanziato e usato | Engine istanziato nel hook | ✅ OPERATIVO | Nessuno |
-| **Shot Detection** | ShotDetector legacy presente | useShotTracker.ts:14,144-145 | `import { ShotDetector }` e `new ShotDetector()` | ShotDetector ancora istanziato e usato | ⚠️ PRESENTE | Intenzionale, documentato |
+| **Shot Detection** | ShotDetector legacy rimosso | useShotTracker.ts | ShotDetector import e chiamate rimosse | ShotDetector non più presente | ✅ RIMOSSO | Fase 5 completata |
+| **Shot Detection** | handleShotEvent rimosso | WorkoutSessionScreen.tsx | handleShotEvent callback rimosso | handleShotEvent non più presente | ✅ RIMOSSO | Fase 5 completata |
+| **Vision Pipeline** | VisionPipelineAdapter rimosso | WorkoutSessionRuntime.ts | IVisionPipeline e visionPipeline rimossi | Runtime usa solo VisionEngine | ✅ RIMOSSO | Fase 5 completata |
+| **Player Detection** | PlayerDetection integrato | useShotTracker.ts, WorkoutSessionScreen.tsx | onPlayerDetection callback aggiunto | Player fluisce nel nuovo percorso Runtime | ✅ COMPLETATO | Fase 4.4 completata |
 
 ## Problemi Critici Identificati
 
@@ -65,10 +68,11 @@
 - ✅ YOLO_TARGET_FPS rimosso da useYoloWorkerAsync
 - ✅ Nessun throttling temporale residuo
 
-### Shot Detection: Dual Systems (intenzionale)
+### Shot Detection: Single Source of Truth (RISOLTO)
 - ✅ ShotDetectionEngine autorevole per tracking state
-- ✅ ShotDetector legacy presente per onShotEvent callback
-- ✅ Documentato come debito tecnico esplicito
+- ✅ ShotDetector legacy rimosso (Fase 5)
+- ✅ handleShotEvent rimosso (Fase 5)
+- ✅ Single source of truth: Runtime → TrackingEngine → ShotDetectionEngine
 
 ## Raccomandazioni
 

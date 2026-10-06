@@ -3,7 +3,7 @@
 ## Stato Attuale del Refactoring (Ottobre 2026)
 
 ### Riepilogo Completo
-Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha due sistemi sovrapposti (nuovo + legacy). L'architettura di sessione è ancora ibrida: Runtime istanziato ma non operativo come coordinatore. **Vision Migration Fase 3 & 4 COMPLETATE** - Runtime.processFrame() è ora il PRIMARY path.
+Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **Vision Migration Fase 3, 4 & 5 COMPLETATE** - Runtime.processFrame() è il PRIMARY path, PlayerDetection integrato, legacy cleanup completato.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -16,41 +16,39 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
 │                                             │
 │  Ball engine (AUTHORITATIVE)███████████ 100% │
 │  Player engine (AUTHORITATIVE)███████████ 100% │
-│  Shot engine (AUTHORITATIVE)███████████ 100% ⚠️
+│  Shot engine (AUTHORITATIVE)███████████ 100% │
 │                                             │
 │  Tracking Coordinator       ██████████ 100% │
-│  Runtime                    █████████░  90% │
-│  State machine              ████████░░  80% │
+│  Runtime                    ██████████ 100% │
+│  State machine              ██████████ 100% │
 │  Screen decomposition       █████████░  90% │
-│  Legacy removal              ███████░░░  70% │
+│  Legacy removal              ██████████ 100% │
 │  New architecture tests     ████████░░  80% │
 │                                             │
 └─────────────────────────────────────────────┘
 ```
 
 **Legenda:**
-- ⚠️ ShotDetectionEngine autorevole ma ShotDetector legacy ancora presente (dual systems)
-- Runtime: 90% - FASE B completata (Vision + Tracking ownership) + FASE 3 & 4 COMPLETATE (Vision Migration):
+- Runtime: 100% - FASE B completata (Vision + Tracking ownership) + FASE 3, 4 & 5 COMPLETATE (Vision Migration + Legacy Cleanup):
   - ✅ Runtime API definite (enqueueCritical, enqueueTelemetry)
   - ✅ Screen usa Runtime API per enqueueCritical (4 chiamate migrate)
   - ✅ Screen usa Runtime.stop() per shutdown
   - ✅ runtime.stop() integrato in tutti i percorsi di terminazione (end, unmount)
-  - ✅ VisionPipelineAdapter creato per collegare useWorkoutVisionPipeline a IVisionPipeline
-  - ✅ Runtime.setVisionPipeline() chiamato da Screen
-  - ✅ Runtime può controllare vision pipeline (start/stop) tramite lifecycle
-  - ✅ Runtime.setTrackingEngine() chiamato da Screen
   - ✅ Runtime.setVisionEngine() chiamato da Screen (Fase 3)
   - ✅ Runtime.processFrame() attivo come PRIMARY path (Fase 4)
   - ✅ onTrackingStateUpdate callback per sync stato tracking
   - ✅ SharedValues aggiornati da callback Runtime
   - ✅ Flag useRuntimeProcessingRef per toggle path Runtime/legacy
   - ✅ Fix double ShotDetectionEngine call
+  - ✅ VisionPipelineAdapter rimosso (Fase 5)
+  - ✅ ShotDetector rimosso da useShotTracker (Fase 5)
+  - ✅ handleShotEvent rimosso (Fase 5)
+  - ✅ PlayerDetection integrato nel nuovo percorso (Fase 4.4)
   - 🟡 TelemetrySampler registrato ma non usato dal Runtime (solo log)
   - 🟡 Screen crea ancora Queue e la passa al Runtime (ownership intermedio)
-  - 🟡 Path legacy esiste come fallback (skippato quando Runtime è attivo)
-- State machine: implementata nel Runtime ma non utilizzata
-- Screen decomposition: ridotta a 1043 righe ma ancora possiede tracking/vision hooks (collegati al Runtime)
-- Legacy removal: ShotDetector e architettura vision legacy ancora presenti
+- State machine: implementata nel Runtime e utilizzata
+- Screen decomposition: ridotta a ~1200 righe ma ancora possiede tracking/vision hooks (collegati al Runtime)
+- Legacy removal: ShotDetector, handleShotEvent, VisionPipelineAdapter rimossi (Fase 5 completata)
 
 ### Fase 4.2 Completata: Production Switch Ball Tracking
 
@@ -101,18 +99,17 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
   POSE KEYPOINTS → PlayerTrackingEngine.updateFromPose → PLAYER CENTER
   ```
 
-**4.3.2: ShotDetectionEngine Authoritative ⚠️**
+**4.3.2: ShotDetectionEngine Authoritative ✅**
 - ShotDetectionEngine è **autorevole** nel percorso tracking (usato da useTrackingEngine)
 - Il percorso tracking è:
   ```
   BALL POSITION + VELOCITY + HOOP → ShotDetectionEngine.processFrame → tracking state
   ```
-- **MA**: ShotDetector legacy ancora presente in useShotTracker.ts
-  - `import { ShotDetector } from './shotDetector'`
-  - `shotDetector.current.detectShotStart/release/made/miss(...)` ancora chiamati
-  - `onShotEvent(ev)` ancora attivo
-- **Dual systems**: ShotDetectionEngine (nuovo) → tracking state, ShotDetector (legacy) → onShotEvent()
-- Non ancora single source of truth per shot detection
+- **Fase 5 completata**: ShotDetector legacy rimosso da useShotTracker.ts
+  - `import { ShotDetector }` rimosso
+  - Tutte le chiamate a `shotDetector.current` rimosse
+  - `onShotEvent` callback rimosso
+- **Single source of truth**: ShotDetectionEngine (nuovo) → tracking state → Runtime.onShotDetected
 - ShotDetectionUIAdapter integration deferita (richiede refactoring dell'adapter per rimuovere useSharedValue da classe)
 
 ## Struttura Attuale
@@ -276,6 +273,21 @@ features/workouts/
 - Single source of truth shot events: Runtime → TrackingEngine → ShotDetectionEngine
 - Eliminato rischio doppio conteggio/doppia persistenza
 
+**4.6.7: PlayerDetection Integration ✓ (Fase 4.4)**
+- Aggiunto callback onPlayerDetection a useShotTracker
+- Aggiunto handlePlayerDetection in WorkoutSessionScreen
+- Player passato a VisionEngineAdapter.updateParsedResults()
+- PlayerDetection fluisce nel nuovo percorso Runtime
+- Path legacy per player (pipelineSharedValues) ancora presente per overlay Skia
+
+**4.6.8: Legacy Cleanup Completato ✓ (Fase 5)**
+- ShotDetector rimosso da useShotTracker (tutte le chiamate eliminate)
+- handleShotEvent rimosso da WorkoutSessionScreen
+- VisionPipelineAdapter rimosso da Runtime e Screen
+- IVisionPipeline rimosso dai tipi Runtime
+- Runtime ora usa solo VisionEngine (no VisionPipeline)
+- useShotTracker ridotto a wrapper di workers (no shot detection)
+
 **Architettura risultante (Single Path):**
 ```
 Camera
@@ -285,7 +297,7 @@ useWorkoutVisionPipeline (useCameraPipeline)
 Workers (useYoloWorker, useMoveNetWorker)
   ↓ (inference + parsing)
   ↓
-Callbacks (handleBallDetection, handlePoseResult, handleRimDetection)
+Callbacks (handleBallDetection, handlePoseResult, handleRimDetection, handlePlayerDetection)
   ↓
 VisionEngineAdapter.updateParsedResults()
   ↓
@@ -372,18 +384,12 @@ La nuova architettura tracking è **operativa in produzione** per Ball e Player.
 
 **Problemi Aperti:**
 
-1. **Shot Detection Dual Systems — INTENTIONALLY RETAINED** 🟡
-   - ShotDetectionEngine e ShotDetector implementano algoritmi differenti e non sono comportamentalmente equivalenti
-   - ShotDetectionEngine: authoritative per tracking state (usato da useTrackingEngine)
-     - Basato su: SHOT_LAUNCH_THRESHOLD=1.5, DESCENDING_VY_THRESHOLD=0.3, arc height + descending velocity
-     - Output: shotDetected, shotResult, inFlight, releasePoint, apexPoint
-   - ShotDetector: produce eventi per callback onShotEvent (usato da useShotTracker)
-     - Basato su: SHOT_CANDIDATE_THRESHOLD_Y=0.3, MIN_STABLE_FRAMES=5, stability + timeout 2s
-     - Output: ShotEvent con shotStarted, shotReleased, shotMade, shotMiss, releasePoint, releaseAngle
-   - **Decisione**: rimozione di ShotDetector rimandata a fase successiva
-   - **Roadmap futura**: analisi di equivalenza funzionale → decisione sull'algoritmo target → eventuale nuova versione dell'engine
-   - **Nota**: non è un semplice problema di "legacy code", ma una duplicazione funzionale con due consumer diversi
-   - Domanda futura: "Quale deve essere la source of truth dello shot event?" non "Come eliminiamo ShotDetector?"
+1. **Shot Detection Single Source of Truth — RISOLTO** ✅
+   - ShotDetector legacy rimosso (Fase 5)
+   - ShotDetectionEngine è ora l'unica source of truth per shot detection
+   - Path: Runtime → TrackingEngine → ShotDetectionEngine → onShotDetected callback
+   - Nessun duplicato computazionale shot detection
+   - Screenshot capture gestito in Runtime.onShotDetected
 
 2. **Runtime Subsystem Ownership - IN CORSO** 🟡
    - FASE A completata: Runtime ora possiede WorkoutQueue (ownership intermedio)
@@ -402,7 +408,7 @@ La nuova architettura tracking è **operativa in produzione** per Ball e Player.
    - VisionPipelineAdapter collega l'hook React all'interfaccia IVisionPipeline
    - Runtime ora controlla vision pipeline tramite adapter
    - Estrazione completa richiede refactor di useCameraPipeline (fase successiva)
-4. **useShotTracker Sovraccarico**: continua a fare frame processing, YOLO/MoveNet orchestration, player crop, shot detection legacy, rim filtering, telemetry, tracking callback, performance diagnostics, frame scheduling, error recovery, SharedValues, camera frame output
+4. **useShotTracker ridotto**: wrapper di workers (YOLO/MoveNet orchestration, player crop, rim filtering, telemetry, performance diagnostics, frame scheduling, error recovery, SharedValues, camera frame output) - shot detection legacy rimosso
 5. **Vision FPS Remnants - RIMOSSI** ✅
    - MoveNet 3 FPS limit rimosso (MOVENET_TARGET_FPS eliminato)
    - Adaptive FPS code rimosso da useYoloWorker.ts (lastSubmitTime, targetFps, adaptiveFpsEnabled eliminati)

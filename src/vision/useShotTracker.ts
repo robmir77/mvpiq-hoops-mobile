@@ -11,7 +11,7 @@ import type { Frame } from 'react-native-vision-camera'
 import { useSharedValue } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { ShotDetector } from './shotDetector'
+// ShotDetector removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine
 import { useYoloWorker } from './useYoloWorker'
 import { useYoloWorkerAsync } from './useYoloWorkerAsync'
 import { useMoveNetWorker } from './useMoveNetWorker'
@@ -63,6 +63,16 @@ export const useShotTracker = (
 
     onRimDetection?: (
         rim: {
+            x: number
+            y: number
+            width: number
+            height: number
+            confidence: number
+        }
+    ) => void,
+
+    onPlayerDetection?: (
+        player: {
             x: number
             y: number
             width: number
@@ -139,10 +149,7 @@ export const useShotTracker = (
         }
     }, [])
 
-    // Shot detector
-
-    const shotDetector =
-        useRef(new ShotDetector())
+    // Shot detector removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine
 
     const lastBallRef =
         useRef<{
@@ -374,6 +381,9 @@ export const useShotTracker = (
     const onRimDetectionRef =
         useRef(onRimDetection)
 
+    const onPlayerDetectionRef =
+        useRef(onPlayerDetection)
+
     useEffect(() => {
 
         onPoseResultRef.current =
@@ -387,6 +397,13 @@ export const useShotTracker = (
             onRimDetection
 
     }, [onRimDetection])
+
+    useEffect(() => {
+
+        onPlayerDetectionRef.current =
+            onPlayerDetection
+
+    }, [onPlayerDetection])
 
     // Shared flags
 
@@ -438,23 +455,6 @@ export const useShotTracker = (
                     detection
 
                 if (!ball) {
-
-                    const now =
-                        Date.now()
-
-                    if (
-                        lastBallRef.current &&
-                        now -
-                        lastBallRef.current.t >
-                        300
-                    ) {
-
-                        shotDetector.current.reset()
-
-                        lastBallRef.current =
-                            null
-                    }
-
                     // Return detection with null ball to enable Kalman prediction
                     return detection
                 }
@@ -521,11 +521,6 @@ export const useShotTracker = (
                             }
                             : filteredBall
 
-                shotDetector.current
-                    .updateTrajectory(
-                        ballForTracking
-                    )
-
                 if (ballForTracking) {
                     lastBallRef.current = {
                         x:
@@ -568,36 +563,7 @@ export const useShotTracker = (
                     return null
                 }
 
-                if (
-                    ballForTracking &&
-                    shotDetector.current
-                        .detectShotStart(
-                            ballForTracking
-                        )
-                ) {
-
-                    console.log(
-                        '[ShotTracker] Shot started'
-                    )
-                }
-
-                if (
-                    shotDetector.current
-                        .detectShotRelease()
-                ) {
-
-                    console.log(
-                        '[ShotTracker] Shot released'
-                    )
-
-                    const ev =
-                        shotDetector.current
-                            .getShotEvent()
-
-                    if (ev) {
-                        onShotEvent(ev)
-                    }
-                }
+                // Shot detection removed - now handled by Runtime → TrackingEngine → ShotDetectionEngine
 
                 // Filter detected rim: only use if close to calibration point
                 let filteredRim = detection.rim
@@ -624,47 +590,7 @@ export const useShotTracker = (
                     rimFromCalibration ||
                     null
 
-                if (
-                    shotDetector.current
-                        .detectShotMade(
-                            effectiveRim
-                        )
-                ) {
-
-                    console.log(
-                        '[ShotTracker] Shot made!'
-                    )
-
-                    const ev =
-                        shotDetector.current
-                            .getShotEvent()
-
-                    if (ev) {
-                        onShotEvent(ev)
-                    }
-
-                    shotDetector.current.reset()
-                }
-
-                if (
-                    shotDetector.current
-                        .detectShotMiss()
-                ) {
-
-                    console.log(
-                        '[ShotTracker] Shot missed!'
-                    )
-
-                    const ev =
-                        shotDetector.current
-                            .getShotEvent()
-
-                    if (ev) {
-                        onShotEvent(ev)
-                    }
-
-                    shotDetector.current.reset()
-                }
+                // Shot detection removed - now handled by Runtime → TrackingEngine → ShotDetectionEngine
 
                 // Return detection with filtered bbox for TrackingEngine
                 // Pass null ball to enable Kalman prediction when detection is filtered
@@ -675,7 +601,6 @@ export const useShotTracker = (
                 }
             },
             [
-                onShotEvent,
                 rimFromCalibration,
                 kalmanFilteredBall,
             ]
@@ -1084,6 +1009,8 @@ export const useShotTracker = (
                                 // Update visual tracking state
                                 playerTrackState.value = 'DETECTED'
                                 playerTrackAge.value = 0
+                                // Call onPlayerDetection callback for VisionEngine integration
+                                onPlayerDetectionRef.current?.(currentPlayer)
                                 // Check if the detection was accepted by the confidence filter
                                 const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
                                 if (trackedBbox) {
@@ -1372,7 +1299,7 @@ export const useShotTracker = (
     const resetShotTracking =
         useCallback(() => {
 
-            shotDetector.current.reset()
+            // ShotDetector removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine
 
             lastBallRef.current =
                 null

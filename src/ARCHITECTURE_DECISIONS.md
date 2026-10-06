@@ -1124,11 +1124,12 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
 - VisionEngine è la sorgente unica di detection (ball, player, rim, pose)
 - Runtime.processFrame() è il PRIMARY path quando VisionEngine è connesso
 - Path legacy esiste come fallback (skippato quando Runtime è attivo)
-- useShotTracker.ts verrà eliminato (1.447 righe legacy rimosse)
+- useShotTracker.ts ridotto a wrapper di workers (ShotDetector rimosso)
 - Architettura più pulita con separazione responsabilità
 - Shot detection non duplicata (solo TrackingEngine chiama ShotDetectionEngine)
+- PlayerDetection ora fluisce nel nuovo percorso Runtime
 
-**Stato:** ✅ FASE 3 & 4 COMPLETATE (CON CORREZIONI 4.1-4.3)
+**Stato:** ✅ FASE 3, 4 & 5 COMPLETATE (CON CORREZIONI 4.1-4.4)
 - Fase 1: ✅ COMPLETATO (IVisionEngine, VisionEngine, Runtime.processFrame, VisionEngineAdapter)
 - Fase 2: ✅ COMPLETATO (Estrazione YOLO/MoveNet in classi pure worklet-safe + integrazione worker + rimozione legacy)
 - Fase 3: ✅ COMPLETATO (VisionEngine integration - parsed results path, callbacks aggiornati, type conversion)
@@ -1136,4 +1137,5 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
   - Fase 4.1: ✅ COMPLETATO (VisionEngineAdapter partial update - non cancella altri risultati)
   - Fase 4.2: ✅ COMPLETATO (Runtime.processFrame() debounce 50ms - evita chiamate duplicate)
   - Fase 4.3: ✅ COMPLETATO (Legacy Shot Detection disattivata - single source of truth shot events)
-- Fase 5: ⏳ PENDING (Cleanup useShotTracker, rimozione path legacy)
+  - Fase 4.4: ✅ COMPLETATO (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
+- Fase 5: ✅ COMPLETATO (Legacy cleanup - ShotDetector rimosso da useShotTracker, handleShotEvent rimosso, VisionPipelineAdapter rimosso)
