@@ -78,12 +78,33 @@ export class TrackingEngine implements ITrackingEngine {
     poseKeypoints?: any,
     sizeCategory?: 'small' | 'medium' | 'large' | null,
     adaptThreshold?: number,
-    rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
+    rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
+    playerDetection?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
   ): TrackingState {
-    // Player center calculation from pose
+    // Player tracking: combine YOLO bbox (coarse detection) + MoveNet pose (articulated tracking)
+    // Policy: YOLO provides bbox for state, Pose provides precise center for spatial constraints
+    if (playerDetection) {
+      this.playerTrackingEngine.update(
+        playerDetection.x,
+        playerDetection.y,
+        playerDetection.width || 0,
+        playerDetection.height || 0,
+        playerDetection.confidence,
+        frameTs
+      )
+    }
+
+    // Player center calculation for spatial constraints
+    // Priority: Pose (precise) > YOLO bbox center (fallback)
     let playerCenter: { x: number; y: number } | null = null
     if (poseKeypoints) {
       playerCenter = this.playerTrackingEngine.updateFromPose(poseKeypoints)
+    } else if (playerDetection) {
+      // Fallback: calculate center from YOLO bbox
+      playerCenter = {
+        x: playerDetection.x + (playerDetection.width || 0) / 2,
+        y: playerDetection.y + (playerDetection.height || 0) / 2,
+      }
     }
 
     // Apply spatial constraints via TrackingCoordinator

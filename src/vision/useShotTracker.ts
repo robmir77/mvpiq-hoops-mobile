@@ -57,7 +57,7 @@ export const useShotTracker = (
         result: PoseResult
     ) => void,
 
-    onShotEvent: (
+    onShotEvent?: (
         event: ShotEvent
     ) => void,
 

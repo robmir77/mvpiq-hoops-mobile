@@ -42,7 +42,7 @@ export const useWorkoutVisionPipeline = (
   config: VisionPipelineConfig,
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult: (result: PoseResult) => void,
-  onShotEvent: (event: ShotEvent) => void,
+  onShotEvent?: (event: ShotEvent) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }) => void,
 ): UseWorkoutVisionPipelineResult => {

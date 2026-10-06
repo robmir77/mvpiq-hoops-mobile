@@ -65,7 +65,8 @@ export interface ITrackingEngine {
     poseKeypoints?: any,
     sizeCategory?: 'small' | 'medium' | 'large' | null,
     adaptThreshold?: number,
-    rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
+    rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
+    playerDetection?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
   ): any
   resetShot(): void
   resetAll(): void

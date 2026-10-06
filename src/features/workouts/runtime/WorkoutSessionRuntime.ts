@@ -171,7 +171,11 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       visionResult.ball,
       visionResult.rim,
       frame.timestamp,
-      visionResult.pose
+      visionResult.pose,
+      undefined, // sizeCategory
+      undefined, // adaptThreshold
+      undefined, // rejectedBall
+      visionResult.player
     )
 
     // Notify callback of tracking state update (Phase 4)
