@@ -50,7 +50,10 @@ export const useYoloWorker = (
   yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   yoloModelId?: string,
   yoloScheduledCount?: { value: number }, // Shared value for scheduler coordination
-  perfYoloScheduleWaitTotal?: any // SharedValue for schedule wait tracking
+  perfYoloScheduleWaitTotal?: any, // SharedValue for schedule wait tracking
+  perfYoloWorkletPrepTotal?: any, // SharedValue for worklet preprocessing (A→B)
+  perfYoloJsPreprocessTotal?: any, // SharedValue for JS preprocessing (C→D)
+  perfYoloPostprocessTotal?: any // SharedValue for postprocess/callback (E→F)
 ) => {
   // Pure YOLO detector instance (worklet-safe)
   const yoloDetectorRef = useRef(new YoloDetector(
@@ -213,20 +216,27 @@ export const useYoloWorker = (
     frameWidth: number,
     frameHeight: number,
     timestamp: number,
-    t0: number,
-    tScheduleStart: number,
+    tA: number,  // A: worklet start time
+    tB: number,  // B: worklet end time (before scheduleOnRN)
     resizeMs: number,
     resized: any
   ) => {
     try {
-      // Measure scheduling wait time (time from scheduleOnRN to actual execution)
-      const tCallbackStart = performance.now()
-      const scheduleWaitMs = tCallbackStart - tScheduleStart
+      const tC = performance.now() // C: callback start (JS thread)
 
-      const tRunStart = performance.now()
+      // Profiling B→C: worklet → JS scheduling wait
+      const scheduleWaitMs = tC - tB
+
+      // Profiling A→B: worklet preprocessing (resize + buffer extraction)
+      const workletPrepMs = tB - tA
+
+      // YOLO has no JS preprocessing (C→D is 0)
+      const jsPreprocessMs = 0
+
+      const tD = performance.now() // D: inference start (after JS preprocessing)
       const outputs = yoloModelInstance!.runSync([inputBuffer])
-      const tRunEnd = performance.now()
-      const runMs = tRunEnd - tRunStart
+      const tE = performance.now() // E: inference end
+      const runMs = tE - tD // D→E: inference time
       const rawOutput = outputs[0] as ArrayBufferLike
 
       // Parse YOLO output using pure YoloDetector class
@@ -240,7 +250,8 @@ export const useYoloWorker = (
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart
 
-      const t2 = performance.now()
+      const tF = performance.now() // F: callback end
+      const postprocessMs = tF - tE // E→F: postprocess/callback time
 
       let validBall = null
       if (ball) {
@@ -270,17 +281,34 @@ export const useYoloWorker = (
       latestResultDebug.value = debug
       latestResultTimestamp.value = timestamp
 
-      const inferenceTime = t2 - t0
+      const inferenceTime = tF - tA // Total time from worklet start to callback end
       lastInferenceMs.value = inferenceTime
       lastResizeMs.value = resizeMs
       lastRunMs.value = runMs
       lastParseMs.value = parseMs
       executionCount.value += 1
 
-      // Record schedule wait time if tracking is enabled
+      // Record detailed pipeline timing
       if (perfYoloScheduleWaitTotal) {
         perfYoloScheduleWaitTotal.value += scheduleWaitMs
       }
+      if (perfYoloWorkletPrepTotal) {
+        perfYoloWorkletPrepTotal.value += workletPrepMs
+      }
+      if (perfYoloJsPreprocessTotal) {
+        perfYoloJsPreprocessTotal.value += jsPreprocessMs
+      }
+      if (perfYoloPostprocessTotal) {
+        perfYoloPostprocessTotal.value += postprocessMs
+      }
+
+      // Record to telemetry logger for P50/P95/P99
+      telemetryLogger.recordYoloScheduleWait(scheduleWaitMs)
+      telemetryLogger.recordYoloWorkletPrep(workletPrepMs)
+      telemetryLogger.recordYoloJsPreprocess(jsPreprocessMs)
+      telemetryLogger.recordYoloInference(runMs)
+      telemetryLogger.recordYoloPostprocess(postprocessMs)
+
       const calculatedFps = 1000 / inferenceTime
       if (calculatedFps > 0) {
         theoreticalFps.value = calculatedFps
@@ -317,7 +345,7 @@ export const useYoloWorker = (
       isProcessing.value = false
       lastInferenceAt.value = Date.now()
     }
-  }, [yoloModelInstance, latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp, lastInferenceMs, lastResizeMs, lastRunMs, lastParseMs, executionCount, theoreticalFps, throughputFps, throughputWindowStart, inferenceCount, isProcessing, lastInferenceAt, recordTelemetry, perfYoloScheduleWaitTotal])
+  }, [yoloModelInstance, latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp, lastInferenceMs, lastResizeMs, lastRunMs, lastParseMs, executionCount, theoreticalFps, throughputFps, throughputWindowStart, inferenceCount, isProcessing, lastInferenceAt, recordTelemetry, perfYoloScheduleWaitTotal, perfYoloWorkletPrepTotal, perfYoloJsPreprocessTotal, perfYoloPostprocessTotal])
 
   // Process frame in worklet, then schedule async inference on JS thread
   // Phase 4.4: Removed adaptive FPS throttling - no temporal throttling per ARCHITECTURE.md
@@ -332,10 +360,10 @@ export const useYoloWorker = (
 
     let resized: any = null
     try {
-      const t0 = performance.now()
+      const tA = performance.now() // A: worklet start time
       resized = yoloResizer?.resize(frame)
-      const t1 = performance.now()
-      const resizeMs = t1 - t0
+      const tB = performance.now() // B: worklet end time (before scheduleOnRN)
+      const resizeMs = tB - tA
 
       if (resized) {
         const pixelBuffer = resized.getPixelBuffer()
@@ -344,10 +372,9 @@ export const useYoloWorker = (
         if (source.length === yoloInputElements) {
           // Pass buffer directly without slice() to avoid unnecessary copy
           const inputBuffer = source.buffer as ArrayBuffer
-          const tScheduleStart = performance.now()
 
           // ASYNC: Pass buffer to JS thread for inference
-          scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, t0, tScheduleStart, resizeMs, resized)
+          scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, tA, tB, resizeMs, resized)
         }
       }
 

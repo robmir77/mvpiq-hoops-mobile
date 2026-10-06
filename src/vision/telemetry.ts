@@ -22,6 +22,13 @@ export interface DiagnosticWindowSnapshot {
   yoloMinMs: number
   yoloMaxMs: number
   yoloScheduleWaitMs: number
+  yoloScheduleWaitP50: number
+  yoloScheduleWaitP95: number
+  yoloScheduleWaitP99: number
+  yoloWorkletPrepAvgMs: number
+  yoloJsPreprocessAvgMs: number
+  yoloInferenceAvgMs: number
+  yoloPostprocessAvgMs: number
   yoloResizeAvgMs: number
   yoloRunAvgMs: number
   yoloParseAvgMs: number
@@ -34,6 +41,9 @@ export interface DiagnosticWindowSnapshot {
   moveNetMaxMs: number
   moveNetWorkletPrepMs: number
   moveNetScheduleWaitMs: number
+  moveNetScheduleWaitP50: number
+  moveNetScheduleWaitP95: number
+  moveNetScheduleWaitP99: number
   moveNetCropAvgMs: number
   // moveNetResizeAvgMs removed - resize is now included in jsPreprocessMs
   moveNetQuantizationAvgMs: number
@@ -52,6 +62,9 @@ export interface YoloPerfMetrics {
   executed: number
   skipped: number
   scheduleWaitMs: number
+  scheduleWaitP50: number
+  scheduleWaitP95: number
+  scheduleWaitP99: number
   resizeMs: number
   runMs: number
   parseMs: number
@@ -98,6 +111,9 @@ export interface MoveNetMetrics {
   runMs: number
   parseMs: number
   scheduleWaitMs: number  // Time from scheduleOnRN to actual execution
+  scheduleWaitP50: number
+  scheduleWaitP95: number
+  scheduleWaitP99: number
 }
 
 export interface FalsePositiveMetrics {
@@ -163,7 +179,6 @@ export interface TestSummary {
 
 class TelemetryLogger {
   private modelMetadata: ModelMetadata | null = null
-  private yoloInferenceTimes: number[] = []
   private ballDetections: Array<{ confidence: number; timestamp: number }> = []
   private playerDetections: Array<{ confidence: number; bbox: { x: number; y: number; w: number; h: number }; timestamp: number }> = []
   private moveNetInferenceTimes: number[] = []
@@ -171,6 +186,14 @@ class TelemetryLogger {
   private moveNetKeypoints: Array<{ confidence: number; timestamp: number }> = []
   private falsePositives: Map<string, number> = new Map()
   private bboxHistory: Array<{ x: number; y: number; w: number; h: number; timestamp: number }> = []
+  
+  // Helper function to calculate percentiles
+  private calculatePercentile(values: number[], percentile: number): number {
+    if (values.length === 0) return 0
+    const sorted = [...values].sort((a, b) => a - b)
+    const index = Math.ceil((percentile / 100) * sorted.length) - 1
+    return sorted[Math.max(0, index)]
+  }
   private pipelineMetrics: PipelineMetrics = {
     cameraFPS: 0,
     received: 0,
@@ -199,6 +222,13 @@ class TelemetryLogger {
   private yoloResizeTimes: number[] = []
   private yoloRunTimes: number[] = []
   private yoloParseTimes: number[] = []
+  
+  // Detailed YOLO pipeline A→F timestamps (for schedule wait analysis)
+  // Pipeline: WORKLET(A→B) → rnScheduleWait(B→C) → JS/RN(C→D→E→F)
+  private yoloWorkletPrepTimes: number[] = []  // A→B: worklet preprocessing (resize + buffer extraction)
+  private yoloJsPreprocessTimes: number[] = []   // C→D: JS preprocessing (if any)
+  private yoloInferenceTimes: number[] = []     // D→E: TFLite inference (runSync)
+  private yoloPostprocessTimes: number[] = []    // E→F: postprocess/callback (parsing + SharedValue updates)
   
   // Granular MoveNet metrics
   private moveNetRequested: number = 0
@@ -239,6 +269,22 @@ class TelemetryLogger {
 
   private diagnosticWindows: DiagnosticWindowSnapshot[] = []
 
+  getYoloScheduleWaitPercentiles(): { p50: number; p95: number; p99: number } {
+    return {
+      p50: this.calculatePercentile(this.yoloScheduleWaitTimes, 50),
+      p95: this.calculatePercentile(this.yoloScheduleWaitTimes, 95),
+      p99: this.calculatePercentile(this.yoloScheduleWaitTimes, 99),
+    }
+  }
+
+  getMoveNetScheduleWaitPercentiles(): { p50: number; p95: number; p99: number } {
+    return {
+      p50: this.calculatePercentile(this.moveNetScheduleWaitTimes, 50),
+      p95: this.calculatePercentile(this.moveNetScheduleWaitTimes, 95),
+      p99: this.calculatePercentile(this.moveNetScheduleWaitTimes, 99),
+    }
+  }
+
   recordDiagnosticWindow(snapshot: DiagnosticWindowSnapshot): void {
     this.diagnosticWindows.push(snapshot)
     if (this.diagnosticWindows.length > 120) {
@@ -248,9 +294,9 @@ class TelemetryLogger {
     console.log('[PERF 1s]')
     console.log(`CAM  fps=${snapshot.cameraFps.toFixed(1)} recv=${snapshot.received} proc=${snapshot.processed} drop=${snapshot.droppedBusy} avg=${snapshot.onFrameAvgMs.toFixed(1)}ms max=${snapshot.onFrameMaxMs.toFixed(1)}ms`)
     console.log(`YOLO fps=${snapshot.yoloThroughputFps.toFixed(1)} exec=${snapshot.yoloExecuted} attempt=${snapshot.yoloRequested} skip=${snapshot.yoloSkipped} avg=${snapshot.yoloAvgMs.toFixed(1)}ms max=${snapshot.yoloMaxMs?.toFixed(1) ?? '0.0'}ms`)
-    console.log(`YOLO DETAIL schedule=${snapshot.yoloScheduleWaitMs.toFixed(1)}ms resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
+    console.log(`YOLO DETAIL workletPrep=${snapshot.yoloWorkletPrepAvgMs.toFixed(1)}ms schedule=${snapshot.yoloScheduleWaitMs.toFixed(1)}ms (P50=${snapshot.yoloScheduleWaitP50.toFixed(1)} P95=${snapshot.yoloScheduleWaitP95.toFixed(1)} P99=${snapshot.yoloScheduleWaitP99.toFixed(1)}) jsPreprocess=${snapshot.yoloJsPreprocessAvgMs.toFixed(1)}ms inference=${snapshot.yoloInferenceAvgMs.toFixed(1)}ms postprocess=${snapshot.yoloPostprocessAvgMs.toFixed(1)}ms resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
     console.log(`MOVE fps=${snapshot.moveNetThroughputFps.toFixed(1)} exec=${snapshot.moveNetExecuted} attempt=${snapshot.moveNetRequested} skip=${snapshot.moveNetSkipped} avg=${snapshot.moveNetAvgMs.toFixed(1)}ms max=${snapshot.moveNetMaxMs?.toFixed(1) ?? '0.0'}ms`)
-    console.log(`MOVE DETAIL prep=${snapshot.moveNetWorkletPrepMs.toFixed(1)}ms schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms quant=${snapshot.moveNetQuantizationAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
+    console.log(`MOVE DETAIL prep=${snapshot.moveNetWorkletPrepMs.toFixed(1)}ms schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms (P50=${snapshot.moveNetScheduleWaitP50.toFixed(1)} P95=${snapshot.moveNetScheduleWaitP95.toFixed(1)} P99=${snapshot.moveNetScheduleWaitP99.toFixed(1)}) crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms quant=${snapshot.moveNetQuantizationAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
     this.logRnWorkMetrics()
   }
 
@@ -325,7 +371,8 @@ class TelemetryLogger {
     console.log('[MOVENET]', `modelInput=${inputSize}x${inputSize}`)
   }
 
-  recordYoloInference(inferenceTimeMs: number): void {
+  recordYoloInferenceLegacy(inferenceTimeMs: number): void {
+    // Legacy method for backward compatibility - now records to yoloInferenceTimes
     this.yoloInferenceTimes.push(inferenceTimeMs)
     if (this.yoloInferenceTimes.length > 300) {
       this.yoloInferenceTimes.shift()
@@ -375,9 +422,37 @@ class TelemetryLogger {
     }
   }
 
+  recordYoloWorkletPrep(workletPrepMs: number): void {
+    this.yoloWorkletPrepTimes.push(workletPrepMs)
+    if (this.yoloWorkletPrepTimes.length > 300) {
+      this.yoloWorkletPrepTimes.shift()
+    }
+  }
+
+  recordYoloJsPreprocess(jsPreprocessMs: number): void {
+    this.yoloJsPreprocessTimes.push(jsPreprocessMs)
+    if (this.yoloJsPreprocessTimes.length > 300) {
+      this.yoloJsPreprocessTimes.shift()
+    }
+  }
+
+  recordYoloInference(inferenceMs: number): void {
+    this.yoloInferenceTimes.push(inferenceMs)
+    if (this.yoloInferenceTimes.length > 300) {
+      this.yoloInferenceTimes.shift()
+    }
+  }
+
+  recordYoloPostprocess(postprocessMs: number): void {
+    this.yoloPostprocessTimes.push(postprocessMs)
+    if (this.yoloPostprocessTimes.length > 300) {
+      this.yoloPostprocessTimes.shift()
+    }
+  }
+
   getYoloPerfMetrics(): YoloPerfMetrics {
     if (this.yoloInferenceTimes.length === 0) {
-      return { throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: this.yoloRequested, executed: this.yoloExecuted, skipped: this.yoloRequested - this.yoloExecuted, scheduleWaitMs: 0, resizeMs: 0, runMs: 0, parseMs: 0 }
+      return { throughputFps: 0, theoreticalFps: 0, avgMs: 0, minMs: 0, maxMs: 0, samples: 0, requested: this.yoloRequested, executed: this.yoloExecuted, skipped: this.yoloRequested - this.yoloExecuted, scheduleWaitMs: 0, scheduleWaitP50: 0, scheduleWaitP95: 0, scheduleWaitP99: 0, resizeMs: 0, runMs: 0, parseMs: 0 }
     }
 
     const avgMs = this.yoloInferenceTimes.reduce((a, b) => a + b, 0) / this.yoloInferenceTimes.length
@@ -396,6 +471,9 @@ class TelemetryLogger {
     }
 
     const avgScheduleWaitMs = this.yoloScheduleWaitTimes.length > 0 ? this.yoloScheduleWaitTimes.reduce((a, b) => a + b, 0) / this.yoloScheduleWaitTimes.length : 0
+    const yoloScheduleWaitP50 = this.calculatePercentile(this.yoloScheduleWaitTimes, 50)
+    const yoloScheduleWaitP95 = this.calculatePercentile(this.yoloScheduleWaitTimes, 95)
+    const yoloScheduleWaitP99 = this.calculatePercentile(this.yoloScheduleWaitTimes, 99)
     const avgResizeMs = this.yoloResizeTimes.length > 0 ? this.yoloResizeTimes.reduce((a, b) => a + b, 0) / this.yoloResizeTimes.length : 0
     const avgRunMs = this.yoloRunTimes.length > 0 ? this.yoloRunTimes.reduce((a, b) => a + b, 0) / this.yoloRunTimes.length : 0
     const avgParseMs = this.yoloParseTimes.length > 0 ? this.yoloParseTimes.reduce((a, b) => a + b, 0) / this.yoloParseTimes.length : 0
@@ -411,6 +489,9 @@ class TelemetryLogger {
       executed: this.yoloExecuted,
       skipped,
       scheduleWaitMs: avgScheduleWaitMs,
+      scheduleWaitP50: yoloScheduleWaitP50,
+      scheduleWaitP95: yoloScheduleWaitP95,
+      scheduleWaitP99: yoloScheduleWaitP99,
       resizeMs: avgResizeMs,
       runMs: avgRunMs,
       parseMs: avgParseMs,
@@ -843,6 +924,9 @@ class TelemetryLogger {
         runMs: 0,
         parseMs: 0,
         scheduleWaitMs: 0,
+        scheduleWaitP50: 0,
+        scheduleWaitP95: 0,
+        scheduleWaitP99: 0,
       }
     }
 
@@ -879,6 +963,9 @@ class TelemetryLogger {
     const avgRunMs = this.moveNetRunTimes.length > 0 ? this.moveNetRunTimes.reduce((a, b) => a + b, 0) / this.moveNetRunTimes.length : 0
     const avgParseMs = this.moveNetParseTimes.length > 0 ? this.moveNetParseTimes.reduce((a, b) => a + b, 0) / this.moveNetParseTimes.length : 0
     const avgScheduleWaitMs = this.moveNetScheduleWaitTimes.length > 0 ? this.moveNetScheduleWaitTimes.reduce((a, b) => a + b, 0) / this.moveNetScheduleWaitTimes.length : 0
+    const moveNetScheduleWaitP50 = this.calculatePercentile(this.moveNetScheduleWaitTimes, 50)
+    const moveNetScheduleWaitP95 = this.calculatePercentile(this.moveNetScheduleWaitTimes, 95)
+    const moveNetScheduleWaitP99 = this.calculatePercentile(this.moveNetScheduleWaitTimes, 99)
 
     return {
       modelInput: this.moveNetModelInput,
@@ -901,6 +988,9 @@ class TelemetryLogger {
       runMs: avgRunMs,
       parseMs: avgParseMs,
       scheduleWaitMs: avgScheduleWaitMs,
+      scheduleWaitP50: moveNetScheduleWaitP50,
+      scheduleWaitP95: moveNetScheduleWaitP95,
+      scheduleWaitP99: moveNetScheduleWaitP99,
     }
   }
 

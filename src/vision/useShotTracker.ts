@@ -193,6 +193,9 @@ export const useShotTracker = (
     const perfYoloInferenceMin = useSharedValue(0)
     const perfYoloInferenceMax = useSharedValue(0)
     const perfYoloScheduleWaitTotal = useSharedValue(0)
+    const perfYoloWorkletPrepTotal = useSharedValue(0)
+    const perfYoloJsPreprocessTotal = useSharedValue(0)
+    const perfYoloPostprocessTotal = useSharedValue(0)
     const perfYoloResizeTotal = useSharedValue(0)
     const perfYoloRunTotal = useSharedValue(0)
     const perfYoloParseTotal = useSharedValue(0)
@@ -236,7 +239,10 @@ export const useShotTracker = (
         yoloDelegate,
         yoloModelId,
         undefined,
-        perfYoloScheduleWaitTotal
+        perfYoloScheduleWaitTotal,
+        perfYoloWorkletPrepTotal,
+        perfYoloJsPreprocessTotal,
+        perfYoloPostprocessTotal
     )
 
     // yoloWorkerAsync will be initialized after handleYoloAsyncResult is defined
@@ -346,7 +352,21 @@ export const useShotTracker = (
 
 
     const recordDiagnosticWindow = useCallback((snapshot: DiagnosticWindowSnapshot) => {
-        telemetryLogger.recordDiagnosticWindow(snapshot)
+        // Calculate percentiles on JS thread where telemetryLogger is accessible
+        const yoloPercentiles = telemetryLogger.getYoloScheduleWaitPercentiles()
+        const moveNetPercentiles = telemetryLogger.getMoveNetScheduleWaitPercentiles()
+        
+        const snapshotWithPercentiles: DiagnosticWindowSnapshot = {
+            ...snapshot,
+            yoloScheduleWaitP50: yoloPercentiles.p50,
+            yoloScheduleWaitP95: yoloPercentiles.p95,
+            yoloScheduleWaitP99: yoloPercentiles.p99,
+            moveNetScheduleWaitP50: moveNetPercentiles.p50,
+            moveNetScheduleWaitP95: moveNetPercentiles.p95,
+            moveNetScheduleWaitP99: moveNetPercentiles.p99,
+        }
+        
+        telemetryLogger.recordDiagnosticWindow(snapshotWithPercentiles)
     }, [])
 
 
@@ -859,6 +879,21 @@ export const useShotTracker = (
                         yoloScheduleWaitMs: yoloExecuted > 0
                             ? perfYoloScheduleWaitTotal.value / yoloExecuted
                             : 0,
+                        yoloScheduleWaitP50: 0, // Calculated in recordDiagnosticWindow on JS thread
+                        yoloScheduleWaitP95: 0, // Calculated in recordDiagnosticWindow on JS thread
+                        yoloScheduleWaitP99: 0, // Calculated in recordDiagnosticWindow on JS thread
+                        yoloWorkletPrepAvgMs: yoloExecuted > 0
+                            ? perfYoloWorkletPrepTotal.value / yoloExecuted
+                            : 0,
+                        yoloJsPreprocessAvgMs: yoloExecuted > 0
+                            ? perfYoloJsPreprocessTotal.value / yoloExecuted
+                            : 0,
+                        yoloInferenceAvgMs: yoloExecuted > 0
+                            ? perfYoloInferenceTotal.value / yoloExecuted
+                            : 0,
+                        yoloPostprocessAvgMs: yoloExecuted > 0
+                            ? perfYoloPostprocessTotal.value / yoloExecuted
+                            : 0,
                         yoloResizeAvgMs: yoloExecuted > 0
                             ? perfYoloResizeTotal.value / yoloExecuted
                             : 0,
@@ -883,6 +918,9 @@ export const useShotTracker = (
                         moveNetScheduleWaitMs: moveNetExecuted > 0
                             ? perfMoveNetRnScheduleWaitTotal.value / moveNetExecuted
                             : 0,
+                        moveNetScheduleWaitP50: 0, // Calculated in recordDiagnosticWindow on JS thread
+                        moveNetScheduleWaitP95: 0, // Calculated in recordDiagnosticWindow on JS thread
+                        moveNetScheduleWaitP99: 0, // Calculated in recordDiagnosticWindow on JS thread
                         moveNetCropAvgMs: moveNetExecuted > 0
                             ? perfMoveNetCropTotal.value / moveNetExecuted
                             : 0,
