@@ -232,7 +232,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   }
 
   private async initializeTrackingEngine(): Promise<void> {
-    // Tracking engine is now provided via setTrackingEngine()
+    // Phase 4.5: Tracking engine is now provided via setTrackingEngine()
     // The Runtime coordinates the tracking engines but doesn't own them
     // They are owned by the React hook (useTrackingEngine) for now
     if (this.trackingEngine) {

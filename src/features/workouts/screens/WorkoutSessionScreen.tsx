@@ -554,6 +554,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         setModelsReady(isModelReady)
     }, [isModelReady])
 
+    // Phase 4.5: Connect TrackingEngine to Runtime after both are initialized
+    useEffect(() => {
+        const trackingEngine = tracking.getTrackingEngine()
+        if (trackingEngine && runtimeRef.current) {
+            runtimeRef.current.setTrackingEngine(trackingEngine)
+            console.log('[WorkoutSession] TrackingEngine connected to runtime')
+        }
+    }, [tracking])
+
     const loadSession = async () => {
         if (!user?.id || !sessionId) return
         try {
@@ -602,7 +611,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             runtimeRef.current = runtime
             console.log('[WorkoutSession] Runtime initialized')
 
-            // Connect subsystems to runtime (Phase 4.4.2)
+            // Connect subsystems to runtime (Phase 4.5)
             if (telemetrySamplerRef.current) {
                 runtime.setTelemetrySampler(telemetrySamplerRef.current)
                 console.log('[WorkoutSession] Telemetry sampler connected to runtime')
@@ -612,6 +621,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 runtime.setWorkoutQueue(workoutQueueRef.current)
                 console.log('[WorkoutSession] WorkoutQueue connected to runtime')
             }
+
+            // Note: TrackingEngine will be connected after useTrackingEngine is initialized
+            // This happens in the component body, not in loadSession
+            // We'll connect it via a ref update after the hook is called
 
             // Start the runtime session
             await runtime.start()
