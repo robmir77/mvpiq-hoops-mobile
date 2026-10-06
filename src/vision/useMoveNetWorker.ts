@@ -96,7 +96,7 @@ export const useMoveNetWorker = (
   perfMoveNetWorkletPrepTotal?: any,
   perfMoveNetScheduleWaitTotal?: any,
   perfMoveNetCropTotal?: any,
-  perfMoveNetResizeTotal?: any,
+  // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
   perfMoveNetRunTotal?: any,
   perfMoveNetParseTotal?: any,
 ) => {
@@ -126,6 +126,14 @@ export const useMoveNetWorker = (
   const lastResizeMs = useSharedValue(0)
   const lastRunMs = useSharedValue(0)
   const lastParseMs = useSharedValue(0)
+
+  // Profiling A→F timestamps (for detailed scheduling analysis)
+  // Pipeline: WORKLET(A→B) → scheduleWait(B→C) → JS/RN(C→D→E→F)
+  const profWorkletPrepMs = useSharedValue(0)  // A→B: worklet preprocessing (crop geometry + intermediate resize + buffer extraction)
+  const profScheduleWaitMs = useSharedValue(0) // B→C: worklet → JS scheduling wait
+  const profJsPreprocessMs = useSharedValue(0)  // C→D: JS preprocessing (CPU crop + final resize)
+  const profInferenceMs = useSharedValue(0)     // D→E: TFLite inference (runSync)
+  const profPostprocessMs = useSharedValue(0)   // E→F: postprocess/callback (parsing + SharedValue updates)
 
   const isReady = useSharedValue(false)
   const moveNetStartTime = useSharedValue(0)
@@ -194,10 +202,8 @@ export const useMoveNetWorker = (
     frameWidth: number,
     frameHeight: number,
     timestamp: number,
-    t0: number,
-    tScheduleStart: number,
-    cropMs: number,
-    resizeMs: number,
+    tA: number,  // A: worklet start time
+    tB: number,  // B: worklet end time (before scheduleOnRN)
     resized: any
   ) => {
     // Skip if unmounted
@@ -212,22 +218,25 @@ export const useMoveNetWorker = (
       return
     }
 
-    const tCallbackStart = performance.now()
+    const tC = performance.now() // C: callback start (JS thread)
 
     telemetryLogger.recordRnMoveNetScheduled()
 
     try {
-      // Measure scheduling wait time (time from scheduleOnRN to actual execution)
-      const scheduleWaitMs = tCallbackStart - tScheduleStart
-      const workletPrepMs = tScheduleStart - t0
+      // Profiling B→C: worklet → JS scheduling wait
+      const scheduleWaitMs = tC - tB
+
+      // Profiling A→B: worklet preprocessing (crop geometry + intermediate resize + buffer extraction)
+      const workletPrepMs = tB - tA
 
       telemetryLogger.recordRnMoveNetCallbackStart()
 
       // CPU crop + resize to final size (now on JS thread, not in worklet)
-      const tCropCpuStart = performance.now()
+      const tCropCpuStart = performance.now() // Start of C→D: JS preprocessing
 
       let inputSource: Float32Array
-      let totalCropMs = cropMs
+      let totalCropMs = 0
+      let jsPreprocessMs = 0
 
       if (cropRegion && intermediateBuffer.length === intermediateWidth * intermediateHeight * 3) {
         // Scale crop region to intermediate dimensions
@@ -250,7 +259,8 @@ export const useMoveNetWorker = (
         )
 
         const tCropCpuEnd = performance.now()
-        totalCropMs = cropMs + (tCropCpuEnd - tCropCpuStart)
+        totalCropMs = tCropCpuEnd - tCropCpuStart
+        jsPreprocessMs = tCropCpuEnd - tCropCpuStart // C→D: JS preprocessing time
 
         if (__DEV__) {
           console.log(
@@ -300,7 +310,8 @@ export const useMoveNetWorker = (
         }
 
         const tCropCpuEnd = performance.now()
-        totalCropMs = cropMs + (tCropCpuEnd - tCropCpuStart)
+        totalCropMs = tCropCpuEnd - tCropCpuStart
+        jsPreprocessMs = tCropCpuEnd - tCropCpuStart // C→D: JS preprocessing time
 
         if (__DEV__) {
           console.log(
@@ -356,10 +367,10 @@ export const useMoveNetWorker = (
         inputBuffer = inputSource.buffer as ArrayBuffer
       }
 
-      const tRunStart = performance.now()
+      const tD = performance.now() // D: inference start (after JS preprocessing)
       const outputs = await poseModelInstance!.run([inputBuffer])
-      const tRunEnd = performance.now()
-      const runMs = tRunEnd - tRunStart
+      const tE = performance.now() // E: inference end
+      const runMs = tE - tD // D→E: inference time
 
       // The MoveNet INT8 model outputs a Float32 tensor for keypoints
       const output = new Float32Array(outputs[0])
@@ -370,7 +381,7 @@ export const useMoveNetWorker = (
         console.log('[POSE RAW] outputLength=', outputLength)
       }
 
-      const tParseStart = performance.now()
+      const tParseStart = performance.now() // Start of E→F: postprocess
       const poseResult = moveNetEstimatorRef.current.parseOutput(output, 17)
       // Convert Record<string, Keypoint> to PoseKeypoints format expected by computeJointAngles
       const keypoints: PoseKeypoints = {
@@ -390,6 +401,9 @@ export const useMoveNetWorker = (
       const angles = computeJointAngles(keypoints)
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart
+
+      const tF = performance.now() // F: callback end
+      const postprocessMs = tF - tE // E→F: postprocess/callback time
 
       // Enhanced logging with valid keypoints (single pass optimization)
       const keypointsCount = Object.keys(keypoints).length
@@ -455,14 +469,12 @@ export const useMoveNetWorker = (
         }
       }
 
-      const t2 = performance.now()
-
       latestResultKeypoints.value = finalKeypoints
       latestResultAngles.value = angles
       latestResultTimestamp.value = timestamp
       latestCropInfo.value = cropInfo
 
-      const inferenceTime = t2 - t0
+      const inferenceTime = tF - tA // Total time from worklet start to callback end
       // theoreticalFps removed - it's latency-based, not throughput-based
       // Real throughput is calculated in telemetry based on executed / elapsed time
 
@@ -470,7 +482,7 @@ export const useMoveNetWorker = (
       executionCount.value += 1
       lastInferenceMs.value = inferenceTime
       lastCropMs.value = totalCropMs
-      lastResizeMs.value = resizeMs
+      lastResizeMs.value = 0 // No longer measured separately (included in jsPreprocessMs)
       lastRunMs.value = runMs
       lastParseMs.value = parseMs
 
@@ -479,9 +491,16 @@ export const useMoveNetWorker = (
       telemetryWorkletPrepMs.value = workletPrepMs
       telemetryScheduleWaitMs.value = scheduleWaitMs
       telemetryCropMs.value = totalCropMs
-      telemetryResizeMs.value = resizeMs
+      telemetryResizeMs.value = 0 // No longer measured separately (included in jsPreprocessMs)
       telemetryRunMs.value = runMs
       telemetryParseMs.value = parseMs
+
+      // Update profiling A→F timestamps
+      profWorkletPrepMs.value = workletPrepMs
+      profScheduleWaitMs.value = scheduleWaitMs
+      profJsPreprocessMs.value = jsPreprocessMs
+      profInferenceMs.value = runMs
+      profPostprocessMs.value = postprocessMs
       // Single pass for keypoints confidence calculation
       let finalValidCount = 0
       let finalConfidenceSum = 0
@@ -519,9 +538,7 @@ export const useMoveNetWorker = (
       if (perfMoveNetCropTotal) {
         perfMoveNetCropTotal.value += totalCropMs
       }
-      if (perfMoveNetResizeTotal) {
-        perfMoveNetResizeTotal.value += resizeMs
-      }
+      // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
       if (perfMoveNetRunTotal) {
         perfMoveNetRunTotal.value += runMs
       }
@@ -560,7 +577,7 @@ export const useMoveNetWorker = (
       isProcessing.value = false
     } finally {
       const tCallbackEnd = performance.now()
-      const callbackExecutionMs = tCallbackEnd - tCallbackStart
+      const callbackExecutionMs = tCallbackEnd - tC
       telemetryLogger.recordRnMoveNetCallbackExecution(callbackExecutionMs)
     }
   }, [poseModelInstance, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, telemetryInferenceTime, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, isProcessing, perfMoveNetWorkletPrepTotal, perfMoveNetScheduleWaitTotal])
@@ -842,7 +859,7 @@ export const useMoveNetWorker = (
     let resized: any = null
     let cropInfo: PlayerCropResult | null = null
     let usingPlayerCrop = false
-    const t0 = performance.now()
+    const tA = performance.now() // A: worklet start (A→B: worklet preprocessing)
     let cropGeometryMs = 0
     let bufferExtractMs = 0
 
@@ -978,9 +995,9 @@ export const useMoveNetWorker = (
 
         // ASYNC: Pass intermediate buffer to JS thread for CPU crop + inference
         // CPU crop is now done on JS thread, NOT in worklet (frame processor)
-        const tScheduleStart = performance.now()
+        const tB = performance.now() // B: worklet end (before scheduleOnRN)
 
-        scheduleOnRN(runMoveNetInference, floatSource, intermediateWidth, intermediateHeight, cropRegion, cropInfo, usingPlayerCrop, frameWidth, frameHeight, timestamp, t0, tScheduleStart, cropMs, resizeMs, resized)
+        scheduleOnRN(runMoveNetInference, floatSource, intermediateWidth, intermediateHeight, cropRegion, cropInfo, usingPlayerCrop, frameWidth, frameHeight, timestamp, tA, tB, resized)
       }
 
     } catch (error) {
@@ -997,7 +1014,7 @@ export const useMoveNetWorker = (
 
       isProcessing.value = false
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryScheduleWaitMs, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, telemetryDroppedBusy, telemetrySkipped, telemetryRequested, telemetryExecuted, lastDisposeTimestamp, poseInputSize, perfMoveNetRequested, perfMoveNetExecuted, perfMoveNetSkipped, perfMoveNetInferenceTotal, perfMoveNetInferenceMin, perfMoveNetInferenceMax, perfMoveNetCropTotal, perfMoveNetResizeTotal, perfMoveNetRunTotal, perfMoveNetParseTotal])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryScheduleWaitMs, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, telemetryDroppedBusy, telemetrySkipped, telemetryRequested, telemetryExecuted, lastDisposeTimestamp, poseInputSize, perfMoveNetRequested, perfMoveNetExecuted, perfMoveNetSkipped, perfMoveNetInferenceTotal, perfMoveNetInferenceMin, perfMoveNetInferenceMax, perfMoveNetCropTotal, perfMoveNetRunTotal, perfMoveNetParseTotal])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -1035,6 +1052,11 @@ export const useMoveNetWorker = (
     lastResizeMs,
     lastRunMs,
     lastParseMs,
+    profWorkletPrepMs,
+    profScheduleWaitMs,
+    profJsPreprocessMs,
+    profInferenceMs,
+    profPostprocessMs,
     latestResultKeypoints,
     latestResultAngles,
     latestResultTimestamp,

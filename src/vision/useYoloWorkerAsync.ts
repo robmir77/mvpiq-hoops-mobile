@@ -36,7 +36,9 @@ interface FrameData {
   timestamp: number
   frameCounter: number
   resizeMs: number
-  scheduleStartMs: number  // Time when scheduleOnRN was called (worklet time)
+  bufferExtractMs: number
+  tA: number  // A: worklet start time
+  tB: number  // B: worklet end time (before scheduleOnRN)
 }
 
 // Fixed YOLO target FPS - deterministic, no adaptation
@@ -64,6 +66,13 @@ interface YoloWorkerReturn {
   yoloExecutedCount: SharedValue<number>
   yoloSkippedCount: SharedValue<number>
   onResultCallback: ((result: YoloWorkerResult) => void) | null
+  // Profiling A→F timestamps
+  // Pipeline: WORKLET(A→B) → scheduleWait(B→C) → JS/RN(C→D→E→F)
+  profWorkletPrepMs: SharedValue<number>  // A→B: worklet preprocessing (resize + buffer extraction)
+  profScheduleWaitMs: SharedValue<number> // B→C: worklet → JS scheduling wait
+  profJsPreprocessMs: SharedValue<number>  // C→D: JS preprocessing (none for YOLO, resize is in worklet)
+  profInferenceMs: SharedValue<number>     // D→E: TFLite inference (runSync)
+  profPostprocessMs: SharedValue<number>   // E→F: postprocess/callback (parsing + SharedValue updates)
 }
 
 export const useYoloWorkerAsync = (
@@ -127,6 +136,14 @@ export const useYoloWorkerAsync = (
   const lastResizeMs = useSharedValue(0)
   const lastRunMs = useSharedValue(0)
   const lastParseMs = useSharedValue(0)
+
+  // Profiling A→F timestamps (for detailed scheduling analysis)
+  // Pipeline: WORKLET(A→B) → scheduleWait(B→C) → JS/RN(C→D→E→F)
+  const profWorkletPrepMs = useSharedValue(0)  // A→B: worklet preprocessing (resize + buffer extraction)
+  const profScheduleWaitMs = useSharedValue(0) // B→C: worklet → JS scheduling wait
+  const profJsPreprocessMs = useSharedValue(0)  // C→D: JS preprocessing (none for YOLO, resize is in worklet)
+  const profInferenceMs = useSharedValue(0)     // D→E: TFLite inference (runSync)
+  const profPostprocessMs = useSharedValue(0)   // E→F: postprocess/callback (parsing + SharedValue updates)
   const executionCount = useSharedValue(0)
 
   const selectedYoloModel = useMemo(() => getYoloModel(yoloModelId), [yoloModelId])
@@ -219,11 +236,16 @@ export const useYoloWorkerAsync = (
     telemetryLogger.recordYoloRequested()
     telemetryLogger.recordRnYoloScheduled()
 
-    const tCallbackStart = performance.now()
+    const tC = performance.now() // C: callback start (JS thread)
 
     try {
-      const { inputBuffer, frameWidth, frameHeight, timestamp, frameCounter, resizeMs, scheduleStartMs } = frameData
-      const scheduleWaitMs = tCallbackStart - scheduleStartMs
+      const { inputBuffer, frameWidth, frameHeight, timestamp, frameCounter, resizeMs, bufferExtractMs, tA, tB } = frameData
+
+      // Profiling B→C: worklet → JS scheduling wait
+      const scheduleWaitMs = tC - tB
+
+      // Profiling A→B: worklet preprocessing (resize + buffer extraction)
+      const workletPrepMs = tB - tA
 
       telemetryLogger.recordRnYoloCallbackStart()
 
@@ -231,9 +253,8 @@ export const useYoloWorkerAsync = (
       if (__DEV__ && frameCounter && frameCounter % 100 === 0) {
         console.log('[YoloWorkerAsync] scheduling diagnostics', {
           frameCounter,
-          scheduleStartMs,
-          callbackStart: tCallbackStart,
-          scheduleWaitMs,
+          callbackStart: tC,
+          scheduleWaitMs: scheduleWaitMs,
           queueDepth: scheduleWaitMs.toFixed(1) + 'ms'
         })
       }
@@ -243,20 +264,20 @@ export const useYoloWorkerAsync = (
         perfYoloScheduleWaitTotal.value += scheduleWaitMs
       }
 
-      const t0 = performance.now()
+      const tD = performance.now() // D: inference start (no JS preprocessing for YOLO)
 
-      // Use resizeMs measured in worklet
+      // Profiling C→D: JS preprocessing (none for YOLO, resize is in worklet)
+      const jsPreprocessMs = 0
 
       const source = new Float32Array(inputBuffer)
 
       if (source.length === yoloInputElements) {
-        const tRunStart = performance.now()
         const outputs = yoloModelInstance!.runSync([inputBuffer])
-        const tRunEnd = performance.now()
-        const runMs = tRunEnd - tRunStart
+        const tE = performance.now() // E: inference end
+        const runMs = tE - tD // D→E: inference time
         const rawOutput = outputs[0] as ArrayBufferLike
 
-        const tParseStart = performance.now()
+        const tParseStart = performance.now() // Start of E→F: postprocess
         const output = new Float32Array(rawOutput)
         const result = yoloDetectorRef.current.parseOutput(output, frameWidth, frameHeight)
         const ball = result.ball
@@ -266,7 +287,8 @@ export const useYoloWorkerAsync = (
         const tParseEnd = performance.now()
         const parseMs = tParseEnd - tParseStart
 
-        const t2 = performance.now()
+        const tF = performance.now() // F: callback end
+        const postprocessMs = tF - tE // E→F: postprocess/callback time
 
         let validBall = null
         if (ball) {
@@ -317,7 +339,7 @@ export const useYoloWorkerAsync = (
         latestResultDebug.value = debug
         latestResultTimestamp.value = timestamp
 
-        const inferenceTime = t2 - t0
+        const inferenceTime = tF - tA // Total time from worklet start to callback end
         lastInferenceMs.value = inferenceTime
         lastResizeMs.value = resizeMs
         lastRunMs.value = runMs
@@ -333,6 +355,13 @@ export const useYoloWorkerAsync = (
         telemetryLogger.recordYoloRun(runMs)
         telemetryLogger.recordYoloParse(parseMs)
         telemetryLogger.recordYoloScheduleWait(scheduleWaitMs)
+
+        // Update profiling A→F timestamps
+        profWorkletPrepMs.value = workletPrepMs
+        profScheduleWaitMs.value = scheduleWaitMs
+        profJsPreprocessMs.value = jsPreprocessMs
+        profInferenceMs.value = runMs
+        profPostprocessMs.value = postprocessMs
 
         // Notify callback if provided
         if (onResultCallbackRef.current) {
@@ -361,7 +390,7 @@ export const useYoloWorkerAsync = (
       console.error('[YoloWorkerAsync] Error processing frame:', error)
     } finally {
       const tCallbackEnd = performance.now()
-      const callbackExecutionMs = tCallbackEnd - tCallbackStart
+      const callbackExecutionMs = tCallbackEnd - tC
       telemetryLogger.recordRnYoloCallbackExecution(callbackExecutionMs)
 
       isProcessing.value = false
@@ -409,10 +438,10 @@ export const useYoloWorkerAsync = (
     let bufferExtractMs = 0
 
     try {
-      const t0 = performance.now()
+      const tA = performance.now() // A: worklet start (A→B: worklet preprocessing)
       resized = yoloResizer.resize(frame)
       const t1 = performance.now()
-      resizeMs = t1 - t0
+      resizeMs = t1 - tA
 
       const tBufferStart = performance.now()
       if (resized) {
@@ -429,7 +458,7 @@ export const useYoloWorkerAsync = (
 
       if (inputBuffer) {
         // Create frame data object with extracted buffer
-        const tScheduleStart = performance.now()
+        const tB = performance.now() // B: worklet end (before scheduleOnRN)
         const frameData: FrameData = {
           inputBuffer,
           frameWidth: frame.width,
@@ -437,7 +466,9 @@ export const useYoloWorkerAsync = (
           timestamp,
           frameCounter: frameCounter || 0,
           resizeMs,
-          scheduleStartMs: tScheduleStart,
+          bufferExtractMs,
+          tA,
+          tB,
         }
 
         // Log worklet timing every 100 frames
@@ -505,6 +536,11 @@ export const useYoloWorkerAsync = (
     lastParseMs,
     executionCount,
     theoreticalFps,
+    profWorkletPrepMs,
+    profScheduleWaitMs,
+    profJsPreprocessMs,
+    profInferenceMs,
+    profPostprocessMs,
     latestResultBall,
     latestResultPlayer,
     latestResultRim,

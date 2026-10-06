@@ -35,7 +35,7 @@ export interface DiagnosticWindowSnapshot {
   moveNetWorkletPrepMs: number
   moveNetScheduleWaitMs: number
   moveNetCropAvgMs: number
-  moveNetResizeAvgMs: number
+  // moveNetResizeAvgMs removed - resize is now included in jsPreprocessMs
   moveNetRunAvgMs: number
   moveNetParseAvgMs: number
 }
@@ -247,7 +247,7 @@ class TelemetryLogger {
     console.log(`YOLO fps=${snapshot.yoloThroughputFps.toFixed(1)} exec=${snapshot.yoloExecuted} attempt=${snapshot.yoloRequested} skip=${snapshot.yoloSkipped} avg=${snapshot.yoloAvgMs.toFixed(1)}ms max=${snapshot.yoloMaxMs?.toFixed(1) ?? '0.0'}ms`)
     console.log(`YOLO DETAIL schedule=${snapshot.yoloScheduleWaitMs.toFixed(1)}ms resize=${snapshot.yoloResizeAvgMs.toFixed(1)}ms run=${snapshot.yoloRunAvgMs.toFixed(1)}ms parse=${snapshot.yoloParseAvgMs.toFixed(1)}ms`)
     console.log(`MOVE fps=${snapshot.moveNetThroughputFps.toFixed(1)} exec=${snapshot.moveNetExecuted} attempt=${snapshot.moveNetRequested} skip=${snapshot.moveNetSkipped} avg=${snapshot.moveNetAvgMs.toFixed(1)}ms max=${snapshot.moveNetMaxMs?.toFixed(1) ?? '0.0'}ms`)
-    console.log(`MOVE DETAIL prep=${snapshot.moveNetWorkletPrepMs.toFixed(1)}ms schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms resize=${snapshot.moveNetResizeAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
+    console.log(`MOVE DETAIL prep=${snapshot.moveNetWorkletPrepMs.toFixed(1)}ms schedule=${snapshot.moveNetScheduleWaitMs.toFixed(1)}ms crop=${snapshot.moveNetCropAvgMs.toFixed(1)}ms run=${snapshot.moveNetRunAvgMs.toFixed(1)}ms parse=${snapshot.moveNetParseAvgMs.toFixed(1)}ms`)
     this.logRnWorkMetrics()
   }
 

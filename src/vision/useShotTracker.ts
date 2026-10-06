@@ -206,7 +206,7 @@ export const useShotTracker = (
     const perfMoveNetWorkletPrepTotal = useSharedValue(0)
     const perfMoveNetScheduleWaitTotal = useSharedValue(0)
     const perfMoveNetCropTotal = useSharedValue(0)
-    const perfMoveNetResizeTotal = useSharedValue(0)
+    // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
     const perfMoveNetRunTotal = useSharedValue(0)
     const perfMoveNetParseTotal = useSharedValue(0)
 
@@ -253,7 +253,7 @@ export const useShotTracker = (
         perfMoveNetWorkletPrepTotal,
         perfMoveNetScheduleWaitTotal,
         perfMoveNetCropTotal,
-        perfMoveNetResizeTotal,
+        // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
         perfMoveNetRunTotal,
         perfMoveNetParseTotal
     )
@@ -884,9 +884,7 @@ export const useShotTracker = (
                         moveNetCropAvgMs: moveNetExecuted > 0
                             ? perfMoveNetCropTotal.value / moveNetExecuted
                             : 0,
-                        moveNetResizeAvgMs: moveNetExecuted > 0
-                            ? perfMoveNetResizeTotal.value / moveNetExecuted
-                            : 0,
+                        // moveNetResizeAvgMs removed - resize is now included in jsPreprocessMs
                         moveNetRunAvgMs: moveNetExecuted > 0
                             ? perfMoveNetRunTotal.value / moveNetExecuted
                             : 0,
@@ -940,7 +938,7 @@ export const useShotTracker = (
                     perfMoveNetWorkletPrepTotal.value = 0
                     perfMoveNetScheduleWaitTotal.value = 0
                     perfMoveNetCropTotal.value = 0
-                    perfMoveNetResizeTotal.value = 0
+                    // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
                     perfMoveNetRunTotal.value = 0
                     perfMoveNetParseTotal.value = 0
                     perfTrackingAccepted.value = 0
@@ -1259,7 +1257,7 @@ export const useShotTracker = (
                 perfMoveNetWorkletPrepTotal,
                 perfMoveNetScheduleWaitTotal,
                 perfMoveNetCropTotal,
-                perfMoveNetResizeTotal,
+                // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
                 perfMoveNetRunTotal,
                 perfMoveNetParseTotal,
                 perfLastLogAt,
