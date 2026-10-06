@@ -1043,3 +1043,67 @@
 - ShotDetectionUIAdapter rimosso
 - WorkoutSessionRuntime.test.ts creato con test state machine completi
 - Lifecycle responsibilities migrate al Runtime (handlePauseResume, handleEndSession, handleManualShot)
+
+---
+
+## Decision 27: Vision Migration Plan
+
+**Contesto:** useShotTracker.ts è un file legacy di 1.447 righe che contiene tutta la logica di vision (YOLO, MoveNet, player crop, telemetry). Il Runtime attualmente controlla il lifecycle ma non processa i frame. L'architettura attuale è:
+
+```
+Camera → useShotTracker (worklet) → callbacks → Screen → TrackingEngine
+```
+
+L'obiettivo è:
+
+```
+Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDetectionEngine
+```
+
+**Problemi identificati:**
+1. **useShotTracker è worklet-heavy:** La logica di elaborazione frame è nel worklet onFrame, che non può essere facilmente estratta in una classe pura
+2. **YOLO/MoveNet workers sono hook React:** useYoloWorker e useMoveNetWorker sono hook che gestiscono SharedValues e worklet
+3. **Telemetry è integrata nel worklet:** I contatori di performance sono SharedValues aggiornati nel worklet
+4. **Frame processor è accoppiato a React Native Vision Camera:** useFrameOutput è specifico per react-native-vision-camera
+
+**Decisione:**
+- **Fase 1 - Infrastruttura (COMPLETATO):**
+  - Creare IVisionEngine interface
+  - Creare VisionEngine placeholder class
+  - Aggiungere Runtime.processFrame() per orchestrare Vision → Tracking → Shot
+  - Creare VisionEngineAdapter placeholder
+- **Fase 2 - Estrazione YOLO/MoveNet (IN CORSO):**
+  - Estrarre logica YOLO da useYoloWorkerAsync a classe pura worklet-safe
+  - Estrarre logica MoveNet da useMoveNetWorker a classe pura worklet-safe
+  - Mantenere SharedValues per bridge React → worklet
+- **Fase 3 - Integrazione VisionEngine:**
+  - Integrare classi YOLO/MoveNet pure in VisionEngine
+  - Implementare processFrame() in VisionEngine
+  - Gestire player crop logic
+- **Fase 4 - Migrazione Runtime:**
+  - Collegare VisionEngine al Runtime
+  - Spostare chiamata processFrame() da Screen a Runtime
+  - Rimuovere callback diretti da useShotTracker
+- **Fase 5 - Cleanup:**
+  - Rimuovere useShotTracker.ts legacy
+  - Rimuovere VisionEngineAdapter
+  - Aggiornare test
+
+**Rationale:**
+- Estrazione incrementale riduce rischio di regressione
+- Mantenere worklet-safe è critico per performance
+- SharedValues rimangono come bridge React → worklet
+- VisionEngine diventa il centro di elaborazione vision puro
+
+**Conseguenze:**
+- VisionEngine sarà la sorgente unica di detection (ball, player, rim, pose)
+- Runtime.processFrame() orchestrerà l'intera pipeline
+- useShotTracker.ts verrà eliminato (1.447 righe legacy rimosse)
+- Architettura più pulita con separazione responsabilità
+
+**Stato:** 🔄 IN CORSO
+- Fase 1: ✅ COMPLETATO (IVisionEngine, VisionEngine, Runtime.processFrame, VisionEngineAdapter)
+- Fase 2: ⏳ PENDING (Estrazione YOLO/MoveNet)
+- Fase 3: ⏳ PENDING (Integrazione VisionEngine)
+- Fase 4: ⏳ PENDING (Migrazione Runtime)
+- Fase 5: ⏳ PENDING (Cleanup)

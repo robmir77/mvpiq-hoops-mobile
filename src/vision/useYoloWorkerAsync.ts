@@ -8,13 +8,13 @@ import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useSharedValue, SharedValue } from 'react-native-reanimated'
 import { useResizer } from 'react-native-vision-camera-resizer'
 import { useTensorflowModel } from 'react-native-fast-tflite'
-import { parseYoloOutputFloat16 } from './yoloParserFloat16'
+import { YoloDetector } from './engine/YoloDetector'
 import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
 import { getYoloModel } from './yoloModels'
 import { scheduleOnRN } from 'react-native-worklets'
-import { TEST_CONFIG } from '@/config/appConfig'
+import { TEST_CONFIG, YOLO_CONFIG } from '@/config/appConfig'
 import { telemetryLogger } from './telemetry'
 
 interface YoloWorkerResult {
@@ -74,6 +74,12 @@ export const useYoloWorkerAsync = (
   perfYoloScheduleWaitTotal?: SharedValue<number>,
   onResultCallback?: (result: YoloWorkerResult) => void
 ) => {
+  // Pure YOLO detector instance (worklet-safe)
+  const yoloDetectorRef = useRef(new YoloDetector(
+    YOLO_CONFIG.BALL_CONF_THRESHOLD,
+    YOLO_CONFIG.RIM_CONF_THRESHOLD
+  ))
+
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultRim = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
@@ -250,11 +256,11 @@ export const useYoloWorkerAsync = (
 
         const tParseStart = performance.now()
         const output = new Float32Array(rawOutput)
-        const result = parseYoloOutputFloat16(output, 0.005, frameWidth, frameHeight, 0.005)
+        const result = yoloDetectorRef.current.parseOutput(output, frameWidth, frameHeight)
         const ball = result.ball
         const player = result.player
         const rim = result.rim
-        const debug = result.debug
+        const debug = null // YoloDetector no longer returns debug info
         const tParseEnd = performance.now()
         const parseMs = tParseEnd - tParseStart
 

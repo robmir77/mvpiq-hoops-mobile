@@ -39,6 +39,28 @@ export interface IVisionPipeline {
   stop(): void
 }
 
+export interface IVisionEngine {
+  processFrame(frame: {
+    width: number
+    height: number
+    timestamp: number
+    data?: Uint8Array
+  }): {
+    ball: { x: number; y: number; width: number; height: number; confidence: number } | null
+    player: { x: number; y: number; width: number; height: number; confidence: number } | null
+    rim: { x: number; y: number; width: number; height: number; confidence: number } | null
+    pose: any | null
+    timestamp: number
+  }
+  setBallDetectionEnabled(enabled: boolean): void
+  setPlayerDetectionEnabled(enabled: boolean): void
+  setRimDetectionEnabled(enabled: boolean): void
+  setPoseDetectionEnabled(enabled: boolean): void
+  isReady(): boolean
+  start(): void
+  stop(): void
+}
+
 export interface ITrackingEngine {
   processFrame(
     ballDetection: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
@@ -96,6 +118,14 @@ export interface WorkoutSessionRuntime {
   pause(): Promise<void>
   resume(): Promise<void>
   stop(): Promise<void>
+
+  // Frame processing (orchestrates Vision → Tracking → Shot)
+  processFrame(frame: {
+    width: number
+    height: number
+    timestamp: number
+    data?: Uint8Array
+  }): void
 
   // Actions
   registerManualShot(result: 'MADE' | 'MISS'): Promise<void>

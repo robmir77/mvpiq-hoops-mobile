@@ -5,7 +5,7 @@ import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useSharedValue } from 'react-native-reanimated'
 import { useResizer } from 'react-native-vision-camera-resizer'
 import { useTensorflowModel } from 'react-native-fast-tflite'
-import { parseMoveNetOutput } from './poseParser'
+import { MoveNetPoseEstimator } from './engine/MoveNetPoseEstimator'
 import { computeJointAngles } from './biomechanics'
 import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
@@ -100,6 +100,9 @@ export const useMoveNetWorker = (
   perfMoveNetRunTotal?: any,
   perfMoveNetParseTotal?: any,
 ) => {
+  // Pure MoveNet pose estimator instance (worklet-safe)
+  const moveNetEstimatorRef = useRef(new MoveNetPoseEstimator(0.03))
+
   // TEMP: Commented to reduce log noise during performance investigation
   // console.log('[useMoveNetWorker] Received params:', {
   //     enabled,
@@ -368,7 +371,22 @@ export const useMoveNetWorker = (
       }
 
       const tParseStart = performance.now()
-      const keypoints = parseMoveNetOutput(output, 17)
+      const poseResult = moveNetEstimatorRef.current.parseOutput(output, 17)
+      // Convert Record<string, Keypoint> to PoseKeypoints format expected by computeJointAngles
+      const keypoints: PoseKeypoints = {
+        leftShoulder: poseResult.keypoints.leftShoulder ? { x: poseResult.keypoints.leftShoulder.x, y: poseResult.keypoints.leftShoulder.y, score: poseResult.keypoints.leftShoulder.confidence } : undefined,
+        rightShoulder: poseResult.keypoints.rightShoulder ? { x: poseResult.keypoints.rightShoulder.x, y: poseResult.keypoints.rightShoulder.y, score: poseResult.keypoints.rightShoulder.confidence } : undefined,
+        leftElbow: poseResult.keypoints.leftElbow ? { x: poseResult.keypoints.leftElbow.x, y: poseResult.keypoints.leftElbow.y, score: poseResult.keypoints.leftElbow.confidence } : undefined,
+        rightElbow: poseResult.keypoints.rightElbow ? { x: poseResult.keypoints.rightElbow.x, y: poseResult.keypoints.rightElbow.y, score: poseResult.keypoints.rightElbow.confidence } : undefined,
+        leftWrist: poseResult.keypoints.leftWrist ? { x: poseResult.keypoints.leftWrist.x, y: poseResult.keypoints.leftWrist.y, score: poseResult.keypoints.leftWrist.confidence } : undefined,
+        rightWrist: poseResult.keypoints.rightWrist ? { x: poseResult.keypoints.rightWrist.x, y: poseResult.keypoints.rightWrist.y, score: poseResult.keypoints.rightWrist.confidence } : undefined,
+        leftHip: poseResult.keypoints.leftHip ? { x: poseResult.keypoints.leftHip.x, y: poseResult.keypoints.leftHip.y, score: poseResult.keypoints.leftHip.confidence } : undefined,
+        rightHip: poseResult.keypoints.rightHip ? { x: poseResult.keypoints.rightHip.x, y: poseResult.keypoints.rightHip.y, score: poseResult.keypoints.rightHip.confidence } : undefined,
+        leftKnee: poseResult.keypoints.leftKnee ? { x: poseResult.keypoints.leftKnee.x, y: poseResult.keypoints.leftKnee.y, score: poseResult.keypoints.leftKnee.confidence } : undefined,
+        rightKnee: poseResult.keypoints.rightKnee ? { x: poseResult.keypoints.rightKnee.x, y: poseResult.keypoints.rightKnee.y, score: poseResult.keypoints.rightKnee.confidence } : undefined,
+        leftAnkle: poseResult.keypoints.leftAnkle ? { x: poseResult.keypoints.leftAnkle.x, y: poseResult.keypoints.leftAnkle.y, score: poseResult.keypoints.leftAnkle.confidence } : undefined,
+        rightAnkle: poseResult.keypoints.rightAnkle ? { x: poseResult.keypoints.rightAnkle.x, y: poseResult.keypoints.rightAnkle.y, score: poseResult.keypoints.rightAnkle.confidence } : undefined,
+      }
       const angles = computeJointAngles(keypoints)
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart

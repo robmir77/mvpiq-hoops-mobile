@@ -75,6 +75,11 @@ Tutto ciò che può essere asincrono deve essere separato dal percorso realtime.
 WorkoutSessionRuntime
   ├── VisionPipeline (IVisionPipeline)
   │   └── VisionPipelineAdapter (wraps useWorkoutVisionPipeline)
+  ├── VisionEngine (IVisionEngine) - 🔄 IN CORSO (placeholder)
+  │   ├── YOLO detection
+  │   ├── MoveNet pose detection
+  │   ├── Player crop management
+  │   └── Detection filtering
   ├── TrackingEngine (ITrackingEngine)
   │   ├── BallTrackingEngine
   │   ├── PlayerTrackingEngine
@@ -85,6 +90,14 @@ WorkoutSessionRuntime
 ```
 
 **Nota importante:** ShotDetectionEngine è un'istanza interna di TrackingEngine. Il Runtime ottiene questa istanza tramite `trackingEngine.getShotDetectionEngine()` per evitare double ownership.
+
+**Vision Migration (Decision 27):**
+- IVisionEngine interface creato
+- VisionEngine placeholder class creato
+- Runtime.processFrame() implementato per orchestrare Vision → Tracking → Shot
+- VisionEngineAdapter placeholder creato
+- Piano di migrazione documentato in ARCHITECTURE_DECISIONS.md
+- Fase 1 completata, Fase 2 (estrazione YOLO/MoveNet) in corso
 
 **Pattern Adapter:**
 - VisionPipelineAdapter implementa IVisionPipeline
@@ -338,6 +351,12 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Subsystem connection timing | ✅ | Tutti i sottosistemi connessi PRIMA di runtime.start() |
 | ShotDetectionUIAdapter removal | ✅ | Rimosso anti-pattern (useSharedValue in class) |
 | WorkoutSessionRuntime tests | ✅ | Test state machine completi implementati |
+| Runtime lifecycle migration | ✅ | handlePauseResume, handleEndSession, handleManualShot migrate al Runtime |
+| IVisionEngine interface | ✅ | Creato per definire contratto Vision Engine puro |
+| VisionEngine placeholder | ✅ | Creato (placeholder per futura estrazione YOLO/MoveNet) |
+| Runtime.processFrame() | ✅ | Implementato per orchestrare Vision → Tracking → Shot |
+| VisionEngineAdapter placeholder | ✅ | Creato (bridge temporaneo per migrazione) |
+| Vision migration plan | ✅ | Documentato in ARCHITECTURE_DECISIONS.md (Decision 27) |
 | RN runtime contention | 🔴 | Schedule wait 45-134 ms, da ridurre |
 | Transfer buffer size | 🔴 | 640×360×3 (~2.64 MB), da eliminare |
 | Rerender/Remount investigation | 🔴 | Possibili rerender frequenti da investigare |
@@ -353,6 +372,8 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Gestione enqueueCritical false | 🟡 | UI non verifica return boolean per fallimento persistenza |
 | Shot detection single source | ✅ | Sistema unificato via TrackingEngine |
 | Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
+| Vision extraction YOLO/MoveNet | 🟡 | Fase 1 completata, Fase 2 in corso (estrazione worklet-safe) |
+| useShotTracker.ts removal | 🟡 | Legacy 1.447 righe, rimozione pianificata dopo Fase 5 |
 
 ## Async Queue & Critical Events
 

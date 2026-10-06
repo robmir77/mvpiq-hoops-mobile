@@ -10,6 +10,7 @@ import type {
   SessionState,
   WorkoutSessionRuntime as IWorkoutSessionRuntime,
   IVisionPipeline,
+  IVisionEngine,
   ITrackingEngine,
   IShotDetectionEngine,
   ITelemetrySampler,
@@ -33,6 +34,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
   // Subsystem references (to be initialized)
   private visionPipeline: IVisionPipeline | null = null
+  private visionEngine: IVisionEngine | null = null
   private trackingEngine: ITrackingEngine | null = null
   private shotDetectionEngine: IShotDetectionEngine | null = null
   private telemetrySampler: ITelemetrySampler | null = null
@@ -148,6 +150,77 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       this.setState('ERROR')
       this.callbacks?.onError?.(error as Error)
       throw error
+    }
+  }
+
+  processFrame(frame: {
+    width: number
+    height: number
+    timestamp: number
+    data?: Uint8Array
+  }): void {
+    // Only process frames if session is ACTIVE
+    if (this.state !== 'ACTIVE') {
+      return
+    }
+
+    // Step 1: Vision detection (YOLO + MoveNet)
+    if (!this.visionEngine) {
+      console.warn('[WorkoutSessionRuntime] VisionEngine not set, cannot process frame')
+      return
+    }
+
+    const visionResult = this.visionEngine.processFrame(frame)
+
+    // Step 2: Tracking (Ball + Player + Shot)
+    if (!this.trackingEngine) {
+      console.warn('[WorkoutSessionRuntime] TrackingEngine not set, cannot process frame')
+      return
+    }
+
+    const trackingState = this.trackingEngine.processFrame(
+      visionResult.ball,
+      visionResult.rim,
+      frame.timestamp,
+      visionResult.pose
+    )
+
+    // Step 3: Shot detection (if shot detected by tracking)
+    if (trackingState?.shotDetected && this.shotDetectionEngine) {
+      const shotResult = this.shotDetectionEngine.processFrame(
+        trackingState.ballPosition,
+        trackingState.ballVelocity,
+        visionResult.rim,
+        frame.timestamp
+      )
+
+      if (shotResult.shotDetected && shotResult.shotResult) {
+        // Convert AIRBALL to MISS for callback (AIRBALL is internal tracking state)
+        const callbackResult = shotResult.shotResult === 'AIRBALL' ? 'MISS' : shotResult.shotResult
+
+        // Enqueue shot event to critical queue
+        this.enqueueCritical({
+          type: 'SHOT',
+          sessionId: this.config.sessionId,
+          userId: this.config.userId,
+          payload: {
+            timestampMs: frame.timestamp,
+            shotResult: shotResult.shotResult,
+            detectionConfidence: 1.0,
+            trackingData: JSON.stringify(trackingState),
+          },
+        })
+
+        // Update metrics
+        this.metrics.totalShots++
+        if (shotResult.shotResult === 'MADE') {
+          this.metrics.madeShots++
+        }
+
+        // Notify callback (AIRBALL converted to MISS)
+        this.callbacks?.onShotDetected?.(callbackResult)
+        this.notifyTelemetryUpdate()
+      }
     }
   }
 
@@ -302,6 +375,10 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   // Set subsystem references (called by the Screen during initialization)
   setVisionPipeline(pipeline: IVisionPipeline): void {
     this.visionPipeline = pipeline
+  }
+
+  setVisionEngine(engine: IVisionEngine): void {
+    this.visionEngine = engine
   }
 
   setTrackingEngine(engine: ITrackingEngine): void {

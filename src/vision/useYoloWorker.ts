@@ -5,7 +5,7 @@ import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useSharedValue, SharedValue } from 'react-native-reanimated'
 import { useResizer } from 'react-native-vision-camera-resizer'
 import { useTensorflowModel } from 'react-native-fast-tflite'
-import { parseYoloOutputFloat16 } from './yoloParserFloat16'
+import { YoloDetector } from './engine/YoloDetector'
 import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
@@ -13,7 +13,7 @@ import { getYoloModel } from './yoloModels'
 import { DEFAULT_YOLO_MODEL_ID } from './yoloModels'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
-import { VISION_CONFIG, TEST_CONFIG } from '@/config/appConfig'
+import { VISION_CONFIG, TEST_CONFIG, YOLO_CONFIG } from '@/config/appConfig'
 
 const YOLO_INPUT_SIZE = 512
 
@@ -52,6 +52,12 @@ export const useYoloWorker = (
   yoloScheduledCount?: { value: number }, // Shared value for scheduler coordination
   perfYoloScheduleWaitTotal?: any // SharedValue for schedule wait tracking
 ) => {
+  // Pure YOLO detector instance (worklet-safe)
+  const yoloDetectorRef = useRef(new YoloDetector(
+    YOLO_CONFIG.BALL_CONF_THRESHOLD,
+    YOLO_CONFIG.RIM_CONF_THRESHOLD
+  ))
+
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultRim = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
@@ -223,14 +229,14 @@ export const useYoloWorker = (
       const runMs = tRunEnd - tRunStart
       const rawOutput = outputs[0] as ArrayBufferLike
 
-      // Parse YOLO output (Float16 only - INT8 models removed)
+      // Parse YOLO output using pure YoloDetector class
       const tParseStart = performance.now()
       const output = new Float32Array(rawOutput)
-      const result = parseYoloOutputFloat16(output, 0.005, frameWidth, frameHeight, 0.005)
+      const result = yoloDetectorRef.current.parseOutput(output, frameWidth, frameHeight)
       const ball = result.ball
       const player = result.player
       const rim = result.rim
-      const debug = result.debug
+      const debug = { conf: 0 } // Simplified debug for now
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart
 
