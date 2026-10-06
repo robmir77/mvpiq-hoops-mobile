@@ -136,9 +136,8 @@ features/workouts/
 - Integrate YOLO player detection into new Runtime path
 - Add playerDetection parameter to TrackingEngine.processFrame()
 - Implement YOLO bbox + MoveNet pose policy
-- Remove setPlayerFromYolo() legacy bridge
 - Add tests for PlayerDetection
-- **Status**: PlayerDetection flows YOLO → VisionEngine → Runtime → TrackingEngine → PlayerTrackingEngine. Policy implemented: YOLO provides coarse bbox, MoveNet provides precise articulated position. setPlayerFromYolo() removed. Tests added in TrackingEngine.test.ts.
+- **Status**: PlayerDetection flows YOLO → VisionEngine → Runtime → TrackingEngine → PlayerTrackingEngine. Policy implemented: YOLO provides coarse bbox, MoveNet provides precise articulated position. playerDetection parameter added to TrackingEngine.processFrame(). Tests added in TrackingEngine.test.ts.
 
 ### Phase 4.4: Legacy Cleanup ✅ 100%
 - Remove ShotDetector.ts completely

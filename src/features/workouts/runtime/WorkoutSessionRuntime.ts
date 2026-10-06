@@ -184,17 +184,17 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     // Step 3: Shot detection (already performed by TrackingEngine internally)
     // TrackingEngine.processFrame() calls ShotDetectionEngine and includes result in trackingState
     if (trackingState?.shotDetected && trackingState?.shotResult) {
-      // Convert AIRBALL to MISS for callback (AIRBALL is internal tracking state)
-      const callbackResult = trackingState.shotResult === 'AIRBALL' ? 'MISS' : trackingState.shotResult
+      // Convert AIRBALL to MISS for public contract (AIRBALL is internal tracking state)
+      const publicResult = trackingState.shotResult === 'AIRBALL' ? 'MISS' : trackingState.shotResult
 
-      // Enqueue shot event to critical queue
+      // Enqueue shot event to critical queue (normalized to MADE/MISS)
       this.enqueueCritical({
         type: 'SHOT',
         sessionId: this.config.sessionId,
         userId: this.config.userId,
         payload: {
           timestampMs: frame.timestamp,
-          shotResult: trackingState.shotResult,
+          shotResult: publicResult,
           detectionConfidence: 1.0,
           trackingData: JSON.stringify(trackingState),
         },
@@ -206,8 +206,8 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
         this.metrics.madeShots++
       }
 
-      // Notify callback (AIRBALL converted to MISS)
-      this.callbacks?.onShotDetected?.(callbackResult)
+      // Notify callback (normalized to MADE/MISS)
+      this.callbacks?.onShotDetected?.(publicResult)
       this.notifyTelemetryUpdate()
     }
   }

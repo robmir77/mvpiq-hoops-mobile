@@ -1128,7 +1128,7 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
 - Architettura più pulita con separazione responsabilità
 - Shot detection non duplicata (solo TrackingEngine chiama ShotDetectionEngine)
 - PlayerDetection ora fluisce nel nuovo percorso Runtime
-- setPlayerFromYolo() rimosso (legacy bridge eliminato)
+- PlayerDetection integrato via TrackingEngine.processFrame() (ottavo parametro)
 - Test TrackingEngine.test.ts per PlayerDetection aggiunti
 - Kalman filter ottimizzato per massima reattività
 
@@ -1142,4 +1142,4 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
   - Fase 4.3: ✅ COMPLETATO (Legacy Shot Detection disattivata - single source of truth shot events)
   - Fase 4.4: ✅ COMPLETATO (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
 - Fase 5: ✅ COMPLETATO (Legacy cleanup - ShotDetector.ts rimosso completamente, handleShotEvent rimosso)
-- Fase 6: ✅ COMPLETATO (setPlayerFromYolo() rimosso, test PlayerDetection aggiunti, Kalman filter ottimizzato)
+- Fase 6: ✅ COMPLETATO (test PlayerDetection aggiunti, Kalman filter ottimizzato)

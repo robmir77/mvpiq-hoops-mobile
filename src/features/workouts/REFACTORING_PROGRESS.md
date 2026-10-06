@@ -281,7 +281,7 @@ features/workouts/
 - Path legacy per player (pipelineSharedValues) ancora presente per overlay Skia
 - **Fase 4.4 completata**: playerDetection aggiunto come parametro a TrackingEngine.processFrame()
 - Policy implementata: YOLO bbox (coarse) + MoveNet pose (articulated/precise)
-- setPlayerFromYolo() rimosso (legacy bridge eliminato)
+- playerDetection parameter aggiunto a TrackingEngine.processFrame()
 - Test TrackingEngine.test.ts aggiunti per PlayerDetection
 
 **4.6.8: Legacy Cleanup Completato ✓ (Fase 5)**
