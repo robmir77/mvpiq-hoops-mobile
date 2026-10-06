@@ -1072,10 +1072,16 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
   - Creare VisionEngine placeholder class
   - Aggiungere Runtime.processFrame() per orchestrare Vision → Tracking → Shot
   - Creare VisionEngineAdapter placeholder
-- **Fase 2 - Estrazione YOLO/MoveNet (IN CORSO):**
-  - Estrarre logica YOLO da useYoloWorkerAsync a classe pura worklet-safe
-  - Estrarre logica MoveNet da useMoveNetWorker a classe pura worklet-safe
-  - Mantenere SharedValues per bridge React → worklet
+- **Fase 2 - Estrazione YOLO/MoveNet (COMPLETATO):**
+  - Estrarre logica YOLO da yoloParserFloat16.ts a YoloDetector (classe pura worklet-safe)
+  - Estrarre logica MoveNet da poseParser.ts a MoveNetPoseEstimator (classe pura worklet-safe)
+  - Creare VisionEngine.ts in vision/engine/ per orchestrazione YOLO + MoveNet
+  - Integrare YoloDetector in useYoloWorker e useYoloWorkerAsync
+  - Integrare MoveNetPoseEstimator in useMoveNetWorker
+  - Rimuovere codice legacy (poseParser.ts, yoloParserFloat16.ts, VisionEngine.ts placeholder)
+  - Aggiornare test per usare YoloDetector
+  - Semplificare VisionEngineAdapter per forward parsed results
+  - Nota: L'inference rimane nei worker React hooks perché dipende da react-native-fast-tflite e react-native-vision-camera-resizer. Le classi pure gestiscono solo il parsing, non l'inference.
 - **Fase 3 - Integrazione VisionEngine:**
   - Integrare classi YOLO/MoveNet pure in VisionEngine
   - Implementare processFrame() in VisionEngine
@@ -1103,7 +1109,7 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
 
 **Stato:** 🔄 IN CORSO
 - Fase 1: ✅ COMPLETATO (IVisionEngine, VisionEngine, Runtime.processFrame, VisionEngineAdapter)
-- Fase 2: ⏳ PENDING (Estrazione YOLO/MoveNet)
+- Fase 2: ✅ COMPLETATO (Estrazione YOLO/MoveNet in classi pure worklet-safe + integrazione worker + rimozione legacy)
 - Fase 3: ⏳ PENDING (Integrazione VisionEngine)
 - Fase 4: ⏳ PENDING (Migrazione Runtime)
-- Fase 5: ⏳ PENDING (Cleanup)
+- Fase 5: ⏳ PENDING (Cleanup useShotTracker)

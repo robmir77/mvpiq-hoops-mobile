@@ -97,7 +97,14 @@ WorkoutSessionRuntime
 - Runtime.processFrame() implementato per orchestrare Vision → Tracking → Shot
 - VisionEngineAdapter placeholder creato
 - Piano di migrazione documentato in ARCHITECTURE_DECISIONS.md
-- Fase 1 completata, Fase 2 (estrazione YOLO/MoveNet) in corso
+- Fase 1 completata, Fase 2 COMPLETATA (estrazione YOLO/MoveNet in classi pure worklet-safe)
+- YoloDetector.ts creato (parsing YOLO puro worklet-safe)
+- MoveNetPoseEstimator.ts creato (parsing MoveNet puro worklet-safe)
+- VisionEngine.ts in vision/engine/ (orchestrazione YOLO + MoveNet)
+- Integrazione completata in useYoloWorker, useYoloWorkerAsync, useMoveNetWorker
+- Codice legacy rimosso (poseParser.ts, yoloParserFloat16.ts, VisionEngine.ts placeholder)
+- Test aggiornati per usare YoloDetector
+- VisionEngineAdapter semplificato per forward parsed results
 
 **Pattern Adapter:**
 - VisionPipelineAdapter implementa IVisionPipeline
@@ -372,7 +379,7 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Gestione enqueueCritical false | 🟡 | UI non verifica return boolean per fallimento persistenza |
 | Shot detection single source | ✅ | Sistema unificato via TrackingEngine |
 | Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
-| Vision extraction YOLO/MoveNet | 🟡 | Fase 1 completata, Fase 2 in corso (estrazione worklet-safe) |
+| Vision extraction YOLO/MoveNet | ✅ | Fase 1 completata, Fase 2 COMPLETATA (classi pure worklet-safe integrate) |
 | useShotTracker.ts removal | 🟡 | Legacy 1.447 righe, rimozione pianificata dopo Fase 5 |
 
 ## Async Queue & Critical Events
