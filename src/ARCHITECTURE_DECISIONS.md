@@ -44,8 +44,8 @@
 **Decisione:**
 - Rimozione completa del throttling temporale da YOLO e MoveNet
 - Rimozione di VISION_CONFIG.YOLO.TARGET_FPS e VISION_CONFIG.MOVENET.TARGET_FPS
-- YOLO esegue ogni frame se `!isProcessing` (FPS naturale ~7-10)
-- MoveNet esegue ogni frame se `!isProcessing` e bbox player valido (FPS naturale ~0-6)
+- YOLO esegue ogni frame se `!isProcessing` (work-limited, throughput varia con device load)
+- MoveNet esegue ogni frame se `!isProcessing` e bbox player valido (work-limited, throughput varia con device load)
 - Camera FPS: 30 (configurabile via CAMERA_CONFIG.DEFAULT_FPS)
 - Tracking: realtime (ogni frame)
 - Bridge calls: 15 FPS (throttled a 66ms)
@@ -55,13 +55,13 @@
 - Ogni inferenza YOLO costa ~35-45ms (resize + run + parse)
 - Ogni inferenza MoveNet costa ~150-160ms (crop + resize + quantization + run + parse)
 - Rimuovere limiti artificiali massimizza la detection rate
-- FPS naturale dipende solo dal tempo di inferenza sincrono
+- YOLO/MoveNet sono work-limited: eseguono quando disponibili, throughput varia con device load
 - Sistema più semplice senza logica di throttling temporale
 
 **Conseguenze:**
 - Camera può girare a 30 FPS indipendentemente da YOLO/MoveNet
-- YOLO gira a FPS naturale (~7-10) basato su tempo inferenza
-- MoveNet gira a FPS naturale (~0-6) basato su tempo inferenza e disponibilità bbox player
+- YOLO è work-limited: esegue quando disponibile, throughput varia con device load (nessuna garanzia numerica, dipende da latenza inferenza + scheduling)
+- MoveNet è work-limited: esegue quando disponibile e bbox player valido, throughput varia con device load (nessuna garanzia numerica, dipende da latenza inferenza + scheduling)
 - Tracking usa l'ultimo risultato YOLO + Kalman prediction nei frame intermedi
 - Telemetry YOLO throttled a 15 FPS (66ms) per ridurre overhead bridge
 - Nessun limite temporale artificiale che riduce detection rate
@@ -100,8 +100,8 @@
 
 **Risultati (post-implementazione):**
 - Camera FPS migliorata da ~4 FPS a 10-14 FPS (senza throttling)
-- YOLO FPS naturale ~7-10 confermato dai log
-- MoveNet FPS naturale ~0-6 confermato dai log (limitato da disponibilità bbox player)
+- YOLO FPS naturale varia con device load (nessuna garanzia numerica, work-limited)
+- MoveNet FPS naturale varia con device load (nessuna garanzia numerica, work-limited, limitato da disponibilità bbox player)
 - Log molto più leggibili e semanticamente corretti
 - Problema spostato da "chi decide quando eseguire" a "quanto costa elaborare un frame"
 - ✅ Sincronizzazione shared values → state implementata per evitare warning Reanimated
@@ -110,10 +110,117 @@
 1. ✅ Rinominare metriche fps → throughputFps/theoreticalFps per chiarezza semantica
 2. ✅ Rimozione throttling temporale per massimizzare detection rate
 3. ✅ Sincronizzazione Reanimated shared values per evitare warning
-4. Misurare separatamente tempo totale del frame processor
-5. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
-6. Investigare parallelizzazione YOLO/MoveNet
-7. Verificare rerender/remount di WorkoutSession/ShotTracker
+4. ✅ Rimozione garanzie FPS numeriche da ARCHITECTURE_DECISIONS.md (YOLO è work-limited)
+5. ✅ Documentare interpretazione metriche latenza YOLO (Decision 0.9)
+6. ✅ Marcare Decision 29 come REVERTED/SUPERSEDED (legacy vision removal)
+7. ✅ Esperimento YOLO 320 vs 384 (Decision 0.91) - concluso: mantenere 384 come default
+8. Misurare separatamente tempo totale del frame processor
+9. Analizzare e ridurre costo MoveNet CPU crop (~30 ms)
+10. Investigare parallelizzazione YOLO/MoveNet
+11. Verificare rerender/remount di WorkoutSession/ShotTracker
+
+---
+
+## Decision 0.9: Interpretazione Metriche Latenza YOLO
+
+**Contesto:** YOLO è work-limited con throughput variabile (5.9-36 FPS osservati). I picchi di latenza (116-195 ms) possono essere causati da schedule wait o vera inferenza. È necessario distinguere le due componenti per ottimizzare correttamente.
+
+**Metriche Disponibili (PERF 1s):**
+```
+YOLO DETAIL workletPrep=Xms schedule=Yms (P50=A P95=B P99=C) jsPreprocess=Dms inference=Ems postprocess=Fms resize=Gms run=Hms parse=Ims
+```
+
+**Componenti Latenza:**
+- `workletPrep` (A→B): tempo nel worklet prima di scheduleOnRN (resize + buffer extraction)
+- `schedule` (B→C): attesa tra scheduleOnRN e callback start (RN scheduling contention)
+- `jsPreprocess` (C→D): preprocessing sul JS thread (0 per YOLO, significativo per MoveNet)
+- `inference` (D→E): vera inferenza TFLite (runSync)
+- `postprocess` (E→F): parsing output + aggiornamento shared values
+
+**Interpretazione:**
+- Se `schedule` (P50/P95/P99) è alto (es. >50ms): il collo di bottiglia è RN scheduling contention
+  - Soluzione: ottimizzare scheduleOnRN, ridurre crossing bridge, parallelizzare
+- Se `inference` è alto (es. >100ms): il collo di bottiglia è vera inferenza YOLO
+  - Soluzione: ottimizzare modello (input size, quantization, pruning), cambiare delegate
+- Se `workletPrep` è alto: il collo di bottiglia è resize nel worklet
+  - Soluzione: ottimizzare resizer, ridurre input size
+
+**Nota Importante:**
+L'architettura attuale è `worklet → scheduleOnRN() → RN/JS callback → runSync()`. Questo significa che:
+- `runSync()` occupa il thread RN/JS per ~72-110ms durante l'inferenza
+- Questo può contribuire indirettamente allo schedule wait dei callback successivi
+- YOLO e MoveNet competono per lo stesso thread RN/JS con la stessa strategia async/scheduleOnRN
+- Lo schedule wait non è quindi un problema completamente indipendente dall'inferenza
+
+**Esempio Diagnosi:**
+```
+schedule=31ms, inference=102ms → Totale=133ms, inference=77% del costo
+→ In condizioni normali, l'inferenza è il costo dominante
+```
+
+```
+schedule=159ms, inference=100ms → Totale=259ms, schedule=61% del costo
+→ Nei picchi, lo schedule wait diventa dominante
+```
+
+**Dati Reali (da log):**
+- Schedule wait: P50≈44ms, P95≈96ms, P99≈122ms, picchi fino a 159ms
+- Inference: 72-110ms (media ~90ms)
+- In condizioni normali: inference è ~60-70% del costo totale
+- Nei picchi: schedule wait può diventare il componente maggiore
+
+**Rationale:**
+- Distinguere schedule wait da inference è cruciale per decidere dove ottimizzare
+- P50/P95/P99 mostrano la distribuzione reale, non solo la media
+- Le metriche sono già raccolte in telemetry.ts e mostrate in PERF 1s
+- La correlazione tra runSync() e schedule wait deve essere considerata
+
+**Conseguenze:**
+- PERF 1s fornisce già tutte le metriche necessarie per la diagnosi
+- Analisi basata su dati reali, non su assunzioni
+- Decisioni di ottimizzazione guidate da misurazioni accurate
+- Non introdurre throttling temporale: !isProcessing è coerente con latest-frame-wins
+
+---
+
+## Decision 0.91: Esperimento YOLO 320 vs 384
+
+**Contesto:** Per valutare se ridurre l'input size YOLO da 384 a 320 migliora le performance senza compromettere la detection quality.
+
+**Configurazione Test:**
+- YOLO 320: input=320x320, camera=1280x720, delegate=android-gpu
+- YOLO 384: input=384x384, camera=1280x720, delegate=android-gpu (baseline)
+
+**Metriche YOLO 320:**
+- Inference: 58-122ms (media ~68-95ms)
+- Schedule: 24-195ms (P50=47-48ms, P95=96-100ms)
+- Throughput: 4.8-15.0 FPS
+- Ball detection: 95-97%
+- Player detection: 34-48%
+- FP rate: 40-53%
+
+**Metriche YOLO 384 (baseline):**
+- Inference: 72-110ms (media ~90ms)
+- Schedule: 31-159ms (P50=44ms, P95=96ms)
+- Throughput: 5.9-12.7 FPS
+- Ball detection: 94-97%
+- Player detection: 40-58%
+- FP rate: 42-53%
+
+**Risultati:**
+- Inference: leggermente migliorata con 320 (~68-95ms vs ~90ms con 384, guadagno ~15-25ms)
+- Schedule: simile (P50=47-48ms vs 44ms con 384)
+- Ball detection: simile (95-97% vs 94-97% con 384)
+- Player detection: **peggiorata** con 320 (34-48% vs 40-58% con 384)
+- FP rate: simile (40-53% vs 42-53% con 384)
+
+**Decisione:**
+YOLO 320 offre un guadagno marginale di latenza (~15-25ms) ma peggiora significativamente la player detection. Il guadagno di throughput non giustifica la perdita di detection quality. Mantenere YOLO 384 come default.
+
+**Rationale:**
+- La detection quality è più importante del throughput marginale
+- Player detection peggiore (34-48% vs 40-58%) è un segnale negativo
+- Il guadagno di latenza ~15-25ms non è sufficiente a giustificare la perdita di accuracy
 
 ---
 
@@ -183,8 +290,8 @@
 
 **Conseguenze:**
 - Camera: 30 FPS di default
-- YOLO: FPS naturale ~7-10 (indipendente)
-- MoveNet: FPS naturale ~0-6 (indipendente)
+- YOLO: FPS naturale varia con device load (work-limited, nessuna garanzia numerica)
+- MoveNet: FPS naturale varia con device load (work-limited, nessuna garanzia numerica)
 - Tracking: realtime (ogni frame)
 
 ---
@@ -287,8 +394,8 @@
 
 **Conseguenze:**
 - Vision pipeline: 30 FPS realtime (camera)
-- YOLO: FPS naturale ~7-10 (basato su tempo inferenza)
-- MoveNet: FPS naturale ~0-6 (basato su tempo inferenza e disponibilità bbox player)
+- YOLO: FPS naturale varia con device load (work-limited, nessuna garanzia numerica)
+- MoveNet: FPS naturale varia con device load (work-limited, nessuna garanzia numerica, limitato da disponibilità bbox player)
 - Tracking: realtime (ogni frame con Kalman prediction)
 - Backend telemetry: 2 Hz (sampling)
 - Critical events: queue con retry
@@ -362,7 +469,7 @@
 
 **Conseguenze:**
 - Camera: 30 FPS
-- YOLO: FPS naturale ~7-10 (basato su tempo inferenza)
+- YOLO: FPS naturale varia con device load (work-limited, nessuna garanzia numerica)
 - Tracking: realtime (ogni frame con Kalman prediction)
 - Backend telemetry: 2 FPS
 - Shot events: 100%
@@ -1235,6 +1342,8 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
 ---
 
 ## Decision 29: Disabilitazione useShotTracker Legacy Quando Runtime è Attivo
+
+**⚠️ REVERTED / SUPERSEDED BY LEGACY VISION REMOVAL**
 
 **Contesto:** Quando WorkoutSessionRuntime è attivo, useShotTracker continua a eseguire YOLO/MoveNet ogni frame, creando lavoro duplicato. L'architettura attuale è:
 
