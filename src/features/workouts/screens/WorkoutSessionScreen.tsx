@@ -500,7 +500,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Shot event callback removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine → onShotDetected callback
 
     // Vision configuration hook
-    const { visionConfig, effectiveRim, kalmanFilteredBall } = useVisionConfig({
+    const { visionConfig, effectiveRim } = useVisionConfig({
         poseEnabled,
         ballEnabled,
         rimDetectionEnabled,
@@ -531,7 +531,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         visionConfig,
         handleBallDetection,
         handlePoseResult,
-        undefined, // onShotEvent removed - handled by Runtime
         rimDetectionEnabled ? handleRimDetection : undefined,
         handlePlayerDetection,
         false // runtimeActive: Decision 29 reverted - not used in frame processor

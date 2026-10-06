@@ -57,10 +57,6 @@ export const useShotTracker = (
         result: PoseResult
     ) => void,
 
-    onShotEvent?: (
-        event: ShotEvent
-    ) => void,
-
     onRimDetection?: (
         rim: {
             x: number
@@ -86,13 +82,6 @@ export const useShotTracker = (
         y: number
         width: number
         height: number
-    } | null,
-
-    kalmanFilteredBall?: {
-        x: number
-        y: number
-        vx: number
-        vy: number
     } | null,
 
     enabled: boolean = true,
@@ -154,13 +143,6 @@ export const useShotTracker = (
     }, [])
 
     // Shot detector removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine
-
-    const lastBallRef =
-        useRef<{
-            x: number
-            y: number
-            t: number
-        } | null>(null)
 
     const lastPlayerDetectedRef = useSharedValue(false)
 
@@ -226,15 +208,6 @@ export const useShotTracker = (
     // Detection tracking for telemetry (sampled once per second)
     const perfYoloBallDetected = useSharedValue(0)
     const perfTrackingAccepted = useSharedValue(0)
-
-
-    // Size continuity filter for incompatible detections
-    const lastBallWidth = useSharedValue(0)
-    const lastBallHeight = useSharedValue(0)
-    const lastBallX = useSharedValue(0)
-    const lastBallY = useSharedValue(0)
-    const lastValidBallTime = useSharedValue(0)
-
 
     // Parallel Workers - use selected model ID directly
     // Both hooks are always called; the flag selects the active implementation.
@@ -392,10 +365,6 @@ export const useShotTracker = (
     const ballRejectionReason = useSharedValue('')
     const rimRejectionReason = useSharedValue('')
 
-    // Rim tracking: only update if confidence is higher than previous
-    const lastRimConfidence = useSharedValue(0)
-    const lastRimPosition = useSharedValue<{ x: number; y: number; width: number; height: number } | null>(null)
-
     // Ring buffer for detection history (avoids filter() overhead on long sessions)
 
 
@@ -469,205 +438,6 @@ export const useShotTracker = (
     }, [rimEnabled])
 
 
-    // Shot detection
-
-    const handleBallDetectionForShotTracking =
-        useCallback(
-            (
-                detection: BallDetection
-            ): BallDetection | null => {
-
-                const { ball } =
-                    detection
-
-                if (!ball) {
-                    // Return detection with null ball to enable Kalman prediction
-                    return detection
-                }
-
-                // Size continuity filter: fallback only when detection is invalid
-                const now = Date.now()
-                const timeSinceLastValid = lastValidBallTime.value > 0 ? now - lastValidBallTime.value : Infinity
-                const MAX_TIME_FOR_FALLBACK = 500 // ms - fallback only for recent gaps
-
-                let filteredBall: typeof ball | null = ball
-                let filterReason: string | null = null
-                let rejectedBall: typeof ball | null = null
-
-                // Check if detection is invalid (zero dimensions or non-finite coordinates)
-                const isInvalid = !Number.isFinite(ball.x) || !Number.isFinite(ball.y) || ball.width <= 0 || ball.height <= 0
-
-                if (isInvalid && lastBallWidth.value > 0 && lastBallHeight.value > 0) {
-                    // Fallback to previous valid detection
-                    if (timeSinceLastValid < MAX_TIME_FOR_FALLBACK) {
-                        filterReason = `Current detection invalid (w=${ball.width.toFixed(3)}, h=${ball.height.toFixed(3)}), using previous valid bbox`
-                        filteredBall = {
-                            ...ball,
-                            width: lastBallWidth.value,
-                            height: lastBallHeight.value,
-                            x: ball.x === 0 ? lastBallX.value : ball.x,
-                            y: ball.y === 0 ? lastBallY.value : ball.y
-                        }
-                    } else {
-                        // Too much time passed, skip fallback
-                        filterReason = `Current detection invalid but too much time since last valid (${timeSinceLastValid.toFixed(0)}ms), not using fallback`
-                        filteredBall = null
-                        rejectedBall = ball // Store rejected detection for visualization
-                    }
-                }
-
-                // Log filter decisions (DEV only)
-                if (HOT_PATH_LOGS && filterReason) {
-                    console.log(`[BBOX FILTER] ${filterReason}`)
-                    console.log(`[BBOX FILTER] Previous valid bbox: w=${lastBallWidth.value.toFixed(3)}, h=${lastBallHeight.value.toFixed(3)}`)
-                    console.log(`[BBOX FILTER] Current bbox (raw): w=${ball.width.toFixed(3)}, h=${ball.height.toFixed(3)}`)
-                    console.log(`[BBOX FILTER] Filtered bbox passed to tracking: w=${filteredBall?.width.toFixed(3) ?? 'null'}, h=${filteredBall?.height.toFixed(3) ?? 'null'}`)
-                }
-
-                // Update continuity tracking with valid detections only
-                if (!isInvalid && !filterReason) {
-                    lastBallWidth.value = ball.width
-                    lastBallHeight.value = ball.height
-                    lastBallX.value = ball.x
-                    lastBallY.value = ball.y
-                    lastValidBallTime.value = now
-                }
-
-                const ballForTracking =
-                    !filteredBall
-                        ? undefined
-                        : kalmanFilteredBall
-                            ? {
-                                x: kalmanFilteredBall.x,
-                                y: kalmanFilteredBall.y,
-                                width: filteredBall.width,
-                                height: filteredBall.height,
-                                confidence:
-                                filteredBall.confidence,
-                            }
-                            : filteredBall
-
-                if (ballForTracking) {
-                    lastBallRef.current = {
-                        x:
-                            ballForTracking.x +
-                            ballForTracking.width / 2,
-
-                        y:
-                            ballForTracking.y +
-                            ballForTracking.height / 2,
-
-                        t:
-                        detection.timestamp,
-                    }
-                }
-
-                if (
-                    detection.rim &&
-                    detection.rim.confidence >
-                    RIM_CONFIDENCE_THRESHOLD
-                ) {
-                    // Only update rim if confidence is higher than previous
-                    // This keeps rim stable since camera is typically stationary
-                    if (detection.rim.confidence > lastRimConfidence.value) {
-                        lastRimConfidence.value = detection.rim.confidence
-                        lastRimPosition.value = {
-                            x: detection.rim.x,
-                            y: detection.rim.y,
-                            width: detection.rim.width,
-                            height: detection.rim.height
-                        }
-                        onRimDetectionRef.current?.(
-                            detection.rim
-                        )
-                    }
-                }
-
-                if (
-                    !enabledShared.value
-                ) {
-                    return null
-                }
-
-                // Shot detection removed - now handled by Runtime → TrackingEngine → ShotDetectionEngine
-
-                // Filter detected rim: only use if close to calibration point
-                let filteredRim = detection.rim
-                if (detection.rim && rimFromCalibration) {
-                    const dx = detection.rim.x - rimFromCalibration.x
-                    const dy = detection.rim.y - rimFromCalibration.y
-                    const distance = Math.sqrt(dx * dx + dy * dy)
-                    // Reject detected rim if too far from calibration (max 10% of screen)
-                    const MAX_RIM_DISTANCE = 0.1
-                    if (distance > MAX_RIM_DISTANCE) {
-                        filteredRim = undefined
-                        if (HOT_PATH_LOGS) {
-                            console.log('[ShotTracker] Rejected rim detection: too far from calibration', {
-                                detected: { x: detection.rim.x.toFixed(3), y: detection.rim.y.toFixed(3) },
-                                calibration: { x: rimFromCalibration.x.toFixed(3), y: rimFromCalibration.y.toFixed(3) },
-                                distance: distance.toFixed(3)
-                            })
-                        }
-                    }
-                }
-
-                const effectiveRim =
-                    filteredRim ||
-                    rimFromCalibration ||
-                    null
-
-                // Shot detection removed - now handled by Runtime → TrackingEngine → ShotDetectionEngine
-
-                // Return detection with filtered bbox for TrackingEngine
-                // Pass null ball to enable Kalman prediction when detection is filtered
-                return {
-                    ...detection,
-                    ball: filteredBall ?? undefined,
-                    rejectedBall: rejectedBall ?? undefined
-                }
-            },
-            [
-                rimFromCalibration,
-                kalmanFilteredBall,
-            ]
-        )
-
-    // Ball callback wrapper
-    const wrappedOnBallDetection =
-        useCallback(
-            (
-                detection: BallDetection
-            ) => {
-
-                // Apply filter to get filtered bbox
-                const filteredDetection = handleBallDetectionForShotTracking(
-                    detection
-                )
-
-                // Pass filtered detection to TrackingEngine
-                if (filteredDetection) {
-                    perfTrackingAccepted.value += 1
-                    onBallDetection(filteredDetection)
-                }
-            },
-            [
-                onBallDetection,
-                handleBallDetectionForShotTracking,
-            ]
-        )
-
-    const wrappedOnBallDetectionRef =
-        useRef(
-            wrappedOnBallDetection
-        )
-
-    useEffect(() => {
-
-        wrappedOnBallDetectionRef.current =
-            wrappedOnBallDetection
-
-    }, [wrappedOnBallDetection])
-
     // JS bridge wrappers
     const emitBallDetection =
         useCallback(
@@ -681,11 +451,11 @@ export const useShotTracker = (
 
                 incrementYoloFps()
 
-                wrappedOnBallDetectionRef.current(
-                    detection
-                )
+                // Pass detection directly to TrackingEngine (no legacy filtering)
+                perfTrackingAccepted.value += 1
+                onBallDetection(detection)
             },
-            []
+            [onBallDetection]
         )
 
     const recordPlayerDetected = useCallback(() => {

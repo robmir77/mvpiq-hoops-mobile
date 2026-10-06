@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
 import { useShotTracker } from './useShotTracker'
-import type { BallDetection, PoseResult, ShotEvent } from './types'
+import type { BallDetection, PoseResult } from './types'
 import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 
 export interface CameraPipelineResult {
@@ -39,11 +39,9 @@ export interface CameraPipelineResult {
 export const useCameraPipeline = (
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult: (result: PoseResult) => void,
-  onShotEvent?: (event: ShotEvent) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
-  kalmanFilteredBall?: { x: number; y: number; vx: number; vy: number } | null,
   enabled: boolean = true,
   poseEnabled: boolean = true,
   ballEnabled: boolean = false,
@@ -84,11 +82,9 @@ export const useCameraPipeline = (
   const { frameOutput, isModelReady, resetShotTracking, yoloFps, moveNetFps, sharedValues: shotTrackerSharedValues, actualCameraFps, actualYoloFps, actualMoveNetFps } = useShotTracker(
     onBallDetection,
     onPoseResult,
-    onShotEvent,
     onRimDetection,
     onPlayerDetection,
     rimFromCalibration,
-    kalmanFilteredBall,
     enabled,
     poseEnabled,
     ballEnabled,

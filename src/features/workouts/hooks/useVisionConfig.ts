@@ -44,18 +44,6 @@ export const useVisionConfig = ({
 
     const effectiveRim = rimFromDetection || rimFromCalibration
 
-    const kalmanFilteredBall = useMemo(() => {
-        if (trackingState && trackingState.ballPosition && trackingState.ballVelocity) {
-            return {
-                x: trackingState.ballPosition.x,
-                y: trackingState.ballPosition.y,
-                vx: trackingState.ballVelocity.vx,
-                vy: trackingState.ballVelocity.vy,
-            }
-        }
-        return null
-    }, [trackingState?.ballPosition, trackingState?.ballVelocity])
-
     const visionConfig = useMemo(() => ({
         enabled: true,
         poseEnabled,
@@ -69,7 +57,6 @@ export const useVisionConfig = ({
         selectedFps: effectiveFps,
         selectedPoseResolution: effectivePoseResolution,
         rimFromCalibration: effectiveRim,
-        kalmanFilteredBall,
     }), [
         poseEnabled,
         ballEnabled,
@@ -82,8 +69,7 @@ export const useVisionConfig = ({
         effectiveFps,
         effectivePoseResolution,
         effectiveRim,
-        kalmanFilteredBall,
     ])
 
-    return { visionConfig, effectiveRim, kalmanFilteredBall }
+    return { visionConfig, effectiveRim }
 }

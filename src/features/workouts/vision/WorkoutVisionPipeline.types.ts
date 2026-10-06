@@ -2,7 +2,7 @@
 // Defines the contract for the workout vision pipeline
 
 import type { SharedValue } from 'react-native-reanimated'
-import type { BallDetection, PoseResult, ShotEvent } from '@/vision'
+import type { BallDetection, PoseResult } from '@/vision'
 
 export interface VisionSharedValues {
   ballX: SharedValue<number>
@@ -45,7 +45,6 @@ export interface VisionSharedValues {
 
 export type DetectionCallback = (detection: BallDetection) => void
 export type PoseCallback = (result: PoseResult) => void
-export type ShotEventCallback = (event: ShotEvent) => void
 export type RimDetectionCallback = (rim: {
   x: number
   y: number
@@ -72,12 +71,6 @@ export interface VisionPipelineConfig {
     width: number
     height: number
   } | null
-  kalmanFilteredBall?: {
-    x: number
-    y: number
-    vx: number
-    vy: number
-  } | null
 }
 
 export interface WorkoutVisionPipeline {
@@ -86,7 +79,6 @@ export interface WorkoutVisionPipeline {
   getSharedValues(): VisionSharedValues
   onBallDetection(callback: DetectionCallback): () => void
   onPoseResult(callback: PoseCallback): () => void
-  onShotEvent(callback: ShotEventCallback): () => void
   onRimDetection?(callback: RimDetectionCallback): () => void
   resetShotTracking(): void
   getFpsMetrics(): {

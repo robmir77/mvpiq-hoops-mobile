@@ -6,7 +6,7 @@
 import { useMemo } from 'react'
 import { useCameraPipeline } from '@/vision'
 import { useDerivedValue } from 'react-native-reanimated'
-import type { BallDetection, PoseResult, ShotEvent } from '@/vision'
+import type { BallDetection, PoseResult } from '@/vision'
 import type { AndroidDelegateOption, IosDelegateOption } from '@/vision/delegates'
 import type { VisionPipelineConfig } from './WorkoutVisionPipeline.types'
 
@@ -42,7 +42,6 @@ export const useWorkoutVisionPipeline = (
   config: VisionPipelineConfig,
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult: (result: PoseResult) => void,
-  onShotEvent?: (event: ShotEvent) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }) => void,
   runtimeActive: boolean = false, // Parameter kept for API compatibility, but not used (Decision 29 reverted)
@@ -65,11 +64,9 @@ export const useWorkoutVisionPipeline = (
   } = useCameraPipeline(
     onBallDetection,
     onPoseResult,
-    onShotEvent,
     onRimDetection,
     onPlayerDetection,
     config.rimFromCalibration,
-    config.kalmanFilteredBall,
     config.enabled,
     config.poseEnabled,
     config.ballEnabled,
