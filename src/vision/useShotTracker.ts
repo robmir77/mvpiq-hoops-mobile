@@ -209,6 +209,11 @@ export const useShotTracker = (
     const perfYoloBallDetected = useSharedValue(0)
     const perfTrackingAccepted = useSharedValue(0)
 
+    // Player tracking telemetry - aggregated in worklet, dispatched once per second
+    const perfPlayerUsingLastBboxCount = useSharedValue(0)
+    const perfPlayerLostCount = useSharedValue(0)
+    const perfPlayerBboxExpiredCount = useSharedValue(0)
+
     // Removed yoloWorkerSync to avoid duplicate TFLite model loading
     // Only useYoloWorkerAsync is used (ENABLE_ASYNC_YOLO_POC = true)
 
@@ -285,19 +290,22 @@ export const useShotTracker = (
     const selectedFpsShared =
         useSharedValue(selectedFps ?? 30)
 
-    // Pipeline telemetry callback (runs on JS thread)
-    const updatePipelineTelemetry = useCallback((
+    // Unified telemetry callback (runs on JS thread) - batches pipeline metrics + diagnostic window
+    // Reduces RN bridge crossings from 2 to 1 per second
+    const updateAllTelemetry = useCallback((
         cameraFPS: number,
         received: number,
         processed: number,
         droppedBusy: number,
-        trackingAccepted: number
+        trackingAccepted: number,
+        snapshot: DiagnosticWindowSnapshot
     ) => {
         // Skip if unmounted
         if (!isMountedRef.current) {
             return
         }
 
+        // Update pipeline metrics
         telemetryLogger.updatePipelineMetrics(
             cameraFPS,
             received,
@@ -315,11 +323,8 @@ export const useShotTracker = (
         telemetryLogger.logBboxStability()
         telemetryLogger.logPlayerTrackingMetrics()
         telemetryLogger.logBallTrackingMetrics()
-    }, [])
 
-
-    const recordDiagnosticWindow = useCallback((snapshot: DiagnosticWindowSnapshot) => {
-        // Calculate percentiles on JS thread where telemetryLogger is accessible
+        // Record diagnostic window with percentiles
         const yoloPercentiles = telemetryLogger.getYoloScheduleWaitPercentiles()
         const moveNetPercentiles = telemetryLogger.getMoveNetScheduleWaitPercentiles()
         
@@ -468,20 +473,28 @@ export const useShotTracker = (
         []
     )
 
-    const recordPlayerDetected = useCallback(() => {
-        telemetryLogger.recordPlayerDetected()
-    }, [])
+    // Batch player tracking telemetry callback - dispatched once per second
+    // Replaces per-frame scheduleOnRN calls for recordPlayerUsingLastBbox, recordPlayerLost, recordPlayerBboxExpired
+    const flushPlayerTrackingTelemetry = useCallback((
+        usingLastBboxCount: number,
+        lostCount: number,
+        expiredCount: number
+    ) => {
+        // Skip if unmounted
+        if (!isMountedRef.current) {
+            return
+        }
 
-    const recordPlayerLost = useCallback(() => {
-        telemetryLogger.recordPlayerLost()
-    }, [])
-
-    const recordPlayerUsingLastBbox = useCallback((ageMs: number) => {
-        telemetryLogger.recordPlayerUsingLastBbox(ageMs)
-    }, [])
-
-    const recordPlayerBboxExpired = useCallback(() => {
-        telemetryLogger.recordPlayerBboxExpired()
+        // Flush aggregated counters to telemetry logger
+        for (let i = 0; i < usingLastBboxCount; i++) {
+            telemetryLogger.recordPlayerUsingLastBbox(0) // ageMs not tracked in aggregated mode
+        }
+        for (let i = 0; i < lostCount; i++) {
+            telemetryLogger.recordPlayerLost()
+        }
+        for (let i = 0; i < expiredCount; i++) {
+            telemetryLogger.recordPlayerBboxExpired()
+        }
     }, [])
 
     // Callback for async YOLO results - updates overlay when results are ready
@@ -721,25 +734,29 @@ export const useShotTracker = (
                             : 0,
                     }
 
+                    // Batch telemetry: single RN bridge crossing for both pipeline metrics and diagnostic window
                     scheduleOnRN(
-                        updatePipelineTelemetry,
+                        updateAllTelemetry,
                         snapshot.cameraFps,
                         snapshot.received,
                         snapshot.processed,
                         snapshot.droppedBusy,
-                        perfTrackingAccepted.value
+                        perfTrackingAccepted.value,
+                        snapshot
                     )
-                    scheduleOnRN(recordDiagnosticWindow, snapshot)
+
+                    // Flush aggregated player tracking telemetry (single RN bridge crossing)
+                    scheduleOnRN(
+                        flushPlayerTrackingTelemetry,
+                        perfPlayerUsingLastBboxCount.value,
+                        perfPlayerLostCount.value,
+                        perfPlayerBboxExpiredCount.value
+                    )
 
                     // Update actual FPS values for UI
                     actualCameraFps.value = snapshot.cameraFps
                     actualYoloFps.value = snapshot.yoloThroughputFps
                     actualMoveNetFps.value = snapshot.moveNetThroughputFps
-                    console.log('[useShotTracker] FPS update:', { 
-                        cameraFps: snapshot.cameraFps, 
-                        yoloThroughputFps: snapshot.yoloThroughputFps, 
-                        moveNetThroughputFps: snapshot.moveNetThroughputFps 
-                    })
 
                     perfLastLogAt.value = now
                     perfFramesReceived.value = 0
@@ -771,6 +788,10 @@ export const useShotTracker = (
                     perfMoveNetRunTotal.value = 0
                     perfMoveNetParseTotal.value = 0
                     perfTrackingAccepted.value = 0
+                    // Reset aggregated player tracking counters
+                    perfPlayerUsingLastBboxCount.value = 0
+                    perfPlayerLostCount.value = 0
+                    perfPlayerBboxExpiredCount.value = 0
                 }
 
                 // Increment frame counter for logging
@@ -814,7 +835,8 @@ export const useShotTracker = (
                             if (trackedBbox.isUsingLastBbox) {
                                 playerTrackState.value = 'PREDICTED'
                                 playerTrackAge.value = trackedBbox.ageMs
-                                scheduleOnRN(recordPlayerUsingLastBbox, trackedBbox.ageMs)
+                                // Aggregate in worklet instead of per-frame scheduleOnRN
+                                perfPlayerUsingLastBboxCount.value += 1
                             } else {
                                 playerTrackState.value = 'DETECTED'
                                 playerTrackAge.value = 0
@@ -1031,8 +1053,11 @@ export const useShotTracker = (
                 perfMoveNetRunTotal,
                 perfMoveNetParseTotal,
                 perfLastLogAt,
-                recordDiagnosticWindow,
-                updatePipelineTelemetry,
+                updateAllTelemetry,
+                flushPlayerTrackingTelemetry,
+                perfPlayerUsingLastBboxCount,
+                perfPlayerLostCount,
+                perfPlayerBboxExpiredCount,
                 perfTrackingAccepted,
                 isProcessingFrame,
                 ballEnabledShared,
