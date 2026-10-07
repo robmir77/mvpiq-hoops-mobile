@@ -448,6 +448,26 @@ export const useShotTracker = (
             [onBallDetection]
         )
 
+    const emitRimDetection = useCallback(
+        (
+            rim: {
+                x: number
+                y: number
+                width: number
+                height: number
+                confidence: number
+            }
+        ) => {
+            // Skip if unmounted
+            if (!isMountedRef.current) {
+                return
+            }
+
+            onRimDetectionRef.current?.(rim)
+        },
+        []
+    )
+
     const recordPlayerDetected = useCallback(() => {
         telemetryLogger.recordPlayerDetected()
     }, [])
@@ -846,6 +866,8 @@ export const useShotTracker = (
                     if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
                         rimTrackState.value = 'DETECTED'
                         rimTrackAge.value = 0
+                        // Emit rim detection callback to update tracking engine
+                        scheduleOnRN(emitRimDetection, yoloResult.rim)
                     } else if (rimFromCalibration) {
                         rimTrackState.value = 'PREDICTED'
                         rimTrackAge.value = 0
