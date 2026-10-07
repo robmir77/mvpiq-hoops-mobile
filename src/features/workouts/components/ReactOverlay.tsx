@@ -184,9 +184,9 @@ const ReactOverlay = React.memo(({
 
     // Log for diagnostics - track when pose overlay renders with valid keypoints
     React.useEffect(() => {
+        // Removed log - noise in profiling
         if (poseKeypoints) {
             const validKeypoints = Object.values(poseKeypoints).filter((kp: any) => kp && kp.score > 0).length
-            console.log('[POSE OVERLAY] render valid=', validKeypoints)
         }
     }, [poseKeypoints])
 

@@ -614,7 +614,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Track usage minutes when session is active
     useEffect(() => {
-        console.log('[WorkoutSession] Usage timer check:', { isActive, isModelReady, startTime: sessionStartTimeGlobal.current })
+        // Removed log - noise during normal operation
         if (isActive && isModelReady) {
             if (!sessionStartTimeGlobal.current) {
                 sessionStartTimeGlobal.current = Date.now()
@@ -654,7 +654,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Avvio: quando il modello è pronto
     useEffect(() => {
-        console.log('[WorkoutSession] isModelReady:', isModelReady)
+        // Removed log - noise during startup/debug
         setModelsReady(isModelReady)
     }, [isModelReady])
 

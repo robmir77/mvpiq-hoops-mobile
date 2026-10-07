@@ -473,6 +473,26 @@ export const useShotTracker = (
         []
     )
 
+    const emitPlayerDetection = useCallback(
+        (
+            player: {
+                x: number
+                y: number
+                width: number
+                height: number
+                confidence: number
+            }
+        ) => {
+            // Skip if unmounted
+            if (!isMountedRef.current) {
+                return
+            }
+
+            onPlayerDetectionRef.current?.(player)
+        },
+        []
+    )
+
     // Batch player tracking telemetry callback - dispatched once per second
     // Replaces per-frame scheduleOnRN calls for recordPlayerUsingLastBbox, recordPlayerLost, recordPlayerBboxExpired
     const flushPlayerTrackingTelemetry = useCallback((
@@ -933,10 +953,10 @@ export const useShotTracker = (
                         scheduleOnRN(emitBallDetection, detection)
                     }
 
-                    // Process player detection for telemetry
+                    // Process player detection for telemetry and tracking
                     if (yoloResult.player) {
-                        // Player detection is logged via scheduleOnRN in the YOLO worker
-                        // No additional processing needed here for now
+                        // Emit player detection callback to update VisionEngineAdapter and TrackingEngine
+                        scheduleOnRN(emitPlayerDetection, yoloResult.player)
                     }
 
                     // Process pose result if available
