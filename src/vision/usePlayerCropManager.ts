@@ -137,9 +137,6 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       const confidence = playerBbox.confidence ?? 1.0
       if (confidence < cfg.minConfidence) {
         // Low confidence detection - ignore but don't reset tracking
-        if (ENABLE_PLAYER_CROP_LOGS) {
-          console.log('[PLAYER CROP] Rejected low confidence:', confidence.toFixed(6), 'threshold:', cfg.minConfidence)
-        }
         return
       }
 
@@ -156,14 +153,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
           consecutiveRejects.value += 1
           if (consecutiveRejects.value < MAX_CONSECUTIVE_REJECTS) {
             // Bbox jumped too much - reject as noise
-            if (ENABLE_PLAYER_CROP_LOGS) {
-              console.log('[PLAYER CROP] Rejected large jump:', jump.toFixed(3), 'threshold:', cfg.maxJumpThreshold, 'from:', bboxX.value.toFixed(3), bboxY.value.toFixed(3), 'to:', playerBbox.x.toFixed(3), playerBbox.y.toFixed(3), 'consecutiveRejects:', consecutiveRejects.value)
-            }
             return
-          }
-          // Force accept after MAX_CONSECUTIVE_REJECTS - safety net to re-sync
-          if (ENABLE_PLAYER_CROP_LOGS) {
-            console.log('[PLAYER CROP] Force accepting after', consecutiveRejects.value, 'consecutive rejects - safety net re-sync')
           }
         }
       }
@@ -180,10 +170,6 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       consecutiveRejects.value = 0 // Reset consecutive reject counter on successful accept
       detectionId.value += 1 // Increment detection ID for new YOLO detection
 
-      // Log raw YOLO bbox for diagnostics
-      if (ENABLE_PLAYER_CROP_LOGS) {
-        console.log('[PLAYER CROP] YOLO raw bbox:', `x=${playerBbox.x.toFixed(3)} y=${playerBbox.y.toFixed(3)} w=${playerBbox.width.toFixed(3)} h=${playerBbox.height.toFixed(3)} conf=${confidence.toFixed(3)}`)
-      }
     }
     // If playerBbox is null, we don't update lastSeenAt - let it expire naturally
 
@@ -289,10 +275,6 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     smoothingUnaccountedMs.value += (smoothingTotal - smoothingMeasured)
     getEffectiveBboxSmoothingMs.value += smoothingTotal
 
-    // Log smoothed bbox for diagnostics
-    if (ENABLE_PLAYER_CROP_LOGS) {
-      console.log('[PLAYER CROP] Smoothed bbox:', `x=${smoothedX.value.toFixed(3)} y=${smoothedY.value.toFixed(3)} w=${smoothedWidth.value.toFixed(3)} h=${smoothedHeight.value.toFixed(3)} conf=${smoothedConfidence.value.toFixed(3)} age=${ageMs.toFixed(0)}ms`)
-    }
 
     const tSvWritesStart = Date.now()
     // Count SharedValue writes (5 smoothing writes per call)
