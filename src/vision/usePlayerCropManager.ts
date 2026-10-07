@@ -221,36 +221,60 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const getEffectiveBbox = (now: number): TrackedPlayerBbox | null => {
     'worklet'
     const tStart = Date.now()
+
+    // PASS 5J-C: Snapshot SharedValues once per call to avoid repeated reads
     const tSvReadsStart = Date.now()
-    if (!hasBbox.value || lastSeenAt.value === 0) {
-      return null
-    }
+    const hasBboxSnapshot = hasBbox.value
+    const lastSeenAtSnapshot = lastSeenAt.value
+    const detectionIdSnapshot = detectionId.value
+    const lastProcessedDetectionIdSnapshot = lastProcessedDetectionId.value
+    const cachedBboxDetectionIdSnapshot = cachedBboxDetectionId.value
+    const cachedBboxXSnapshot = cachedBboxX.value
+    const cachedBboxYSnapshot = cachedBboxY.value
+    const cachedBboxWidthSnapshot = cachedBboxWidth.value
+    const cachedBboxHeightSnapshot = cachedBboxHeight.value
+    const cachedBboxConfidenceSnapshot = cachedBboxConfidence.value
+    const detectedAtSnapshot = detectedAt.value
+    const bboxXSnapshot = bboxX.value
+    const bboxYSnapshot = bboxY.value
+    const bboxWidthSnapshot = bboxWidth.value
+    const bboxHeightSnapshot = bboxHeight.value
+    const bboxConfidenceSnapshot = bboxConfidence.value
+    const smoothedXSnapshot = smoothedX.value
+    const smoothedYSnapshot = smoothedY.value
+    const smoothedWidthSnapshot = smoothedWidth.value
+    const smoothedHeightSnapshot = smoothedHeight.value
+    const smoothedConfidenceSnapshot = smoothedConfidence.value
     const tSvReadsEnd = Date.now()
     getEffectiveBboxSvReadsMs.value += (tSvReadsEnd - tSvReadsStart)
 
+    if (!hasBboxSnapshot || lastSeenAtSnapshot === 0) {
+      return null
+    }
+
     const tAgeTtlStart = Date.now()
-    const ageMs = now - lastSeenAt.value
+    const ageMs = now - lastSeenAtSnapshot
     const isStale = ageMs > cfg.bboxTtlMs
     const tAgeTtlEnd = Date.now()
     getEffectiveBboxAgeTtlMs.value += (tAgeTtlEnd - tAgeTtlStart)
-    
+
     const tDetectionIdStart = Date.now()
     // Determine if this is a fresh YOLO detection or a persisted bbox
     // Fresh: detectionId changed since last frame (new YOLO detection)
     // Persisted: detectionId unchanged (reusing old bbox)
-    const isNewDetection = detectionId.value !== lastProcessedDetectionId.value
+    const isNewDetection = detectionIdSnapshot !== lastProcessedDetectionIdSnapshot
     const isUsingLastBbox = !isNewDetection && ageMs > 0
 
     // Update lastProcessedDetectionId to mark this detection as processed
     if (isNewDetection) {
-      lastProcessedDetectionId.value = detectionId.value
+      lastProcessedDetectionId.value = detectionIdSnapshot
     }
     const tDetectionIdEnd = Date.now()
     getEffectiveBboxDetectionIdMs.value += (tDetectionIdEnd - tDetectionIdStart)
 
     // PASS 5I: Cache effective bbox to avoid redundant smoothing on same detectionId
     // If detectionId hasn't changed since last cache, reuse cached bbox (only update ageMs/isUsingLastBbox)
-    const isCacheValid = cachedBboxDetectionId.value === detectionId.value && cachedBboxDetectionId.value > 0
+    const isCacheValid = cachedBboxDetectionIdSnapshot === detectionIdSnapshot && cachedBboxDetectionIdSnapshot > 0
     if (isCacheValid && !isNewDetection) {
       // Cache hit - increment counter
       cacheHits.value += 1
@@ -259,18 +283,18 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       const tResultStart = Date.now()
       const result = {
         bbox: {
-          x: cachedBboxX.value,
-          y: cachedBboxY.value,
-          width: cachedBboxWidth.value,
-          height: cachedBboxHeight.value,
-          confidence: cachedBboxConfidence.value,
+          x: cachedBboxXSnapshot,
+          y: cachedBboxYSnapshot,
+          width: cachedBboxWidthSnapshot,
+          height: cachedBboxHeightSnapshot,
+          confidence: cachedBboxConfidenceSnapshot,
         },
-        detectedAt: detectedAt.value,
-        lastSeenAt: lastSeenAt.value,
+        detectedAt: detectedAtSnapshot,
+        lastSeenAt: lastSeenAtSnapshot,
         isStale,
         ageMs,
         isUsingLastBbox,
-        detectionId: detectionId.value,
+        detectionId: detectionIdSnapshot,
       }
       const tResultEnd = Date.now()
       getEffectiveBboxResultMs.value += (tResultEnd - tResultStart)
@@ -310,33 +334,33 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     dateNowOverheadMs.value += (tOverheadEnd - tOverheadStart)
 
     const tSmoothingStart = Date.now()
-    // PASS 5E: Separate smoothing reads
+    // PASS 5E: Separate smoothing reads - use snapshots
     const tReadsStart = Date.now()
-    const currentX = smoothedX.value
-    const currentY = smoothedY.value
-    const currentWidth = smoothedWidth.value
-    const currentHeight = smoothedHeight.value
-    const currentConfidence = smoothedConfidence.value
+    const currentX = smoothedXSnapshot
+    const currentY = smoothedYSnapshot
+    const currentWidth = smoothedWidthSnapshot
+    const currentHeight = smoothedHeightSnapshot
+    const currentConfidence = smoothedConfidenceSnapshot
     const tReadsEnd = Date.now()
     smoothingReadsMs.value += (tReadsEnd - tReadsStart)
 
-    // PASS 5E: Separate lerp calculation
+    // PASS 5E: Separate lerp calculation - use snapshots
     const tLerpStart = Date.now()
     let nextX: number, nextY: number, nextWidth: number, nextHeight: number, nextConfidence: number
     if (currentX === 0 && currentY === 0) {
       // First detection - initialize smoothed values
-      nextX = bboxX.value
-      nextY = bboxY.value
-      nextWidth = bboxWidth.value
-      nextHeight = bboxHeight.value
-      nextConfidence = bboxConfidence.value
+      nextX = bboxXSnapshot
+      nextY = bboxYSnapshot
+      nextWidth = bboxWidthSnapshot
+      nextHeight = bboxHeightSnapshot
+      nextConfidence = bboxConfidenceSnapshot
     } else {
       // Apply exponential moving average
-      nextX = lerp(currentX, bboxX.value, cfg.smoothingFactor)
-      nextY = lerp(currentY, bboxY.value, cfg.smoothingFactor)
-      nextWidth = lerp(currentWidth, bboxWidth.value, cfg.smoothingFactor)
-      nextHeight = lerp(currentHeight, bboxHeight.value, cfg.smoothingFactor)
-      nextConfidence = lerp(currentConfidence, bboxConfidence.value, cfg.smoothingFactor)
+      nextX = lerp(currentX, bboxXSnapshot, cfg.smoothingFactor)
+      nextY = lerp(currentY, bboxYSnapshot, cfg.smoothingFactor)
+      nextWidth = lerp(currentWidth, bboxWidthSnapshot, cfg.smoothingFactor)
+      nextHeight = lerp(currentHeight, bboxHeightSnapshot, cfg.smoothingFactor)
+      nextConfidence = lerp(currentConfidence, bboxConfidenceSnapshot, cfg.smoothingFactor)
     }
     const tLerpEnd = Date.now()
     smoothingLerpMs.value += (tLerpEnd - tLerpStart)
@@ -390,18 +414,18 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
         height: nextHeight,
         confidence: nextConfidence,
       },
-      detectedAt: detectedAt.value,
-      lastSeenAt: lastSeenAt.value,
+      detectedAt: detectedAtSnapshot,
+      lastSeenAt: lastSeenAtSnapshot,
       isStale,
       ageMs,
       isUsingLastBbox,
-      detectionId: detectionId.value,
+      detectionId: detectionIdSnapshot,
     }
     const tConstructionEnd = Date.now()
     resultConstructionMs.value += (tConstructionEnd - tConstructionStart)
 
     // PASS 5I: Update cache with new bbox
-    cachedBboxDetectionId.value = detectionId.value
+    cachedBboxDetectionId.value = detectionIdSnapshot
     cachedBboxX.value = nextX
     cachedBboxY.value = nextY
     cachedBboxWidth.value = nextWidth
