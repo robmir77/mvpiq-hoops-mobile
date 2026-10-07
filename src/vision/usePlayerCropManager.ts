@@ -94,6 +94,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const hasBbox = useSharedValue(false)
   const consecutiveRejects = useSharedValue(0) // Safety net: force accept after N consecutive rejects
   const detectionId = useSharedValue(0) // Incremented on each new YOLO detection
+  const lastProcessedDetectionId = useSharedValue(0) // Last detectionId processed by frame processor
 
   /**
    * Update player bbox with new detection
@@ -172,7 +173,17 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
 
     const ageMs = now - lastSeenAt.value
     const isStale = ageMs > cfg.bboxTtlMs
-    const isUsingLastBbox = ageMs > 0
+    
+    // Determine if this is a fresh YOLO detection or a persisted bbox
+    // Fresh: detectionId changed since last frame (new YOLO detection)
+    // Persisted: detectionId unchanged (reusing old bbox)
+    const isNewDetection = detectionId.value !== lastProcessedDetectionId.value
+    const isUsingLastBbox = !isNewDetection && ageMs > 0
+    
+    // Update lastProcessedDetectionId to mark this detection as processed
+    if (isNewDetection) {
+      lastProcessedDetectionId.value = detectionId.value
+    }
 
     if (isStale) {
       // BBox expired - reset tracking state
@@ -319,6 +330,8 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     smoothedHeight.value = 0
     smoothedConfidence.value = 0
     bboxConfidence.value = 0
+    detectionId.value = 0
+    lastProcessedDetectionId.value = 0
   }
 
   /**
