@@ -111,6 +111,13 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const getEffectiveBboxSvWritesMs = useSharedValue(0)
   const getEffectiveBboxResultMs = useSharedValue(0)
 
+  // PASS 5E: Separate smoothing into reads/lerp/writes/result to close ~5ms gap
+  const smoothingReadsMs = useSharedValue(0)
+  const smoothingLerpMs = useSharedValue(0)
+  const smoothingWritesMs = useSharedValue(0)
+  const resultReadsMs = useSharedValue(0)
+  const resultConstructionMs = useSharedValue(0)
+
   /**
    * Update player bbox with new detection
    * @param playerBbox - Current player detection from YOLO (normalized 0-1), null if not detected
@@ -225,22 +232,47 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     }
 
     const tSmoothingStart = Date.now()
-    // Apply smoothing to bbox
-    if (smoothedX.value === 0 && smoothedY.value === 0) {
+    // PASS 5E: Separate smoothing reads
+    const tReadsStart = Date.now()
+    const currentX = smoothedX.value
+    const currentY = smoothedY.value
+    const currentWidth = smoothedWidth.value
+    const currentHeight = smoothedHeight.value
+    const currentConfidence = smoothedConfidence.value
+    const tReadsEnd = Date.now()
+    smoothingReadsMs.value += (tReadsEnd - tReadsStart)
+
+    // PASS 5E: Separate lerp calculation
+    const tLerpStart = Date.now()
+    let nextX: number, nextY: number, nextWidth: number, nextHeight: number, nextConfidence: number
+    if (currentX === 0 && currentY === 0) {
       // First detection - initialize smoothed values
-      smoothedX.value = bboxX.value
-      smoothedY.value = bboxY.value
-      smoothedWidth.value = bboxWidth.value
-      smoothedHeight.value = bboxHeight.value
-      smoothedConfidence.value = bboxConfidence.value
+      nextX = bboxX.value
+      nextY = bboxY.value
+      nextWidth = bboxWidth.value
+      nextHeight = bboxHeight.value
+      nextConfidence = bboxConfidence.value
     } else {
       // Apply exponential moving average
-      smoothedX.value = lerp(smoothedX.value, bboxX.value, cfg.smoothingFactor)
-      smoothedY.value = lerp(smoothedY.value, bboxY.value, cfg.smoothingFactor)
-      smoothedWidth.value = lerp(smoothedWidth.value, bboxWidth.value, cfg.smoothingFactor)
-      smoothedHeight.value = lerp(smoothedHeight.value, bboxHeight.value, cfg.smoothingFactor)
-      smoothedConfidence.value = lerp(smoothedConfidence.value, bboxConfidence.value, cfg.smoothingFactor)
+      nextX = lerp(currentX, bboxX.value, cfg.smoothingFactor)
+      nextY = lerp(currentY, bboxY.value, cfg.smoothingFactor)
+      nextWidth = lerp(currentWidth, bboxWidth.value, cfg.smoothingFactor)
+      nextHeight = lerp(currentHeight, bboxHeight.value, cfg.smoothingFactor)
+      nextConfidence = lerp(currentConfidence, bboxConfidence.value, cfg.smoothingFactor)
     }
+    const tLerpEnd = Date.now()
+    smoothingLerpMs.value += (tLerpEnd - tLerpStart)
+
+    // PASS 5E: Separate smoothing writes
+    const tWritesStart = Date.now()
+    smoothedX.value = nextX
+    smoothedY.value = nextY
+    smoothedWidth.value = nextWidth
+    smoothedHeight.value = nextHeight
+    smoothedConfidence.value = nextConfidence
+    const tWritesEnd = Date.now()
+    smoothingWritesMs.value += (tWritesEnd - tWritesStart)
+
     const tSmoothingEnd = Date.now()
     getEffectiveBboxSmoothingMs.value += (tSmoothingEnd - tSmoothingStart)
 
@@ -256,13 +288,25 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     getEffectiveBboxSvWritesMs.value += (tSvWritesEnd - tSvWritesStart)
 
     const tResultStart = Date.now()
+    // PASS 5E: Separate result reads (use local variables instead of SharedValue reads)
+    const tResultReadsStart = Date.now()
+    const resultX = smoothedX.value
+    const resultY = smoothedY.value
+    const resultWidth = smoothedWidth.value
+    const resultHeight = smoothedHeight.value
+    const resultConfidence = smoothedConfidence.value
+    const tResultReadsEnd = Date.now()
+    resultReadsMs.value += (tResultReadsEnd - tResultReadsStart)
+
+    // PASS 5E: Separate result construction
+    const tConstructionStart = Date.now()
     const result = {
       bbox: {
-        x: smoothedX.value,
-        y: smoothedY.value,
-        width: smoothedWidth.value,
-        height: smoothedHeight.value,
-        confidence: smoothedConfidence.value,
+        x: resultX,
+        y: resultY,
+        width: resultWidth,
+        height: resultHeight,
+        confidence: resultConfidence,
       },
       detectedAt: detectedAt.value,
       lastSeenAt: lastSeenAt.value,
@@ -271,6 +315,9 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       isUsingLastBbox,
       detectionId: detectionId.value,
     }
+    const tConstructionEnd = Date.now()
+    resultConstructionMs.value += (tConstructionEnd - tConstructionStart)
+
     const tResultEnd = Date.now()
     getEffectiveBboxResultMs.value += (tResultEnd - tResultStart)
 
@@ -434,5 +481,11 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     getEffectiveBboxSmoothingMs,
     getEffectiveBboxSvWritesMs,
     getEffectiveBboxResultMs,
+    // PASS 5E: Smoothing reads/lerp/writes/result separation
+    smoothingReadsMs,
+    smoothingLerpMs,
+    smoothingWritesMs,
+    resultReadsMs,
+    resultConstructionMs,
   }
 }

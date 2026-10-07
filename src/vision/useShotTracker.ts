@@ -281,6 +281,13 @@ export const useShotTracker = (
     const perfPlayerCropSvWritesMs = useSharedValue(0)
     const perfPlayerCropResultMs = useSharedValue(0)
 
+    // PASS 5E: Smoothing reads/lerp/writes/result separation
+    const perfSmoothingReadsMs = useSharedValue(0)
+    const perfSmoothingLerpMs = useSharedValue(0)
+    const perfSmoothingWritesMs = useSharedValue(0)
+    const perfResultReadsMs = useSharedValue(0)
+    const perfResultConstructionMs = useSharedValue(0)
+
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
     // Cannot mutate plain useRef from worklet (not synchronized)
@@ -1084,6 +1091,13 @@ export const useShotTracker = (
                     perfPlayerCropSvWritesMs.value = playerCrop.getEffectiveBboxSvWritesMs.value
                     perfPlayerCropResultMs.value = playerCrop.getEffectiveBboxResultMs.value
 
+                    // PASS 5E: Read smoothing reads/lerp/writes/result separation
+                    perfSmoothingReadsMs.value = playerCrop.smoothingReadsMs.value
+                    perfSmoothingLerpMs.value = playerCrop.smoothingLerpMs.value
+                    perfSmoothingWritesMs.value = playerCrop.smoothingWritesMs.value
+                    perfResultReadsMs.value = playerCrop.resultReadsMs.value
+                    perfResultConstructionMs.value = playerCrop.resultConstructionMs.value
+
                     // Tracking shared value writes
                     const tTrackingSvStart = performance.now()
                     if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
@@ -1267,6 +1281,20 @@ export const useShotTracker = (
                             svWritesAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropSvWritesMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
                             resultMs: perfPlayerCropResultMs.value.toFixed(1),
                             resultAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropResultMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
+                        })
+                        console.log('[FRAME PROC] smoothing breakdown:', {
+                            readsMs: perfSmoothingReadsMs.value.toFixed(1),
+                            readsAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfSmoothingReadsMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            lerpMs: perfSmoothingLerpMs.value.toFixed(1),
+                            lerpAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfSmoothingLerpMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            writesMs: perfSmoothingWritesMs.value.toFixed(1),
+                            writesAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfSmoothingWritesMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
+                        })
+                        console.log('[FRAME PROC] result breakdown:', {
+                            readsMs: perfResultReadsMs.value.toFixed(1),
+                            readsAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultReadsMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            constructionMs: perfResultConstructionMs.value.toFixed(1),
+                            constructionAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultConstructionMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
                         })
                         console.log('[FRAME PROC] telemetry breakdown:', {
                             total: telemetryMs.toFixed(1),
