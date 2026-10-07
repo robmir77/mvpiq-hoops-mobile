@@ -1,5 +1,8 @@
 // Structured telemetry system for model comparison and performance tracking
 
+// PASS 5B: Telemetry re-enabled - not the root cause of frame processor variability
+export const TELEMETRY_ENABLED = true
+
 export interface ModelMetadata {
   name: string
   inputSize: number
@@ -311,6 +314,7 @@ class TelemetryLogger {
   }
 
   recordDiagnosticWindow(snapshot: DiagnosticWindowSnapshot): void {
+    if (!TELEMETRY_ENABLED) return
     this.diagnosticWindows.push(snapshot)
     if (this.diagnosticWindows.length > 120) {
       this.diagnosticWindows.shift()
@@ -327,14 +331,17 @@ class TelemetryLogger {
 
   // RN work tracking methods
   recordRnYoloScheduled(): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnYoloScheduled++
   }
 
   recordRnYoloCallbackStart(): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnYoloCallbackStarted++
   }
 
   recordRnYoloCallbackExecution(executionMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnYoloCallbackExecutionMs.push(executionMs)
     if (this.rnYoloCallbackExecutionMs.length > 300) {
       this.rnYoloCallbackExecutionMs.shift()
@@ -342,14 +349,17 @@ class TelemetryLogger {
   }
 
   recordRnMoveNetScheduled(): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnMoveNetScheduled++
   }
 
   recordRnMoveNetCallbackStart(): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnMoveNetCallbackStarted++
   }
 
   recordRnMoveNetCallbackExecution(executionMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnMoveNetCallbackExecutionMs.push(executionMs)
     if (this.rnMoveNetCallbackExecutionMs.length > 300) {
       this.rnMoveNetCallbackExecutionMs.shift()
@@ -357,14 +367,17 @@ class TelemetryLogger {
   }
 
   recordRnTelemetryUpdate(): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnTelemetryUpdates++
   }
 
   recordRnUiUpdate(): void {
+    if (!TELEMETRY_ENABLED) return
     this.rnUiUpdates++
   }
 
   logRnWorkMetrics(): void {
+    if (!TELEMETRY_ENABLED) return
     const yoloPending = this.rnYoloScheduled - this.rnYoloCallbackStarted
     const moveNetPending = this.rnMoveNetScheduled - this.rnMoveNetCallbackStarted
     const yoloAvgCallbackMs = this.rnYoloCallbackExecutionMs.length > 0
@@ -385,6 +398,7 @@ class TelemetryLogger {
   }
 
   logModelMetadata(metadata: ModelMetadata): void {
+    if (!TELEMETRY_ENABLED) return
     this.modelMetadata = metadata
     console.log('[MODEL]', `name=${metadata.name}`)
     console.log('[MODEL]', `input=${metadata.inputSize}x${metadata.inputSize}`)
@@ -392,11 +406,13 @@ class TelemetryLogger {
   }
 
   setMoveNetModelInput(inputSize: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetModelInput = inputSize
     console.log('[MOVENET]', `modelInput=${inputSize}x${inputSize}`)
   }
 
   recordYoloInferenceLegacy(inferenceTimeMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     // Legacy method for backward compatibility - now records to yoloInferenceTimes
     this.yoloInferenceTimes.push(inferenceTimeMs)
     if (this.yoloInferenceTimes.length > 300) {
@@ -405,10 +421,12 @@ class TelemetryLogger {
   }
 
   recordYoloRequested(): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloRequested++
   }
 
   recordYoloExecuted(): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloExecuted++
     if (this.yoloStartTime === null) {
       this.yoloStartTime = Date.now()
@@ -416,10 +434,12 @@ class TelemetryLogger {
   }
 
   recordYoloProcessedFrame(): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloProcessedFramesCount++
   }
 
   recordYoloResize(resizeMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloResizeTimes.push(resizeMs)
     if (this.yoloResizeTimes.length > 300) {
       this.yoloResizeTimes.shift()
@@ -427,6 +447,7 @@ class TelemetryLogger {
   }
 
   recordYoloRun(runMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloRunTimes.push(runMs)
     if (this.yoloRunTimes.length > 300) {
       this.yoloRunTimes.shift()
@@ -434,6 +455,7 @@ class TelemetryLogger {
   }
 
   recordYoloParse(parseMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloParseTimes.push(parseMs)
     if (this.yoloParseTimes.length > 300) {
       this.yoloParseTimes.shift()
@@ -441,6 +463,7 @@ class TelemetryLogger {
   }
 
   recordYoloScheduleWait(scheduleWaitMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloScheduleWaitTimes.push(scheduleWaitMs)
     if (this.yoloScheduleWaitTimes.length > 300) {
       this.yoloScheduleWaitTimes.shift()
@@ -448,6 +471,7 @@ class TelemetryLogger {
   }
 
   recordYoloWorkletPrep(workletPrepMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloWorkletPrepTimes.push(workletPrepMs)
     if (this.yoloWorkletPrepTimes.length > 300) {
       this.yoloWorkletPrepTimes.shift()
@@ -455,6 +479,7 @@ class TelemetryLogger {
   }
 
   recordYoloJsPreprocess(jsPreprocessMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloJsPreprocessTimes.push(jsPreprocessMs)
     if (this.yoloJsPreprocessTimes.length > 300) {
       this.yoloJsPreprocessTimes.shift()
@@ -462,6 +487,7 @@ class TelemetryLogger {
   }
 
   recordYoloInference(inferenceMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloInferenceTimes.push(inferenceMs)
     if (this.yoloInferenceTimes.length > 300) {
       this.yoloInferenceTimes.shift()
@@ -469,6 +495,7 @@ class TelemetryLogger {
   }
 
   recordYoloPostprocess(postprocessMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloPostprocessTimes.push(postprocessMs)
     if (this.yoloPostprocessTimes.length > 300) {
       this.yoloPostprocessTimes.shift()
@@ -524,12 +551,14 @@ class TelemetryLogger {
   }
 
   logYoloPerf(): void {
+    if (!TELEMETRY_ENABLED) return
     // Removed duplicate log - YOLO DETAIL already contains detailed timing
     // const metrics = this.getYoloPerfMetrics()
     // console.log('[YOLO]', `latency=${metrics.avgMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
   recordBallDetection(confidence: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.ballDetections.push({ confidence, timestamp: Date.now() })
     if (this.ballDetections.length > 600) {
       this.ballDetections.shift()
@@ -537,10 +566,12 @@ class TelemetryLogger {
   }
 
   recordYoloFrameWithBall(): void {
+    if (!TELEMETRY_ENABLED) return
     this.pipelineMetrics.framesWithBall++
   }
 
   recordPlayerDetection(confidence: number, bbox: { x: number; y: number; w: number; h: number }): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerDetections.push({ confidence, bbox, timestamp: Date.now() })
     if (this.playerDetections.length > 600) {
       this.playerDetections.shift()
@@ -548,10 +579,12 @@ class TelemetryLogger {
   }
 
   recordYoloFrameWithPlayer(): void {
+    if (!TELEMETRY_ENABLED) return
     this.pipelineMetrics.framesWithPlayer++
   }
 
   recordMoveNetInference(inferenceTimeMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetInferenceTimes.push(inferenceTimeMs)
     if (this.moveNetInferenceTimes.length > 300) {
       this.moveNetInferenceTimes.shift()
@@ -559,6 +592,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetRequested(): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetRequested++
     if (this.moveNetStartTime === null) {
       this.moveNetStartTime = Date.now()
@@ -566,18 +600,22 @@ class TelemetryLogger {
   }
 
   recordMoveNetExecuted(): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetExecuted++
   }
 
   recordMoveNetSkipped(): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetSkipped++
   }
 
   recordMoveNetDroppedBusy(): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetDroppedBusy++
   }
 
   recordMoveNetWorkletPrep(workletPrepMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetWorkletPrepTimes.push(workletPrepMs)
     if (this.moveNetWorkletPrepTimes.length > 300) {
       this.moveNetWorkletPrepTimes.shift()
@@ -585,6 +623,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetCrop(cropMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetCropTimes.push(cropMs)
     if (this.moveNetCropTimes.length > 300) {
       this.moveNetCropTimes.shift()
@@ -592,6 +631,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetResize(resizeMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetResizeTimes.push(resizeMs)
     if (this.moveNetResizeTimes.length > 300) {
       this.moveNetResizeTimes.shift()
@@ -599,6 +639,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetQuantization(quantizationMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetQuantizationTimes.push(quantizationMs)
     if (this.moveNetQuantizationTimes.length > 300) {
       this.moveNetQuantizationTimes.shift()
@@ -606,6 +647,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetRun(runMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetRunTimes.push(runMs)
     if (this.moveNetRunTimes.length > 300) {
       this.moveNetRunTimes.shift()
@@ -613,6 +655,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetParse(parseMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetParseTimes.push(parseMs)
     if (this.moveNetParseTimes.length > 300) {
       this.moveNetParseTimes.shift()
@@ -620,6 +663,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetScheduleWait(scheduleWaitMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetScheduleWaitTimes.push(scheduleWaitMs)
     if (this.moveNetScheduleWaitTimes.length > 300) {
       this.moveNetScheduleWaitTimes.shift()
@@ -627,6 +671,7 @@ class TelemetryLogger {
   }
 
   recordMoveNetKeypoints(confidence: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.moveNetKeypoints.push({ confidence, timestamp: Date.now() })
     if (this.moveNetKeypoints.length > 300) {
       this.moveNetKeypoints.shift()
@@ -634,11 +679,13 @@ class TelemetryLogger {
   }
 
   recordBallSuspicious(reason: string, confidence: number): void {
+    if (!TELEMETRY_ENABLED) return
     const count = this.falsePositives.get(reason) || 0
     this.falsePositives.set(reason, count + 1)
   }
 
   recordBbox(x: number, y: number, w: number, h: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.bboxHistory.push({ x, y, w, h, timestamp: Date.now() })
     if (this.bboxHistory.length > 300) {
       this.bboxHistory.shift()
@@ -684,27 +731,33 @@ class TelemetryLogger {
   }
 
   logBboxStability(): void {
+    if (!TELEMETRY_ENABLED) return
     const metrics = this.getBboxStabilityMetrics()
     console.log('[BBOX][STABILITY]', `avgJump=${metrics.avgJump.toFixed(4)} maxJump=${metrics.maxJump.toFixed(4)} jitter=${metrics.jitter.toFixed(4)} stability=${metrics.stability.toFixed(0)}%`)
   }
 
   recordPlayerYoloDetection(): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerYoloDetections++
   }
 
   recordPlayerLost(): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerLost++
   }
 
   recordPlayerBboxExpired(): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerBboxExpired++
   }
 
   recordPlayerTrackingFresh(): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerTrackingFresh++
   }
 
   recordPlayerTrackingPersisted(ageMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerTrackingPersisted++
     this.persistedBboxAgeMs.push(ageMs)
     if (this.persistedBboxAgeMs.length > 300) {
@@ -727,23 +780,28 @@ class TelemetryLogger {
   }
 
   recordPlayerTrackingFreshWithMoveNet(): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerTrackingFreshWithMoveNet++
   }
 
   recordPlayerTrackingPersistedWithMoveNet(): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerTrackingPersistedWithMoveNet++
   }
 
 
   recordPlayerMoveNetExecution(): void {
+    if (!TELEMETRY_ENABLED) return
     this.playerMoveNetExecutions++
   }
 
   logPlayerTrackingMetrics(): void {
+    if (!TELEMETRY_ENABLED) return
     console.log('[PLAYER][TRACKING]', `yoloDetections=${this.playerYoloDetections} lost=${this.playerLost} expired=${this.playerBboxExpired}`)
   }
 
   logPlayerFlowMetrics(): void {
+    if (!TELEMETRY_ENABLED) return
     const yoloDetections = this.playerYoloDetections
     const trackingFresh = this.playerTrackingFresh
     const trackingPersisted = this.playerTrackingPersisted
@@ -793,10 +851,12 @@ class TelemetryLogger {
   }
 
   recordBallDetected(): void {
+    if (!TELEMETRY_ENABLED) return
     this.ballDetected++
   }
 
   recordBallPrediction(ageMs: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.ballPrediction++
     this.ballPredictionAgeMs.push(ageMs)
     if (this.ballPredictionAgeMs.length > 300) {
@@ -805,10 +865,12 @@ class TelemetryLogger {
   }
 
   recordBallTrackingExpired(): void {
+    if (!TELEMETRY_ENABLED) return
     this.ballTrackingExpired++
   }
 
   logBallTrackingMetrics(): void {
+    if (!TELEMETRY_ENABLED) return
     const avgAgeMs = this.ballPredictionAgeMs.length > 0 
       ? this.ballPredictionAgeMs.reduce((a, b) => a + b, 0) / this.ballPredictionAgeMs.length 
       : 0
@@ -816,6 +878,7 @@ class TelemetryLogger {
   }
 
   updatePipelineMetrics(cameraFPS: number, received: number, processed: number, droppedBusy: number, trackingAccepted: number, overlayRendered: number): void {
+    if (!TELEMETRY_ENABLED) return
     // overlayRendered parameter kept for API compatibility but deprecated (Skia renders at camera FPS)
     this.pipelineMetrics = {
       cameraFPS,
@@ -834,18 +897,22 @@ class TelemetryLogger {
   }
 
   incrementYoloExecuted(): void {
+    if (!TELEMETRY_ENABLED) return
     this.yoloExecuted++
   }
 
   incrementTrackingAccepted(): void {
+    if (!TELEMETRY_ENABLED) return
     this.pipelineMetrics.trackingAccepted++
   }
 
   incrementPoseUpdates(): void {
+    if (!TELEMETRY_ENABLED) return
     this.pipelineMetrics.poseUpdates++
   }
 
   logPipelineMetrics(): void {
+    if (!TELEMETRY_ENABLED) return
     const m = this.pipelineMetrics
     console.log('[PIPELINE]', `camFPS=${m.cameraFPS.toFixed(1)} recv=${m.received} proc=${m.processed} drop=${m.droppedBusy} yoloExec=${m.yoloExecuted} ballFrames=${m.framesWithBall} playerFrames=${m.framesWithPlayer} track=${m.trackingAccepted} pose=${m.poseUpdates}`)
   }
@@ -855,6 +922,7 @@ class TelemetryLogger {
   }
 
   startBatteryMonitoring(startLevel: number, temperature: number): void {
+    if (!TELEMETRY_ENABLED) return
     this.batteryMetrics = {
       startLevel,
       endLevel: startLevel,
@@ -869,6 +937,7 @@ class TelemetryLogger {
   }
 
   endBatteryMonitoring(endLevel: number, temperature: number): void {
+    if (!TELEMETRY_ENABLED) return
     if (this.batteryMetrics && this.testStartTime) {
       this.batteryMetrics.endLevel = endLevel
       this.batteryMetrics.drain = this.batteryMetrics.startLevel - endLevel
@@ -916,6 +985,7 @@ class TelemetryLogger {
   }
 
   logBallDetectionMetrics(framesProcessed: number): void {
+    if (!TELEMETRY_ENABLED) return
     const metrics = this.getBallDetectionMetrics(framesProcessed)
     // Use yoloExecuted in log for consistency with detectionRate calculation (both are cumulative)
     console.log('[YOLO][BALL]', `yoloExec=${this.yoloExecuted} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
@@ -933,6 +1003,7 @@ class TelemetryLogger {
   }
 
   logFalsePositiveSummary(): void {
+    if (!TELEMETRY_ENABLED) return
     const metrics = this.getBallQualityMetrics()
     console.log('[YOLO][SUMMARY]', `detections=${this.ballDetections.length} suspicious=${metrics.suspicious} ballSuspiciousRate=${metrics.fpRate.toFixed(1)}%`)
   }
@@ -1006,12 +1077,14 @@ class TelemetryLogger {
   }
 
   logPlayerDetectionMetrics(framesProcessed: number): void {
+    if (!TELEMETRY_ENABLED) return
     const metrics = this.getPlayerDetectionMetrics(framesProcessed)
     // Use yoloExecuted in log for consistency with detectionRate calculation (both are cumulative)
     console.log('[YOLO][PLAYER]', `yoloExec=${this.yoloExecuted} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
   }
 
   logPlayerDebugMetrics(playerDebug: { rawCandidates: number; confidencePassed: number; sizePassed: number; accepted: number; bestConfidence: number; rejectedConfidence: number } | undefined): void {
+    if (!TELEMETRY_ENABLED) return
     if (!playerDebug) return
     console.log('[YOLO][PLAYER DEBUG]', `exec=${this.yoloExecuted} raw=${playerDebug.rawCandidates} confPassed=${playerDebug.confidencePassed} sizePassed=${playerDebug.sizePassed} accepted=${playerDebug.accepted} bestConf=${playerDebug.bestConfidence.toFixed(3)} rejectedConf=${playerDebug.rejectedConfidence.toFixed(3)}`)
   }
@@ -1110,6 +1183,7 @@ class TelemetryLogger {
   }
 
   logMoveNetMetrics(): void {
+    if (!TELEMETRY_ENABLED) return
     // Removed duplicate log - MOVE DETAIL already contains detailed timing
     // const metrics = this.getMoveNetMetrics()
     // console.log('[MOVENET]', `prep=${metrics.workletPrepMs.toFixed(1)}ms schedule=${metrics.scheduleWaitMs.toFixed(1)}ms crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms quant=${metrics.quantizationMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
@@ -1148,6 +1222,7 @@ class TelemetryLogger {
   }
 
   logTestSummary(cameraFPS: number, moveNetFPS: number): void {
+    if (!TELEMETRY_ENABLED) return
     const summary = this.generateTestSummary(cameraFPS, moveNetFPS)
     if (!summary) return
 

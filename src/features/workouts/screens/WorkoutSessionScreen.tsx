@@ -1069,7 +1069,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             </View>
                         )}
 
-                        {/* Telemetry overlay */}
+                        {/* Telemetry overlay - re-enabled for PASS 5C test */}
                         <TelemetryOverlay
                             visible={showTelemetry}
                             onClose={() => setShowTelemetry(false)}

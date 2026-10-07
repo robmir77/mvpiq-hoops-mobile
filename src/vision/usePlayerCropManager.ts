@@ -96,12 +96,28 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const detectionId = useSharedValue(0) // Incremented on each new YOLO detection
   const lastProcessedDetectionId = useSharedValue(0) // Last detectionId processed by frame processor
 
+  // Internal profiling counters (for debugging frame processor cost)
+  const updateCount = useSharedValue(0)
+  const updateTimeMs = useSharedValue(0)
+  const getEffectiveBboxCount = useSharedValue(0)
+  const getEffectiveBboxTimeMs = useSharedValue(0)
+  const sharedValueWrites = useSharedValue(0)
+
+  // PASS 5D: Granular profiling for getEffectiveBbox() breakdown
+  const getEffectiveBboxSvReadsMs = useSharedValue(0)
+  const getEffectiveBboxAgeTtlMs = useSharedValue(0)
+  const getEffectiveBboxDetectionIdMs = useSharedValue(0)
+  const getEffectiveBboxSmoothingMs = useSharedValue(0)
+  const getEffectiveBboxSvWritesMs = useSharedValue(0)
+  const getEffectiveBboxResultMs = useSharedValue(0)
+
   /**
    * Update player bbox with new detection
    * @param playerBbox - Current player detection from YOLO (normalized 0-1), null if not detected
    */
   const update = (playerBbox: BBox | null) => {
     'worklet'
+    const tStart = Date.now()
     const now = Date.now()
 
     if (playerBbox) {
@@ -158,6 +174,11 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       }
     }
     // If playerBbox is null, we don't update lastSeenAt - let it expire naturally
+
+    // Update profiling counters
+    updateCount.value += 1
+    const tEnd = Date.now()
+    updateTimeMs.value += (tEnd - tStart)
   }
 
   /**
@@ -167,13 +188,21 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
    */
   const getEffectiveBbox = (now: number): TrackedPlayerBbox | null => {
     'worklet'
+    const tStart = Date.now()
+    const tSvReadsStart = Date.now()
     if (!hasBbox.value || lastSeenAt.value === 0) {
       return null
     }
+    const tSvReadsEnd = Date.now()
+    getEffectiveBboxSvReadsMs.value += (tSvReadsEnd - tSvReadsStart)
 
+    const tAgeTtlStart = Date.now()
     const ageMs = now - lastSeenAt.value
     const isStale = ageMs > cfg.bboxTtlMs
+    const tAgeTtlEnd = Date.now()
+    getEffectiveBboxAgeTtlMs.value += (tAgeTtlEnd - tAgeTtlStart)
     
+    const tDetectionIdStart = Date.now()
     // Determine if this is a fresh YOLO detection or a persisted bbox
     // Fresh: detectionId changed since last frame (new YOLO detection)
     // Persisted: detectionId unchanged (reusing old bbox)
@@ -184,6 +213,8 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     if (isNewDetection) {
       lastProcessedDetectionId.value = detectionId.value
     }
+    const tDetectionIdEnd = Date.now()
+    getEffectiveBboxDetectionIdMs.value += (tDetectionIdEnd - tDetectionIdStart)
 
     if (isStale) {
       // BBox expired - reset tracking state
@@ -193,6 +224,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       return null
     }
 
+    const tSmoothingStart = Date.now()
     // Apply smoothing to bbox
     if (smoothedX.value === 0 && smoothedY.value === 0) {
       // First detection - initialize smoothed values
@@ -209,13 +241,22 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       smoothedHeight.value = lerp(smoothedHeight.value, bboxHeight.value, cfg.smoothingFactor)
       smoothedConfidence.value = lerp(smoothedConfidence.value, bboxConfidence.value, cfg.smoothingFactor)
     }
+    const tSmoothingEnd = Date.now()
+    getEffectiveBboxSmoothingMs.value += (tSmoothingEnd - tSmoothingStart)
 
     // Log smoothed bbox for diagnostics
     if (ENABLE_PLAYER_CROP_LOGS) {
       console.log('[PLAYER CROP] Smoothed bbox:', `x=${smoothedX.value.toFixed(3)} y=${smoothedY.value.toFixed(3)} w=${smoothedWidth.value.toFixed(3)} h=${smoothedHeight.value.toFixed(3)} conf=${smoothedConfidence.value.toFixed(3)} age=${ageMs.toFixed(0)}ms`)
     }
 
-    return {
+    const tSvWritesStart = Date.now()
+    // Count SharedValue writes (5 smoothing writes per call)
+    sharedValueWrites.value += 5
+    const tSvWritesEnd = Date.now()
+    getEffectiveBboxSvWritesMs.value += (tSvWritesEnd - tSvWritesStart)
+
+    const tResultStart = Date.now()
+    const result = {
       bbox: {
         x: smoothedX.value,
         y: smoothedY.value,
@@ -230,6 +271,15 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       isUsingLastBbox,
       detectionId: detectionId.value,
     }
+    const tResultEnd = Date.now()
+    getEffectiveBboxResultMs.value += (tResultEnd - tResultStart)
+
+    // Update profiling counters
+    getEffectiveBboxCount.value += 1
+    const tEnd = Date.now()
+    getEffectiveBboxTimeMs.value += (tEnd - tStart)
+
+    return result
   }
 
   /**
@@ -371,5 +421,18 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     transformKeypointsToFrame,
     reset,
     getState,
+    // Profiling counters
+    updateCount,
+    updateTimeMs,
+    getEffectiveBboxCount,
+    getEffectiveBboxTimeMs,
+    sharedValueWrites,
+    // PASS 5D: Granular getEffectiveBbox profiling
+    getEffectiveBboxSvReadsMs,
+    getEffectiveBboxAgeTtlMs,
+    getEffectiveBboxDetectionIdMs,
+    getEffectiveBboxSmoothingMs,
+    getEffectiveBboxSvWritesMs,
+    getEffectiveBboxResultMs,
   }
 }

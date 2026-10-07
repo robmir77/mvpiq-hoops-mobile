@@ -266,6 +266,21 @@ export const useShotTracker = (
     // Player crop manager (worklet-compatible hook)
     const playerCrop = usePlayerCropManager()
 
+    // PASS 5C: PlayerCrop internal profiling counters
+    const perfPlayerCropUpdateCount = useSharedValue(0)
+    const perfPlayerCropUpdateTimeMs = useSharedValue(0)
+    const perfPlayerCropGetEffectiveBboxCount = useSharedValue(0)
+    const perfPlayerCropGetEffectiveBboxTimeMs = useSharedValue(0)
+    const perfPlayerCropSharedValueWrites = useSharedValue(0)
+
+    // PASS 5D: Granular getEffectiveBbox profiling
+    const perfPlayerCropSvReadsMs = useSharedValue(0)
+    const perfPlayerCropAgeTtlMs = useSharedValue(0)
+    const perfPlayerCropDetectionIdMs = useSharedValue(0)
+    const perfPlayerCropSmoothingMs = useSharedValue(0)
+    const perfPlayerCropSvWritesMs = useSharedValue(0)
+    const perfPlayerCropResultMs = useSharedValue(0)
+
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
     // Cannot mutate plain useRef from worklet (not synchronized)
@@ -1054,6 +1069,21 @@ export const useShotTracker = (
                     }
                     tPlayerCropSharedValueReads = performance.now() - tPlayerCropSvStart
 
+                    // PASS 5C: Read PlayerCrop internal profiling counters
+                    perfPlayerCropUpdateCount.value = playerCrop.updateCount.value
+                    perfPlayerCropUpdateTimeMs.value = playerCrop.updateTimeMs.value
+                    perfPlayerCropGetEffectiveBboxCount.value = playerCrop.getEffectiveBboxCount.value
+                    perfPlayerCropGetEffectiveBboxTimeMs.value = playerCrop.getEffectiveBboxTimeMs.value
+                    perfPlayerCropSharedValueWrites.value = playerCrop.sharedValueWrites.value
+
+                    // PASS 5D: Read granular getEffectiveBbox profiling
+                    perfPlayerCropSvReadsMs.value = playerCrop.getEffectiveBboxSvReadsMs.value
+                    perfPlayerCropAgeTtlMs.value = playerCrop.getEffectiveBboxAgeTtlMs.value
+                    perfPlayerCropDetectionIdMs.value = playerCrop.getEffectiveBboxDetectionIdMs.value
+                    perfPlayerCropSmoothingMs.value = playerCrop.getEffectiveBboxSmoothingMs.value
+                    perfPlayerCropSvWritesMs.value = playerCrop.getEffectiveBboxSvWritesMs.value
+                    perfPlayerCropResultMs.value = playerCrop.getEffectiveBboxResultMs.value
+
                     // Tracking shared value writes
                     const tTrackingSvStart = performance.now()
                     if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
@@ -1214,6 +1244,29 @@ export const useShotTracker = (
                             tracking: tTrackingSharedValueReads.toFixed(1),
                             moveNet: tMoveNetSharedValueReads.toFixed(1),
                             writes: tSharedValueWrites.toFixed(1)
+                        })
+                        console.log('[FRAME PROC] playerCrop breakdown:', {
+                            updateCount: perfPlayerCropUpdateCount.value,
+                            updateTimeMs: perfPlayerCropUpdateTimeMs.value.toFixed(1),
+                            updateAvgMs: perfPlayerCropUpdateCount.value > 0 ? (perfPlayerCropUpdateTimeMs.value / perfPlayerCropUpdateCount.value).toFixed(2) : '0.00',
+                            getEffectiveBboxCount: perfPlayerCropGetEffectiveBboxCount.value,
+                            getEffectiveBboxTimeMs: perfPlayerCropGetEffectiveBboxTimeMs.value.toFixed(1),
+                            getEffectiveBboxAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropGetEffectiveBboxTimeMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(2) : '0.00',
+                            sharedValueWrites: perfPlayerCropSharedValueWrites.value
+                        })
+                        console.log('[FRAME PROC] getEffectiveBbox breakdown:', {
+                            svReadsMs: perfPlayerCropSvReadsMs.value.toFixed(1),
+                            svReadsAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropSvReadsMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            ageTtlMs: perfPlayerCropAgeTtlMs.value.toFixed(1),
+                            ageTtlAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropAgeTtlMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            detectionIdMs: perfPlayerCropDetectionIdMs.value.toFixed(1),
+                            detectionIdAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropDetectionIdMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            smoothingMs: perfPlayerCropSmoothingMs.value.toFixed(1),
+                            smoothingAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropSmoothingMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            svWritesMs: perfPlayerCropSvWritesMs.value.toFixed(1),
+                            svWritesAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropSvWritesMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            resultMs: perfPlayerCropResultMs.value.toFixed(1),
+                            resultAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropResultMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
                         })
                         console.log('[FRAME PROC] telemetry breakdown:', {
                             total: telemetryMs.toFixed(1),
