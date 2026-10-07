@@ -186,6 +186,10 @@ export const useShotTracker = (
     const perfYoloRunTotal = useSharedValue(0)
     const perfYoloParseTotal = useSharedValue(0)
 
+    // PASS 2: Granular YOLO SharedValue profiling
+    const perfYoloSvReadTotal = useSharedValue(0)
+    const perfYoloSvSpreadTotal = useSharedValue(0)
+
     const perfMoveNetRequested = useSharedValue(0)
     const perfMoveNetExecuted = useSharedValue(0)
     const perfMoveNetSkipped = useSharedValue(0)
@@ -716,9 +720,15 @@ export const useShotTracker = (
                 let tTrackingEnd = 0
                 let tTelemetryStart = 0
                 let tTelemetryEnd = 0
+                let tTelemetryWrites = 0
+                let tTelemetryFlush = 0
+                let tFrameDurationWrites = 0
+                let tYoloTimingWrites = 0
                 let tSharedValueReadsStart = 0
                 let tSharedValueReadsEnd = 0
                 let tYoloSharedValueReads = 0
+                let tYoloReadOnly = 0
+                let tYoloSpreadOnly = 0
                 let tPlayerCropSharedValueReads = 0
                 let tTrackingSharedValueReads = 0
                 let tMoveNetSharedValueReads = 0
@@ -1006,11 +1016,18 @@ export const useShotTracker = (
                     // Process worker results (get latest available from shared values)
                     tSharedValueReadsStart = performance.now()
 
-                    // YOLO shared value reads
+                    // YOLO shared value reads - PASS 2 profiling
                     const tYoloSvStart = performance.now()
+                    
+                    // Micro-benchmark 1: SharedValue read only
+                    const tYoloReadStart = performance.now()
                     const rawBall = yoloWorker.latestResultBall.value
                     const rawPlayer = yoloWorker.latestResultPlayer.value
                     const rawRim = yoloWorker.latestResultRim.value
+                    tYoloReadOnly = performance.now() - tYoloReadStart
+                    
+                    // Micro-benchmark 2: Spread/clone only
+                    const tYoloSpreadStart = performance.now()
                     const yoloResult = {
                         ball: rawBall ? { ...rawBall } : null,
                         player: rawPlayer ? { ...rawPlayer } : null,
@@ -1018,6 +1035,8 @@ export const useShotTracker = (
                         debug: yoloWorker.latestResultDebug.value,
                         timestamp: yoloWorker.latestResultTimestamp.value
                     }
+                    tYoloSpreadOnly = performance.now() - tYoloSpreadStart
+                    
                     tYoloSharedValueReads = performance.now() - tYoloSvStart
 
                     // PlayerCrop shared value reads + writes
@@ -1147,9 +1166,28 @@ export const useShotTracker = (
                 } finally {
                     tTelemetryStart = performance.now()
                     const frameDurationMs = performance.now() - frameStartTime
+                    
+                    // PASS 4B: Profile SharedValue writes breakdown
+                    const tTelemetryWritesStart = performance.now()
+                    
+                    // Category 1: Frame duration metrics
+                    const tFrameDurationStart = performance.now()
                     perfFrameDurationTotal.value += frameDurationMs
                     perfFrameDurationMax.value = Math.max(perfFrameDurationMax.value, frameDurationMs)
+                    tFrameDurationWrites = performance.now() - tFrameDurationStart
+                    
+                    // Category 2: PASS 2 granular YOLO timing
+                    const tYoloTimingStart = performance.now()
+                    perfYoloSvReadTotal.value += tYoloReadOnly
+                    perfYoloSvSpreadTotal.value += tYoloSpreadOnly
+                    tYoloTimingWrites = performance.now() - tYoloTimingStart
+                    
+                    tTelemetryWrites = performance.now() - tTelemetryWritesStart
+                    
+                    const tTelemetryFlushStart = performance.now()
                     maybeFlushDiagnosticWindow(Date.now())
+                    tTelemetryFlush = performance.now() - tTelemetryFlushStart
+                    
                     tTelemetryEnd = performance.now()
 
                     // Log frame processor phase breakdown every ~5 seconds (150 frames at 30 FPS)
@@ -1170,10 +1208,22 @@ export const useShotTracker = (
                         })
                         console.log('[FRAME PROC] sharedValueReads breakdown:', {
                             yolo: tYoloSharedValueReads.toFixed(1),
+                            yoloRead: tYoloReadOnly.toFixed(1),
+                            yoloSpread: tYoloSpreadOnly.toFixed(1),
                             playerCrop: tPlayerCropSharedValueReads.toFixed(1),
                             tracking: tTrackingSharedValueReads.toFixed(1),
                             moveNet: tMoveNetSharedValueReads.toFixed(1),
                             writes: tSharedValueWrites.toFixed(1)
+                        })
+                        console.log('[FRAME PROC] telemetry breakdown:', {
+                            total: telemetryMs.toFixed(1),
+                            writes: tTelemetryWrites.toFixed(1),
+                            flush: tTelemetryFlush.toFixed(1)
+                        })
+                        console.log('[FRAME PROC] telemetry writes breakdown:', {
+                            total: tTelemetryWrites.toFixed(1),
+                            frameDuration: tFrameDurationWrites.toFixed(1),
+                            yoloTiming: tYoloTimingWrites.toFixed(1)
                         })
                     }
 
@@ -1202,6 +1252,8 @@ export const useShotTracker = (
                 perfYoloResizeTotal,
                 perfYoloRunTotal,
                 perfYoloParseTotal,
+                perfYoloSvReadTotal,
+                perfYoloSvSpreadTotal,
                 perfMoveNetRequested,
                 perfMoveNetExecuted,
                 perfMoveNetSkipped,
@@ -1337,6 +1389,9 @@ export const useShotTracker = (
             playerTrackAge,
             rimTrackState,
             rimTrackAge,
+            // PASS 2: Granular YOLO SharedValue profiling
+            perfYoloSvReadTotal,
+            perfYoloSvSpreadTotal,
         },
     }
 }
