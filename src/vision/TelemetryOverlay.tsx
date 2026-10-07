@@ -114,7 +114,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
         // In debug mode, carica tutte le metriche
         const yoloPerf = telemetryLogger.getYoloPerfMetrics()
         const bboxMetrics = telemetryLogger.getBboxStabilityMetrics()
-        const fpMetrics = telemetryLogger.getFalsePositiveMetrics()
+        const fpMetrics = telemetryLogger.getBallQualityMetrics()
         const pipelineMetrics = telemetryLogger.getPipelineMetrics()
         const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
 

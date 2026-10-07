@@ -633,7 +633,7 @@ class TelemetryLogger {
     }
   }
 
-  recordFalsePositive(reason: string, confidence: number): void {
+  recordBallSuspicious(reason: string, confidence: number): void {
     const count = this.falsePositives.get(reason) || 0
     this.falsePositives.set(reason, count + 1)
   }
@@ -921,20 +921,25 @@ class TelemetryLogger {
     console.log('[YOLO][BALL]', `yoloExec=${this.yoloExecuted} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
   }
 
-  getFalsePositiveMetrics(): FalsePositiveMetrics {
+  getBallQualityMetrics(): FalsePositiveMetrics {
     const suspicious = Array.from(this.falsePositives.values()).reduce((a, b) => a + b, 0)
-    const fpRate = this.ballDetections.length > 0 ? (suspicious / this.ballDetections.length) * 100 : 0
+    const ballSuspiciousRate = this.ballDetections.length > 0 ? (suspicious / this.ballDetections.length) * 100 : 0
     
     return {
       suspicious,
-      fpRate,
+      fpRate: ballSuspiciousRate, // Keep fpRate for backward compatibility in interface
       reasons: this.falsePositives,
     }
   }
 
   logFalsePositiveSummary(): void {
-    const metrics = this.getFalsePositiveMetrics()
-    console.log('[YOLO][SUMMARY]', `detections=${this.ballDetections.length} suspicious=${metrics.suspicious} fpRate=${metrics.fpRate.toFixed(1)}%`)
+    const metrics = this.getBallQualityMetrics()
+    console.log('[YOLO][SUMMARY]', `detections=${this.ballDetections.length} suspicious=${metrics.suspicious} ballSuspiciousRate=${metrics.fpRate.toFixed(1)}%`)
+  }
+
+  // Legacy method for backward compatibility - use recordBallSuspicious instead
+  recordFalsePositive(reason: string, confidence: number): void {
+    this.recordBallSuspicious(reason, confidence)
   }
 
   getPlayerDetectionMetrics(framesProcessed: number): PlayerDetectionMetrics {
@@ -1119,7 +1124,7 @@ class TelemetryLogger {
     const ballMetrics = this.getBallDetectionMetrics(this.pipelineMetrics.processed)
     const playerMetrics = this.getPlayerDetectionMetrics(this.pipelineMetrics.processed)
     const moveNetMetrics = this.getMoveNetMetrics()
-    const fpMetrics = this.getFalsePositiveMetrics()
+    const fpMetrics = this.getBallQualityMetrics()
     const bboxMetrics = this.getBboxStabilityMetrics()
 
     return {
