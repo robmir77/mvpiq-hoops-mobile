@@ -256,6 +256,8 @@ class TelemetryLogger {
   private playerTrackingLastBbox: number = 0
   private playerMoveNetExecutions: number = 0
   private lastPlayerDetectionId: number = 0 // Track last YOLO detection ID
+  private currentDetectionUpdateCount: number = 0 // Count updates for current detection
+  private trackingUpdatesPerDetection: number[] = [] // Track updates per detection
   private playerBboxAgeBuckets: {
     age0: number
     age1to100: number
@@ -707,10 +709,20 @@ class TelemetryLogger {
   recordPlayerTrackingCurrent(detectionId: number): void {
     // Track as current only if detectionId is greater than last seen
     if (detectionId > this.lastPlayerDetectionId) {
+      // New detection - record updates for previous detection
+      if (this.currentDetectionUpdateCount > 0) {
+        this.trackingUpdatesPerDetection.push(this.currentDetectionUpdateCount)
+        if (this.trackingUpdatesPerDetection.length > 300) {
+          this.trackingUpdatesPerDetection.shift()
+        }
+      }
+      // Reset counter for new detection
+      this.currentDetectionUpdateCount = 1
       this.playerTrackingCurrent++
       this.lastPlayerDetectionId = detectionId
     } else {
       // Same detection ID = persisted bbox
+      this.currentDetectionUpdateCount++
       this.playerTrackingLastBbox++
     }
   }
@@ -749,19 +761,30 @@ class TelemetryLogger {
     const trackingCurrent = this.playerTrackingCurrent
     const trackingLast = this.playerTrackingLastBbox
     const moveNetExec = this.playerMoveNetExecutions
-    
+
     // Calculate age percentiles
-    const ageP50 = this.playerBboxAgeMs.length > 0 
+    const ageP50 = this.playerBboxAgeMs.length > 0
       ? this.calculatePercentile(this.playerBboxAgeMs, 50)
       : 0
-    const ageP95 = this.playerBboxAgeMs.length > 0 
+    const ageP95 = this.playerBboxAgeMs.length > 0
       ? this.calculatePercentile(this.playerBboxAgeMs, 95)
       : 0
-    const ageMax = this.playerBboxAgeMs.length > 0 
+    const ageMax = this.playerBboxAgeMs.length > 0
       ? Math.max(...this.playerBboxAgeMs)
       : 0
 
-    console.log('[PLAYER][FLOW]', 
+    // Calculate tracking updates per detection percentiles
+    const updatesP50 = this.trackingUpdatesPerDetection.length > 0
+      ? this.calculatePercentile(this.trackingUpdatesPerDetection, 50)
+      : 0
+    const updatesP95 = this.trackingUpdatesPerDetection.length > 0
+      ? this.calculatePercentile(this.trackingUpdatesPerDetection, 95)
+      : 0
+    const updatesMax = this.trackingUpdatesPerDetection.length > 0
+      ? Math.max(...this.trackingUpdatesPerDetection)
+      : 0
+
+    console.log('[PLAYER][FLOW]',
       `yolo=${yoloDetections} ` +
       `current=${trackingCurrent} ` +
       `last=${trackingLast} ` +
@@ -772,7 +795,7 @@ class TelemetryLogger {
       `trackingLast=${trackingLast} ` +
       `moveNet=${moveNetExec}`
     )
-    
+
     console.log('[PLAYER][AGE_BUCKETS]',
       `age0=${this.playerBboxAgeBuckets.age0} ` +
       `age1to100=${this.playerBboxAgeBuckets.age1to100} ` +
@@ -780,6 +803,13 @@ class TelemetryLogger {
       `age250to500=${this.playerBboxAgeBuckets.age250to500} ` +
       `age500to750=${this.playerBboxAgeBuckets.age500to750} ` +
       `expired=${this.playerBboxAgeBuckets.expired}`
+    )
+
+    console.log('[PLAYER][UPDATES_PER_DETECTION]',
+      `detections=${this.trackingUpdatesPerDetection.length} ` +
+      `P50=${updatesP50.toFixed(0)} ` +
+      `P95=${updatesP95.toFixed(0)} ` +
+      `MAX=${updatesMax.toFixed(0)}`
     )
   }
 
@@ -1265,6 +1295,8 @@ Current=${summary.battery.endLevel}%
     this.playerTrackingLastBbox = 0
     this.playerMoveNetExecutions = 0
     this.lastPlayerDetectionId = 0
+    this.currentDetectionUpdateCount = 0
+    this.trackingUpdatesPerDetection = []
     this.playerBboxAgeBuckets = {
       age0: 0,
       age1to100: 0,
