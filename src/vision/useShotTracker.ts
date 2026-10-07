@@ -851,7 +851,10 @@ export const useShotTracker = (
                     if (poseEnabledShared.value) {
                         // Get effective bbox from PlayerCropManager for MoveNet crop
                         const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
-                        if (trackedBbox !== null && (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
+                        // Require current player detection (not stale/persisted bbox)
+                        if (trackedBbox !== null && 
+                            !trackedBbox.isUsingLastBbox &&
+                            (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
                             moveNetWorker.playerBbox.value = {
                                 x: trackedBbox.bbox.x,
                                 y: trackedBbox.bbox.y,
@@ -860,21 +863,23 @@ export const useShotTracker = (
                                 confidence: trackedBbox.bbox.confidence,
                             }
                             // Update visual tracking state
-                            if (trackedBbox.isUsingLastBbox) {
-                                playerTrackState.value = 'PREDICTED'
-                                playerTrackAge.value = trackedBbox.ageMs
-                                // Aggregate in worklet instead of per-frame scheduleOnRN
-                                perfPlayerUsingLastBboxCount.value += 1
-                            } else {
-                                playerTrackState.value = 'DETECTED'
-                                playerTrackAge.value = 0
-                            }
+                            playerTrackState.value = 'DETECTED'
+                            playerTrackAge.value = 0
 
                             // MoveNet worker handles its own performance tracking in the async callback
                             moveNetWorker.processFrame(frame, timestamp)
                         } else {
-                            // Invalid bbox - MoveNet worker will handle skipped counting
-                            moveNetWorker.processFrame(frame, timestamp)
+                            // No current player detection - skip MoveNet execution
+                            // Update visual tracking state to indicate lost player
+                            if (trackedBbox === null) {
+                                playerTrackState.value = 'LOST'
+                                playerTrackAge.value = 0
+                            } else if (trackedBbox.isUsingLastBbox) {
+                                playerTrackState.value = 'PREDICTED'
+                                playerTrackAge.value = trackedBbox.ageMs
+                                // Aggregate in worklet instead of per-frame scheduleOnRN
+                                perfPlayerUsingLastBboxCount.value += 1
+                            }
                         }
                     }
                     tMoveNetEnd = performance.now()

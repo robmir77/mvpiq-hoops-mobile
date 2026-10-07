@@ -883,7 +883,7 @@ class TelemetryLogger {
     }
 
     const avgJump = jumps.reduce((a, b) => a + b, 0) / jumps.length
-    const stableJumps = jumps.filter(j => j < 30).length
+    const stableJumps = jumps.filter(j => j < 0.02).length
     const bboxStability = (stableJumps / jumps.length) * 100
 
     return {
