@@ -244,20 +244,22 @@ class TelemetryLogger {
   private moveNetParseTimes: number[] = []
   private moveNetScheduleWaitTimes: number[] = []
   
-  // Player tracking metrics
-  private playerDetected: number = 0
+  // Player tracking metrics (YOLO callback scope)
+  private playerYoloDetections: number = 0 // Total YOLO player detections
   private playerLost: number = 0
-  private playerUsingLastBbox: number = 0
   private playerBboxExpired: number = 0
-  private playerBboxAgeMs: number[] = []
   
-  // Granular player flow metrics
-  private playerTrackingCurrent: number = 0
-  private playerTrackingLastBbox: number = 0
+  // Player tracking metrics (frame processor scope - with detectionId)
+  private playerTrackingFresh: number = 0 // Frames with fresh bbox (new detectionId)
+  private playerTrackingPersisted: number = 0 // Frames with persisted bbox (same detectionId)
+  private playerTrackingFreshWithMoveNet: number = 0 // Fresh bbox → MoveNet executed
+  private playerTrackingPersistedWithMoveNet: number = 0 // Persisted bbox → MoveNet executed (should be 0 after fix)
   private playerMoveNetExecutions: number = 0
-  private lastPlayerDetectionId: number = 0 // Track last YOLO detection ID
-  private currentDetectionUpdateCount: number = 0 // Count updates for current detection
-  private trackingUpdatesPerDetection: number[] = [] // Track updates per detection
+  
+  // Age tracking for persisted bboxes only
+  private persistedBboxAgeMs: number[] = [] // Age of persisted bboxes
+  private lastTrackingDetectionId: number = 0 // Last detectionId seen in tracking
+  private trackingUpdatesPerDetection: Map<number, number> = new Map() // detectionId → update count
   private playerBboxAgeBuckets: {
     age0: number
     age1to100: number
@@ -686,49 +688,28 @@ class TelemetryLogger {
     console.log('[BBOX][STABILITY]', `avgJump=${metrics.avgJump.toFixed(4)} maxJump=${metrics.maxJump.toFixed(4)} jitter=${metrics.jitter.toFixed(4)} stability=${metrics.stability.toFixed(0)}%`)
   }
 
-  recordPlayerDetected(): void {
-    this.playerDetected++
+  recordPlayerYoloDetection(): void {
+    this.playerYoloDetections++
   }
 
   recordPlayerLost(): void {
     this.playerLost++
   }
 
-  recordPlayerUsingLastBbox(ageMs: number): void {
-    this.playerUsingLastBbox++
-    this.playerBboxAgeMs.push(ageMs)
-    if (this.playerBboxAgeMs.length > 300) {
-      this.playerBboxAgeMs.shift()
-    }
-  }
-
   recordPlayerBboxExpired(): void {
     this.playerBboxExpired++
   }
 
-  recordPlayerTrackingCurrent(detectionId: number): void {
-    // Track as current only if detectionId is greater than last seen
-    if (detectionId > this.lastPlayerDetectionId) {
-      // New detection - record updates for previous detection
-      if (this.currentDetectionUpdateCount > 0) {
-        this.trackingUpdatesPerDetection.push(this.currentDetectionUpdateCount)
-        if (this.trackingUpdatesPerDetection.length > 300) {
-          this.trackingUpdatesPerDetection.shift()
-        }
-      }
-      // Reset counter for new detection
-      this.currentDetectionUpdateCount = 1
-      this.playerTrackingCurrent++
-      this.lastPlayerDetectionId = detectionId
-    } else {
-      // Same detection ID = persisted bbox
-      this.currentDetectionUpdateCount++
-      this.playerTrackingLastBbox++
-    }
+  recordPlayerTrackingFresh(): void {
+    this.playerTrackingFresh++
   }
 
-  recordPlayerTrackingLastBbox(ageMs: number): void {
-    this.playerTrackingLastBbox++
+  recordPlayerTrackingPersisted(ageMs: number): void {
+    this.playerTrackingPersisted++
+    this.persistedBboxAgeMs.push(ageMs)
+    if (this.persistedBboxAgeMs.length > 300) {
+      this.persistedBboxAgeMs.shift()
+    }
     // Bucket age for distribution analysis
     if (ageMs === 0) {
       this.playerBboxAgeBuckets.age0++
@@ -745,55 +726,60 @@ class TelemetryLogger {
     }
   }
 
+  recordPlayerTrackingFreshWithMoveNet(): void {
+    this.playerTrackingFreshWithMoveNet++
+  }
+
+  recordPlayerTrackingPersistedWithMoveNet(): void {
+    this.playerTrackingPersistedWithMoveNet++
+  }
+
+
   recordPlayerMoveNetExecution(): void {
     this.playerMoveNetExecutions++
   }
 
   logPlayerTrackingMetrics(): void {
-    const avgAgeMs = this.playerBboxAgeMs.length > 0 
-      ? this.playerBboxAgeMs.reduce((a, b) => a + b, 0) / this.playerBboxAgeMs.length 
-      : 0
-    console.log('[PLAYER][TRACKING]', `detected=${this.playerDetected} lost=${this.playerLost} usingLastBbox=${this.playerUsingLastBbox} expired=${this.playerBboxExpired} avgAge=${avgAgeMs.toFixed(0)}ms`)
+    console.log('[PLAYER][TRACKING]', `yoloDetections=${this.playerYoloDetections} lost=${this.playerLost} expired=${this.playerBboxExpired}`)
   }
 
   logPlayerFlowMetrics(): void {
-    const yoloDetections = this.playerDetected
-    const trackingCurrent = this.playerTrackingCurrent
-    const trackingLast = this.playerTrackingLastBbox
+    const yoloDetections = this.playerYoloDetections
+    const trackingFresh = this.playerTrackingFresh
+    const trackingPersisted = this.playerTrackingPersisted
+    const trackingFreshWithMoveNet = this.playerTrackingFreshWithMoveNet
+    const trackingPersistedWithMoveNet = this.playerTrackingPersistedWithMoveNet
     const moveNetExec = this.playerMoveNetExecutions
 
-    // Calculate age percentiles
-    const ageP50 = this.playerBboxAgeMs.length > 0
-      ? this.calculatePercentile(this.playerBboxAgeMs, 50)
+    // Calculate age percentiles for persisted bboxes only
+    const ageP50 = this.persistedBboxAgeMs.length > 0
+      ? this.calculatePercentile(this.persistedBboxAgeMs, 50)
       : 0
-    const ageP95 = this.playerBboxAgeMs.length > 0
-      ? this.calculatePercentile(this.playerBboxAgeMs, 95)
+    const ageP95 = this.persistedBboxAgeMs.length > 0
+      ? this.calculatePercentile(this.persistedBboxAgeMs, 95)
       : 0
-    const ageMax = this.playerBboxAgeMs.length > 0
-      ? Math.max(...this.playerBboxAgeMs)
-      : 0
-
-    // Calculate tracking updates per detection percentiles
-    const updatesP50 = this.trackingUpdatesPerDetection.length > 0
-      ? this.calculatePercentile(this.trackingUpdatesPerDetection, 50)
-      : 0
-    const updatesP95 = this.trackingUpdatesPerDetection.length > 0
-      ? this.calculatePercentile(this.trackingUpdatesPerDetection, 95)
-      : 0
-    const updatesMax = this.trackingUpdatesPerDetection.length > 0
-      ? Math.max(...this.trackingUpdatesPerDetection)
+    const ageMax = this.persistedBboxAgeMs.length > 0
+      ? Math.max(...this.persistedBboxAgeMs)
       : 0
 
     console.log('[PLAYER][FLOW]',
-      `yolo=${yoloDetections} ` +
-      `current=${trackingCurrent} ` +
-      `last=${trackingLast} ` +
-      `ageP50=${ageP50.toFixed(0)}ms ` +
-      `ageP95=${ageP95.toFixed(0)}ms ` +
-      `ageMax=${ageMax.toFixed(0)}ms ` +
-      `trackingCurrent=${trackingCurrent} ` +
-      `trackingLast=${trackingLast} ` +
+      `yoloDetections=${yoloDetections} ` +
+      `freshBbox=${trackingFresh} ` +
+      `persistedBbox=${trackingPersisted} ` +
+      `freshWithMoveNet=${trackingFreshWithMoveNet} ` +
+      `persistedWithMoveNet=${trackingPersistedWithMoveNet} ` +
       `moveNet=${moveNetExec}`
+    )
+
+    console.log('[PLAYER][AGE]',
+      `persistedP50=${ageP50.toFixed(0)}ms ` +
+      `persistedP95=${ageP95.toFixed(0)}ms ` +
+      `persistedMax=${ageMax.toFixed(0)}ms`
+    )
+
+    console.log('[PLAYER][TTL]',
+      `within750=${trackingPersisted - this.playerBboxAgeBuckets.expired} ` +
+      `expired=${this.playerBboxAgeBuckets.expired}`
     )
 
     console.log('[PLAYER][AGE_BUCKETS]',
@@ -803,13 +789,6 @@ class TelemetryLogger {
       `age250to500=${this.playerBboxAgeBuckets.age250to500} ` +
       `age500to750=${this.playerBboxAgeBuckets.age500to750} ` +
       `expired=${this.playerBboxAgeBuckets.expired}`
-    )
-
-    console.log('[PLAYER][UPDATES_PER_DETECTION]',
-      `detections=${this.trackingUpdatesPerDetection.length} ` +
-      `P50=${updatesP50.toFixed(0)} ` +
-      `P95=${updatesP95.toFixed(0)} ` +
-      `MAX=${updatesMax.toFixed(0)}`
     )
   }
 
@@ -1025,6 +1004,11 @@ class TelemetryLogger {
     const metrics = this.getPlayerDetectionMetrics(framesProcessed)
     // Use yoloExecuted in log for consistency with detectionRate calculation (both are cumulative)
     console.log('[YOLO][PLAYER]', `yoloExec=${this.yoloExecuted} detected=${metrics.framesDetected} detectionRate=${metrics.detectionRate.toFixed(1)}%`)
+  }
+
+  logPlayerDebugMetrics(playerDebug: { rawCandidates: number; confidencePassed: number; sizePassed: number; accepted: number; bestConfidence: number; rejectedConfidence: number } | undefined): void {
+    if (!playerDebug) return
+    console.log('[YOLO][PLAYER DEBUG]', `exec=${this.yoloExecuted} raw=${playerDebug.rawCandidates} confPassed=${playerDebug.confidencePassed} sizePassed=${playerDebug.sizePassed} accepted=${playerDebug.accepted} bestConf=${playerDebug.bestConfidence.toFixed(3)} rejectedConf=${playerDebug.rejectedConfidence.toFixed(3)}`)
   }
 
   getMoveNetMetrics(): MoveNetMetrics {
@@ -1291,12 +1275,14 @@ Current=${summary.battery.endLevel}%
     this.moveNetExecuted = 0
     
     // Reset granular player flow metrics
-    this.playerTrackingCurrent = 0
-    this.playerTrackingLastBbox = 0
+    this.playerTrackingFresh = 0
+    this.playerTrackingPersisted = 0
+    this.playerTrackingFreshWithMoveNet = 0
+    this.playerTrackingPersistedWithMoveNet = 0
     this.playerMoveNetExecutions = 0
-    this.lastPlayerDetectionId = 0
-    this.currentDetectionUpdateCount = 0
-    this.trackingUpdatesPerDetection = []
+    this.lastTrackingDetectionId = 0
+    this.trackingUpdatesPerDetection = new Map()
+    this.persistedBboxAgeMs = []
     this.playerBboxAgeBuckets = {
       age0: 0,
       age1to100: 0,
@@ -1315,11 +1301,9 @@ Current=${summary.battery.endLevel}%
     this.moveNetScheduleWaitTimes = []
     
     // Reset player tracking metrics
-    this.playerDetected = 0
+    this.playerYoloDetections = 0
     this.playerLost = 0
-    this.playerUsingLastBbox = 0
     this.playerBboxExpired = 0
-    this.playerBboxAgeMs = []
     
     // Reset ball tracking metrics
     this.ballDetected = 0

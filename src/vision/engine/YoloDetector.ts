@@ -16,12 +16,22 @@ export interface YoloDetection {
   confidence: number
 }
 
+export interface YoloPlayerDebug {
+  rawCandidates: number      // Total anchors with humanProb > 0
+  confidencePassed: number   // Anchors passing confidence threshold
+  sizePassed: number         // Anchors passing size threshold
+  accepted: number           // Final accepted player (0 or 1)
+  bestConfidence: number     // Best confidence seen
+  rejectedConfidence: number // Best confidence among rejected
+}
+
 export interface YoloResult {
   ball: YoloDetection | null
   player: YoloDetection | null
   rim: YoloDetection | null
   ballSizeCategory?: 'small' | 'medium' | 'large' | null
   adaptiveThreshold?: number
+  playerDebug?: YoloPlayerDebug
 }
 
 export class YoloDetector {
@@ -111,6 +121,13 @@ export class YoloDetector {
       let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
       let bestPlayer: { x: number; y: number; width: number; height: number; confidence: number } | null = null
       let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+
+      // Player debug counters
+      let rawCandidates = 0
+      let confidencePassed = 0
+      let sizePassed = 0
+      let bestConfidence = 0
+      let rejectedConfidence = 0
 
       const nDetections = Math.floor(output.length / OUTPUT_CHANNELS)
       if (nDetections <= 0 || output.length % OUTPUT_CHANNELS !== 0) {
@@ -210,16 +227,38 @@ export class YoloDetector {
           }
         }
 
-        if (humanProb >= YOLO_CONFIG.PLAYER_CONF_THRESHOLD && cameraW > YOLO_CONFIG.PLAYER_MIN_WIDTH && cameraH > YOLO_CONFIG.PLAYER_MIN_HEIGHT) {
-          const detection = {
-            x: cameraCx,
-            y: cameraCy,
-            width: cameraW,
-            height: cameraH,
-            confidence: humanProb,
+        // Player detection pipeline with debug counters
+        if (humanProb > 0) {
+          rawCandidates++
+          if (humanProb > bestConfidence) {
+            bestConfidence = humanProb
           }
-          if (!bestPlayer || detection.confidence > bestPlayer.confidence) {
-            bestPlayer = detection
+        }
+
+        if (humanProb >= YOLO_CONFIG.PLAYER_CONF_THRESHOLD) {
+          confidencePassed++
+          if (cameraW > YOLO_CONFIG.PLAYER_MIN_WIDTH && cameraH > YOLO_CONFIG.PLAYER_MIN_HEIGHT) {
+            sizePassed++
+            const detection = {
+              x: cameraCx,
+              y: cameraCy,
+              width: cameraW,
+              height: cameraH,
+              confidence: humanProb,
+            }
+            if (!bestPlayer || detection.confidence > bestPlayer.confidence) {
+              bestPlayer = detection
+            }
+          } else {
+            // Rejected by size - track best rejected confidence
+            if (humanProb > rejectedConfidence) {
+              rejectedConfidence = humanProb
+            }
+          }
+        } else {
+          // Rejected by confidence - track best rejected confidence
+          if (humanProb > rejectedConfidence) {
+            rejectedConfidence = humanProb
           }
         }
       }
@@ -228,12 +267,22 @@ export class YoloDetector {
       const ballSizeCategory = this.getBallSizeCategory(avgSize)
       const adaptiveThreshold = bestBall ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, this.ballConfThreshold, resolutionScale) : undefined
 
+      const playerDebug: YoloPlayerDebug = {
+        rawCandidates,
+        confidencePassed,
+        sizePassed,
+        accepted: bestPlayer ? 1 : 0,
+        bestConfidence,
+        rejectedConfidence,
+      }
+
       return {
         ball: bestBall,
         player: bestPlayer,
         rim: bestRim,
         ballSizeCategory,
         adaptiveThreshold,
+        playerDebug,
       }
 
     } catch (error) {

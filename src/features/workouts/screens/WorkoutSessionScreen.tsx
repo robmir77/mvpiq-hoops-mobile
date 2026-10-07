@@ -196,7 +196,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         onBallDetected: () => telemetryLogger.recordBallDetected(),
         onBallPrediction: (ageMs: number) => telemetryLogger.recordBallPrediction(ageMs),
         onBallTrackingExpired: () => telemetryLogger.recordBallTrackingExpired(),
-        onPlayerDetected: () => telemetryLogger.recordPlayerDetected(),
+        // Player detection telemetry is now recorded in useShotTracker (YOLO callback scope)
+        // onPlayerDetected: () => telemetryLogger.recordPlayerYoloDetection(),
     })
     const { sharedValues } = tracking
     const feedbackOpacity = useRef(new Animated.Value(0)).current

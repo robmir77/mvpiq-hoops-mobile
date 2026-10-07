@@ -210,15 +210,27 @@ export const useShotTracker = (
     const perfTrackingAccepted = useSharedValue(0)
 
     // Player tracking telemetry - aggregated in worklet, dispatched once per second
-    const perfPlayerUsingLastBboxCount = useSharedValue(0)
     const perfPlayerLostCount = useSharedValue(0)
     const perfPlayerBboxExpiredCount = useSharedValue(0)
     
-    // Granular player flow telemetry
-    const perfPlayerTrackingCurrentCount = useSharedValue(0)
-    const perfPlayerTrackingLastBboxCount = useSharedValue(0)
+    // Granular player flow telemetry (with detectionId)
+    const perfPlayerTrackingFreshCount = useSharedValue(0)
+    const perfPlayerTrackingPersistedCount = useSharedValue(0)
+    const perfPlayerTrackingFreshWithMoveNetCount = useSharedValue(0)
+    const perfPlayerTrackingPersistedWithMoveNetCount = useSharedValue(0)
     const perfPlayerMoveNetExecutionCount = useSharedValue(0)
     const perfLastPlayerDetectionId = useSharedValue(0)
+    const perfLastPersistedBboxAgeMs = useSharedValue(0) // Store last persisted bbox age for telemetry
+    
+    // MoveNet decision telemetry (worklet-safe counters)
+    const perfMoveNetDecisionFrames = useSharedValue(0) // Total frames evaluated
+    const perfMoveNetDecisionHasBbox = useSharedValue(0) // Frames with trackedBbox
+    const perfMoveNetDecisionCurrentBbox = useSharedValue(0) // Frames with fresh bbox
+    const perfMoveNetDecisionPersistedBbox = useSharedValue(0) // Frames with persisted bbox
+    const perfMoveNetDecisionConfidenceRejected = useSharedValue(0) // Rejected by confidence threshold
+    const perfMoveNetDecisionSizeRejected = useSharedValue(0) // Rejected by size validation
+    const perfMoveNetDecisionBoundsRejected = useSharedValue(0) // Rejected by bounds validation
+    const perfMoveNetDecisionRun = useSharedValue(0) // MoveNet actually executed
 
     // Track last time player was detected for invalidation logic
     const lastPlayerDetectedAt = useSharedValue(0)
@@ -500,7 +512,7 @@ export const useShotTracker = (
 
             // Record player detection telemetry
             if (player) {
-                telemetryLogger.recordPlayerDetected()
+                telemetryLogger.recordPlayerYoloDetection()
             }
 
             onPlayerDetectionRef.current?.(player)
@@ -509,15 +521,24 @@ export const useShotTracker = (
     )
 
     // Batch player tracking telemetry callback - dispatched once per second
-    // Replaces per-frame scheduleOnRN calls for recordPlayerUsingLastBbox, recordPlayerLost, recordPlayerBboxExpired
     const flushPlayerTrackingTelemetry = useCallback((
-        usingLastBboxCount: number,
         lostCount: number,
         expiredCount: number,
-        trackingCurrentCount: number,
-        trackingLastBboxCount: number,
+        trackingFreshCount: number,
+        trackingPersistedCount: number,
+        trackingFreshWithMoveNetCount: number,
+        trackingPersistedWithMoveNetCount: number,
         moveNetExecutionCount: number,
-        lastDetectionId: number
+        lastPersistedBboxAgeMs: number,
+        // MoveNet decision telemetry
+        moveNetDecisionFrames: number,
+        moveNetDecisionHasBbox: number,
+        moveNetDecisionCurrentBbox: number,
+        moveNetDecisionPersistedBbox: number,
+        moveNetDecisionConfidenceRejected: number,
+        moveNetDecisionSizeRejected: number,
+        moveNetDecisionBoundsRejected: number,
+        moveNetDecisionRun: number
     ) => {
         // Skip if unmounted
         if (!isMountedRef.current) {
@@ -525,9 +546,6 @@ export const useShotTracker = (
         }
 
         // Flush aggregated counters to telemetry logger
-        for (let i = 0; i < usingLastBboxCount; i++) {
-            telemetryLogger.recordPlayerUsingLastBbox(0) // ageMs not tracked in aggregated mode
-        }
         for (let i = 0; i < lostCount; i++) {
             telemetryLogger.recordPlayerLost()
         }
@@ -535,14 +553,34 @@ export const useShotTracker = (
             telemetryLogger.recordPlayerBboxExpired()
         }
         // Flush granular player flow counters
-        // Pass lastDetectionId to telemetry logger for comparison
-        telemetryLogger.recordPlayerTrackingCurrent(lastDetectionId)
-        for (let i = 0; i < trackingLastBboxCount; i++) {
-            telemetryLogger.recordPlayerTrackingLastBbox(0) // ageMs not tracked in aggregated mode
+        for (let i = 0; i < trackingFreshCount; i++) {
+            telemetryLogger.recordPlayerTrackingFresh()
+        }
+        // Record persisted bbox ageMs from SharedValue (worklet-safe)
+        for (let i = 0; i < trackingPersistedCount; i++) {
+            telemetryLogger.recordPlayerTrackingPersisted(lastPersistedBboxAgeMs)
+        }
+        for (let i = 0; i < trackingFreshWithMoveNetCount; i++) {
+            telemetryLogger.recordPlayerTrackingFreshWithMoveNet()
+        }
+        for (let i = 0; i < trackingPersistedWithMoveNetCount; i++) {
+            telemetryLogger.recordPlayerTrackingPersistedWithMoveNet()
         }
         for (let i = 0; i < moveNetExecutionCount; i++) {
             telemetryLogger.recordPlayerMoveNetExecution()
         }
+        
+        // Log MoveNet decision telemetry
+        console.log('[MOVENET][DECISION]',
+            `frames=${moveNetDecisionFrames} ` +
+            `hasBbox=${moveNetDecisionHasBbox} ` +
+            `currentBbox=${moveNetDecisionCurrentBbox} ` +
+            `persistedBbox=${moveNetDecisionPersistedBbox} ` +
+            `confidenceRejected=${moveNetDecisionConfidenceRejected} ` +
+            `sizeRejected=${moveNetDecisionSizeRejected} ` +
+            `boundsRejected=${moveNetDecisionBoundsRejected} ` +
+            `run=${moveNetDecisionRun}`
+        )
     }, [])
 
     // Callback for async YOLO results - updates overlay when results are ready
@@ -796,13 +834,23 @@ export const useShotTracker = (
                     // Flush aggregated player tracking telemetry (single RN bridge crossing)
                     scheduleOnRN(
                         flushPlayerTrackingTelemetry,
-                        perfPlayerUsingLastBboxCount.value,
                         perfPlayerLostCount.value,
                         perfPlayerBboxExpiredCount.value,
-                        perfPlayerTrackingCurrentCount.value,
-                        perfPlayerTrackingLastBboxCount.value,
+                        perfPlayerTrackingFreshCount.value,
+                        perfPlayerTrackingPersistedCount.value,
+                        perfPlayerTrackingFreshWithMoveNetCount.value,
+                        perfPlayerTrackingPersistedWithMoveNetCount.value,
                         perfPlayerMoveNetExecutionCount.value,
-                        perfLastPlayerDetectionId.value
+                        perfLastPersistedBboxAgeMs.value,
+                        // MoveNet decision telemetry
+                        perfMoveNetDecisionFrames.value,
+                        perfMoveNetDecisionHasBbox.value,
+                        perfMoveNetDecisionCurrentBbox.value,
+                        perfMoveNetDecisionPersistedBbox.value,
+                        perfMoveNetDecisionConfidenceRejected.value,
+                        perfMoveNetDecisionSizeRejected.value,
+                        perfMoveNetDecisionBoundsRejected.value,
+                        perfMoveNetDecisionRun.value
                     )
 
                     // Update actual FPS values for UI
@@ -841,14 +889,25 @@ export const useShotTracker = (
                     perfMoveNetParseTotal.value = 0
                     perfTrackingAccepted.value = 0
                     // Reset aggregated player tracking counters
-                    perfPlayerUsingLastBboxCount.value = 0
                     perfPlayerLostCount.value = 0
                     perfPlayerBboxExpiredCount.value = 0
                     // Reset granular player flow counters
-                    perfPlayerTrackingCurrentCount.value = 0
-                    perfPlayerTrackingLastBboxCount.value = 0
+                    perfPlayerTrackingFreshCount.value = 0
+                    perfPlayerTrackingPersistedCount.value = 0
+                    perfPlayerTrackingFreshWithMoveNetCount.value = 0
+                    perfPlayerTrackingPersistedWithMoveNetCount.value = 0
                     perfPlayerMoveNetExecutionCount.value = 0
                     perfLastPlayerDetectionId.value = 0
+                    perfLastPersistedBboxAgeMs.value = 0
+                    // Reset MoveNet decision telemetry
+                    perfMoveNetDecisionFrames.value = 0
+                    perfMoveNetDecisionHasBbox.value = 0
+                    perfMoveNetDecisionCurrentBbox.value = 0
+                    perfMoveNetDecisionPersistedBbox.value = 0
+                    perfMoveNetDecisionConfidenceRejected.value = 0
+                    perfMoveNetDecisionSizeRejected.value = 0
+                    perfMoveNetDecisionBoundsRejected.value = 0
+                    perfMoveNetDecisionRun.value = 0
                 }
 
                 // Increment frame counter for logging
@@ -878,55 +937,68 @@ export const useShotTracker = (
                     // Call MoveNet worker every frame - it handles its own throttling internally
                     tMoveNetStart = performance.now()
                     if (poseEnabledShared.value) {
+                        // Record MoveNet decision telemetry
+                        perfMoveNetDecisionFrames.value += 1
+                        
                         // Get effective bbox from PlayerCropManager for MoveNet crop
                         const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
-                        // Require current player detection (not stale/persisted bbox)
-                        if (trackedBbox !== null && 
-                            !trackedBbox.isUsingLastBbox &&
-                            (trackedBbox.bbox.confidence ?? 0) >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
-                            moveNetWorker.playerBbox.value = {
-                                x: trackedBbox.bbox.x,
-                                y: trackedBbox.bbox.y,
-                                width: trackedBbox.bbox.width,
-                                height: trackedBbox.bbox.height,
-                                confidence: trackedBbox.bbox.confidence,
-                            }
-                            // Update visual tracking state
-                            playerTrackState.value = 'DETECTED'
-                            playerTrackAge.value = 0
+                        
+                        if (trackedBbox !== null) {
+                            perfMoveNetDecisionHasBbox.value += 1
                             
-                            // Record granular telemetry: current bbox → MoveNet execution
-                            // Use detectionId to distinguish new YOLO detection vs persisted bbox
-                            if (trackedBbox.detectionId > perfLastPlayerDetectionId.value) {
-                                perfPlayerTrackingCurrentCount.value += 1
-                                perfLastPlayerDetectionId.value = trackedBbox.detectionId
-                            } else {
-                                perfPlayerTrackingLastBboxCount.value += 1
-                            }
-                            perfPlayerMoveNetExecutionCount.value += 1
+                            if (!trackedBbox.isUsingLastBbox) {
+                                perfMoveNetDecisionCurrentBbox.value += 1
+                                
+                                // Check confidence threshold
+                                const confidence = trackedBbox.bbox.confidence ?? 0
+                                if (confidence >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
+                                    // Check size validation (optional - add if needed)
+                                    // For now, just run MoveNet
+                                    moveNetWorker.playerBbox.value = {
+                                        x: trackedBbox.bbox.x,
+                                        y: trackedBbox.bbox.y,
+                                        width: trackedBbox.bbox.width,
+                                        height: trackedBbox.bbox.height,
+                                        confidence: trackedBbox.bbox.confidence,
+                                    }
+                                    // Update visual tracking state
+                                    playerTrackState.value = 'DETECTED'
+                                    playerTrackAge.value = 0
+                                    
+                                    // Record granular telemetry: fresh bbox → MoveNet execution
+                                    perfPlayerTrackingFreshCount.value += 1
+                                    perfPlayerTrackingFreshWithMoveNetCount.value += 1
+                                    perfLastPlayerDetectionId.value = trackedBbox.detectionId
+                                    perfPlayerMoveNetExecutionCount.value += 1
+                                    perfMoveNetDecisionRun.value += 1
 
-                            // MoveNet worker handles its own performance tracking in the async callback
-                            moveNetWorker.processFrame(frame, timestamp)
-                        } else {
-                            // No current player detection - skip MoveNet execution
-                            // Update visual tracking state to indicate lost player
-                            if (trackedBbox === null) {
-                                playerTrackState.value = 'LOST'
-                                playerTrackAge.value = 0
-                            } else if (trackedBbox.isUsingLastBbox) {
+                                    // MoveNet worker handles its own performance tracking in the async callback
+                                    moveNetWorker.processFrame(frame, timestamp)
+                                } else {
+                                    perfMoveNetDecisionConfidenceRejected.value += 1
+                                }
+                            } else {
+                                perfMoveNetDecisionPersistedBbox.value += 1
+                                // No current player detection - skip MoveNet execution
+                                // Update visual tracking state to indicate lost player
                                 playerTrackState.value = 'PREDICTED'
                                 playerTrackAge.value = trackedBbox.ageMs
-                                // Aggregate in worklet instead of per-frame scheduleOnRN
-                                perfPlayerUsingLastBboxCount.value += 1
-                                // Record granular telemetry: last bbox (no MoveNet)
-                                // Use detectionId to distinguish new YOLO detection vs persisted bbox
+                                // Record granular telemetry: persisted bbox (no MoveNet)
                                 if (trackedBbox.detectionId > perfLastPlayerDetectionId.value) {
-                                    perfPlayerTrackingCurrentCount.value += 1
+                                    // This should not happen - fresh bbox should have isUsingLastBbox=false
+                                    // But handle it defensively
+                                    perfPlayerTrackingFreshCount.value += 1
                                     perfLastPlayerDetectionId.value = trackedBbox.detectionId
                                 } else {
-                                    perfPlayerTrackingLastBboxCount.value += 1
+                                    perfPlayerTrackingPersistedCount.value += 1
+                                    // Store ageMs in SharedValue for JS-side telemetry (worklet-safe)
+                                    perfLastPersistedBboxAgeMs.value = trackedBbox.ageMs
                                 }
                             }
+                        } else {
+                            // No bbox at all
+                            playerTrackState.value = 'LOST'
+                            playerTrackAge.value = 0
                         }
                     }
                     tMoveNetEnd = performance.now()
@@ -1144,11 +1216,26 @@ export const useShotTracker = (
                 perfMoveNetRunTotal,
                 perfMoveNetParseTotal,
                 perfLastLogAt,
-                updateAllTelemetry,
-                flushPlayerTrackingTelemetry,
-                perfPlayerUsingLastBboxCount,
+                // updateAllTelemetry and flushPlayerTrackingTelemetry are NOT worklet dependencies
+                // They are called via scheduleOnRN with primitive data only
                 perfPlayerLostCount,
                 perfPlayerBboxExpiredCount,
+                perfPlayerTrackingFreshCount,
+                perfPlayerTrackingPersistedCount,
+                perfPlayerTrackingFreshWithMoveNetCount,
+                perfPlayerTrackingPersistedWithMoveNetCount,
+                perfPlayerMoveNetExecutionCount,
+                perfLastPlayerDetectionId,
+                perfLastPersistedBboxAgeMs,
+                // MoveNet decision telemetry
+                perfMoveNetDecisionFrames,
+                perfMoveNetDecisionHasBbox,
+                perfMoveNetDecisionCurrentBbox,
+                perfMoveNetDecisionPersistedBbox,
+                perfMoveNetDecisionConfidenceRejected,
+                perfMoveNetDecisionSizeRejected,
+                perfMoveNetDecisionBoundsRejected,
+                perfMoveNetDecisionRun,
                 perfTrackingAccepted,
                 isProcessingFrame,
                 ballEnabledShared,

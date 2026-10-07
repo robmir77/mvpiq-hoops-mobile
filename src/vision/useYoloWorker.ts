@@ -85,7 +85,7 @@ export const useYoloWorker = (
   const lastParseMs = useSharedValue(0)
   const executionCount = useSharedValue(0)
 
-  const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean) => {
+  const recordTelemetry = useCallback((inferenceTime: number, ball: any, player: any, frameCounter?: number, resizeMs?: number, runMs?: number, parseMs?: number, requested?: boolean, executed?: boolean, playerDebug?: any) => {
     if (requested) telemetryLogger.recordYoloRequested()
     if (executed) {
       telemetryLogger.recordYoloExecuted()
@@ -128,6 +128,8 @@ export const useYoloWorker = (
         h: player.height
       })
     }
+    // Log player debug metrics to diagnose where player detection is lost
+    telemetryLogger.logPlayerDebugMetrics(playerDebug)
   }, [])
 
   const selectedYoloModel = useMemo(() => getYoloModel(yoloModelId), [yoloModelId])
@@ -246,6 +248,7 @@ export const useYoloWorker = (
       const ball = result.ball
       const player = result.player
       const rim = result.rim
+      const playerDebug = result.playerDebug
       const debug = { conf: 0 } // Simplified debug for now
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart
@@ -330,7 +333,7 @@ export const useYoloWorker = (
         }
       }
 
-      scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, undefined, resizeMs, runMs, parseMs, true, true)
+      scheduleOnRN(recordTelemetry, inferenceTime, validBall, player, undefined, resizeMs, runMs, parseMs, true, true, playerDebug)
 
     } catch (error) {
       console.error('[YoloWorker] Async inference error:', error)

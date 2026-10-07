@@ -283,6 +283,7 @@ export const useYoloWorkerAsync = (
         const ball = result.ball
         const player = result.player
         const rim = result.rim
+        const playerDebug = result.playerDebug
         const debug = null // YoloDetector no longer returns debug info
         const tParseEnd = performance.now()
         const parseMs = tParseEnd - tParseStart
@@ -324,6 +325,8 @@ export const useYoloWorkerAsync = (
             h: player.height
           })
         }
+        // Log player debug metrics to diagnose where player detection is lost
+        telemetryLogger.logPlayerDebugMetrics(playerDebug)
 
         // Record frame-level detection metrics (once per YOLO execution)
         if (validBall) {
