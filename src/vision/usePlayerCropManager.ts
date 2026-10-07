@@ -50,7 +50,7 @@ export interface TrackedPlayerBbox {
 
 const DEFAULT_CONFIG: PlayerCropConfig = {
   paddingPercent: 0.15,
-  smoothingFactor: 0.3,
+  smoothingFactor: 0.1, // PASS 5H-B: reduced from 0.3 to test cost impact
   bboxTtlMs: 750,
   minConfidence: YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE,
   maxJumpThreshold: 0.15, // Reject bbox jumps larger than 15% of frame
@@ -117,6 +117,11 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const smoothingWritesMs = useSharedValue(0)
   const resultReadsMs = useSharedValue(0)
   const resultConstructionMs = useSharedValue(0)
+
+  // PASS 5F: Measure Date.now() overhead and unaccounted time
+  const dateNowOverheadMs = useSharedValue(0)
+  const smoothingUnaccountedMs = useSharedValue(0)
+  const resultUnaccountedMs = useSharedValue(0)
 
   /**
    * Update player bbox with new detection
@@ -231,6 +236,11 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       return null
     }
 
+    // PASS 5F: Measure Date.now() overhead
+    const tOverheadStart = Date.now()
+    const tOverheadEnd = Date.now()
+    dateNowOverheadMs.value += (tOverheadEnd - tOverheadStart)
+
     const tSmoothingStart = Date.now()
     // PASS 5E: Separate smoothing reads
     const tReadsStart = Date.now()
@@ -274,7 +284,10 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     smoothingWritesMs.value += (tWritesEnd - tWritesStart)
 
     const tSmoothingEnd = Date.now()
-    getEffectiveBboxSmoothingMs.value += (tSmoothingEnd - tSmoothingStart)
+    const smoothingMeasured = (tReadsEnd - tReadsStart) + (tLerpEnd - tLerpStart) + (tWritesEnd - tWritesStart)
+    const smoothingTotal = tSmoothingEnd - tSmoothingStart
+    smoothingUnaccountedMs.value += (smoothingTotal - smoothingMeasured)
+    getEffectiveBboxSmoothingMs.value += smoothingTotal
 
     // Log smoothed bbox for diagnostics
     if (ENABLE_PLAYER_CROP_LOGS) {
@@ -288,25 +301,26 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     getEffectiveBboxSvWritesMs.value += (tSvWritesEnd - tSvWritesStart)
 
     const tResultStart = Date.now()
-    // PASS 5E: Separate result reads (use local variables instead of SharedValue reads)
+    // PASS 5G: Eliminate redundant SharedValue reads - use local variables from smoothing instead
     const tResultReadsStart = Date.now()
-    const resultX = smoothedX.value
-    const resultY = smoothedY.value
-    const resultWidth = smoothedWidth.value
-    const resultHeight = smoothedHeight.value
-    const resultConfidence = smoothedConfidence.value
+    // PASS 5G: No longer read from SharedValue - use next* variables directly
+    // const resultX = smoothedX.value  // REDUNDANT - removed in PASS 5G
+    // const resultY = smoothedY.value  // REDUNDANT - removed in PASS 5G
+    // const resultWidth = smoothedWidth.value  // REDUNDANT - removed in PASS 5G
+    // const resultHeight = smoothedHeight.value  // REDUNDANT - removed in PASS 5G
+    // const resultConfidence = smoothedConfidence.value  // REDUNDANT - removed in PASS 5G
     const tResultReadsEnd = Date.now()
     resultReadsMs.value += (tResultReadsEnd - tResultReadsStart)
 
-    // PASS 5E: Separate result construction
+    // PASS 5G: Use local variables from smoothing instead of SharedValue reads
     const tConstructionStart = Date.now()
     const result = {
       bbox: {
-        x: resultX,
-        y: resultY,
-        width: resultWidth,
-        height: resultHeight,
-        confidence: resultConfidence,
+        x: nextX,
+        y: nextY,
+        width: nextWidth,
+        height: nextHeight,
+        confidence: nextConfidence,
       },
       detectedAt: detectedAt.value,
       lastSeenAt: lastSeenAt.value,
@@ -319,7 +333,10 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     resultConstructionMs.value += (tConstructionEnd - tConstructionStart)
 
     const tResultEnd = Date.now()
-    getEffectiveBboxResultMs.value += (tResultEnd - tResultStart)
+    const resultMeasured = (tResultReadsEnd - tResultReadsStart) + (tConstructionEnd - tConstructionStart)
+    const resultTotal = tResultEnd - tResultStart
+    resultUnaccountedMs.value += (resultTotal - resultMeasured)
+    getEffectiveBboxResultMs.value += resultTotal
 
     // Update profiling counters
     getEffectiveBboxCount.value += 1
@@ -487,5 +504,9 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     smoothingWritesMs,
     resultReadsMs,
     resultConstructionMs,
+    // PASS 5F: Date.now() overhead and unaccounted time
+    dateNowOverheadMs,
+    smoothingUnaccountedMs,
+    resultUnaccountedMs,
   }
 }

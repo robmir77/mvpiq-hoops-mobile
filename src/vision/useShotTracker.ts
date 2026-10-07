@@ -288,6 +288,11 @@ export const useShotTracker = (
     const perfResultReadsMs = useSharedValue(0)
     const perfResultConstructionMs = useSharedValue(0)
 
+    // PASS 5F: Date.now() overhead and unaccounted time
+    const perfDateNowOverheadMs = useSharedValue(0)
+    const perfSmoothingUnaccountedMs = useSharedValue(0)
+    const perfResultUnaccountedMs = useSharedValue(0)
+
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
     // Cannot mutate plain useRef from worklet (not synchronized)
@@ -1098,6 +1103,11 @@ export const useShotTracker = (
                     perfResultReadsMs.value = playerCrop.resultReadsMs.value
                     perfResultConstructionMs.value = playerCrop.resultConstructionMs.value
 
+                    // PASS 5F: Read Date.now() overhead and unaccounted time
+                    perfDateNowOverheadMs.value = playerCrop.dateNowOverheadMs.value
+                    perfSmoothingUnaccountedMs.value = playerCrop.smoothingUnaccountedMs.value
+                    perfResultUnaccountedMs.value = playerCrop.resultUnaccountedMs.value
+
                     // Tracking shared value writes
                     const tTrackingSvStart = performance.now()
                     if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
@@ -1295,6 +1305,14 @@ export const useShotTracker = (
                             readsAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultReadsMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
                             constructionMs: perfResultConstructionMs.value.toFixed(1),
                             constructionAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultConstructionMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
+                        })
+                        console.log('[FRAME PROC] unaccounted time breakdown:', {
+                            dateNowOverheadMs: perfDateNowOverheadMs.value.toFixed(1),
+                            dateNowOverheadAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfDateNowOverheadMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            smoothingUnaccountedMs: perfSmoothingUnaccountedMs.value.toFixed(1),
+                            smoothingUnaccountedAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfSmoothingUnaccountedMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
+                            resultUnaccountedMs: perfResultUnaccountedMs.value.toFixed(1),
+                            resultUnaccountedAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultUnaccountedMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
                         })
                         console.log('[FRAME PROC] telemetry breakdown:', {
                             total: telemetryMs.toFixed(1),
