@@ -273,18 +273,6 @@ export const useShotTracker = (
     const perfPlayerCropGetEffectiveBboxTimeMs = useSharedValue(0)
     const perfPlayerCropSharedValueWrites = useSharedValue(0)
 
-    // PASS 5I: Cache hit/miss metrics
-    const perfPlayerCropCacheHits = useSharedValue(0)
-    const perfPlayerCropCacheMisses = useSharedValue(0)
-
-    // PASS 5J: Cache HIT vs MISS timing
-    const perfPlayerCropCacheHitTimeMs = useSharedValue(0)
-    const perfPlayerCropCacheHitMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
-    const perfPlayerCropCacheHitMaxMs = useSharedValue(0)
-    const perfPlayerCropCacheMissTimeMs = useSharedValue(0)
-    const perfPlayerCropCacheMissMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
-    const perfPlayerCropCacheMissMaxMs = useSharedValue(0)
-
     // PASS 5D: Granular getEffectiveBbox profiling
     const perfPlayerCropSvReadsMs = useSharedValue(0)
     const perfPlayerCropAgeTtlMs = useSharedValue(0)
@@ -300,10 +288,6 @@ export const useShotTracker = (
     const perfResultReadsMs = useSharedValue(0)
     const perfResultConstructionMs = useSharedValue(0)
 
-    // PASS 5F: Date.now() overhead and unaccounted time
-    const perfDateNowOverheadMs = useSharedValue(0)
-    const perfSmoothingUnaccountedMs = useSharedValue(0)
-    const perfResultUnaccountedMs = useSharedValue(0)
 
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
@@ -1100,18 +1084,6 @@ export const useShotTracker = (
                     perfPlayerCropGetEffectiveBboxTimeMs.value = playerCrop.getEffectiveBboxTimeMs.value
                     perfPlayerCropSharedValueWrites.value = playerCrop.sharedValueWrites.value
 
-                    // PASS 5I: Read cache hit/miss metrics
-                    perfPlayerCropCacheHits.value = playerCrop.cacheHits.value
-                    perfPlayerCropCacheMisses.value = playerCrop.cacheMisses.value
-
-                    // PASS 5J: Read cache HIT vs MISS timing
-                    perfPlayerCropCacheHitTimeMs.value = playerCrop.cacheHitTimeMs.value
-                    perfPlayerCropCacheHitMinMs.value = playerCrop.cacheHitMinMs.value
-                    perfPlayerCropCacheHitMaxMs.value = playerCrop.cacheHitMaxMs.value
-                    perfPlayerCropCacheMissTimeMs.value = playerCrop.cacheMissTimeMs.value
-                    perfPlayerCropCacheMissMinMs.value = playerCrop.cacheMissMinMs.value
-                    perfPlayerCropCacheMissMaxMs.value = playerCrop.cacheMissMaxMs.value
-
                     // PASS 5D: Read granular getEffectiveBbox profiling
                     perfPlayerCropSvReadsMs.value = playerCrop.getEffectiveBboxSvReadsMs.value
                     perfPlayerCropAgeTtlMs.value = playerCrop.getEffectiveBboxAgeTtlMs.value
@@ -1127,10 +1099,6 @@ export const useShotTracker = (
                     perfResultReadsMs.value = playerCrop.resultReadsMs.value
                     perfResultConstructionMs.value = playerCrop.resultConstructionMs.value
 
-                    // PASS 5F: Read Date.now() overhead and unaccounted time
-                    perfDateNowOverheadMs.value = playerCrop.dateNowOverheadMs.value
-                    perfSmoothingUnaccountedMs.value = playerCrop.smoothingUnaccountedMs.value
-                    perfResultUnaccountedMs.value = playerCrop.resultUnaccountedMs.value
 
                     // Tracking shared value writes
                     const tTrackingSvStart = performance.now()
@@ -1300,16 +1268,7 @@ export const useShotTracker = (
                             getEffectiveBboxCount: perfPlayerCropGetEffectiveBboxCount.value,
                             getEffectiveBboxTimeMs: perfPlayerCropGetEffectiveBboxTimeMs.value.toFixed(1),
                             getEffectiveBboxAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropGetEffectiveBboxTimeMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(2) : '0.00',
-                            sharedValueWrites: perfPlayerCropSharedValueWrites.value,
-                            cacheHits: perfPlayerCropCacheHits.value,
-                            cacheMisses: perfPlayerCropCacheMisses.value,
-                            cacheHitRate: (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value) > 0 ? ((perfPlayerCropCacheHits.value / (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value)) * 100).toFixed(1) + '%' : '0.0%',
-                            cacheHitAvgMs: perfPlayerCropCacheHits.value > 0 ? (perfPlayerCropCacheHitTimeMs.value / perfPlayerCropCacheHits.value).toFixed(2) : '0.00',
-                            cacheHitMinMs: perfPlayerCropCacheHitMinMs.value === Number.MAX_SAFE_INTEGER ? '0.00' : perfPlayerCropCacheHitMinMs.value.toFixed(2),
-                            cacheHitMaxMs: perfPlayerCropCacheHitMaxMs.value.toFixed(2),
-                            cacheMissAvgMs: perfPlayerCropCacheMisses.value > 0 ? (perfPlayerCropCacheMissTimeMs.value / perfPlayerCropCacheMisses.value).toFixed(2) : '0.00',
-                            cacheMissMinMs: perfPlayerCropCacheMissMinMs.value === Number.MAX_SAFE_INTEGER ? '0.00' : perfPlayerCropCacheMissMinMs.value.toFixed(2),
-                            cacheMissMaxMs: perfPlayerCropCacheMissMaxMs.value.toFixed(2)
+                            sharedValueWrites: perfPlayerCropSharedValueWrites.value
                         })
                         console.log('[FRAME PROC] getEffectiveBbox breakdown:', {
                             svReadsMs: perfPlayerCropSvReadsMs.value.toFixed(1),
@@ -1338,14 +1297,6 @@ export const useShotTracker = (
                             readsAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultReadsMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
                             constructionMs: perfResultConstructionMs.value.toFixed(1),
                             constructionAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultConstructionMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
-                        })
-                        console.log('[FRAME PROC] unaccounted time breakdown:', {
-                            dateNowOverheadMs: perfDateNowOverheadMs.value.toFixed(1),
-                            dateNowOverheadAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfDateNowOverheadMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
-                            smoothingUnaccountedMs: perfSmoothingUnaccountedMs.value.toFixed(1),
-                            smoothingUnaccountedAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfSmoothingUnaccountedMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000',
-                            resultUnaccountedMs: perfResultUnaccountedMs.value.toFixed(1),
-                            resultUnaccountedAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfResultUnaccountedMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(3) : '0.000'
                         })
                         console.log('[FRAME PROC] telemetry breakdown:', {
                             total: telemetryMs.toFixed(1),

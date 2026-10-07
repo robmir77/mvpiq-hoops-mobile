@@ -96,32 +96,12 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const detectionId = useSharedValue(0) // Incremented on each new YOLO detection
   const lastProcessedDetectionId = useSharedValue(0) // Last detectionId processed by frame processor
 
-  // PASS 5I: Cache effective bbox to avoid redundant smoothing on same detectionId
-  const cachedBboxDetectionId = useSharedValue(0) // detectionId of cached bbox
-  const cachedBboxX = useSharedValue(0)
-  const cachedBboxY = useSharedValue(0)
-  const cachedBboxWidth = useSharedValue(0)
-  const cachedBboxHeight = useSharedValue(0)
-  const cachedBboxConfidence = useSharedValue(0)
-
   // Internal profiling counters (for debugging frame processor cost)
   const updateCount = useSharedValue(0)
   const updateTimeMs = useSharedValue(0)
   const getEffectiveBboxCount = useSharedValue(0)
   const getEffectiveBboxTimeMs = useSharedValue(0)
   const sharedValueWrites = useSharedValue(0)
-
-  // PASS 5I: Cache hit/miss metrics
-  const cacheHits = useSharedValue(0)
-  const cacheMisses = useSharedValue(0)
-
-  // PASS 5J: Cache HIT vs MISS timing (min/avg/max)
-  const cacheHitTimeMs = useSharedValue(0)
-  const cacheHitMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
-  const cacheHitMaxMs = useSharedValue(0)
-  const cacheMissTimeMs = useSharedValue(0)
-  const cacheMissMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
-  const cacheMissMaxMs = useSharedValue(0)
 
   // PASS 5D: Granular profiling for getEffectiveBbox() breakdown
   const getEffectiveBboxSvReadsMs = useSharedValue(0)
@@ -221,104 +201,32 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const getEffectiveBbox = (now: number): TrackedPlayerBbox | null => {
     'worklet'
     const tStart = Date.now()
-
-    // PASS 5J-C: Snapshot SharedValues once per call to avoid repeated reads
     const tSvReadsStart = Date.now()
-    const hasBboxSnapshot = hasBbox.value
-    const lastSeenAtSnapshot = lastSeenAt.value
-    const detectionIdSnapshot = detectionId.value
-    const lastProcessedDetectionIdSnapshot = lastProcessedDetectionId.value
-    const cachedBboxDetectionIdSnapshot = cachedBboxDetectionId.value
-    const cachedBboxXSnapshot = cachedBboxX.value
-    const cachedBboxYSnapshot = cachedBboxY.value
-    const cachedBboxWidthSnapshot = cachedBboxWidth.value
-    const cachedBboxHeightSnapshot = cachedBboxHeight.value
-    const cachedBboxConfidenceSnapshot = cachedBboxConfidence.value
-    const detectedAtSnapshot = detectedAt.value
-    const bboxXSnapshot = bboxX.value
-    const bboxYSnapshot = bboxY.value
-    const bboxWidthSnapshot = bboxWidth.value
-    const bboxHeightSnapshot = bboxHeight.value
-    const bboxConfidenceSnapshot = bboxConfidence.value
-    const smoothedXSnapshot = smoothedX.value
-    const smoothedYSnapshot = smoothedY.value
-    const smoothedWidthSnapshot = smoothedWidth.value
-    const smoothedHeightSnapshot = smoothedHeight.value
-    const smoothedConfidenceSnapshot = smoothedConfidence.value
+    if (!hasBbox.value || lastSeenAt.value === 0) {
+      return null
+    }
     const tSvReadsEnd = Date.now()
     getEffectiveBboxSvReadsMs.value += (tSvReadsEnd - tSvReadsStart)
 
-    if (!hasBboxSnapshot || lastSeenAtSnapshot === 0) {
-      return null
-    }
-
     const tAgeTtlStart = Date.now()
-    const ageMs = now - lastSeenAtSnapshot
+    const ageMs = now - lastSeenAt.value
     const isStale = ageMs > cfg.bboxTtlMs
     const tAgeTtlEnd = Date.now()
     getEffectiveBboxAgeTtlMs.value += (tAgeTtlEnd - tAgeTtlStart)
-
+    
     const tDetectionIdStart = Date.now()
     // Determine if this is a fresh YOLO detection or a persisted bbox
     // Fresh: detectionId changed since last frame (new YOLO detection)
     // Persisted: detectionId unchanged (reusing old bbox)
-    const isNewDetection = detectionIdSnapshot !== lastProcessedDetectionIdSnapshot
+    const isNewDetection = detectionId.value !== lastProcessedDetectionId.value
     const isUsingLastBbox = !isNewDetection && ageMs > 0
-
+    
     // Update lastProcessedDetectionId to mark this detection as processed
     if (isNewDetection) {
-      lastProcessedDetectionId.value = detectionIdSnapshot
+      lastProcessedDetectionId.value = detectionId.value
     }
     const tDetectionIdEnd = Date.now()
     getEffectiveBboxDetectionIdMs.value += (tDetectionIdEnd - tDetectionIdStart)
-
-    // PASS 5I: Cache effective bbox to avoid redundant smoothing on same detectionId
-    // If detectionId hasn't changed since last cache, reuse cached bbox (only update ageMs/isUsingLastBbox)
-    const isCacheValid = cachedBboxDetectionIdSnapshot === detectionIdSnapshot && cachedBboxDetectionIdSnapshot > 0
-    if (isCacheValid && !isNewDetection) {
-      // Cache hit - increment counter
-      cacheHits.value += 1
-
-      // Return cached bbox with updated ageMs and isUsingLastBbox
-      const tResultStart = Date.now()
-      const result = {
-        bbox: {
-          x: cachedBboxXSnapshot,
-          y: cachedBboxYSnapshot,
-          width: cachedBboxWidthSnapshot,
-          height: cachedBboxHeightSnapshot,
-          confidence: cachedBboxConfidenceSnapshot,
-        },
-        detectedAt: detectedAtSnapshot,
-        lastSeenAt: lastSeenAtSnapshot,
-        isStale,
-        ageMs,
-        isUsingLastBbox,
-        detectionId: detectionIdSnapshot,
-      }
-      const tResultEnd = Date.now()
-      getEffectiveBboxResultMs.value += (tResultEnd - tResultStart)
-
-      // PASS 5J: Track cache hit timing
-      const hitDuration = tResultEnd - tStart
-      cacheHitTimeMs.value += hitDuration
-      if (hitDuration < cacheHitMinMs.value) {
-        cacheHitMinMs.value = hitDuration
-      }
-      if (hitDuration > cacheHitMaxMs.value) {
-        cacheHitMaxMs.value = hitDuration
-      }
-
-      // Update profiling counters
-      getEffectiveBboxCount.value += 1
-      const tEnd = Date.now()
-      getEffectiveBboxTimeMs.value += (tEnd - tStart)
-
-      return result
-    }
-
-    // Cache miss - increment counter
-    cacheMisses.value += 1
 
     if (isStale) {
       // BBox expired - reset tracking state
@@ -334,33 +242,33 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     dateNowOverheadMs.value += (tOverheadEnd - tOverheadStart)
 
     const tSmoothingStart = Date.now()
-    // PASS 5E: Separate smoothing reads - use snapshots
+    // PASS 5E: Separate smoothing reads
     const tReadsStart = Date.now()
-    const currentX = smoothedXSnapshot
-    const currentY = smoothedYSnapshot
-    const currentWidth = smoothedWidthSnapshot
-    const currentHeight = smoothedHeightSnapshot
-    const currentConfidence = smoothedConfidenceSnapshot
+    const currentX = smoothedX.value
+    const currentY = smoothedY.value
+    const currentWidth = smoothedWidth.value
+    const currentHeight = smoothedHeight.value
+    const currentConfidence = smoothedConfidence.value
     const tReadsEnd = Date.now()
     smoothingReadsMs.value += (tReadsEnd - tReadsStart)
 
-    // PASS 5E: Separate lerp calculation - use snapshots
+    // PASS 5E: Separate lerp calculation
     const tLerpStart = Date.now()
     let nextX: number, nextY: number, nextWidth: number, nextHeight: number, nextConfidence: number
     if (currentX === 0 && currentY === 0) {
       // First detection - initialize smoothed values
-      nextX = bboxXSnapshot
-      nextY = bboxYSnapshot
-      nextWidth = bboxWidthSnapshot
-      nextHeight = bboxHeightSnapshot
-      nextConfidence = bboxConfidenceSnapshot
+      nextX = bboxX.value
+      nextY = bboxY.value
+      nextWidth = bboxWidth.value
+      nextHeight = bboxHeight.value
+      nextConfidence = bboxConfidence.value
     } else {
       // Apply exponential moving average
-      nextX = lerp(currentX, bboxXSnapshot, cfg.smoothingFactor)
-      nextY = lerp(currentY, bboxYSnapshot, cfg.smoothingFactor)
-      nextWidth = lerp(currentWidth, bboxWidthSnapshot, cfg.smoothingFactor)
-      nextHeight = lerp(currentHeight, bboxHeightSnapshot, cfg.smoothingFactor)
-      nextConfidence = lerp(currentConfidence, bboxConfidenceSnapshot, cfg.smoothingFactor)
+      nextX = lerp(currentX, bboxX.value, cfg.smoothingFactor)
+      nextY = lerp(currentY, bboxY.value, cfg.smoothingFactor)
+      nextWidth = lerp(currentWidth, bboxWidth.value, cfg.smoothingFactor)
+      nextHeight = lerp(currentHeight, bboxHeight.value, cfg.smoothingFactor)
+      nextConfidence = lerp(currentConfidence, bboxConfidence.value, cfg.smoothingFactor)
     }
     const tLerpEnd = Date.now()
     smoothingLerpMs.value += (tLerpEnd - tLerpStart)
@@ -414,39 +322,21 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
         height: nextHeight,
         confidence: nextConfidence,
       },
-      detectedAt: detectedAtSnapshot,
-      lastSeenAt: lastSeenAtSnapshot,
+      detectedAt: detectedAt.value,
+      lastSeenAt: lastSeenAt.value,
       isStale,
       ageMs,
       isUsingLastBbox,
-      detectionId: detectionIdSnapshot,
+      detectionId: detectionId.value,
     }
     const tConstructionEnd = Date.now()
     resultConstructionMs.value += (tConstructionEnd - tConstructionStart)
-
-    // PASS 5I: Update cache with new bbox
-    cachedBboxDetectionId.value = detectionIdSnapshot
-    cachedBboxX.value = nextX
-    cachedBboxY.value = nextY
-    cachedBboxWidth.value = nextWidth
-    cachedBboxHeight.value = nextHeight
-    cachedBboxConfidence.value = nextConfidence
 
     const tResultEnd = Date.now()
     const resultMeasured = (tResultReadsEnd - tResultReadsStart) + (tConstructionEnd - tConstructionStart)
     const resultTotal = tResultEnd - tResultStart
     resultUnaccountedMs.value += (resultTotal - resultMeasured)
     getEffectiveBboxResultMs.value += resultTotal
-
-    // PASS 5J: Track cache miss timing
-    const missDuration = tResultEnd - tStart
-    cacheMissTimeMs.value += missDuration
-    if (missDuration < cacheMissMinMs.value) {
-      cacheMissMinMs.value = missDuration
-    }
-    if (missDuration > cacheMissMaxMs.value) {
-      cacheMissMaxMs.value = missDuration
-    }
 
     // Update profiling counters
     getEffectiveBboxCount.value += 1
@@ -556,20 +446,6 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     bboxConfidence.value = 0
     detectionId.value = 0
     lastProcessedDetectionId.value = 0
-    // PASS 5I: Reset cache
-    cachedBboxDetectionId.value = 0
-    cachedBboxX.value = 0
-    cachedBboxY.value = 0
-    cachedBboxWidth.value = 0
-    cachedBboxHeight.value = 0
-    cachedBboxConfidence.value = 0
-    // PASS 5J: Reset cache timing metrics
-    cacheHitTimeMs.value = 0
-    cacheHitMinMs.value = Number.MAX_SAFE_INTEGER
-    cacheHitMaxMs.value = 0
-    cacheMissTimeMs.value = 0
-    cacheMissMinMs.value = Number.MAX_SAFE_INTEGER
-    cacheMissMaxMs.value = 0
   }
 
   /**
@@ -615,16 +491,6 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     getEffectiveBboxCount,
     getEffectiveBboxTimeMs,
     sharedValueWrites,
-    // PASS 5I: Cache hit/miss metrics
-    cacheHits,
-    cacheMisses,
-    // PASS 5J: Cache HIT vs MISS timing
-    cacheHitTimeMs,
-    cacheHitMinMs,
-    cacheHitMaxMs,
-    cacheMissTimeMs,
-    cacheMissMinMs,
-    cacheMissMaxMs,
     // PASS 5D: Granular getEffectiveBbox profiling
     getEffectiveBboxSvReadsMs,
     getEffectiveBboxAgeTtlMs,
