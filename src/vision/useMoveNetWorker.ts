@@ -266,7 +266,7 @@ export const useMoveNetWorker = (
         totalCropMs = tCropCpuEnd - tCropCpuStart
         jsPreprocessMs = tCropCpuEnd - tCropCpuStart // C→D: JS preprocessing time
 
-        if (__DEV__) {
+        if (ENABLE_MOVENET_LOGS) {
           console.log(
             '[MoveNet CROP] CPU crop on JS thread=',
             `intermediate=${intermediateWidth}x${intermediateHeight} `,
@@ -277,7 +277,7 @@ export const useMoveNetWorker = (
       } else {
         // Fallback: resize from intermediate to final size using CPU
         usingPlayerCrop = false
-        if (__DEV__) {
+        if (ENABLE_MOVENET_LOGS) {
           console.log('[MoveNet CROP] FALLBACK to FULL FRAME - cropRegion=', cropRegion ? 'EXISTS' : 'NULL', 'bufferMatch=', intermediateBuffer.length === intermediateWidth * intermediateHeight * 3)
         }
 
@@ -317,7 +317,7 @@ export const useMoveNetWorker = (
         totalCropMs = tCropCpuEnd - tCropCpuStart
         jsPreprocessMs = tCropCpuEnd - tCropCpuStart // C→D: JS preprocessing time
 
-        if (__DEV__) {
+        if (ENABLE_MOVENET_LOGS) {
           console.log(
             '[MoveNet CROP] Fallback resize (no crop) on JS thread=',
             `intermediate=${intermediateWidth}x${intermediateHeight} `,
@@ -346,7 +346,7 @@ export const useMoveNetWorker = (
         if (inputSource[i] > maxVal) maxVal = inputSource[i];
       }
 
-      if (__DEV__) {
+      if (ENABLE_MOVENET_LOGS) {
         console.log(`[MoveNet Input] Model expects dataType: ${poseModelInstance!.inputs[0].dataType}, shape: ${poseModelInstance!.inputs[0].shape}`)
         console.log(`[MoveNet Input] floatSource max sample value: ${maxVal}`)
       }
@@ -373,7 +373,7 @@ export const useMoveNetWorker = (
       const tQuantEnd = performance.now()
       quantizationMs = tQuantEnd - tQuantStart
 
-      if (__DEV__) {
+      if (ENABLE_MOVENET_LOGS) {
         console.log(`[MoveNet QUANT] quantizationTime=${quantizationMs.toFixed(2)}ms`)
       }
 
@@ -796,7 +796,7 @@ export const useMoveNetWorker = (
       if (isProcessing.value) {
         telemetryDroppedBusy.value += 1
       }
-      if (__DEV__) {
+      if (ENABLE_MOVENET_LOGS) {
         console.log('[MoveNet] Skip: modelReady=', !!poseModelInstance, 'isProcessing=', isProcessing.value, 'enabled=', enabled, 'ENABLE_MOVENET=', ENABLE_MOVENET)
       }
       return
@@ -862,10 +862,10 @@ export const useMoveNetWorker = (
 
     const poseSource = "PLAYER_CROP_GEOMETRY"
 
-    if (__DEV__) {
+    if (ENABLE_MOVENET_LOGS) {
       console.log('[MoveNet CROP] source=', poseSource, 'bboxValid=', hasValidPlayer)
     }
-    if (__DEV__ && hasValidPlayer && bbox) {
+    if (ENABLE_MOVENET_LOGS && hasValidPlayer && bbox) {
       console.log('[MoveNet CROP] normalized bbox=', `x=${bbox.x.toFixed(3)} y=${bbox.y.toFixed(3)} w=${bbox.width.toFixed(3)} h=${bbox.height.toFixed(3)} conf=${bbox.confidence?.toFixed(3) ?? 'N/A'}`)
     }
 
@@ -929,7 +929,7 @@ export const useMoveNetWorker = (
         cropRegion = squareCrop
         playerCropRegion.value = squareCrop
 
-        if (__DEV__) {
+        if (ENABLE_MOVENET_LOGS) {
           console.log(
             '[MoveNet CROP] squareRect=',
             `x=${Math.round(squareCrop.cropX)} ` +
@@ -951,7 +951,7 @@ export const useMoveNetWorker = (
       // Test 2: Log gap from last dispose to current resize
       const resizeStartTime = Date.now()
       const gapMs = lastDisposeTimestamp.value > 0 ? resizeStartTime - lastDisposeTimestamp.value : 0
-      if (__DEV__ && gapMs > 0) {
+      if (ENABLE_MOVENET_LOGS && gapMs > 0) {
         console.log('[MoveNet RESIZE] gap_from_dispose=', gapMs, 'ms')
       }
 
@@ -975,7 +975,7 @@ export const useMoveNetWorker = (
         const intermediateWidth = Math.round(frameWidth * scale)
         const intermediateHeight = Math.round(frameHeight * scale)
 
-        if (__DEV__) {
+        if (ENABLE_MOVENET_LOGS) {
           console.log(
             '[MoveNet RESIZE] frame=',
             frameWidth,

@@ -304,8 +304,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     }, [])
 
     // Rim detection callback (replaces calibrated rim if confidence high)
+    const lastRimDetectionLogRef = useRef(0)
     const handleRimDetection = useCallback((rim: { x: number; y: number; width: number; height: number; confidence: number }) => {
-        console.log('[WorkoutSession] Rim detected with high confidence - replacing calibrated rim')
+        const now = Date.now()
+        if (now - lastRimDetectionLogRef.current >= 1000) {
+            console.log('[WorkoutSession] Rim detected with high confidence - replacing calibrated rim')
+            lastRimDetectionLogRef.current = now
+        }
         setRimFromDetection(rim)
         // Update tracking engine to update overlay shared values
         tracking.setHoopFromCalibration(rim.x, rim.y, rim.width, rim.height)
@@ -753,7 +758,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         }
                     },
                     onTelemetryUpdate: (metrics) => {
-                        console.log('[WorkoutSession] Telemetry update:', metrics)
+                        // Disabled - FPS metrics are already available via fpsMetrics from useShotTracker
+                        // console.log('[WorkoutSession] Telemetry update:', metrics)
                     },
                     onError: (error) => {
                         showError('Errore Runtime', error.message)
