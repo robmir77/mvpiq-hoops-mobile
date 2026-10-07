@@ -307,7 +307,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const lastRimDetectionLogRef = useRef(0)
     const handleRimDetection = useCallback((rim: { x: number; y: number; width: number; height: number; confidence: number }) => {
         const now = Date.now()
-        if (now - lastRimDetectionLogRef.current >= 1000) {
+        // Log only once per session to reduce noise (already throttled to 1s, but still noisy)
+        if (lastRimDetectionLogRef.current === 0) {
             console.log('[WorkoutSession] Rim detected with high confidence - replacing calibrated rim')
             lastRimDetectionLogRef.current = now
         }
@@ -577,9 +578,10 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const now = Date.now()
         if (now - lastFpsUpdate.current > 1000) {
             lastFpsUpdate.current = now
-            if (__DEV__) {
-                console.log('[WorkoutSession] FPS update:', { yoloFps, moveNetFps })
-            }
+            // Removed duplicate log - FPS metrics are already in [PERF 1s] telemetry
+            // if (__DEV__) {
+            //     console.log('[WorkoutSession] FPS update:', { yoloFps, moveNetFps })
+            // }
             setFpsMetrics({
                 yoloFps: Math.round(yoloFps),
                 moveNetFps: Math.round(moveNetFps),
@@ -623,7 +625,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     const elapsedMs = Date.now() - sessionStartTimeGlobal.current
                     const minutes = Math.floor(elapsedMs / 60000)
                     const seconds = Math.floor((elapsedMs % 60000) / 1000)
-                    console.log('[WorkoutSession] Usage update:', { elapsedMs, minutes, seconds })
+                    // Removed hot-path log to reduce JS thread contention
+                    // console.log('[WorkoutSession] Usage update:', { elapsedMs, minutes, seconds })
                     setUsageMinutes(minutes)
                     setUsageSeconds(seconds)
                 }

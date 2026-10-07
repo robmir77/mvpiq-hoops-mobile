@@ -990,8 +990,8 @@ export const useShotTracker = (
                     maybeFlushDiagnosticWindow(Date.now())
                     tTelemetryEnd = performance.now()
 
-                    // Log frame processor phase breakdown every 100 frames
-                    if (currentFrame % 100 === 0) {
+                    // Log frame processor phase breakdown every ~5 seconds (150 frames at 30 FPS)
+                    if (currentFrame % 150 === 0) {
                         const yoloMs = tYoloEnd - tYoloStart
                         const moveNetMs = tMoveNetEnd - tMoveNetStart
                         const sharedValueReadsMs = tSharedValueReadsEnd - tSharedValueReadsStart

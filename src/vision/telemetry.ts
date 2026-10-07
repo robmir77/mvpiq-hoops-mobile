@@ -499,8 +499,9 @@ class TelemetryLogger {
   }
 
   logYoloPerf(): void {
-    const metrics = this.getYoloPerfMetrics()
-    console.log('[YOLO]', `latency=${metrics.avgMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
+    // Removed duplicate log - YOLO DETAIL already contains detailed timing
+    // const metrics = this.getYoloPerfMetrics()
+    // console.log('[YOLO]', `latency=${metrics.avgMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms run=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms`)
   }
 
   recordBallDetection(confidence: number): void {
@@ -997,8 +998,9 @@ class TelemetryLogger {
   }
 
   logMoveNetMetrics(): void {
-    const metrics = this.getMoveNetMetrics()
-    console.log('[MOVENET]', `prep=${metrics.workletPrepMs.toFixed(1)}ms schedule=${metrics.scheduleWaitMs.toFixed(1)}ms crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms quant=${metrics.quantizationMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
+    // Removed duplicate log - MOVE DETAIL already contains detailed timing
+    // const metrics = this.getMoveNetMetrics()
+    // console.log('[MOVENET]', `prep=${metrics.workletPrepMs.toFixed(1)}ms schedule=${metrics.scheduleWaitMs.toFixed(1)}ms crop=${metrics.cropMs.toFixed(1)}ms resize=${metrics.resizeMs.toFixed(1)}ms quant=${metrics.quantizationMs.toFixed(1)}ms inference=${metrics.runMs.toFixed(1)}ms parse=${metrics.parseMs.toFixed(1)}ms total=${metrics.avgMs.toFixed(1)}ms`)
   }
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
