@@ -255,6 +255,7 @@ class TelemetryLogger {
   private playerTrackingCurrent: number = 0
   private playerTrackingLastBbox: number = 0
   private playerMoveNetExecutions: number = 0
+  private lastPlayerDetectionId: number = 0 // Track last YOLO detection ID
   private playerBboxAgeBuckets: {
     age0: number
     age1to100: number
@@ -703,8 +704,15 @@ class TelemetryLogger {
     this.playerBboxExpired++
   }
 
-  recordPlayerTrackingCurrent(): void {
-    this.playerTrackingCurrent++
+  recordPlayerTrackingCurrent(detectionId: number): void {
+    // Track as current only if detectionId is greater than last seen
+    if (detectionId > this.lastPlayerDetectionId) {
+      this.playerTrackingCurrent++
+      this.lastPlayerDetectionId = detectionId
+    } else {
+      // Same detection ID = persisted bbox
+      this.playerTrackingLastBbox++
+    }
   }
 
   recordPlayerTrackingLastBbox(ageMs: number): void {
@@ -1256,6 +1264,7 @@ Current=${summary.battery.endLevel}%
     this.playerTrackingCurrent = 0
     this.playerTrackingLastBbox = 0
     this.playerMoveNetExecutions = 0
+    this.lastPlayerDetectionId = 0
     this.playerBboxAgeBuckets = {
       age0: 0,
       age1to100: 0,

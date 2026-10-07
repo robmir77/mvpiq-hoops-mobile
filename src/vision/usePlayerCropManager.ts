@@ -45,6 +45,7 @@ export interface TrackedPlayerBbox {
   isStale: boolean
   ageMs: number
   isUsingLastBbox: boolean
+  detectionId: number // ID of the YOLO detection that produced this bbox
 }
 
 const DEFAULT_CONFIG: PlayerCropConfig = {
@@ -92,6 +93,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const detectedAt = useSharedValue(0)
   const hasBbox = useSharedValue(false)
   const consecutiveRejects = useSharedValue(0) // Safety net: force accept after N consecutive rejects
+  const detectionId = useSharedValue(0) // Incremented on each new YOLO detection
 
   /**
    * Update player bbox with new detection
@@ -147,6 +149,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       lastSeenAt.value = now
       hasBbox.value = true
       consecutiveRejects.value = 0 // Reset consecutive reject counter on successful accept
+      detectionId.value += 1 // Increment detection ID for new YOLO detection
 
       // Log raw YOLO bbox for diagnostics
       if (ENABLE_PLAYER_CROP_LOGS) {
@@ -214,6 +217,7 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       isStale,
       ageMs,
       isUsingLastBbox,
+      detectionId: detectionId.value,
     }
   }
 

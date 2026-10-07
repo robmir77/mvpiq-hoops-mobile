@@ -218,6 +218,7 @@ export const useShotTracker = (
     const perfPlayerTrackingCurrentCount = useSharedValue(0)
     const perfPlayerTrackingLastBboxCount = useSharedValue(0)
     const perfPlayerMoveNetExecutionCount = useSharedValue(0)
+    const perfLastPlayerDetectionId = useSharedValue(0)
 
     // Track last time player was detected for invalidation logic
     const lastPlayerDetectedAt = useSharedValue(0)
@@ -515,7 +516,8 @@ export const useShotTracker = (
         expiredCount: number,
         trackingCurrentCount: number,
         trackingLastBboxCount: number,
-        moveNetExecutionCount: number
+        moveNetExecutionCount: number,
+        lastDetectionId: number
     ) => {
         // Skip if unmounted
         if (!isMountedRef.current) {
@@ -533,9 +535,8 @@ export const useShotTracker = (
             telemetryLogger.recordPlayerBboxExpired()
         }
         // Flush granular player flow counters
-        for (let i = 0; i < trackingCurrentCount; i++) {
-            telemetryLogger.recordPlayerTrackingCurrent()
-        }
+        // Pass lastDetectionId to telemetry logger for comparison
+        telemetryLogger.recordPlayerTrackingCurrent(lastDetectionId)
         for (let i = 0; i < trackingLastBboxCount; i++) {
             telemetryLogger.recordPlayerTrackingLastBbox(0) // ageMs not tracked in aggregated mode
         }
@@ -800,7 +801,8 @@ export const useShotTracker = (
                         perfPlayerBboxExpiredCount.value,
                         perfPlayerTrackingCurrentCount.value,
                         perfPlayerTrackingLastBboxCount.value,
-                        perfPlayerMoveNetExecutionCount.value
+                        perfPlayerMoveNetExecutionCount.value,
+                        perfLastPlayerDetectionId.value
                     )
 
                     // Update actual FPS values for UI
@@ -846,6 +848,7 @@ export const useShotTracker = (
                     perfPlayerTrackingCurrentCount.value = 0
                     perfPlayerTrackingLastBboxCount.value = 0
                     perfPlayerMoveNetExecutionCount.value = 0
+                    perfLastPlayerDetectionId.value = 0
                 }
 
                 // Increment frame counter for logging
@@ -893,7 +896,13 @@ export const useShotTracker = (
                             playerTrackAge.value = 0
                             
                             // Record granular telemetry: current bbox → MoveNet execution
-                            perfPlayerTrackingCurrentCount.value += 1
+                            // Use detectionId to distinguish new YOLO detection vs persisted bbox
+                            if (trackedBbox.detectionId > perfLastPlayerDetectionId.value) {
+                                perfPlayerTrackingCurrentCount.value += 1
+                                perfLastPlayerDetectionId.value = trackedBbox.detectionId
+                            } else {
+                                perfPlayerTrackingLastBboxCount.value += 1
+                            }
                             perfPlayerMoveNetExecutionCount.value += 1
 
                             // MoveNet worker handles its own performance tracking in the async callback
@@ -910,7 +919,13 @@ export const useShotTracker = (
                                 // Aggregate in worklet instead of per-frame scheduleOnRN
                                 perfPlayerUsingLastBboxCount.value += 1
                                 // Record granular telemetry: last bbox (no MoveNet)
-                                perfPlayerTrackingLastBboxCount.value += 1
+                                // Use detectionId to distinguish new YOLO detection vs persisted bbox
+                                if (trackedBbox.detectionId > perfLastPlayerDetectionId.value) {
+                                    perfPlayerTrackingCurrentCount.value += 1
+                                    perfLastPlayerDetectionId.value = trackedBbox.detectionId
+                                } else {
+                                    perfPlayerTrackingLastBboxCount.value += 1
+                                }
                             }
                         }
                     }
