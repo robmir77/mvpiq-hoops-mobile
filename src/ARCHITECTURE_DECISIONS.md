@@ -1562,3 +1562,101 @@ Due semantiche diverse erano confuse:
 - VisionEngineAdapter.updateParsedResults() aggiornato con undefined/null distinction
 - Tutte le chiamate da WorkoutSessionScreen aggiornate per usare undefined
 - Documentazione aggiornata (ARCHITECTURE.md, VISION_PERFORMANCE.md, REFACTORING_PROGRESS.md)
+
+---
+
+## Decision 31: MoveNet Bbox Current Detection (Strict Current Policy)
+
+**Contesto:** MoveNet eseguiva con bbox persistente (TTL 750ms) anche quando YOLO non produceva nuove detection player. Questo causava esecuzioni MoveNet inutili con bbox stale, violando il requisito funzionale "MoveNet deve lavorare solo quando esiste una detection player valida".
+
+**Problema identificato:**
+- YOLO player detected=65, ma MoveNet eseguiva a 3-4 FPS
+- usingLastBbox=349 > detected=412 indicava uso massiccio di bbox vecchie
+- PlayerCropManager manteneva bbox per 750ms TTL
+- useShotTracker manteneva player per 2000ms TTL
+- MoveNet riceveva bbox persistente e eseguiva inferenza inutile
+
+**Decisione:**
+- MoveNet richiede bbox corrente (non stale/persistente)
+- Condizione aggiornata in useShotTracker: `!trackedBbox.isUsingLastBbox`
+- MoveNet esegue solo quando YOLO produce detection player nel frame corrente
+- Tracking può continuare a usare bbox persistente (separazione architetturale)
+- Nessun cambio TTL (750ms PlayerCrop, 2000ms useShotTracker, 1000ms PlayerTracking)
+
+**Rationale:**
+- Requisito funzionale: MoveNet solo con detection player corrente
+- Separazione responsabilità: Tracking può persistere, MoveNet no
+- Elimina inferenze inutili quando player non rilevato correntemente
+- Costo MoveNet eliminato quando non c'è player valido (0 FPS vs 3-4 FPS)
+- Architettura corretta: YOLO detection → current bbox → MoveNet
+
+**Conseguenze:**
+- MoveNet FPS scende drasticamente quando player detection rate è basso
+- MoveNet esegue solo con bbox corrente (no bbox persistente)
+- Tracking continua a ricevere aggiornamenti con bbox persistente (intenzionale)
+- usingLastBbox counter riflette solo tracking, non esecuzioni MoveNet
+- Costo inferenza MoveNet eliminato quando player non rilevato
+
+**Risultati attesi:**
+- MoveNet exec=0 quando player non rilevato correntemente
+- Tracking può continuare con bbox persistente (se TTL intenzionale)
+- Separazione chiara: tracking persistence vs MoveNet execution
+- Performance migliorata: niente inferenze MoveNet inutili
+
+**Stato:** ✅ COMPLETATO
+- useShotTracker:855-895 aggiornato con `!trackedBbox.isUsingLastBbox`
+- MoveNet non esegue quando bbox persistente
+- Tracking può continuare con bbox persistente
+- Documentazione aggiornata (ARCHITECTURE.md, VISION_PERFORMANCE.md)
+
+---
+
+## Decision 32: Player Stability Threshold Correction + Granular Telemetry
+
+**Contesto:**
+1. Player stability metric usava threshold errato (30 in normalized space = 3000% del frame)
+2. [BBOX][STABILITY] telemetry era per ball, non player
+3. usingLastBbox alto (349) vs YOLO detections basse (65) richiedeva analisi granulare
+
+**Problemi identificati:**
+1. telemetry.ts:886 - `jumps.filter(j => j < 30)` - threshold completamente errato in normalized space
+2. getBboxStabilityMetrics() calcola ball stability, non player stability
+3. Impossibile distinguere tracking corrente vs tracking persistente
+4. Distribuzione età bbox non misurata
+
+**Decisione:**
+1. Correzione threshold player stability: 30 → 0.02 (2% del frame, allineato con getBboxStabilityMetrics)
+2. Aggiunta telemetria granulare player flow:
+   - playerTrackingCurrent - tracking con bbox corrente
+   - playerTrackingLastBbox - tracking con bbox persistente
+   - playerMoveNetExecutions - esecuzioni MoveNet
+   - playerBboxAgeBuckets - distribuzione età bbox (0, 1-100, 100-250, 250-500, 500-750, expired ms)
+3. Nuovo log [PLAYER][FLOW] con percentili età
+4. Nuovo log [PLAYER][AGE_BUCKETS] per distribuzione
+
+**Rationale:**
+- Threshold 0.02 corretto per normalized space (2% del frame)
+- Telemetria granulare permette distinguere tracking corrente vs persistente
+- Bucket età permette analisi distribuzione TTL
+- Separazione chiara: YOLO detections → tracking current → tracking last → MoveNet executions
+- Dati per decisione futura su TTL (750ms, 2000ms, 1000ms)
+
+**Conseguenze:**
+- Player stability metric ora affidabile
+- [BBOX][STABILITY] identificato come ball stability
+- Telemetria granulare permette analisi dettagliata player flow
+- Possibilità di decidere se modificare TTL basata su dati reali
+
+**Risultati attesi:**
+- Log: [PLAYER][FLOW] yolo=65 current=65 last=290 ageP50=180ms ageP95=640ms ageMax=748ms trackingCurrent=65 trackingLast=290 moveNet=0
+- Log: [PLAYER][AGE_BUCKETS] age0=65 age1to100=120 age100to250=80 age250to500=50 age500to750=40 expired=0
+- Dati per decidere se modificare TTL
+
+**Stato:** ✅ COMPLETATO
+- telemetry.ts:886 threshold corretto da 30 a 0.02
+- telemetry.ts:254-272 contatori granulari aggiunti
+- telemetry.ts:706-776 metodi granulari aggiunti
+- useShotTracker:217-220 SharedValues granulari aggiunti
+- useShotTracker:876-877, 892-893 logging granulare aggiunto
+- useShotTracker:512-545 callback aggiornato
+- Documentazione aggiornata (ARCHITECTURE.md, VISION_PERFORMANCE.md)

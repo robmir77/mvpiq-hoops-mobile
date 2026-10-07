@@ -122,6 +122,8 @@ WorkoutSessionRuntime
 - Fase 4.4 COMPLETATA (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
 - Fase 5 COMPLETATA (Legacy cleanup - ShotDetector.ts rimosso completamente, handleShotEvent rimosso)
 - Fase 6 COMPLETATA (test PlayerDetection aggiunti, Kalman filter ottimizzato)
+- Decision 31 COMPLETATA (MoveNet bbox corrente - strict current policy)
+- Decision 32 COMPLETATA (Player stability threshold correction + telemetria granulare)
 
 **Stato integrazione:**
 - ✅ Vision collegata via VisionEngineAdapter
@@ -144,10 +146,12 @@ WorkoutSessionRuntime
 - YOLO detection (ball, player, rim)
 - Ball/Player/Rim detection parsing e filtering
 - Player crop management (TTL 750ms, EMA smoothing, jump threshold)
+- **MoveNet bbox corrente:** MoveNet esegue solo con bbox corrente (non persistente) - Decision 31
 - Kalman prediction base per ball tracking
 - Telemetry e performance monitoring
 - FPS metrics synchronization (shared values → state) per evitare warning Reanimated
 - Session usage time tracking (minuti:secondi) con persistenza tra unmount/mount
+- **Telemetria granulare player flow:** tracking current, tracking last, MoveNet executions, bucket età bbox - Decision 32
 - **NOTA:** Lo scheduling YOLO/MoveNet è gestito internamente dai rispettivi worker, non da useShotTracker
 
 **Separazione responsabilità:**

@@ -213,6 +213,11 @@ export const useShotTracker = (
     const perfPlayerUsingLastBboxCount = useSharedValue(0)
     const perfPlayerLostCount = useSharedValue(0)
     const perfPlayerBboxExpiredCount = useSharedValue(0)
+    
+    // Granular player flow telemetry
+    const perfPlayerTrackingCurrentCount = useSharedValue(0)
+    const perfPlayerTrackingLastBboxCount = useSharedValue(0)
+    const perfPlayerMoveNetExecutionCount = useSharedValue(0)
 
     // Track last time player was detected for invalidation logic
     const lastPlayerDetectedAt = useSharedValue(0)
@@ -325,6 +330,7 @@ export const useShotTracker = (
         telemetryLogger.logFalsePositiveSummary()
         telemetryLogger.logBboxStability()
         telemetryLogger.logPlayerTrackingMetrics()
+        telemetryLogger.logPlayerFlowMetrics()
         telemetryLogger.logBallTrackingMetrics()
 
         // Record diagnostic window with percentiles
@@ -506,7 +512,10 @@ export const useShotTracker = (
     const flushPlayerTrackingTelemetry = useCallback((
         usingLastBboxCount: number,
         lostCount: number,
-        expiredCount: number
+        expiredCount: number,
+        trackingCurrentCount: number,
+        trackingLastBboxCount: number,
+        moveNetExecutionCount: number
     ) => {
         // Skip if unmounted
         if (!isMountedRef.current) {
@@ -522,6 +531,16 @@ export const useShotTracker = (
         }
         for (let i = 0; i < expiredCount; i++) {
             telemetryLogger.recordPlayerBboxExpired()
+        }
+        // Flush granular player flow counters
+        for (let i = 0; i < trackingCurrentCount; i++) {
+            telemetryLogger.recordPlayerTrackingCurrent()
+        }
+        for (let i = 0; i < trackingLastBboxCount; i++) {
+            telemetryLogger.recordPlayerTrackingLastBbox(0) // ageMs not tracked in aggregated mode
+        }
+        for (let i = 0; i < moveNetExecutionCount; i++) {
+            telemetryLogger.recordPlayerMoveNetExecution()
         }
     }, [])
 
@@ -778,7 +797,10 @@ export const useShotTracker = (
                         flushPlayerTrackingTelemetry,
                         perfPlayerUsingLastBboxCount.value,
                         perfPlayerLostCount.value,
-                        perfPlayerBboxExpiredCount.value
+                        perfPlayerBboxExpiredCount.value,
+                        perfPlayerTrackingCurrentCount.value,
+                        perfPlayerTrackingLastBboxCount.value,
+                        perfPlayerMoveNetExecutionCount.value
                     )
 
                     // Update actual FPS values for UI
@@ -820,6 +842,10 @@ export const useShotTracker = (
                     perfPlayerUsingLastBboxCount.value = 0
                     perfPlayerLostCount.value = 0
                     perfPlayerBboxExpiredCount.value = 0
+                    // Reset granular player flow counters
+                    perfPlayerTrackingCurrentCount.value = 0
+                    perfPlayerTrackingLastBboxCount.value = 0
+                    perfPlayerMoveNetExecutionCount.value = 0
                 }
 
                 // Increment frame counter for logging
@@ -865,6 +891,10 @@ export const useShotTracker = (
                             // Update visual tracking state
                             playerTrackState.value = 'DETECTED'
                             playerTrackAge.value = 0
+                            
+                            // Record granular telemetry: current bbox → MoveNet execution
+                            perfPlayerTrackingCurrentCount.value += 1
+                            perfPlayerMoveNetExecutionCount.value += 1
 
                             // MoveNet worker handles its own performance tracking in the async callback
                             moveNetWorker.processFrame(frame, timestamp)
@@ -879,6 +909,8 @@ export const useShotTracker = (
                                 playerTrackAge.value = trackedBbox.ageMs
                                 // Aggregate in worklet instead of per-frame scheduleOnRN
                                 perfPlayerUsingLastBboxCount.value += 1
+                                // Record granular telemetry: last bbox (no MoveNet)
+                                perfPlayerTrackingLastBboxCount.value += 1
                             }
                         }
                     }

@@ -251,6 +251,26 @@ class TelemetryLogger {
   private playerBboxExpired: number = 0
   private playerBboxAgeMs: number[] = []
   
+  // Granular player flow metrics
+  private playerTrackingCurrent: number = 0
+  private playerTrackingLastBbox: number = 0
+  private playerMoveNetExecutions: number = 0
+  private playerBboxAgeBuckets: {
+    age0: number
+    age1to100: number
+    age100to250: number
+    age250to500: number
+    age500to750: number
+    expired: number
+  } = {
+    age0: 0,
+    age1to100: 0,
+    age100to250: 0,
+    age250to500: 0,
+    age500to750: 0,
+    expired: 0,
+  }
+  
   // Ball tracking metrics
   private ballDetected: number = 0
   private ballPrediction: number = 0
@@ -683,11 +703,76 @@ class TelemetryLogger {
     this.playerBboxExpired++
   }
 
+  recordPlayerTrackingCurrent(): void {
+    this.playerTrackingCurrent++
+  }
+
+  recordPlayerTrackingLastBbox(ageMs: number): void {
+    this.playerTrackingLastBbox++
+    // Bucket age for distribution analysis
+    if (ageMs === 0) {
+      this.playerBboxAgeBuckets.age0++
+    } else if (ageMs < 100) {
+      this.playerBboxAgeBuckets.age1to100++
+    } else if (ageMs < 250) {
+      this.playerBboxAgeBuckets.age100to250++
+    } else if (ageMs < 500) {
+      this.playerBboxAgeBuckets.age250to500++
+    } else if (ageMs < 750) {
+      this.playerBboxAgeBuckets.age500to750++
+    } else {
+      this.playerBboxAgeBuckets.expired++
+    }
+  }
+
+  recordPlayerMoveNetExecution(): void {
+    this.playerMoveNetExecutions++
+  }
+
   logPlayerTrackingMetrics(): void {
     const avgAgeMs = this.playerBboxAgeMs.length > 0 
       ? this.playerBboxAgeMs.reduce((a, b) => a + b, 0) / this.playerBboxAgeMs.length 
       : 0
     console.log('[PLAYER][TRACKING]', `detected=${this.playerDetected} lost=${this.playerLost} usingLastBbox=${this.playerUsingLastBbox} expired=${this.playerBboxExpired} avgAge=${avgAgeMs.toFixed(0)}ms`)
+  }
+
+  logPlayerFlowMetrics(): void {
+    const yoloDetections = this.playerDetected
+    const trackingCurrent = this.playerTrackingCurrent
+    const trackingLast = this.playerTrackingLastBbox
+    const moveNetExec = this.playerMoveNetExecutions
+    
+    // Calculate age percentiles
+    const ageP50 = this.playerBboxAgeMs.length > 0 
+      ? this.calculatePercentile(this.playerBboxAgeMs, 50)
+      : 0
+    const ageP95 = this.playerBboxAgeMs.length > 0 
+      ? this.calculatePercentile(this.playerBboxAgeMs, 95)
+      : 0
+    const ageMax = this.playerBboxAgeMs.length > 0 
+      ? Math.max(...this.playerBboxAgeMs)
+      : 0
+
+    console.log('[PLAYER][FLOW]', 
+      `yolo=${yoloDetections} ` +
+      `current=${trackingCurrent} ` +
+      `last=${trackingLast} ` +
+      `ageP50=${ageP50.toFixed(0)}ms ` +
+      `ageP95=${ageP95.toFixed(0)}ms ` +
+      `ageMax=${ageMax.toFixed(0)}ms ` +
+      `trackingCurrent=${trackingCurrent} ` +
+      `trackingLast=${trackingLast} ` +
+      `moveNet=${moveNetExec}`
+    )
+    
+    console.log('[PLAYER][AGE_BUCKETS]',
+      `age0=${this.playerBboxAgeBuckets.age0} ` +
+      `age1to100=${this.playerBboxAgeBuckets.age1to100} ` +
+      `age100to250=${this.playerBboxAgeBuckets.age100to250} ` +
+      `age250to500=${this.playerBboxAgeBuckets.age250to500} ` +
+      `age500to750=${this.playerBboxAgeBuckets.age500to750} ` +
+      `expired=${this.playerBboxAgeBuckets.expired}`
+    )
   }
 
   recordBallDetected(): void {
@@ -1166,6 +1251,19 @@ Current=${summary.battery.endLevel}%
     // Reset granular MoveNet metrics
     this.moveNetRequested = 0
     this.moveNetExecuted = 0
+    
+    // Reset granular player flow metrics
+    this.playerTrackingCurrent = 0
+    this.playerTrackingLastBbox = 0
+    this.playerMoveNetExecutions = 0
+    this.playerBboxAgeBuckets = {
+      age0: 0,
+      age1to100: 0,
+      age100to250: 0,
+      age250to500: 0,
+      age500to750: 0,
+      expired: 0,
+    }
     this.moveNetSkipped = 0
     this.moveNetDroppedBusy = 0
     this.moveNetStartTime = null

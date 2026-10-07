@@ -79,6 +79,8 @@
 - **Throttling tracking.processFrame() a 100ms** per ridurre lavoro RN del 60-70%
 - **Telemetry RN work metrics** per identificare fonti di congestione (scheduled, callback execution, UI updates)
 - **useShotTracker disabilitato quando Runtime è attivo** (Decision 29) per eliminare lavoro duplicato YOLO/MoveNet
+- **MoveNet bbox corrente** (Decision 31): MoveNet esegue solo con bbox corrente, non persistente
+- **Player stability threshold correction** (Decision 32): threshold corretto da 30 a 0.02 (2% del frame)
 
 **Mitigazione (Futuro):**
 - Indagare causa specifica del schedule wait (chi occupa il thread RN per 75-185ms MoveNet e 44-120ms YOLO)

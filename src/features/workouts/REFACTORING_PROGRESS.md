@@ -307,6 +307,25 @@ features/workouts/
 - Kalman filter ora segue misurazioni quasi istantaneamente
 - Ottimizzato per tracking palla real-time con ritardo minimo
 
+**4.6.10: MoveNet Bbox Current Detection ✓ (Decision 31)**
+- MoveNet richiede bbox corrente (non stale/persistente)
+- Condizione aggiornata: `!trackedBbox.isUsingLastBbox`
+- MoveNet esegue solo quando YOLO produce detection player nel frame corrente
+- Tracking può continuare a usare bbox persistente (separazione architetturale)
+- Nessun cambio TTL (750ms PlayerCrop, 2000ms useShotTracker, 1000ms PlayerTracking)
+- Costo MoveNet eliminato quando player non rilevato correntemente (0 FPS vs 3-4 FPS)
+
+**4.6.11: Player Stability Threshold Correction + Granular Telemetry ✓ (Decision 32)**
+- Threshold player stability corretto: 30 → 0.02 (2% del frame)
+- [BBOX][STABILITY] identificato come ball stability, non player stability
+- Telemetria granulare aggiunta:
+  - playerTrackingCurrent - tracking con bbox corrente
+  - playerTrackingLastBbox - tracking con bbox persistente
+  - playerMoveNetExecutions - esecuzioni MoveNet
+  - playerBboxAgeBuckets - distribuzione età bbox (0, 1-100, 100-250, 250-500, 500-750, expired ms)
+- Nuovi log: [PLAYER][FLOW] e [PLAYER][AGE_BUCKETS]
+- Dati per decisione futura su TTL
+
 **Architettura risultante (Single Path):**
 ```
 Camera
