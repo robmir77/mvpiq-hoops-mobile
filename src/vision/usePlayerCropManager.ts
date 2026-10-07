@@ -147,6 +147,11 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       lastSeenAt.value = now
       hasBbox.value = true
       consecutiveRejects.value = 0 // Reset consecutive reject counter on successful accept
+
+      // Log raw YOLO bbox for diagnostics
+      if (ENABLE_PLAYER_CROP_LOGS) {
+        console.log('[PLAYER CROP] YOLO raw bbox:', `x=${playerBbox.x.toFixed(3)} y=${playerBbox.y.toFixed(3)} w=${playerBbox.width.toFixed(3)} h=${playerBbox.height.toFixed(3)} conf=${confidence.toFixed(3)}`)
+      }
     }
     // If playerBbox is null, we don't update lastSeenAt - let it expire naturally
   }
@@ -189,6 +194,11 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       smoothedWidth.value = lerp(smoothedWidth.value, bboxWidth.value, cfg.smoothingFactor)
       smoothedHeight.value = lerp(smoothedHeight.value, bboxHeight.value, cfg.smoothingFactor)
       smoothedConfidence.value = lerp(smoothedConfidence.value, bboxConfidence.value, cfg.smoothingFactor)
+    }
+
+    // Log smoothed bbox for diagnostics
+    if (ENABLE_PLAYER_CROP_LOGS) {
+      console.log('[PLAYER CROP] Smoothed bbox:', `x=${smoothedX.value.toFixed(3)} y=${smoothedY.value.toFixed(3)} w=${smoothedWidth.value.toFixed(3)} h=${smoothedHeight.value.toFixed(3)} conf=${smoothedConfidence.value.toFixed(3)} age=${ageMs.toFixed(0)}ms`)
     }
 
     return {

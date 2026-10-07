@@ -13,7 +13,7 @@ export const ENABLE_VISION_DIAGNOSTICS = VISION_DEBUG
 
 export const ENABLE_ADAPTIVE_PERFORMANCE_LOGS = VISION_DEBUG
 
-export const ENABLE_PLAYER_CROP_LOGS = VISION_DEBUG && false // Disabled by default
+export const ENABLE_PLAYER_CROP_LOGS = VISION_DEBUG && true // Temporarily enabled for bbox pipeline diagnostics
 
 export const ENABLE_MOVENET_LOGS = VISION_DEBUG && false // Disabled by default
 

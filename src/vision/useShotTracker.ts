@@ -491,6 +491,11 @@ export const useShotTracker = (
                 return
             }
 
+            // Record player detection telemetry
+            if (player) {
+                telemetryLogger.recordPlayerDetected()
+            }
+
             onPlayerDetectionRef.current?.(player)
         },
         []
