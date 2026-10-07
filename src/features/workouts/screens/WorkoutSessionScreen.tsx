@@ -350,6 +350,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const rim = detection.rim
         const now = Date.now()
 
+        // PASS 5J-A: Ball callback profiling
+        const tAdapterStart = performance.now()
         // Update VisionEngineAdapter with parsed ball/rim results (Phase 3)
         // Convert from vision/types to VisionEngine.types format
         visionEngineAdapterRef.current?.updateParsedResults(
@@ -359,21 +361,34 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             undefined, // pose (updated separately)
             now
         )
+        const tAdapterEnd = performance.now()
 
         // Phase 4: Call Runtime.processFrame() with VisionEngine data (debounced)
         const runtime = runtimeRef.current
+        let tRuntimeMs = 0
         if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
             if (now - lastRuntimeProcessTimestampRef.current >= RUNTIME_PROCESS_DEBOUNCE_MS) {
                 lastRuntimeProcessTimestampRef.current = now
                 const resolution = effectiveResolutionRef.current
+                const tRuntimeStart = performance.now()
                 runtime.processFrame({
                     width: resolution.width,
                     height: resolution.height,
                     timestamp: now,
                 })
+                tRuntimeMs = performance.now() - tRuntimeStart
             }
             // Skip legacy tracking path when Runtime.processFrame() is active
             // Runtime.processFrame() already calls TrackingEngine internally
+            const tEnd = performance.now()
+            const duration = tEnd - tStart
+            if (duration > 5) {
+                console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms', {
+                    adapter: (tAdapterEnd - tAdapterStart).toFixed(2) + 'ms',
+                    runtime: tRuntimeMs.toFixed(2) + 'ms',
+                    other: (duration - (tAdapterEnd - tAdapterStart) - tRuntimeMs).toFixed(2) + 'ms'
+                })
+            }
             return
         }
 
@@ -393,9 +408,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
         const shouldProcess = now - lastTrackingProcessAt.current >= TRACKING_THROTTLE_MS
 
+        let tTrackingMs = 0
+        let tStateUpdateMs = 0
+        let tTelemetryMs = 0
+
         if (shouldProcess) {
             lastTrackingProcessAt.current = now
             const oldState = tracking.getState()
+            const tTrackingStart = performance.now()
             const newState: TrackingState = tracking.processFrame(
                 ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
                 rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
@@ -404,6 +424,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 detection.ballSizeCategory,
                 detection.adaptiveThreshold
             )
+            tTrackingMs = performance.now() - tTrackingStart
             incrementTrackingUpdates()
 
             // Update trackingState ONLY when analytics/event data changes (not visual data)
@@ -416,7 +437,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 oldState.shotQuality !== newState.shotQuality ||
                 oldState.releaseAngle !== newState.releaseAngle
             ) {
+                const tStateStart = performance.now()
                 setTrackingState({ ...newState })
+                tStateUpdateMs = performance.now() - tStateStart
             }
 
             // Backend sampling: 2 Hz (max 2 POST-worthy samples/sec)
@@ -424,6 +447,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 const sampler = telemetrySamplerRef.current
                 const runtimeForTelemetry = runtimeRef.current as WorkoutSessionRuntime | null
                 if (sampler && sampler.shouldSample(now) && runtimeForTelemetry) {
+                    const tTelemetryStart = performance.now()
                     runtimeForTelemetry.enqueueTelemetry({
                         frameTimestamp:   now,
                         ballX:            ball ? ball.x : undefined,
@@ -439,6 +463,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         shotDetected:     newState.shotDetected,
                         trajectoryData:   { points: newState.trajectory.slice(-10) },
                     } as FrameDataPayload)
+                    tTelemetryMs = performance.now() - tTelemetryStart
                 }
             }
         }
@@ -446,7 +471,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const tEnd = performance.now()
         const duration = tEnd - tStart
         if (duration > 5) {
-            console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms')
+            console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms', {
+                adapter: (tAdapterEnd - tAdapterStart).toFixed(2) + 'ms',
+                tracking: tTrackingMs.toFixed(2) + 'ms',
+                stateUpdate: tStateUpdateMs.toFixed(2) + 'ms',
+                telemetry: tTelemetryMs.toFixed(2) + 'ms',
+                other: (duration - (tAdapterEnd - tAdapterStart) - tTrackingMs - tStateUpdateMs - tTelemetryMs).toFixed(2) + 'ms'
+            })
         }
     }, [tracking, calibration, rimFromDetection, poseKeypoints])
 

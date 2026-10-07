@@ -115,6 +115,14 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const cacheHits = useSharedValue(0)
   const cacheMisses = useSharedValue(0)
 
+  // PASS 5J: Cache HIT vs MISS timing (min/avg/max)
+  const cacheHitTimeMs = useSharedValue(0)
+  const cacheHitMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
+  const cacheHitMaxMs = useSharedValue(0)
+  const cacheMissTimeMs = useSharedValue(0)
+  const cacheMissMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
+  const cacheMissMaxMs = useSharedValue(0)
+
   // PASS 5D: Granular profiling for getEffectiveBbox() breakdown
   const getEffectiveBboxSvReadsMs = useSharedValue(0)
   const getEffectiveBboxAgeTtlMs = useSharedValue(0)
@@ -267,6 +275,16 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
       const tResultEnd = Date.now()
       getEffectiveBboxResultMs.value += (tResultEnd - tResultStart)
 
+      // PASS 5J: Track cache hit timing
+      const hitDuration = tResultEnd - tStart
+      cacheHitTimeMs.value += hitDuration
+      if (hitDuration < cacheHitMinMs.value) {
+        cacheHitMinMs.value = hitDuration
+      }
+      if (hitDuration > cacheHitMaxMs.value) {
+        cacheHitMaxMs.value = hitDuration
+      }
+
       // Update profiling counters
       getEffectiveBboxCount.value += 1
       const tEnd = Date.now()
@@ -396,6 +414,16 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     resultUnaccountedMs.value += (resultTotal - resultMeasured)
     getEffectiveBboxResultMs.value += resultTotal
 
+    // PASS 5J: Track cache miss timing
+    const missDuration = tResultEnd - tStart
+    cacheMissTimeMs.value += missDuration
+    if (missDuration < cacheMissMinMs.value) {
+      cacheMissMinMs.value = missDuration
+    }
+    if (missDuration > cacheMissMaxMs.value) {
+      cacheMissMaxMs.value = missDuration
+    }
+
     // Update profiling counters
     getEffectiveBboxCount.value += 1
     const tEnd = Date.now()
@@ -511,6 +539,13 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     cachedBboxWidth.value = 0
     cachedBboxHeight.value = 0
     cachedBboxConfidence.value = 0
+    // PASS 5J: Reset cache timing metrics
+    cacheHitTimeMs.value = 0
+    cacheHitMinMs.value = Number.MAX_SAFE_INTEGER
+    cacheHitMaxMs.value = 0
+    cacheMissTimeMs.value = 0
+    cacheMissMinMs.value = Number.MAX_SAFE_INTEGER
+    cacheMissMaxMs.value = 0
   }
 
   /**
@@ -559,6 +594,13 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     // PASS 5I: Cache hit/miss metrics
     cacheHits,
     cacheMisses,
+    // PASS 5J: Cache HIT vs MISS timing
+    cacheHitTimeMs,
+    cacheHitMinMs,
+    cacheHitMaxMs,
+    cacheMissTimeMs,
+    cacheMissMinMs,
+    cacheMissMaxMs,
     // PASS 5D: Granular getEffectiveBbox profiling
     getEffectiveBboxSvReadsMs,
     getEffectiveBboxAgeTtlMs,

@@ -277,6 +277,14 @@ export const useShotTracker = (
     const perfPlayerCropCacheHits = useSharedValue(0)
     const perfPlayerCropCacheMisses = useSharedValue(0)
 
+    // PASS 5J: Cache HIT vs MISS timing
+    const perfPlayerCropCacheHitTimeMs = useSharedValue(0)
+    const perfPlayerCropCacheHitMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
+    const perfPlayerCropCacheHitMaxMs = useSharedValue(0)
+    const perfPlayerCropCacheMissTimeMs = useSharedValue(0)
+    const perfPlayerCropCacheMissMinMs = useSharedValue(Number.MAX_SAFE_INTEGER)
+    const perfPlayerCropCacheMissMaxMs = useSharedValue(0)
+
     // PASS 5D: Granular getEffectiveBbox profiling
     const perfPlayerCropSvReadsMs = useSharedValue(0)
     const perfPlayerCropAgeTtlMs = useSharedValue(0)
@@ -1096,6 +1104,14 @@ export const useShotTracker = (
                     perfPlayerCropCacheHits.value = playerCrop.cacheHits.value
                     perfPlayerCropCacheMisses.value = playerCrop.cacheMisses.value
 
+                    // PASS 5J: Read cache HIT vs MISS timing
+                    perfPlayerCropCacheHitTimeMs.value = playerCrop.cacheHitTimeMs.value
+                    perfPlayerCropCacheHitMinMs.value = playerCrop.cacheHitMinMs.value
+                    perfPlayerCropCacheHitMaxMs.value = playerCrop.cacheHitMaxMs.value
+                    perfPlayerCropCacheMissTimeMs.value = playerCrop.cacheMissTimeMs.value
+                    perfPlayerCropCacheMissMinMs.value = playerCrop.cacheMissMinMs.value
+                    perfPlayerCropCacheMissMaxMs.value = playerCrop.cacheMissMaxMs.value
+
                     // PASS 5D: Read granular getEffectiveBbox profiling
                     perfPlayerCropSvReadsMs.value = playerCrop.getEffectiveBboxSvReadsMs.value
                     perfPlayerCropAgeTtlMs.value = playerCrop.getEffectiveBboxAgeTtlMs.value
@@ -1287,7 +1303,13 @@ export const useShotTracker = (
                             sharedValueWrites: perfPlayerCropSharedValueWrites.value,
                             cacheHits: perfPlayerCropCacheHits.value,
                             cacheMisses: perfPlayerCropCacheMisses.value,
-                            cacheHitRate: (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value) > 0 ? ((perfPlayerCropCacheHits.value / (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value)) * 100).toFixed(1) + '%' : '0.0%'
+                            cacheHitRate: (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value) > 0 ? ((perfPlayerCropCacheHits.value / (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value)) * 100).toFixed(1) + '%' : '0.0%',
+                            cacheHitAvgMs: perfPlayerCropCacheHits.value > 0 ? (perfPlayerCropCacheHitTimeMs.value / perfPlayerCropCacheHits.value).toFixed(2) : '0.00',
+                            cacheHitMinMs: perfPlayerCropCacheHitMinMs.value === Number.MAX_SAFE_INTEGER ? '0.00' : perfPlayerCropCacheHitMinMs.value.toFixed(2),
+                            cacheHitMaxMs: perfPlayerCropCacheHitMaxMs.value.toFixed(2),
+                            cacheMissAvgMs: perfPlayerCropCacheMisses.value > 0 ? (perfPlayerCropCacheMissTimeMs.value / perfPlayerCropCacheMisses.value).toFixed(2) : '0.00',
+                            cacheMissMinMs: perfPlayerCropCacheMissMinMs.value === Number.MAX_SAFE_INTEGER ? '0.00' : perfPlayerCropCacheMissMinMs.value.toFixed(2),
+                            cacheMissMaxMs: perfPlayerCropCacheMissMaxMs.value.toFixed(2)
                         })
                         console.log('[FRAME PROC] getEffectiveBbox breakdown:', {
                             svReadsMs: perfPlayerCropSvReadsMs.value.toFixed(1),
