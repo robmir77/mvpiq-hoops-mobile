@@ -273,6 +273,10 @@ export const useShotTracker = (
     const perfPlayerCropGetEffectiveBboxTimeMs = useSharedValue(0)
     const perfPlayerCropSharedValueWrites = useSharedValue(0)
 
+    // PASS 5I: Cache hit/miss metrics
+    const perfPlayerCropCacheHits = useSharedValue(0)
+    const perfPlayerCropCacheMisses = useSharedValue(0)
+
     // PASS 5D: Granular getEffectiveBbox profiling
     const perfPlayerCropSvReadsMs = useSharedValue(0)
     const perfPlayerCropAgeTtlMs = useSharedValue(0)
@@ -1088,6 +1092,10 @@ export const useShotTracker = (
                     perfPlayerCropGetEffectiveBboxTimeMs.value = playerCrop.getEffectiveBboxTimeMs.value
                     perfPlayerCropSharedValueWrites.value = playerCrop.sharedValueWrites.value
 
+                    // PASS 5I: Read cache hit/miss metrics
+                    perfPlayerCropCacheHits.value = playerCrop.cacheHits.value
+                    perfPlayerCropCacheMisses.value = playerCrop.cacheMisses.value
+
                     // PASS 5D: Read granular getEffectiveBbox profiling
                     perfPlayerCropSvReadsMs.value = playerCrop.getEffectiveBboxSvReadsMs.value
                     perfPlayerCropAgeTtlMs.value = playerCrop.getEffectiveBboxAgeTtlMs.value
@@ -1276,7 +1284,10 @@ export const useShotTracker = (
                             getEffectiveBboxCount: perfPlayerCropGetEffectiveBboxCount.value,
                             getEffectiveBboxTimeMs: perfPlayerCropGetEffectiveBboxTimeMs.value.toFixed(1),
                             getEffectiveBboxAvgMs: perfPlayerCropGetEffectiveBboxCount.value > 0 ? (perfPlayerCropGetEffectiveBboxTimeMs.value / perfPlayerCropGetEffectiveBboxCount.value).toFixed(2) : '0.00',
-                            sharedValueWrites: perfPlayerCropSharedValueWrites.value
+                            sharedValueWrites: perfPlayerCropSharedValueWrites.value,
+                            cacheHits: perfPlayerCropCacheHits.value,
+                            cacheMisses: perfPlayerCropCacheMisses.value,
+                            cacheHitRate: (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value) > 0 ? ((perfPlayerCropCacheHits.value / (perfPlayerCropCacheHits.value + perfPlayerCropCacheMisses.value)) * 100).toFixed(1) + '%' : '0.0%'
                         })
                         console.log('[FRAME PROC] getEffectiveBbox breakdown:', {
                             svReadsMs: perfPlayerCropSvReadsMs.value.toFixed(1),

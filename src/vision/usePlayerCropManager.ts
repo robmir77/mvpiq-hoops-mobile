@@ -96,12 +96,24 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
   const detectionId = useSharedValue(0) // Incremented on each new YOLO detection
   const lastProcessedDetectionId = useSharedValue(0) // Last detectionId processed by frame processor
 
+  // PASS 5I: Cache effective bbox to avoid redundant smoothing on same detectionId
+  const cachedBboxDetectionId = useSharedValue(0) // detectionId of cached bbox
+  const cachedBboxX = useSharedValue(0)
+  const cachedBboxY = useSharedValue(0)
+  const cachedBboxWidth = useSharedValue(0)
+  const cachedBboxHeight = useSharedValue(0)
+  const cachedBboxConfidence = useSharedValue(0)
+
   // Internal profiling counters (for debugging frame processor cost)
   const updateCount = useSharedValue(0)
   const updateTimeMs = useSharedValue(0)
   const getEffectiveBboxCount = useSharedValue(0)
   const getEffectiveBboxTimeMs = useSharedValue(0)
   const sharedValueWrites = useSharedValue(0)
+
+  // PASS 5I: Cache hit/miss metrics
+  const cacheHits = useSharedValue(0)
+  const cacheMisses = useSharedValue(0)
 
   // PASS 5D: Granular profiling for getEffectiveBbox() breakdown
   const getEffectiveBboxSvReadsMs = useSharedValue(0)
@@ -220,13 +232,51 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     // Persisted: detectionId unchanged (reusing old bbox)
     const isNewDetection = detectionId.value !== lastProcessedDetectionId.value
     const isUsingLastBbox = !isNewDetection && ageMs > 0
-    
+
     // Update lastProcessedDetectionId to mark this detection as processed
     if (isNewDetection) {
       lastProcessedDetectionId.value = detectionId.value
     }
     const tDetectionIdEnd = Date.now()
     getEffectiveBboxDetectionIdMs.value += (tDetectionIdEnd - tDetectionIdStart)
+
+    // PASS 5I: Cache effective bbox to avoid redundant smoothing on same detectionId
+    // If detectionId hasn't changed since last cache, reuse cached bbox (only update ageMs/isUsingLastBbox)
+    const isCacheValid = cachedBboxDetectionId.value === detectionId.value && cachedBboxDetectionId.value > 0
+    if (isCacheValid && !isNewDetection) {
+      // Cache hit - increment counter
+      cacheHits.value += 1
+
+      // Return cached bbox with updated ageMs and isUsingLastBbox
+      const tResultStart = Date.now()
+      const result = {
+        bbox: {
+          x: cachedBboxX.value,
+          y: cachedBboxY.value,
+          width: cachedBboxWidth.value,
+          height: cachedBboxHeight.value,
+          confidence: cachedBboxConfidence.value,
+        },
+        detectedAt: detectedAt.value,
+        lastSeenAt: lastSeenAt.value,
+        isStale,
+        ageMs,
+        isUsingLastBbox,
+        detectionId: detectionId.value,
+      }
+      const tResultEnd = Date.now()
+      getEffectiveBboxResultMs.value += (tResultEnd - tResultStart)
+
+      // Update profiling counters
+      getEffectiveBboxCount.value += 1
+      const tEnd = Date.now()
+      getEffectiveBboxTimeMs.value += (tEnd - tStart)
+
+      return result
+    }
+
+    // Cache miss - increment counter
+    cacheMisses.value += 1
 
     if (isStale) {
       // BBox expired - reset tracking state
@@ -331,6 +381,14 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     }
     const tConstructionEnd = Date.now()
     resultConstructionMs.value += (tConstructionEnd - tConstructionStart)
+
+    // PASS 5I: Update cache with new bbox
+    cachedBboxDetectionId.value = detectionId.value
+    cachedBboxX.value = nextX
+    cachedBboxY.value = nextY
+    cachedBboxWidth.value = nextWidth
+    cachedBboxHeight.value = nextHeight
+    cachedBboxConfidence.value = nextConfidence
 
     const tResultEnd = Date.now()
     const resultMeasured = (tResultReadsEnd - tResultReadsStart) + (tConstructionEnd - tConstructionStart)
@@ -446,6 +504,13 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     bboxConfidence.value = 0
     detectionId.value = 0
     lastProcessedDetectionId.value = 0
+    // PASS 5I: Reset cache
+    cachedBboxDetectionId.value = 0
+    cachedBboxX.value = 0
+    cachedBboxY.value = 0
+    cachedBboxWidth.value = 0
+    cachedBboxHeight.value = 0
+    cachedBboxConfidence.value = 0
   }
 
   /**
@@ -491,6 +556,9 @@ export function usePlayerCropManager(config: Partial<PlayerCropConfig> = {}) {
     getEffectiveBboxCount,
     getEffectiveBboxTimeMs,
     sharedValueWrites,
+    // PASS 5I: Cache hit/miss metrics
+    cacheHits,
+    cacheMisses,
     // PASS 5D: Granular getEffectiveBbox profiling
     getEffectiveBboxSvReadsMs,
     getEffectiveBboxAgeTtlMs,
