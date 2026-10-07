@@ -214,6 +214,9 @@ export const useShotTracker = (
     const perfPlayerLostCount = useSharedValue(0)
     const perfPlayerBboxExpiredCount = useSharedValue(0)
 
+    // Track last time player was detected for invalidation logic
+    const lastPlayerDetectedAt = useSharedValue(0)
+
     // Removed yoloWorkerSync to avoid duplicate TFLite model loading
     // Only useYoloWorkerAsync is used (ENABLE_ASYNC_YOLO_POC = true)
 
@@ -955,8 +958,18 @@ export const useShotTracker = (
 
                     // Process player detection for telemetry and tracking
                     if (yoloResult.player) {
-                        // Emit player detection callback to update VisionEngineAdapter and TrackingEngine
+                        // Player detected - update timestamp and emit detection
+                        lastPlayerDetectedAt.value = now
                         scheduleOnRN(emitPlayerDetection, yoloResult.player)
+                    } else {
+                        // No player detected - check if we should invalidate lastPlayer
+                        // Use 2000ms TTL (double the PlayerTrackingEngine TTL of 1000ms)
+                        const PLAYER_INVALIDATION_TTL_MS = 2000
+                        if (lastPlayerDetectedAt.value > 0 && (now - lastPlayerDetectedAt.value) > PLAYER_INVALIDATION_TTL_MS) {
+                            // Player not detected for too long - invalidate by sending null
+                            scheduleOnRN(emitPlayerDetection, null as any)
+                            lastPlayerDetectedAt.value = 0
+                        }
                     }
 
                     // Process pose result if available
@@ -1016,7 +1029,8 @@ export const useShotTracker = (
                         const moveNetMs = tMoveNetEnd - tMoveNetStart
                         const sharedValueReadsMs = tSharedValueReadsEnd - tSharedValueReadsStart
                         const telemetryMs = tTelemetryEnd - tTelemetryStart
-                        const otherMs = frameDurationMs - yoloMs - moveNetMs - sharedValueReadsMs - telemetryMs
+                        // Clamp otherMs to zero to prevent negative values from overlapping phase measurements
+                        const otherMs = Math.max(0, frameDurationMs - yoloMs - moveNetMs - sharedValueReadsMs - telemetryMs)
                         console.log('[FRAME PROC] breakdown:', {
                             total: frameDurationMs.toFixed(1),
                             yolo: yoloMs.toFixed(1),

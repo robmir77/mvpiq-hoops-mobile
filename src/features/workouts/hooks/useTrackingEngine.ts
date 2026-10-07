@@ -28,6 +28,7 @@ interface BallTrackingCallbacks {
     onBallDetected?: () => void
     onBallPrediction?: (ageMs: number) => void
     onBallTrackingExpired?: () => void
+    onPlayerDetected?: () => void
 }
 
 export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {

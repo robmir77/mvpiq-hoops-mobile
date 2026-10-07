@@ -196,6 +196,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         onBallDetected: () => telemetryLogger.recordBallDetected(),
         onBallPrediction: (ageMs: number) => telemetryLogger.recordBallPrediction(ageMs),
         onBallTrackingExpired: () => telemetryLogger.recordBallTrackingExpired(),
+        onPlayerDetected: () => telemetryLogger.recordPlayerDetected(),
     })
     const { sharedValues } = tracking
     const feedbackOpacity = useRef(new Animated.Value(0)).current

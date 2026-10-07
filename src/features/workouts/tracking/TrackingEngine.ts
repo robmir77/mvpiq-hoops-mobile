@@ -60,9 +60,10 @@ export class TrackingEngine implements ITrackingEngine {
     onBallDetected?: () => void
     onBallPrediction?: (ageMs: number) => void
     onBallTrackingExpired?: () => void
+    onPlayerDetected?: () => void
   }
 
-  constructor(callbacks?: { onBallDetected?: () => void; onBallPrediction?: (ageMs: number) => void; onBallTrackingExpired?: () => void }) {
+  constructor(callbacks?: { onBallDetected?: () => void; onBallPrediction?: (ageMs: number) => void; onBallTrackingExpired?: () => void; onPlayerDetected?: () => void }) {
     this.ballTrackingEngine = new BallTrackingEngine(callbacks)
     this.playerTrackingEngine = new PlayerTrackingEngine()
     this.shotDetectionEngine = new ShotDetectionEngine()
@@ -92,6 +93,8 @@ export class TrackingEngine implements ITrackingEngine {
         playerDetection.confidence,
         frameTs
       )
+      // Call telemetry callback for player detection
+      this.callbacks?.onPlayerDetected?.()
     }
 
     // Player center calculation for spatial constraints

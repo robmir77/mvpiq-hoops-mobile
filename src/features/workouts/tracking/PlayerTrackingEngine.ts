@@ -16,6 +16,7 @@ interface PlayerPosition {
 export class PlayerTrackingEngine {
   private lastSeenAt = 0
   private trackingValid = false
+  private updateCount = 0
 
   // Pure state (no SharedValue)
   private state: PlayerPosition = {
@@ -30,6 +31,12 @@ export class PlayerTrackingEngine {
     this.state = { x, y, width, height, confidence }
     this.lastSeenAt = frameTs
     this.trackingValid = true
+    this.updateCount++
+
+    // TEMP diagnostic: log every 50 updates to verify player detection flow
+    if (this.updateCount % 50 === 0) {
+      console.log('[PLAYER][ENGINE]', `updates=${this.updateCount} confidence=${confidence.toFixed(3)} x=${x.toFixed(3)} y=${y.toFixed(3)} valid=${this.trackingValid}`)
+    }
   }
 
   // Calculate player center from pose keypoints (from useTrackingEngine lines 271-282)
