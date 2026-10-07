@@ -98,64 +98,60 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
     scheduleWaitP99: 0,
   })
 
-  // Aggiorna le metriche ogni 500ms
+  // Aggiorna le metriche: 500ms in modalità normale, 1000ms in debug mode
   useEffect(() => {
-    // Removed hot-path logging to reduce overhead during workout
     const interval = setInterval(() => {
       if (!visible) return
 
       const tStart = performance.now()
       telemetryLogger.recordRnUiUpdate()
 
-      const yoloPerf = telemetryLogger.getYoloPerfMetrics()
-      const bboxMetrics = telemetryLogger.getBboxStabilityMetrics()
-      const fpMetrics = telemetryLogger.getFalsePositiveMetrics()
-      const pipelineMetrics = telemetryLogger.getPipelineMetrics()
-      const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
+      // In modalità normale, carica solo metriche essenziali
+      if (!debugMode) {
+        const pipelineMetrics = telemetryLogger.getPipelineMetrics()
+        setPipelineMetrics(pipelineMetrics)
+      } else {
+        // In debug mode, carica tutte le metriche
+        const yoloPerf = telemetryLogger.getYoloPerfMetrics()
+        const bboxMetrics = telemetryLogger.getBboxStabilityMetrics()
+        const fpMetrics = telemetryLogger.getFalsePositiveMetrics()
+        const pipelineMetrics = telemetryLogger.getPipelineMetrics()
+        const moveNetMetrics = telemetryLogger.getMoveNetMetrics()
 
-      // Use props if available, otherwise use telemetryLogger
-      const displayYoloFps = yoloFps ?? yoloPerf.throughputFps
-      const displayMoveNetFps = moveNetFps ?? moveNetMetrics.throughputFps
+        const displayYoloFps = yoloFps ?? yoloPerf.throughputFps
+        const displayMoveNetFps = moveNetFps ?? moveNetMetrics.throughputFps
 
-      // Removed hot-path logging to reduce overhead during workout
+        setYoloPerf({
+          ...yoloPerf,
+          throughputFps: displayYoloFps,
+          minMs: yoloPerf.minMs,
+          maxMs: yoloPerf.maxMs,
+          avgMs: yoloPerf.avgMs,
+          samples: yoloPerf.samples,
+        })
+        setBboxMetrics(bboxMetrics)
+        setFpMetrics(fpMetrics)
+        setPipelineMetrics(pipelineMetrics)
+        setMoveNetMetrics({
+          ...moveNetMetrics,
+          throughputFps: displayMoveNetFps,
+          minMs: moveNetMetrics.minMs,
+          maxMs: moveNetMetrics.maxMs,
+          avgMs: moveNetMetrics.avgMs,
+        })
+        setBallMetrics(telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed))
+        setPlayerMetrics(telemetryLogger.getPlayerDetectionMetrics(pipelineMetrics.processed))
+      }
 
-      // Update yoloPerf with prop FPS but keep latency data from logger
-      setYoloPerf({
-        ...yoloPerf,
-        throughputFps: displayYoloFps,
-        // Keep latency metrics from telemetryLogger
-        minMs: yoloPerf.minMs,
-        maxMs: yoloPerf.maxMs,
-        avgMs: yoloPerf.avgMs,
-        samples: yoloPerf.samples,
-      })
-      setBboxMetrics(bboxMetrics)
-      setFpMetrics(fpMetrics)
-      setPipelineMetrics(pipelineMetrics)
-      // Update moveNetMetrics with prop FPS but keep latency data from logger
-      setMoveNetMetrics({
-        ...moveNetMetrics,
-        throughputFps: displayMoveNetFps,
-        // Keep latency metrics from telemetryLogger
-        minMs: moveNetMetrics.minMs,
-        maxMs: moveNetMetrics.maxMs,
-        avgMs: moveNetMetrics.avgMs,
-      })
-
-      // Ball metrics needs framesProcessed
-      setBallMetrics(telemetryLogger.getBallDetectionMetrics(pipelineMetrics.processed))
-
-      // Player metrics
-      setPlayerMetrics(telemetryLogger.getPlayerDetectionMetrics(pipelineMetrics.processed))
       const tEnd = performance.now()
       const duration = tEnd - tStart
       if (duration > 5) {
         console.log('[TELEMETRY OVERLAY UPDATE] slow:', duration.toFixed(1) + 'ms')
       }
-    }, 500)
+    }, debugMode ? 1000 : 500)
 
     return () => clearInterval(interval)
-  }, [visible, modelConfig?.usageMinutes, modelConfig?.usageSeconds, modelConfig?.fpsMin, modelConfig?.fpsMax, yoloFps, moveNetFps])
+  }, [visible, debugMode, modelConfig?.usageMinutes, modelConfig?.usageSeconds, yoloFps, moveNetFps])
 
   if (!visible) {
     return null
@@ -171,44 +167,29 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
       </View>
 
       <View style={styles.content}>
-        {/* FPS section */}
-        <View style={styles.section}>
-          <View style={styles.row}>
-            <Text style={styles.label}>Camera:</Text>
-            <Text style={styles.value}>{Math.round(pipelineMetrics.cameraFPS)} FPS</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>YOLO:</Text>
-            <Text style={styles.value}>{Math.round(yoloPerf.throughputFps)} FPS</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>MoveNet:</Text>
-            <Text style={styles.value}>{Math.round(moveNetMetrics.throughputFps)} FPS</Text>
-          </View>
-        </View>
         {debugMode ? (
           // DEBUG MODE: Full diagnostic panel
           <>
+            {/* FPS Section */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>YOLO {yoloPerf.samples > 0 ? '512' : 'N/A'}</Text>
+              <Text style={styles.sectionTitle}>FPS</Text>
               <View style={styles.row}>
-                <Text style={styles.label}>Cam FPS:</Text>
-                <Text style={styles.value}>{pipelineMetrics.cameraFPS.toFixed(1)}</Text>
+                <Text style={styles.label}>Camera:</Text>
+                <Text style={styles.value}>{Math.round(pipelineMetrics.cameraFPS)}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Req/Exec/Skip:</Text>
-                <Text style={styles.value}>{yoloPerf.requested}/{yoloPerf.executed}/{yoloPerf.skipped}</Text>
+                <Text style={styles.label}>YOLO:</Text>
+                <Text style={styles.value}>{Math.round(yoloPerf.throughputFps)}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Throughput FPS:</Text>
-                <Text style={styles.value}>{yoloPerf.throughputFps.toFixed(1)}</Text>
+                <Text style={styles.label}>MoveNet:</Text>
+                <Text style={styles.value}>{Math.round(moveNetMetrics.throughputFps)}</Text>
               </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>FPS Range:</Text>
-                <Text style={styles.value}>
-                  {yoloPerf.maxMs > 0 ? (1000 / yoloPerf.maxMs).toFixed(1) : '0.0'}-{yoloPerf.minMs > 0 ? (1000 / yoloPerf.minMs).toFixed(1) : '0.0'}
-                </Text>
-              </View>
+            </View>
+
+            {/* YOLO Latency */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>YOLO LATENCY</Text>
               <View style={styles.row}>
                 <Text style={styles.label}>Avg:</Text>
                 <Text style={styles.value}>{yoloPerf.avgMs?.toFixed(1) || '0.0'}ms</Text>
@@ -231,44 +212,11 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               </View>
             </View>
 
+            {/* MoveNet Latency */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>DETECTION</Text>
+              <Text style={styles.sectionTitle}>MOVENET LATENCY</Text>
               <View style={styles.row}>
-                <Text style={styles.label}>Ball:</Text>
-                <Text style={[styles.value, { color: ballMetrics.avgConfidence > 0.5 ? '#4ade80' : '#fbbf24' }]}>
-                  {ballMetrics.avgConfidence > 0 ? '✓' : '✗'} {ballMetrics.avgConfidence.toFixed(2)}
-                </Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Player:</Text>
-                <Text style={[styles.value, { color: playerMetrics.avgConfidence > 0.5 ? '#4ade80' : '#fbbf24' }]}>
-                  {playerMetrics.avgConfidence > 0 ? '✓' : '✗'} {playerMetrics.avgConfidence.toFixed(2)}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>TRACKING</Text>
-              <View style={styles.row}>
-                <Text style={styles.label}>Status:</Text>
-                <Text style={[styles.value, { color: pipelineMetrics.trackingAccepted > 0 ? '#4ade80' : '#ef4444' }]}>
-                  {pipelineMetrics.trackingAccepted > 0 ? '✓' : '✗'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>MOVENET {moveNetMetrics.modelInput}</Text>
-              <View style={styles.row}>
-                <Text style={styles.label}>Req/Exec/Drop:</Text>
-                <Text style={styles.value}>{moveNetMetrics.requested}/{moveNetMetrics.executed}/{pipelineMetrics.droppedBusy}</Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Throughput:</Text>
-                <Text style={styles.value}>{moveNetMetrics.throughputFps.toFixed(1)} FPS</Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Avg Latency:</Text>
+                <Text style={styles.label}>Avg:</Text>
                 <Text style={styles.value}>{moveNetMetrics.avgMs.toFixed(1)}ms</Text>
               </View>
               <View style={styles.row}>
@@ -289,70 +237,32 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
               </View>
             </View>
 
+            {/* Detection Status */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>CAMERA</Text>
+              <Text style={styles.sectionTitle}>DETECTION</Text>
               <View style={styles.row}>
-                <Text style={styles.label}>Res:</Text>
-                <Text style={styles.value}>{cameraConfig?.resolution ? `${cameraConfig.resolution.width}×${cameraConfig.resolution.height}` : 'N/A'}</Text>
+                <Text style={styles.label}>Ball:</Text>
+                <Text style={[styles.value, { color: ballMetrics.avgConfidence > 0.5 ? '#4ade80' : '#fbbf24' }]}>
+                  {ballMetrics.avgConfidence > 0 ? '✓' : '✗'} {ballMetrics.avgConfidence.toFixed(2)}
+                </Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>FPS:</Text>
-                <Text style={styles.value}>{cameraConfig?.fps ?? 'N/A'}</Text>
+                <Text style={styles.label}>Player:</Text>
+                <Text style={[styles.value, { color: playerMetrics.avgConfidence > 0.5 ? '#4ade80' : '#fbbf24' }]}>
+                  {playerMetrics.avgConfidence > 0 ? '✓' : '✗'} {playerMetrics.avgConfidence.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Tracking:</Text>
+                <Text style={[styles.value, { color: pipelineMetrics.trackingAccepted > 0 ? '#4ade80' : '#ef4444' }]}>
+                  {pipelineMetrics.trackingAccepted > 0 ? '✓' : '✗'}
+                </Text>
               </View>
             </View>
 
+            {/* Pipeline Stats */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>MODELS</Text>
-              <View style={styles.row}>
-                <Text style={styles.label}>YOLO:</Text>
-                <Text style={styles.value}>{modelConfig?.yoloModel ?? 'N/A'}</Text>
-              </View>
-              {modelConfig?.fpsMin && modelConfig?.fpsMax && (
-                <View style={styles.row}>
-                  <Text style={styles.label}>FPS Range:</Text>
-                  <Text style={styles.value}>{modelConfig.fpsMin}-{modelConfig.fpsMax}</Text>
-                </View>
-              )}
-              {modelConfig?.epochs && (
-                <View style={styles.row}>
-                  <Text style={styles.label}>Epoche:</Text>
-                  <Text style={styles.value}>{modelConfig.epochs}</Text>
-                </View>
-              )}
-              {modelConfig?.usageMinutes !== undefined && (
-                <View style={styles.row}>
-                  <Text style={styles.label}>Utilizzo:</Text>
-                  <Text style={styles.value}>{modelConfig.usageMinutes} min</Text>
-                </View>
-              )}
-              <View style={styles.row}>
-                <Text style={styles.label}>MoveNet:</Text>
-                <Text style={styles.value}>{modelConfig?.moveNetModel ?? 'N/A'}</Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Pose Res:</Text>
-                <Text style={styles.value}>{modelConfig?.moveNetResolution ?? 'N/A'}</Text>
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>SYSTEM</Text>
-              <View style={styles.row}>
-                <Text style={styles.label}>CPU:</Text>
-                <Text style={styles.value}>N/A</Text>
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>RAM:</Text>
-                <Text style={styles.value}>N/A</Text>
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>PIPE</Text>
-              <View style={styles.row}>
-                <Text style={styles.label}>Cam FPS:</Text>
-                <Text style={styles.value}>{pipelineMetrics.cameraFPS.toFixed(1)}</Text>
-              </View>
+              <Text style={styles.sectionTitle}>PIPELINE</Text>
               <View style={styles.row}>
                 <Text style={styles.label}>Received:</Text>
                 <Text style={styles.value}>{pipelineMetrics.received}</Text>
@@ -366,10 +276,6 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.value}>{pipelineMetrics.droppedBusy}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>YOLO Exec:</Text>
-                <Text style={styles.value}>{pipelineMetrics.yoloExecuted}</Text>
-              </View>
-              <View style={styles.row}>
                 <Text style={styles.label}>Ball Frames:</Text>
                 <Text style={styles.value}>{pipelineMetrics.framesWithBall}</Text>
               </View>
@@ -377,29 +283,43 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
                 <Text style={styles.label}>Player Frames:</Text>
                 <Text style={styles.value}>{pipelineMetrics.framesWithPlayer}</Text>
               </View>
+            </View>
+
+            {/* Model Config */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>MODELS</Text>
               <View style={styles.row}>
-                <Text style={styles.label}>Track:</Text>
-                <Text style={styles.value}>{pipelineMetrics.trackingAccepted}</Text>
+                <Text style={styles.label}>YOLO:</Text>
+                <Text style={styles.value}>{modelConfig?.yoloModel ?? 'N/A'}</Text>
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Pose:</Text>
-                <Text style={styles.value}>{pipelineMetrics.poseUpdates}</Text>
+                <Text style={styles.label}>MoveNet:</Text>
+                <Text style={styles.value}>{modelConfig?.moveNetModel ?? 'N/A'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Pose Res:</Text>
+                <Text style={styles.value}>{modelConfig?.moveNetResolution ?? 'N/A'}</Text>
               </View>
             </View>
           </>
         ) : (
-          // NORMAL MODE: Simplified telemetry
+          // NORMAL MODE: Compact FPS panel
           <>
             <View style={styles.row}>
-              <Text style={styles.label}>FPS Range:</Text>
-              <Text style={styles.value}>
-                {Math.round(yoloPerf.throughputFps * 0.8)}-{Math.round(yoloPerf.throughputFps * 1.2)}
-              </Text>
+              <Text style={styles.label}>Camera:</Text>
+              <Text style={styles.value}>{Math.round(pipelineMetrics.cameraFPS)} FPS</Text>
             </View>
-
+            <View style={styles.row}>
+              <Text style={styles.label}>YOLO:</Text>
+              <Text style={styles.value}>{Math.round(yoloFps ?? 0)} FPS</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>MoveNet:</Text>
+              <Text style={styles.value}>{Math.round(moveNetFps ?? 0)} FPS</Text>
+            </View>
             {modelConfig?.usageMinutes !== undefined && (
               <View style={styles.row}>
-                <Text style={styles.label}>Utilizzo:</Text>
+                <Text style={styles.label}>Time:</Text>
                 <Text style={styles.value}>{modelConfig.usageMinutes}:{(modelConfig.usageSeconds ?? 0).toString().padStart(2, '0')}</Text>
               </View>
             )}
