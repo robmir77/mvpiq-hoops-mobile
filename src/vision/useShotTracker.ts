@@ -174,10 +174,6 @@ export const useShotTracker = (
     // Track last time player was detected for invalidation logic
     const lastPlayerDetectedAt = useSharedValue(0)
 
-    // MoveNet throttling: 2 FPS = 500ms interval
-    const lastMoveNetExecutionAt = useSharedValue(0)
-    const MOVENET_THROTTLE_MS = 500
-
     // Removed yoloWorkerSync to avoid duplicate TFLite model loading
     // Only useYoloWorkerAsync is used (ENABLE_ASYNC_YOLO_POC = true)
 
@@ -186,7 +182,8 @@ export const useShotTracker = (
     const moveNetWorker = useMoveNetWorker(
         poseEnabled,
         poseDelegate,
-        moveNetModelId
+        moveNetModelId,
+        onPoseResult // Pass pose result callback to MoveNet worker
         // Profiling parameters removed - simplified for production
     )
 
@@ -518,12 +515,8 @@ export const useShotTracker = (
                                     confidence: trackedBbox.bbox.confidence,
                                 }
 
-                                // MoveNet throttling: only execute at 2 FPS (500ms interval)
-                                const timeSinceLastMoveNet = now - lastMoveNetExecutionAt.value
-                                if (timeSinceLastMoveNet >= MOVENET_THROTTLE_MS) {
-                                    lastMoveNetExecutionAt.value = now
-                                    moveNetWorker.processFrame(frame, timestamp)
-                                }
+                                // MoveNet throttling removed - execute every frame with valid bbox
+                                moveNetWorker.processFrame(frame, timestamp)
                             }
                         }
                     }

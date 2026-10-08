@@ -86,6 +86,7 @@ export const useMoveNetWorker = (
   enabled: boolean = true,
   poseDelegate?: AndroidDelegateOption | IosDelegateOption | null,
   moveNetModelId?: string,
+  onResultCallback?: (result: { keypoints: any; angles: any; timestamp: number }) => void,
   // Performance tracking SharedValues (for PERF 1s diagnostic window)
   perfMoveNetRequested?: any,
   perfMoveNetExecuted?: any,
@@ -489,6 +490,15 @@ export const useMoveNetWorker = (
       latestResultAngles.value = angles
       latestResultTimestamp.value = timestamp
       latestCropInfo.value = cropInfo
+
+      // Invoke callback to notify parent component (WorkoutSessionScreen)
+      if (onResultCallback) {
+        onResultCallback({
+          keypoints: finalKeypoints,
+          angles: angles,
+          timestamp: timestamp,
+        })
+      }
 
       const inferenceTime = tF - tA // Total time from worklet start to callback end
       // theoreticalFps removed - it's latency-based, not throughput-based
