@@ -6,7 +6,7 @@ export const YOLO_CONFIG = {
   BALL_CONF_THRESHOLD: 0.005, // Minimum confidence for ball detection (0.5%)
 
   // Player detection thresholds
-  PLAYER_CONF_THRESHOLD: 0.05, // Minimum confidence for player detection in YOLO parser (5%)
+  PLAYER_CONF_THRESHOLD: 0.03, // Minimum confidence for player detection in YOLO parser (3%) - lowered for better detection rate
   PLAYER_CROP_MIN_CONFIDENCE: 0.05, // Minimum confidence for player crop manager (5%)
 
   // Rim detection thresholds
@@ -22,7 +22,7 @@ export const YOLO_CONFIG = {
 
 // Camera Configuration
 export const CAMERA_CONFIG = {
-  DEFAULT_RESOLUTION: { width: 1280, height: 720 }, // Default camera resolution (720p) - aligned with ARCHITECTURE_CHANGE.md
+  DEFAULT_RESOLUTION: { width: 640, height: 360 }, // Default camera resolution (360p for better FPS)
   DEFAULT_FPS: 30, // Default camera frame rate
   DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
   DEFAULT_ZOOM: 1, // Default camera zoom level (1 = 100% = no zoom)

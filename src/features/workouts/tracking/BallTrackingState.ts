@@ -40,10 +40,10 @@ export const INITIAL_KALMAN: KalmanState = {
   y: 0,
   vx: 0,
   vy: 0,
-  px: 0.1,     // Moderate confidence in prediction - balanced smoothing
-  py: 0.1,     // Moderate confidence in prediction - balanced smoothing
-  mx: 0.5,     // Moderate confidence in measurements - balanced smoothing
-  my: 0.5,     // Moderate confidence in measurements - balanced smoothing
+  px: 0.02,    // Very low confidence in prediction - minimal prediction influence
+  py: 0.02,    // Very low confidence in prediction - minimal prediction influence
+  mx: 0.8,     // Very high confidence in measurements - trust YOLO detections heavily
+  my: 0.8,     // Very high confidence in measurements - trust YOLO detections heavily
 }
 
 export const INITIAL_BALL_TRACKING_STATE: BallTrackingState = {

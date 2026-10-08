@@ -136,7 +136,7 @@ WorkoutSessionRuntime
 - ✅ Policy YOLO bbox + MoveNet pose implementata (YOLO = coarse bbox, MoveNet = articulated/precise position)
 - ✅ PlayerDetection integrato via TrackingEngine.processFrame() (ottavo parametro)
 - ✅ Test TrackingEngine.test.ts per PlayerDetection aggiunti
-- ✅ Kalman filter ottimizzato per smoothing bilanciato (px/py: 0.1, mx/my: 0.5, dt: 0.02)
+- ✅ Kalman filter ottimizzato come filtro outlier (px/py: 0.02, mx/my: 0.8, dt: 0.02) - CONFIGURAZIONE DEFINITIVA
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -263,7 +263,7 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 ```typescript
 export const YOLO_CONFIG = {
   BALL_CONF_THRESHOLD: 0.005,           // 0.5%
-  PLAYER_CONF_THRESHOLD: 0.05,         // 5%
+  PLAYER_CONF_THRESHOLD: 0.03,         // 3% - lowered for better detection rate
   PLAYER_CROP_MIN_CONFIDENCE: 0.05,   // 5%
   RIM_CONF_THRESHOLD: 0.1,            // 10%
   NMS_IOU_THRESHOLD: 0.4,
@@ -272,7 +272,7 @@ export const YOLO_CONFIG = {
 } as const
 
 export const CAMERA_CONFIG = {
-  DEFAULT_RESOLUTION: { width: 1280, height: 720 },
+  DEFAULT_RESOLUTION: { width: 640, height: 360 }, // 360p for better FPS (faster inference)
   DEFAULT_FPS: 30,
   DEFAULT_POSE_RESOLUTION: 192,
   DEFAULT_ZOOM: 1,
@@ -310,7 +310,7 @@ export const COURT_CONFIG = {
 | Model ID | Input Size | Precision | Epochs | Expected FPS | Actual FPS | Note |
 |----------|------------|-----------|--------|--------------|------------|------|
 | best_320_float16 | 320x320 | FP16 | 50 | 10-37 | 2-7 | Measured at 640x360 resolution |
-| best_384_float16 | 384x384 | FP16 | 100 | 20-21 | 3-6 | Updated to 100 epochs, actual FPS lower due to device bottleneck |
+| best_384_float16 | 384x384 | FP16 | 100 | 20-21 | 3-6 | **DEFAULT MODEL** - Updated to 100 epochs, actual FPS lower due to device bottleneck |
 | best_448_float16 | 448x448 | FP16 | 5 | 12-21 | TBD | Early training |
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
@@ -407,7 +407,7 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | PlayerDetection integration | ✅ | onPlayerDetection callback aggiunto, fluisce nel nuovo percorso Runtime (Fase 4.4 completata) |
 | PlayerDetection parameter | ✅ | TrackingEngine.processFrame() accetta playerDetection come ottavo parametro (Fase 6 completata) |
 | PlayerDetection tests | ✅ | TrackingEngine.test.ts aggiunti per YOLO + MoveNet integration (Fase 6 completata) |
-| Kalman filter optimization | ✅ | Massima reattività: px/py 0.001, mx/my 0.05, dt 0.02 (Fase 6 completata) |
+| Kalman filter optimization | ✅ | Filtro outlier: px/py 0.02, mx/my 0.8, dt 0.02 (CONFIGURAZIONE DEFINITIVA) |
 | Performance audit (Decision 28) | ✅ | Telemetry A→F con P50/P95/P99, Kalman analysis completata, schedule wait identificato come principale collo di bottiglia |
 | Legacy useShotTracker disable (Decision 29) | ✅ | REVERTATA - Flag runtimeActive rimosso dal frame processor, useShotTracker continua a eseguire quando Runtime è attivo (VisionEngineAdapter non esegue inferenza, solo forward risultati) |
 
