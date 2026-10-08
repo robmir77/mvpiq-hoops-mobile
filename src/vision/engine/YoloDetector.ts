@@ -137,7 +137,8 @@ export class YoloDetector {
       // Determine input size from number of detections
       if (nDetections === 8400) TENSOR_SIZE = 640
       else if (nDetections === 5376) TENSOR_SIZE = 512
-      else if (nDetections === 3549) TENSOR_SIZE = 416
+      else if (nDetections === 4116) TENSOR_SIZE = 448
+      else if (nDetections === 3024) TENSOR_SIZE = 384
       else if (nDetections === 2100) TENSOR_SIZE = 320
 
       // Calculate letterboxing parameters

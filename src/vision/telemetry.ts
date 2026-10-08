@@ -1191,6 +1191,10 @@ class TelemetryLogger {
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
     if (!this.modelMetadata || !this.batteryMetrics) {
+      console.error('[Telemetry] Cannot generate summary:', {
+        hasModelMetadata: !!this.modelMetadata,
+        hasBatteryMetrics: !!this.batteryMetrics,
+      })
       return null
     }
 
