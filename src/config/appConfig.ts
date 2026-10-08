@@ -68,7 +68,7 @@ export const TEST_CONFIG = {
   // Se sì: workaround temporaneo utilizzabile
   // Se no: passare direttamente alla correzione architetturale (separazione producer/consumer)
   ENABLE_YOLO: true,
-  ENABLE_MOVENET: true,
+  ENABLE_MOVENET: true, // Re-enabled with 2 FPS throttling (500ms interval)
   ENABLE_TELEMETRY_OVERLAY: true,
   ENABLE_DEBUG_OVERLAY: false,
   // POC: Async YOLO with latest-frame gate + adaptive FPS

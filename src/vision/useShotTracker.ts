@@ -89,8 +89,8 @@ export const useShotTracker = (
     ballEnabled: boolean = true,
     rimEnabled: boolean = true,
 
-    // When Runtime is active, useShotTracker should be disabled to avoid duplicate work
-    // VisionEngineAdapter handles YOLO/MoveNet execution when Runtime is active
+    // runtimeActive parameter exists for API compatibility but is not used in the frame processor
+    // Vision pipeline continues to run even when Runtime is ACTIVE
     runtimeActive: boolean = false,
 
     yoloDelegate?: AndroidDelegateOption | IosDelegateOption | null,
@@ -160,84 +160,23 @@ export const useShotTracker = (
     const hasFatalError =
         useSharedValue(false)
 
-    // Throttle scheduleOnRN calls to ~66ms (15 FPS) to reduce bridge crossings
-    const lastRNDispatch =
-        useSharedValue(0)
-
-    // One-second diagnostic window. These counters are reset after every emitted window;
-    // cumulative telemetry remains in telemetryLogger for the final workout summary.
-    const perfLastLogAt = useSharedValue(0)
+    // Essential metrics only - FPS and drop count for production monitoring
+    const perfLastLogAt = useSharedValue(Date.now())
     const perfFramesReceived = useSharedValue(0)
     const perfFramesProcessed = useSharedValue(0)
     const perfFramesDroppedBusy = useSharedValue(0)
-    const perfFrameDurationTotal = useSharedValue(0)
-    const perfFrameDurationMax = useSharedValue(0)
-    const perfYoloRequested = useSharedValue(0)
-    const perfYoloExecuted = useSharedValue(0)
-    const perfYoloSkipped = useSharedValue(0)
-    const perfYoloInferenceTotal = useSharedValue(0)
-    const perfYoloInferenceMin = useSharedValue(0)
-    const perfYoloInferenceMax = useSharedValue(0)
-    const perfYoloScheduleWaitTotal = useSharedValue(0)
-    const perfYoloWorkletPrepTotal = useSharedValue(0)
-    const perfYoloJsPreprocessTotal = useSharedValue(0)
-    const perfYoloPostprocessTotal = useSharedValue(0)
-    const perfYoloResizeTotal = useSharedValue(0)
-    const perfYoloRunTotal = useSharedValue(0)
-    const perfYoloParseTotal = useSharedValue(0)
-
-    // PASS 2: Granular YOLO SharedValue profiling
-    const perfYoloSvReadTotal = useSharedValue(0)
-    const perfYoloSvSpreadTotal = useSharedValue(0)
-
-    const perfMoveNetRequested = useSharedValue(0)
-    const perfMoveNetExecuted = useSharedValue(0)
-    const perfMoveNetSkipped = useSharedValue(0)
-    const perfMoveNetInferenceTotal = useSharedValue(0)
-    const perfMoveNetInferenceMin = useSharedValue(0)
-    const perfMoveNetInferenceMax = useSharedValue(0)
-    const perfMoveNetWorkletPrepTotal = useSharedValue(0)
-    const perfMoveNetRnScheduleWaitTotal = useSharedValue(0)
-    const perfMoveNetCropTotal = useSharedValue(0)
-    const perfMoveNetQuantizationTotal = useSharedValue(0)
-    // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
-    const perfMoveNetRunTotal = useSharedValue(0)
-    const perfMoveNetParseTotal = useSharedValue(0)
 
     // Actual FPS values for UI (updated every second)
     const actualCameraFps = useSharedValue(0)
     const actualYoloFps = useSharedValue(0)
     const actualMoveNetFps = useSharedValue(0)
 
-    // Detection tracking for telemetry (sampled once per second)
-    const perfYoloBallDetected = useSharedValue(0)
-    const perfTrackingAccepted = useSharedValue(0)
-
-    // Player tracking telemetry - aggregated in worklet, dispatched once per second
-    const perfPlayerLostCount = useSharedValue(0)
-    const perfPlayerBboxExpiredCount = useSharedValue(0)
-    
-    // Granular player flow telemetry (with detectionId)
-    const perfPlayerTrackingFreshCount = useSharedValue(0)
-    const perfPlayerTrackingPersistedCount = useSharedValue(0)
-    const perfPlayerTrackingFreshWithMoveNetCount = useSharedValue(0)
-    const perfPlayerTrackingPersistedWithMoveNetCount = useSharedValue(0)
-    const perfPlayerMoveNetExecutionCount = useSharedValue(0)
-    const perfLastPlayerDetectionId = useSharedValue(0)
-    const perfLastPersistedBboxAgeMs = useSharedValue(0) // Store last persisted bbox age for telemetry
-    
-    // MoveNet decision telemetry (worklet-safe counters)
-    const perfMoveNetDecisionFrames = useSharedValue(0) // Total frames evaluated
-    const perfMoveNetDecisionHasBbox = useSharedValue(0) // Frames with trackedBbox
-    const perfMoveNetDecisionCurrentBbox = useSharedValue(0) // Frames with fresh bbox
-    const perfMoveNetDecisionPersistedBbox = useSharedValue(0) // Frames with persisted bbox
-    const perfMoveNetDecisionConfidenceRejected = useSharedValue(0) // Rejected by confidence threshold
-    const perfMoveNetDecisionSizeRejected = useSharedValue(0) // Rejected by size validation
-    const perfMoveNetDecisionBoundsRejected = useSharedValue(0) // Rejected by bounds validation
-    const perfMoveNetDecisionRun = useSharedValue(0) // MoveNet actually executed
-
     // Track last time player was detected for invalidation logic
     const lastPlayerDetectedAt = useSharedValue(0)
+
+    // MoveNet throttling: 2 FPS = 500ms interval
+    const lastMoveNetExecutionAt = useSharedValue(0)
+    const MOVENET_THROTTLE_MS = 500
 
     // Removed yoloWorkerSync to avoid duplicate TFLite model loading
     // Only useYoloWorkerAsync is used (ENABLE_ASYNC_YOLO_POC = true)
@@ -247,47 +186,12 @@ export const useShotTracker = (
     const moveNetWorker = useMoveNetWorker(
         poseEnabled,
         poseDelegate,
-        moveNetModelId,
-        perfMoveNetRequested,
-        perfMoveNetExecuted,
-        perfMoveNetSkipped,
-        perfMoveNetInferenceTotal,
-        perfMoveNetInferenceMin,
-        perfMoveNetInferenceMax,
-        perfMoveNetWorkletPrepTotal,
-        perfMoveNetRnScheduleWaitTotal,
-        perfMoveNetCropTotal,
-        perfMoveNetQuantizationTotal,
-        // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
-        perfMoveNetRunTotal,
-        perfMoveNetParseTotal
+        moveNetModelId
+        // Profiling parameters removed - simplified for production
     )
 
     // Player crop manager (worklet-compatible hook)
     const playerCrop = usePlayerCropManager()
-
-    // PASS 5C: PlayerCrop internal profiling counters
-    const perfPlayerCropUpdateCount = useSharedValue(0)
-    const perfPlayerCropUpdateTimeMs = useSharedValue(0)
-    const perfPlayerCropGetEffectiveBboxCount = useSharedValue(0)
-    const perfPlayerCropGetEffectiveBboxTimeMs = useSharedValue(0)
-    const perfPlayerCropSharedValueWrites = useSharedValue(0)
-
-    // PASS 5D: Granular getEffectiveBbox profiling
-    const perfPlayerCropSvReadsMs = useSharedValue(0)
-    const perfPlayerCropAgeTtlMs = useSharedValue(0)
-    const perfPlayerCropDetectionIdMs = useSharedValue(0)
-    const perfPlayerCropSmoothingMs = useSharedValue(0)
-    const perfPlayerCropSvWritesMs = useSharedValue(0)
-    const perfPlayerCropResultMs = useSharedValue(0)
-
-    // PASS 5E: Smoothing reads/lerp/writes/result separation
-    const perfSmoothingReadsMs = useSharedValue(0)
-    const perfSmoothingLerpMs = useSharedValue(0)
-    const perfSmoothingWritesMs = useSharedValue(0)
-    const perfResultReadsMs = useSharedValue(0)
-    const perfResultConstructionMs = useSharedValue(0)
-
 
     // Fatal error recovery: schedule reset from JS thread when error is caught
     // Cannot use useEffect (runs once at mount, before error exists)
@@ -338,58 +242,6 @@ export const useShotTracker = (
     const selectedFpsShared =
         useSharedValue(selectedFps ?? 30)
 
-    // Unified telemetry callback (runs on JS thread) - batches pipeline metrics + diagnostic window
-    // Reduces RN bridge crossings from 2 to 1 per second
-    const updateAllTelemetry = useCallback((
-        cameraFPS: number,
-        received: number,
-        processed: number,
-        droppedBusy: number,
-        trackingAccepted: number,
-        snapshot: DiagnosticWindowSnapshot
-    ) => {
-        // Skip if unmounted
-        if (!isMountedRef.current) {
-            return
-        }
-
-        // Update pipeline metrics
-        telemetryLogger.updatePipelineMetrics(
-            cameraFPS,
-            received,
-            processed,
-            droppedBusy,
-            trackingAccepted,
-            0 // overlayRendered deprecated: Skia renders at camera FPS, not tracked separately
-        )
-        telemetryLogger.logPipelineMetrics()
-        telemetryLogger.logYoloPerf()
-        telemetryLogger.logMoveNetMetrics()
-        telemetryLogger.logBallDetectionMetrics(processed)
-        telemetryLogger.logPlayerDetectionMetrics(processed)
-        telemetryLogger.logFalsePositiveSummary()
-        telemetryLogger.logBboxStability()
-        telemetryLogger.logPlayerTrackingMetrics()
-        telemetryLogger.logPlayerFlowMetrics()
-        telemetryLogger.logBallTrackingMetrics()
-
-        // Record diagnostic window with percentiles
-        const yoloPercentiles = telemetryLogger.getYoloScheduleWaitPercentiles()
-        const moveNetPercentiles = telemetryLogger.getMoveNetScheduleWaitPercentiles()
-        
-        const snapshotWithPercentiles: DiagnosticWindowSnapshot = {
-            ...snapshot,
-            yoloScheduleWaitP50: yoloPercentiles.p50,
-            yoloScheduleWaitP95: yoloPercentiles.p95,
-            yoloScheduleWaitP99: yoloPercentiles.p99,
-            moveNetScheduleWaitP50: moveNetPercentiles.p50,
-            moveNetScheduleWaitP95: moveNetPercentiles.p95,
-            moveNetScheduleWaitP99: moveNetPercentiles.p99,
-        }
-        
-        telemetryLogger.recordDiagnosticWindow(snapshotWithPercentiles)
-    }, [])
-
 
 
     // Player bbox from YOLO (for direct display in overlay)
@@ -398,12 +250,11 @@ export const useShotTracker = (
     const playerWidth = useSharedValue(0)
     const playerHeight = useSharedValue(0)
     const playerConfidence = useSharedValue(0)
+    const latestPlayerDetectionId = useSharedValue(0) // Incremented only on new YOLO detections
 
     // Visual tracking state for debugging
     const playerTrackState = useSharedValue('LOST')
     const playerTrackAge = useSharedValue(0)
-    const rimTrackState = useSharedValue('LOST')
-    const rimTrackAge = useSharedValue(0)
 
     // Debug rejection reasons from YOLO parser
     const ballRejectionReason = useSharedValue('')
@@ -417,9 +268,6 @@ export const useShotTracker = (
     const onPoseResultRef =
         useRef(onPoseResult)
 
-    const onRimDetectionRef =
-        useRef(onRimDetection)
-
     const onPlayerDetectionRef =
         useRef(onPlayerDetection)
 
@@ -429,13 +277,6 @@ export const useShotTracker = (
             onPoseResult
 
     }, [onPoseResult])
-
-    useEffect(() => {
-
-        onRimDetectionRef.current =
-            onRimDetection
-
-    }, [onRimDetection])
 
     useEffect(() => {
 
@@ -496,119 +337,10 @@ export const useShotTracker = (
                 incrementYoloFps()
 
                 // Pass detection directly to TrackingEngine (no legacy filtering)
-                perfTrackingAccepted.value += 1
                 onBallDetection(detection)
             },
             [onBallDetection]
         )
-
-    const emitRimDetection = useCallback(
-        (
-            rim: {
-                x: number
-                y: number
-                width: number
-                height: number
-                confidence: number
-            }
-        ) => {
-            // Skip if unmounted
-            if (!isMountedRef.current) {
-                return
-            }
-
-            onRimDetectionRef.current?.(rim)
-        },
-        []
-    )
-
-    const emitPlayerDetection = useCallback(
-        (
-            player: {
-                x: number
-                y: number
-                width: number
-                height: number
-                confidence: number
-            }
-        ) => {
-            // Skip if unmounted
-            if (!isMountedRef.current) {
-                return
-            }
-
-            // Record player detection telemetry
-            if (player) {
-                telemetryLogger.recordPlayerYoloDetection()
-            }
-
-            onPlayerDetectionRef.current?.(player)
-        },
-        []
-    )
-
-    // Batch player tracking telemetry callback - dispatched once per second
-    const flushPlayerTrackingTelemetry = useCallback((
-        lostCount: number,
-        expiredCount: number,
-        trackingFreshCount: number,
-        trackingPersistedCount: number,
-        trackingFreshWithMoveNetCount: number,
-        trackingPersistedWithMoveNetCount: number,
-        moveNetExecutionCount: number,
-        lastPersistedBboxAgeMs: number,
-        // MoveNet decision telemetry
-        moveNetDecisionFrames: number,
-        moveNetDecisionHasBbox: number,
-        moveNetDecisionCurrentBbox: number,
-        moveNetDecisionPersistedBbox: number,
-        moveNetDecisionConfidenceRejected: number,
-        moveNetDecisionSizeRejected: number,
-        moveNetDecisionBoundsRejected: number,
-        moveNetDecisionRun: number
-    ) => {
-        // Skip if unmounted
-        if (!isMountedRef.current) {
-            return
-        }
-
-        // Flush aggregated counters to telemetry logger
-        for (let i = 0; i < lostCount; i++) {
-            telemetryLogger.recordPlayerLost()
-        }
-        for (let i = 0; i < expiredCount; i++) {
-            telemetryLogger.recordPlayerBboxExpired()
-        }
-        // Flush granular player flow counters
-        for (let i = 0; i < trackingFreshCount; i++) {
-            telemetryLogger.recordPlayerTrackingFresh()
-        }
-        // Record persisted bbox ageMs from SharedValue (worklet-safe)
-        for (let i = 0; i < trackingPersistedCount; i++) {
-            telemetryLogger.recordPlayerTrackingPersisted(lastPersistedBboxAgeMs)
-        }
-        for (let i = 0; i < trackingFreshWithMoveNetCount; i++) {
-            telemetryLogger.recordPlayerTrackingFreshWithMoveNet()
-        }
-        for (let i = 0; i < trackingPersistedWithMoveNetCount; i++) {
-            telemetryLogger.recordPlayerTrackingPersistedWithMoveNet()
-        }
-        for (let i = 0; i < moveNetExecutionCount; i++) {
-            telemetryLogger.recordPlayerMoveNetExecution()
-        }
-        
-        // Log MoveNet decision telemetry
-        console.log('[MOVENET][DECISION]',
-            `frames=${moveNetDecisionFrames} ` +
-            `hasBbox=${moveNetDecisionHasBbox} ` +
-            `currentBbox=${moveNetDecisionCurrentBbox} ` +
-            `persistedBbox=${moveNetDecisionPersistedBbox} ` +
-            `confidenceRejected=${moveNetDecisionConfidenceRejected} ` +
-            `sizeRejected=${moveNetDecisionSizeRejected} ` +
-            `boundsRejected=${moveNetDecisionBoundsRejected} ` +
-            `run=${moveNetDecisionRun}`
-        )
-    }, [])
 
     // Callback for async YOLO results - updates overlay when results are ready
     const handleYoloAsyncResult = useCallback((result: any) => {
@@ -625,44 +357,32 @@ export const useShotTracker = (
         }
 
         // Pass detection directly to TrackingEngine (no legacy filtering)
-        perfTrackingAccepted.value += 1
         onBallDetection(detection)
 
-        // Update telemetry counters for async YOLO
-        perfYoloExecuted.value += 1
+        // Note: telemetryLogger metrics are already recorded in useYoloWorkerAsync worker
 
-        // Update timing metrics for YOLO DETAIL log
-        if (result.inferenceMs) {
-            perfYoloInferenceTotal.value += result.inferenceMs
-            perfYoloInferenceMin.value = perfYoloInferenceMin.value === 0
-                ? result.inferenceMs
-                : Math.min(perfYoloInferenceMin.value, result.inferenceMs)
-            perfYoloInferenceMax.value = Math.max(perfYoloInferenceMax.value, result.inferenceMs)
-        }
-        if (result.resizeMs) {
-            perfYoloResizeTotal.value += result.resizeMs
-        }
-        if (result.runMs) {
-            perfYoloRunTotal.value += result.runMs
-        }
-        if (result.parseMs) {
-            perfYoloParseTotal.value += result.parseMs
-        }
-
-        // Note: telemetryLogger metrics (executed, processedFrame, timing)
-        // are already recorded in useYoloWorkerAsync worker
-        
         if (result.player) {
             // Update shared values for direct display in overlay
-            // Frame processor will read these and call playerCrop.update() in worklet context
             playerX.value = result.player.x
             playerY.value = result.player.y
             playerWidth.value = result.player.width
             playerHeight.value = result.player.height
             playerConfidence.value = result.player.confidence
-            // Update visual tracking state
+            // Increment detection ID only on new YOLO detection
+            latestPlayerDetectionId.value += 1
+            // Update PlayerCrop - only when YOLO returns new player
+            playerCrop.update({
+                x: result.player.x,
+                y: result.player.y,
+                width: result.player.width,
+                height: result.player.height,
+                confidence: result.player.confidence,
+            }, latestPlayerDetectionId.value)
+            // Update visual tracking state for overlay
             playerTrackState.value = 'DETECTED'
             playerTrackAge.value = 0
+            // Emit player detection (actual YOLO detection, not Frame Processor emission)
+            onPlayerDetectionRef.current?.(result.player)
         } else {
             // Reset shared values for overlay when no player detected
             playerX.value = 0
@@ -670,8 +390,14 @@ export const useShotTracker = (
             playerWidth.value = 0
             playerHeight.value = 0
             playerConfidence.value = 0
+            // Update visual tracking state for overlay
+            playerTrackState.value = 'LOST'
+            playerTrackAge.value = 0
+            // Reset PlayerCrop when no player detected
+            playerCrop.update(null, latestPlayerDetectionId.value)
         }
-    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge])
+    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge, latestPlayerDetectionId])
+
 
     // Initialize async YOLO worker with callback (must be after handleYoloAsyncResult)
     const yoloWorkerAsync = useYoloWorkerAsync(
@@ -679,8 +405,9 @@ export const useShotTracker = (
         yoloDelegate,
         yoloModelId,
         undefined, // yoloScheduledCount
-        perfYoloScheduleWaitTotal,
+        undefined, // perfYoloScheduleWaitTotal
         handleYoloAsyncResult
+        // Profiling parameters removed - simplified for production
     )
 
     // Only use async YOLO worker (sync removed to avoid duplicate model loading)
@@ -732,215 +459,25 @@ export const useShotTracker = (
 
                 isProcessingFrame.value = true
                 perfFramesProcessed.value += 1
-                const frameStartTime = performance.now()
 
-                // Granular timing for frame processor phases
-                let tYoloStart = 0
-                let tYoloEnd = 0
-                let tMoveNetStart = 0
-                let tMoveNetEnd = 0
-                let tTrackingStart = 0
-                let tTrackingEnd = 0
-                let tTelemetryStart = 0
-                let tTelemetryEnd = 0
-                let tTelemetryWrites = 0
-                let tTelemetryFlush = 0
-                let tFrameDurationWrites = 0
-                let tYoloTimingWrites = 0
-                let tSharedValueReadsStart = 0
-                let tSharedValueReadsEnd = 0
-                let tYoloSharedValueReads = 0
-                let tYoloReadOnly = 0
-                let tYoloSpreadOnly = 0
-                let tPlayerCropSharedValueReads = 0
-                let tTrackingSharedValueReads = 0
-                let tMoveNetSharedValueReads = 0
-                let tSharedValueWrites = 0
+                // Single Date.now() for the entire frame (used for MoveNet throttling + FPS calculation)
+                const now = Date.now()
 
-                // Emit exactly one diagnostic record per ~1s window. The snapshot is
-                // intentionally based on current-window counters, not cumulative averages.
-                const maybeFlushDiagnosticWindow = (now: number) => {
-                    'worklet'
+                // FPS calculation - reset counters every second
+                if (now - perfLastLogAt.value >= 1000) {
+                    const elapsed = now - perfLastLogAt.value
+                    const cameraFps = (perfFramesReceived.value / elapsed) * 1000
+                    const yoloFps = (perfFramesProcessed.value / elapsed) * 1000
 
-                    if (perfLastLogAt.value === 0) {
-                        perfLastLogAt.value = now
-                        return
-                    }
-
-                    const windowMs = now - perfLastLogAt.value
-                    if (windowMs < 1000) {
-                        return
-                    }
-
-                    const yoloExecuted = perfYoloExecuted.value
-                    const moveNetExecuted = perfMoveNetExecuted.value
-                    const snapshot: DiagnosticWindowSnapshot = {
-                        windowMs,
-                        cameraFps: perfFramesReceived.value / (windowMs / 1000),
-                        received: perfFramesReceived.value,
-                        processed: perfFramesProcessed.value,
-                        droppedBusy: perfFramesDroppedBusy.value,
-                        onFrameAvgMs: perfFramesProcessed.value > 0
-                            ? perfFrameDurationTotal.value / perfFramesProcessed.value
-                            : 0,
-                        onFrameMaxMs: perfFrameDurationMax.value,
-                        yoloRequested: perfYoloRequested.value,
-                        yoloExecuted,
-                        yoloSkipped: perfYoloSkipped.value,
-                        yoloThroughputFps: yoloExecuted / (windowMs / 1000),
-                        yoloAvgMs: yoloExecuted > 0
-                            ? perfYoloInferenceTotal.value / yoloExecuted
-                            : 0,
-                        yoloMinMs: perfYoloInferenceMin.value,
-                        yoloMaxMs: perfYoloInferenceMax.value,
-                        yoloScheduleWaitMs: yoloExecuted > 0
-                            ? perfYoloScheduleWaitTotal.value / yoloExecuted
-                            : 0,
-                        yoloScheduleWaitP50: 0, // Calculated in recordDiagnosticWindow on JS thread
-                        yoloScheduleWaitP95: 0, // Calculated in recordDiagnosticWindow on JS thread
-                        yoloScheduleWaitP99: 0, // Calculated in recordDiagnosticWindow on JS thread
-                        yoloWorkletPrepAvgMs: yoloExecuted > 0
-                            ? perfYoloWorkletPrepTotal.value / yoloExecuted
-                            : 0,
-                        yoloJsPreprocessAvgMs: yoloExecuted > 0
-                            ? perfYoloJsPreprocessTotal.value / yoloExecuted
-                            : 0,
-                        yoloInferenceAvgMs: yoloExecuted > 0
-                            ? perfYoloInferenceTotal.value / yoloExecuted
-                            : 0,
-                        yoloPostprocessAvgMs: yoloExecuted > 0
-                            ? perfYoloPostprocessTotal.value / yoloExecuted
-                            : 0,
-                        yoloResizeAvgMs: yoloExecuted > 0
-                            ? perfYoloResizeTotal.value / yoloExecuted
-                            : 0,
-                        yoloRunAvgMs: yoloExecuted > 0
-                            ? perfYoloRunTotal.value / yoloExecuted
-                            : 0,
-                        yoloParseAvgMs: yoloExecuted > 0
-                            ? perfYoloParseTotal.value / yoloExecuted
-                            : 0,
-                        moveNetRequested: perfMoveNetRequested.value,
-                        moveNetExecuted,
-                        moveNetSkipped: perfMoveNetSkipped.value,
-                        moveNetThroughputFps: moveNetExecuted / (windowMs / 1000),
-                        moveNetAvgMs: moveNetExecuted > 0
-                            ? perfMoveNetInferenceTotal.value / moveNetExecuted
-                            : 0,
-                        moveNetMinMs: perfMoveNetInferenceMin.value,
-                        moveNetMaxMs: perfMoveNetInferenceMax.value,
-                        moveNetWorkletPrepMs: moveNetExecuted > 0
-                            ? perfMoveNetWorkletPrepTotal.value / moveNetExecuted
-                            : 0,
-                        moveNetScheduleWaitMs: moveNetExecuted > 0
-                            ? perfMoveNetRnScheduleWaitTotal.value / moveNetExecuted
-                            : 0,
-                        moveNetScheduleWaitP50: 0, // Calculated in recordDiagnosticWindow on JS thread
-                        moveNetScheduleWaitP95: 0, // Calculated in recordDiagnosticWindow on JS thread
-                        moveNetScheduleWaitP99: 0, // Calculated in recordDiagnosticWindow on JS thread
-                        moveNetCropAvgMs: moveNetExecuted > 0
-                            ? perfMoveNetCropTotal.value / moveNetExecuted
-                            : 0,
-                        moveNetQuantizationAvgMs: moveNetExecuted > 0
-                            ? perfMoveNetQuantizationTotal.value / moveNetExecuted
-                            : 0,
-                        // moveNetResizeAvgMs removed - resize is now included in jsPreprocessMs
-                        moveNetRunAvgMs: moveNetExecuted > 0
-                            ? perfMoveNetRunTotal.value / moveNetExecuted
-                            : 0,
-                        moveNetParseAvgMs: moveNetExecuted > 0
-                            ? perfMoveNetParseTotal.value / moveNetExecuted
-                            : 0,
-                    }
-
-                    // Batch telemetry: single RN bridge crossing for both pipeline metrics and diagnostic window
-                    scheduleOnRN(
-                        updateAllTelemetry,
-                        snapshot.cameraFps,
-                        snapshot.received,
-                        snapshot.processed,
-                        snapshot.droppedBusy,
-                        perfTrackingAccepted.value,
-                        snapshot
-                    )
-
-                    // Flush aggregated player tracking telemetry (single RN bridge crossing)
-                    scheduleOnRN(
-                        flushPlayerTrackingTelemetry,
-                        perfPlayerLostCount.value,
-                        perfPlayerBboxExpiredCount.value,
-                        perfPlayerTrackingFreshCount.value,
-                        perfPlayerTrackingPersistedCount.value,
-                        perfPlayerTrackingFreshWithMoveNetCount.value,
-                        perfPlayerTrackingPersistedWithMoveNetCount.value,
-                        perfPlayerMoveNetExecutionCount.value,
-                        perfLastPersistedBboxAgeMs.value,
-                        // MoveNet decision telemetry
-                        perfMoveNetDecisionFrames.value,
-                        perfMoveNetDecisionHasBbox.value,
-                        perfMoveNetDecisionCurrentBbox.value,
-                        perfMoveNetDecisionPersistedBbox.value,
-                        perfMoveNetDecisionConfidenceRejected.value,
-                        perfMoveNetDecisionSizeRejected.value,
-                        perfMoveNetDecisionBoundsRejected.value,
-                        perfMoveNetDecisionRun.value
-                    )
-
-                    // Update actual FPS values for UI
-                    actualCameraFps.value = snapshot.cameraFps
-                    actualYoloFps.value = snapshot.yoloThroughputFps
-                    actualMoveNetFps.value = snapshot.moveNetThroughputFps
+                    actualCameraFps.value = cameraFps
+                    actualYoloFps.value = yoloFps
+                    // MoveNet FPS cannot be calculated in worklet (telemetryLogger not worklet-safe)
+                    // It remains at 0 or is updated elsewhere
 
                     perfLastLogAt.value = now
                     perfFramesReceived.value = 0
                     perfFramesProcessed.value = 0
                     perfFramesDroppedBusy.value = 0
-                    perfFrameDurationTotal.value = 0
-                    perfFrameDurationMax.value = 0
-                    perfYoloRequested.value = 0
-                    perfYoloExecuted.value = 0
-                    perfYoloSkipped.value = 0
-                    perfYoloInferenceTotal.value = 0
-                    perfYoloInferenceMin.value = 0
-                    perfYoloInferenceMax.value = 0
-                    perfYoloScheduleWaitTotal.value = 0
-                    perfYoloResizeTotal.value = 0
-                    perfYoloRunTotal.value = 0
-                    perfYoloParseTotal.value = 0
-                    perfMoveNetRequested.value = 0
-                    perfMoveNetExecuted.value = 0
-                    perfMoveNetSkipped.value = 0
-                    perfMoveNetInferenceTotal.value = 0
-                    perfMoveNetInferenceMin.value = 0
-                    perfMoveNetInferenceMax.value = 0
-                    perfMoveNetWorkletPrepTotal.value = 0
-                    perfMoveNetRnScheduleWaitTotal.value = 0
-                    perfMoveNetCropTotal.value = 0
-                    perfMoveNetQuantizationTotal.value = 0
-                    // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
-                    perfMoveNetRunTotal.value = 0
-                    perfMoveNetParseTotal.value = 0
-                    perfTrackingAccepted.value = 0
-                    // Reset aggregated player tracking counters
-                    perfPlayerLostCount.value = 0
-                    perfPlayerBboxExpiredCount.value = 0
-                    // Reset granular player flow counters
-                    perfPlayerTrackingFreshCount.value = 0
-                    perfPlayerTrackingPersistedCount.value = 0
-                    perfPlayerTrackingFreshWithMoveNetCount.value = 0
-                    perfPlayerTrackingPersistedWithMoveNetCount.value = 0
-                    perfPlayerMoveNetExecutionCount.value = 0
-                    perfLastPlayerDetectionId.value = 0
-                    perfLastPersistedBboxAgeMs.value = 0
-                    // Reset MoveNet decision telemetry
-                    perfMoveNetDecisionFrames.value = 0
-                    perfMoveNetDecisionHasBbox.value = 0
-                    perfMoveNetDecisionCurrentBbox.value = 0
-                    perfMoveNetDecisionPersistedBbox.value = 0
-                    perfMoveNetDecisionConfidenceRejected.value = 0
-                    perfMoveNetDecisionSizeRejected.value = 0
-                    perfMoveNetDecisionBoundsRejected.value = 0
-                    perfMoveNetDecisionRun.value = 0
                 }
 
                 // Increment frame counter for logging
@@ -955,231 +492,49 @@ export const useShotTracker = (
 
                     const frameWidth = frame.width
                     const frameHeight = frame.height
-                    const timestamp = Date.now()
+                    const timestamp = now // Reuse single Date.now() call
 
                     // Call YOLO worker every frame - it handles its own throttling internally
-                    tYoloStart = performance.now()
                     if (ballEnabledShared.value) {
                         // Async YOLO: submit frame and return immediately
-                        // perfYoloRequested is tracked internally by yoloWorkerAsync
                         // Results are handled via onResultCallback
                         yoloWorkerAsync.submitFrame(frame, timestamp, currentFrame)
                     }
-                    tYoloEnd = performance.now()
 
                     // Call MoveNet worker every frame - it handles its own throttling internally
-                    tMoveNetStart = performance.now()
                     if (poseEnabledShared.value) {
-                        // Record MoveNet decision telemetry
-                        perfMoveNetDecisionFrames.value += 1
-                        
                         // Get effective bbox from PlayerCropManager for MoveNet crop
-                        const trackedBbox = playerCrop.getEffectiveBbox(Date.now())
+                        const trackedBbox = playerCrop.getEffectiveBbox(now)
                         
                         if (trackedBbox !== null) {
-                            perfMoveNetDecisionHasBbox.value += 1
-                            
-                            if (!trackedBbox.isUsingLastBbox) {
-                                perfMoveNetDecisionCurrentBbox.value += 1
-                                
-                                // Check confidence threshold
-                                const confidence = trackedBbox.bbox.confidence ?? 0
-                                if (confidence >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
-                                    // Check size validation (optional - add if needed)
-                                    // For now, just run MoveNet
-                                    moveNetWorker.playerBbox.value = {
-                                        x: trackedBbox.bbox.x,
-                                        y: trackedBbox.bbox.y,
-                                        width: trackedBbox.bbox.width,
-                                        height: trackedBbox.bbox.height,
-                                        confidence: trackedBbox.bbox.confidence,
-                                    }
-                                    // Update visual tracking state
-                                    playerTrackState.value = 'DETECTED'
-                                    playerTrackAge.value = 0
-                                    
-                                    // Record granular telemetry: fresh bbox → MoveNet execution
-                                    perfPlayerTrackingFreshCount.value += 1
-                                    perfPlayerTrackingFreshWithMoveNetCount.value += 1
-                                    perfLastPlayerDetectionId.value = trackedBbox.detectionId
-                                    perfPlayerMoveNetExecutionCount.value += 1
-                                    perfMoveNetDecisionRun.value += 1
-
-                                    // MoveNet worker handles its own performance tracking in the async callback
-                                    moveNetWorker.processFrame(frame, timestamp)
-                                } else {
-                                    perfMoveNetDecisionConfidenceRejected.value += 1
+                            // Check confidence threshold
+                            const confidence = trackedBbox.bbox.confidence ?? 0
+                            if (confidence >= YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE) {
+                                moveNetWorker.playerBbox.value = {
+                                    x: trackedBbox.bbox.x,
+                                    y: trackedBbox.bbox.y,
+                                    width: trackedBbox.bbox.width,
+                                    height: trackedBbox.bbox.height,
+                                    confidence: trackedBbox.bbox.confidence,
                                 }
-                            } else {
-                                perfMoveNetDecisionPersistedBbox.value += 1
-                                // No current player detection - skip MoveNet execution
-                                // Update visual tracking state to indicate lost player
-                                playerTrackState.value = 'PREDICTED'
-                                playerTrackAge.value = trackedBbox.ageMs
-                                // Record granular telemetry: persisted bbox (no MoveNet)
-                                if (trackedBbox.detectionId > perfLastPlayerDetectionId.value) {
-                                    // This should not happen - fresh bbox should have isUsingLastBbox=false
-                                    // But handle it defensively
-                                    perfPlayerTrackingFreshCount.value += 1
-                                    perfLastPlayerDetectionId.value = trackedBbox.detectionId
-                                } else {
-                                    perfPlayerTrackingPersistedCount.value += 1
-                                    // Store ageMs in SharedValue for JS-side telemetry (worklet-safe)
-                                    perfLastPersistedBboxAgeMs.value = trackedBbox.ageMs
+
+                                // MoveNet throttling: only execute at 2 FPS (500ms interval)
+                                const timeSinceLastMoveNet = now - lastMoveNetExecutionAt.value
+                                if (timeSinceLastMoveNet >= MOVENET_THROTTLE_MS) {
+                                    lastMoveNetExecutionAt.value = now
+                                    moveNetWorker.processFrame(frame, timestamp)
                                 }
                             }
-                        } else {
-                            // No bbox at all
-                            playerTrackState.value = 'LOST'
-                            playerTrackAge.value = 0
-                        }
-                    }
-                    tMoveNetEnd = performance.now()
-
-                    // Process worker results (get latest available from shared values)
-                    tSharedValueReadsStart = performance.now()
-
-                    // YOLO shared value reads - PASS 2 profiling
-                    const tYoloSvStart = performance.now()
-                    
-                    // Micro-benchmark 1: SharedValue read only
-                    const tYoloReadStart = performance.now()
-                    const rawBall = yoloWorker.latestResultBall.value
-                    const rawPlayer = yoloWorker.latestResultPlayer.value
-                    const rawRim = yoloWorker.latestResultRim.value
-                    tYoloReadOnly = performance.now() - tYoloReadStart
-                    
-                    // Micro-benchmark 2: Spread/clone only
-                    const tYoloSpreadStart = performance.now()
-                    const yoloResult = {
-                        ball: rawBall ? { ...rawBall } : null,
-                        player: rawPlayer ? { ...rawPlayer } : null,
-                        rim: rawRim ? { ...rawRim } : null,
-                        debug: yoloWorker.latestResultDebug.value,
-                        timestamp: yoloWorker.latestResultTimestamp.value
-                    }
-                    tYoloSpreadOnly = performance.now() - tYoloSpreadStart
-                    
-                    tYoloSharedValueReads = performance.now() - tYoloSvStart
-
-                    // PlayerCrop shared value reads + writes
-                    const tPlayerCropSvStart = performance.now()
-                    if (playerX.value !== 0 || playerY.value !== 0) {
-                        playerCrop.update({
-                            x: playerX.value,
-                            y: playerY.value,
-                            width: playerWidth.value,
-                            height: playerHeight.value,
-                            confidence: playerConfidence.value,
-                        })
-                    } else {
-                        playerCrop.update(null)
-                    }
-                    tPlayerCropSharedValueReads = performance.now() - tPlayerCropSvStart
-
-                    // PASS 5C: Read PlayerCrop internal profiling counters
-                    perfPlayerCropUpdateCount.value = playerCrop.updateCount.value
-                    perfPlayerCropUpdateTimeMs.value = playerCrop.updateTimeMs.value
-                    perfPlayerCropGetEffectiveBboxCount.value = playerCrop.getEffectiveBboxCount.value
-                    perfPlayerCropGetEffectiveBboxTimeMs.value = playerCrop.getEffectiveBboxTimeMs.value
-                    perfPlayerCropSharedValueWrites.value = playerCrop.sharedValueWrites.value
-
-                    // PASS 5D: Read granular getEffectiveBbox profiling
-                    perfPlayerCropSvReadsMs.value = playerCrop.getEffectiveBboxSvReadsMs.value
-                    perfPlayerCropAgeTtlMs.value = playerCrop.getEffectiveBboxAgeTtlMs.value
-                    perfPlayerCropDetectionIdMs.value = playerCrop.getEffectiveBboxDetectionIdMs.value
-                    perfPlayerCropSmoothingMs.value = playerCrop.getEffectiveBboxSmoothingMs.value
-                    perfPlayerCropSvWritesMs.value = playerCrop.getEffectiveBboxSvWritesMs.value
-                    perfPlayerCropResultMs.value = playerCrop.getEffectiveBboxResultMs.value
-
-                    // PASS 5E: Read smoothing reads/lerp/writes/result separation
-                    perfSmoothingReadsMs.value = playerCrop.smoothingReadsMs.value
-                    perfSmoothingLerpMs.value = playerCrop.smoothingLerpMs.value
-                    perfSmoothingWritesMs.value = playerCrop.smoothingWritesMs.value
-                    perfResultReadsMs.value = playerCrop.resultReadsMs.value
-                    perfResultConstructionMs.value = playerCrop.resultConstructionMs.value
-
-
-                    // Tracking shared value writes
-                    const tTrackingSvStart = performance.now()
-                    if (yoloResult.rim && yoloResult.rim.confidence > RIM_CONFIDENCE_THRESHOLD) {
-                        rimTrackState.value = 'DETECTED'
-                        rimTrackAge.value = 0
-                        // Emit rim detection callback to update tracking engine
-                        scheduleOnRN(emitRimDetection, yoloResult.rim)
-                    } else if (rimFromCalibration) {
-                        rimTrackState.value = 'PREDICTED'
-                        rimTrackAge.value = 0
-                    } else {
-                        rimTrackState.value = 'LOST'
-                        rimTrackAge.value = 0
-                    }
-
-                    if (yoloResult.debug) {
-                        ballRejectionReason.value = yoloResult.debug.ballRejectionReason || ''
-                        rimRejectionReason.value = yoloResult.debug.rimRejectionReason || ''
-                    }
-                    tTrackingSharedValueReads = performance.now() - tTrackingSvStart
-
-                    // MoveNet shared value reads
-                    const tMoveNetSvStart = performance.now()
-                    const poseResult = {
-                        keypoints: moveNetWorker.latestResultKeypoints.value,
-                        angles: moveNetWorker.latestResultAngles.value,
-                        timestamp: moveNetWorker.latestResultTimestamp.value
-                    }
-                    tMoveNetSharedValueReads = performance.now() - tMoveNetSvStart
-
-                    // Shared value writes (counters)
-                    const tSvWritesStart = performance.now()
-                    perfYoloBallDetected.value += (yoloResult.ball ? 1 : 0)
-                    tSharedValueWrites = performance.now() - tSvWritesStart
-
-                    tSharedValueReadsEnd = performance.now()
-
-                    const detection: BallDetection = {
-                        ball: yoloResult.ball ?? undefined,
-                        rim: yoloResult.rim ?? undefined,
-                        timestamp: yoloResult.timestamp
-                    }
-
-                    // Emit via bridge
-                    const now = Date.now()
-                    if (now - lastRNDispatch.value >= 66) {
-                        lastRNDispatch.value = now
-                        scheduleOnRN(emitBallDetection, detection)
-                    }
-
-                    // Process player detection for telemetry and tracking
-                    if (yoloResult.player) {
-                        // Player detected - update timestamp and emit detection
-                        lastPlayerDetectedAt.value = now
-                        scheduleOnRN(emitPlayerDetection, yoloResult.player)
-                    } else {
-                        // No player detected - check if we should invalidate lastPlayer
-                        // Use 2000ms TTL (double the PlayerTrackingEngine TTL of 1000ms)
-                        const PLAYER_INVALIDATION_TTL_MS = 2000
-                        if (lastPlayerDetectedAt.value > 0 && (now - lastPlayerDetectedAt.value) > PLAYER_INVALIDATION_TTL_MS) {
-                            // Player not detected for too long - invalidate by sending null
-                            scheduleOnRN(emitPlayerDetection, null as any)
-                            lastPlayerDetectedAt.value = 0
                         }
                     }
 
-                    // Process pose result if available
-                    if (poseResult.keypoints) {
-                        const result: PoseResult = {
-                            keypoints: poseResult.keypoints,
-                            angles: poseResult.angles,
-                            timestamp: poseResult.timestamp
-                        }
+                    // YOLO results handled exclusively by handleYoloAsyncResult() callback
+                    // No SharedValue reads or copies needed in Frame Processor
 
-                        const now = Date.now()
-                        if (now - lastRNDispatch.value >= 66) {
-                            lastRNDispatch.value = now
-                            scheduleOnRN(emitPoseResult, result)
-                        }
-                    }
+                    // PlayerCrop update moved to handleYoloAsyncResult() - only when YOLO returns new player
+
+                    // MoveNet results handled by MoveNet worker callback
+                    // No SharedValue reads needed in Frame Processor
 
 
 
@@ -1210,34 +565,6 @@ export const useShotTracker = (
                     }
 
                 } finally {
-                    tTelemetryStart = performance.now()
-                    const frameDurationMs = performance.now() - frameStartTime
-                    
-                    // PASS 4B: Profile SharedValue writes breakdown
-                    const tTelemetryWritesStart = performance.now()
-                    
-                    // Category 1: Frame duration metrics
-                    const tFrameDurationStart = performance.now()
-                    perfFrameDurationTotal.value += frameDurationMs
-                    perfFrameDurationMax.value = Math.max(perfFrameDurationMax.value, frameDurationMs)
-                    tFrameDurationWrites = performance.now() - tFrameDurationStart
-                    
-                    // Category 2: PASS 2 granular YOLO timing
-                    const tYoloTimingStart = performance.now()
-                    perfYoloSvReadTotal.value += tYoloReadOnly
-                    perfYoloSvSpreadTotal.value += tYoloSpreadOnly
-                    tYoloTimingWrites = performance.now() - tYoloTimingStart
-                    
-                    tTelemetryWrites = performance.now() - tTelemetryWritesStart
-                    
-                    const tTelemetryFlushStart = performance.now()
-                    maybeFlushDiagnosticWindow(Date.now())
-                    tTelemetryFlush = performance.now() - tTelemetryFlushStart
-                    
-                    tTelemetryEnd = performance.now()
-
-                    // Log frame processor phase breakdown every ~5 seconds (150 frames at 30 FPS)
-
                     // Reset reentrancy guard
                     isProcessingFrame.value = false
 
@@ -1251,63 +578,12 @@ export const useShotTracker = (
                 perfFramesReceived,
                 perfFramesProcessed,
                 perfFramesDroppedBusy,
-                perfFrameDurationTotal,
-                perfFrameDurationMax,
-                perfYoloRequested,
-                perfYoloExecuted,
-                perfYoloSkipped,
-                perfYoloInferenceTotal,
-                perfYoloInferenceMin,
-                perfYoloInferenceMax,
-                perfYoloScheduleWaitTotal,
-                perfYoloResizeTotal,
-                perfYoloRunTotal,
-                perfYoloParseTotal,
-                perfYoloSvReadTotal,
-                perfYoloSvSpreadTotal,
-                perfMoveNetRequested,
-                perfMoveNetExecuted,
-                perfMoveNetSkipped,
-                perfMoveNetInferenceTotal,
-                perfMoveNetInferenceMin,
-                perfMoveNetInferenceMax,
-                perfMoveNetWorkletPrepTotal,
-                perfMoveNetRnScheduleWaitTotal,
-                perfMoveNetCropTotal,
-                perfMoveNetQuantizationTotal,
-                // perfMoveNetResizeTotal removed - resize is now included in jsPreprocessMs
-                perfMoveNetRunTotal,
-                perfMoveNetParseTotal,
-                perfLastLogAt,
-                // updateAllTelemetry and flushPlayerTrackingTelemetry are NOT worklet dependencies
-                // They are called via scheduleOnRN with primitive data only
-                perfPlayerLostCount,
-                perfPlayerBboxExpiredCount,
-                perfPlayerTrackingFreshCount,
-                perfPlayerTrackingPersistedCount,
-                perfPlayerTrackingFreshWithMoveNetCount,
-                perfPlayerTrackingPersistedWithMoveNetCount,
-                perfPlayerMoveNetExecutionCount,
-                perfLastPlayerDetectionId,
-                perfLastPersistedBboxAgeMs,
-                // MoveNet decision telemetry
-                perfMoveNetDecisionFrames,
-                perfMoveNetDecisionHasBbox,
-                perfMoveNetDecisionCurrentBbox,
-                perfMoveNetDecisionPersistedBbox,
-                perfMoveNetDecisionConfidenceRejected,
-                perfMoveNetDecisionSizeRejected,
-                perfMoveNetDecisionBoundsRejected,
-                perfMoveNetDecisionRun,
-                perfTrackingAccepted,
                 isProcessingFrame,
                 ballEnabledShared,
                 poseEnabledShared,
                 yoloWorker,
                 moveNetWorker,
-                lastRNDispatch,
                 emitBallDetection,
-                emitPoseResult,
                 scheduleFatalErrorRecovery,
             ]
         )
@@ -1380,11 +656,11 @@ export const useShotTracker = (
         resetShotTracking,
         yoloFps: yoloWorker.theoreticalFps,
         yoloThroughputFps: actualYoloFps,
-        moveNetFps: telemetryLogger.getMoveNetMetrics().throughputFps,
+        moveNetFps: moveNetWorker.telemetryThroughputFps,
         currentFps: useSharedValue(selectedFps || 30),
         actualCameraFps,
         actualYoloFps,
-        actualMoveNetFps,
+        actualMoveNetFps: moveNetWorker.telemetryThroughputFps,
         exportTelemetrySummary,
         logTelemetrySummary,
         resetTelemetry,
@@ -1398,11 +674,6 @@ export const useShotTracker = (
             rimRejectionReason,
             playerTrackState,
             playerTrackAge,
-            rimTrackState,
-            rimTrackAge,
-            // PASS 2: Granular YOLO SharedValue profiling
-            perfYoloSvReadTotal,
-            perfYoloSvSpreadTotal,
         },
     }
 }

@@ -42,8 +42,8 @@ interface FrameData {
 }
 
 // Fixed YOLO target FPS - deterministic, no adaptation
-// Benchmark: testing 15 FPS (up from 10 FPS baseline)
-const YOLO_TARGET_FPS = 15
+// Benchmark: testing 10 FPS (camera produces 8-11 FPS, no point processing more)
+const YOLO_TARGET_FPS = 10
 
 interface YoloWorkerReturn {
   submitFrame: (frame: any, timestamp: number, frameCounter?: number) => void
@@ -73,6 +73,11 @@ interface YoloWorkerReturn {
   profJsPreprocessMs: SharedValue<number>  // C→D: JS preprocessing (none for YOLO, resize is in worklet)
   profInferenceMs: SharedValue<number>     // D→E: TFLite inference (runSync)
   profPostprocessMs: SharedValue<number>   // E→F: postprocess/callback (parsing + SharedValue updates)
+  // Ball rejection diagnostics
+  ballYoloParsed?: SharedValue<number>      // Ball that pass YoloDetector.parseOutput
+  ballRejectedSize?: SharedValue<number>   // Rejected by bbox size validation
+  ballRejectedCourt?: SharedValue<number>   // Rejected by court margin validation
+  ballRejectedConfidence?: SharedValue<number> // Rejected by confidence threshold
 }
 
 export const useYoloWorkerAsync = (
@@ -81,7 +86,12 @@ export const useYoloWorkerAsync = (
   yoloModelId?: string,
   yoloScheduledCount?: { value: number },
   perfYoloScheduleWaitTotal?: SharedValue<number>,
-  onResultCallback?: (result: YoloWorkerResult) => void
+  onResultCallback?: (result: YoloWorkerResult) => void,
+  // Ball rejection diagnostics
+  ballYoloParsed?: SharedValue<number>,
+  ballRejectedSize?: SharedValue<number>,
+  ballRejectedCourt?: SharedValue<number>,
+  ballRejectedConfidence?: SharedValue<number>
 ) => {
   // Pure YOLO detector instance (worklet-safe)
   const yoloDetectorRef = useRef(new YoloDetector(
@@ -293,6 +303,11 @@ export const useYoloWorkerAsync = (
 
         let validBall = null
         if (ball) {
+          // Track ball that pass YoloDetector.parseOutput
+          if (ballYoloParsed) {
+            ballYoloParsed.value += 1
+          }
+
           const bboxSizeNormalized = ball.width * ball.height
 
           const MIN_BBOX_SIZE_NORMALIZED = 0.0001
@@ -312,6 +327,17 @@ export const useYoloWorkerAsync = (
             // Record false positive reasons for filtering
             if (validBall.confidence < 0.3) {
               telemetryLogger.recordFalsePositive('low_confidence', validBall.confidence)
+              if (ballRejectedConfidence) {
+                ballRejectedConfidence.value += 1
+              }
+            }
+          } else {
+            // Track rejection reasons
+            if (!isValidSize && ballRejectedSize) {
+              ballRejectedSize.value += 1
+            }
+            if (!isInCourt && ballRejectedCourt) {
+              ballRejectedCourt.value += 1
             }
           }
         }
@@ -407,7 +433,7 @@ export const useYoloWorkerAsync = (
         yoloScheduledCount.value = 0
       }
     }
-  }, [yoloModelInstance, yoloInputElements, enabled, theoreticalFps, latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp, isProcessing, lastInferenceAt, yoloScheduledCount, hasPendingFrame])
+  }, [yoloModelInstance, yoloInputElements, enabled, theoreticalFps, latestResultBall, latestResultPlayer, latestResultRim, latestResultDebug, latestResultTimestamp, isProcessing, lastInferenceAt, yoloScheduledCount, hasPendingFrame, ballYoloParsed, ballRejectedSize, ballRejectedCourt, ballRejectedConfidence])
 
   // Submit frame for async processing (called from frame processor)
   // Extracts frame data (resize + buffer) in worklet BEFORE frame is disposed
@@ -553,5 +579,9 @@ export const useYoloWorkerAsync = (
     yoloExecutedCount,
     yoloSkippedCount,
     onResultCallback: onResultCallback || null,
+    ballYoloParsed,
+    ballRejectedSize,
+    ballRejectedCourt,
+    ballRejectedConfidence,
   } as YoloWorkerReturn
 }

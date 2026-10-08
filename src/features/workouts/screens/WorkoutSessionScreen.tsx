@@ -104,6 +104,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [effectiveFps, setEffectiveFps] = useState(selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS)
     const effectivePoseResolution = (selectedPoseResolution ?? CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION) as number
     const [effectiveYoloModelId, setEffectiveYoloModelId] = useState(yoloModelId ?? DEFAULT_YOLO_MODEL_ID)
+
+    // Log received yoloModelId for debugging
+    useEffect(() => {
+        console.log('[WorkoutSession] Received yoloModelId from route.params:', yoloModelId)
+        console.log('[WorkoutSession] effectiveYoloModelId:', effectiveYoloModelId)
+    }, [yoloModelId, effectiveYoloModelId])
     const effectiveMoveNetModelId = moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID
 
     const constraints = React.useMemo(

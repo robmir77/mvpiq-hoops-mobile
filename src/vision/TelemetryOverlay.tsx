@@ -307,7 +307,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ visible, onC
           <>
             <View style={styles.row}>
               <Text style={styles.label}>Camera:</Text>
-              <Text style={styles.value}>{Math.round(pipelineMetrics.cameraFPS)} FPS</Text>
+              <Text style={styles.value}>{Math.round(actualCameraFps ?? 0)} FPS</Text>
             </View>
             <View style={styles.row}>
               <Text style={styles.label}>YOLO:</Text>

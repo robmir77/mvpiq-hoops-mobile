@@ -18,3 +18,22 @@ export const ENABLE_PLAYER_CROP_LOGS = VISION_DEBUG && false // Disabled by defa
 export const ENABLE_MOVENET_LOGS = VISION_DEBUG && false // Disabled by default
 
 export const ENABLE_PERFORMANCE_LOGGING = VISION_DEBUG && false // Disabled by default - only enable for profiling
+
+/**
+ * Detailed Profiling Mode
+ * When enabled, includes granular metrics like:
+ * - Cache hit/miss rates
+ * - Bbox stability
+ * - Raw candidates
+ * - Confidence/size passed counts
+ * - Queue depth
+ * - P50/P95/P99 percentiles
+ * 
+ * When disabled (production), only tracks:
+ * - Camera FPS
+ * - YOLO FPS
+ * - MoveNet FPS
+ * - Processing time
+ * - Drop count
+ */
+export const ENABLE_DETAILED_PROFILING = VISION_DEBUG && false // Disabled by default - only enable for deep performance analysis

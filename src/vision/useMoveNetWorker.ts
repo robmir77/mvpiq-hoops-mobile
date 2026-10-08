@@ -157,6 +157,9 @@ export const useMoveNetWorker = (
   const telemetryRequested = useSharedValue(0)
   const telemetryExecuted = useSharedValue(0)
   const telemetryScheduleWaitMs = useSharedValue(0)
+  const telemetryThroughputFps = useSharedValue(0)
+  const telemetryLastFpsUpdate = useSharedValue(Date.now())
+  const telemetryFpsFrameCount = useSharedValue(0)
 
   // Test 2: Track last dispose timestamp to measure gap before next resize
   const lastDisposeTimestamp = useSharedValue(0)
@@ -531,6 +534,17 @@ export const useMoveNetWorker = (
 
       // Record MoveNet executed when inference completes
       telemetryExecuted.value += 1
+      telemetryFpsFrameCount.value += 1
+
+      // Calculate FPS every second
+      const now = Date.now()
+      if (now - telemetryLastFpsUpdate.value >= 1000) {
+        const elapsed = now - telemetryLastFpsUpdate.value
+        telemetryThroughputFps.value = (telemetryFpsFrameCount.value / elapsed) * 1000
+        telemetryLastFpsUpdate.value = now
+        telemetryFpsFrameCount.value = 0
+      }
+
       if (perfMoveNetExecuted) {
         perfMoveNetExecuted.value += 1
       }
@@ -1032,7 +1046,7 @@ export const useMoveNetWorker = (
 
       isProcessing.value = false
     }
-  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryScheduleWaitMs, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, telemetryDroppedBusy, telemetrySkipped, telemetryRequested, telemetryExecuted, lastDisposeTimestamp, poseInputSize, perfMoveNetRequested, perfMoveNetExecuted, perfMoveNetSkipped, perfMoveNetInferenceTotal, perfMoveNetInferenceMin, perfMoveNetInferenceMax, perfMoveNetCropTotal, perfMoveNetRunTotal, perfMoveNetParseTotal])
+  }, [poseModelInstance, intermediateResizer, poseInputElements, enabled, executionCount, lastInferenceMs, lastCropMs, lastResizeMs, lastRunMs, lastParseMs, latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, runMoveNetInference, telemetryInferenceTime, telemetryScheduleWaitMs, telemetryCropMs, telemetryResizeMs, telemetryRunMs, telemetryParseMs, telemetryKeypointsConfidence, telemetryHasNewData, telemetryDroppedBusy, telemetrySkipped, telemetryRequested, telemetryExecuted, telemetryThroughputFps, telemetryLastFpsUpdate, telemetryFpsFrameCount, lastDisposeTimestamp, poseInputSize, perfMoveNetRequested, perfMoveNetExecuted, perfMoveNetSkipped, perfMoveNetInferenceTotal, perfMoveNetInferenceMin, perfMoveNetInferenceMax, perfMoveNetCropTotal, perfMoveNetRunTotal, perfMoveNetParseTotal])
 
   // Get latest result (called from JS thread)
   const getLatestResult = useCallback((): PoseWorkerResult | null => {
@@ -1057,7 +1071,10 @@ export const useMoveNetWorker = (
     lastSubmitTimestamp.value = 0
     playerBbox.value = null
     playerCropRegion.value = null
-  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, playerCropRegion])
+    telemetryThroughputFps.value = 0
+    telemetryLastFpsUpdate.value = Date.now()
+    telemetryFpsFrameCount.value = 0
+  }, [latestResultKeypoints, latestResultAngles, latestResultTimestamp, latestCropInfo, isProcessing, lastSubmitTimestamp, playerBbox, playerCropRegion, telemetryThroughputFps, telemetryLastFpsUpdate, telemetryFpsFrameCount])
 
   return {
     processFrame,
@@ -1080,5 +1097,6 @@ export const useMoveNetWorker = (
     latestResultTimestamp,
     latestCropInfo,
     playerBbox,
+    telemetryThroughputFps,
   }
 }

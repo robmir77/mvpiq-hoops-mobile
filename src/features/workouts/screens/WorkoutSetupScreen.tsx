@@ -5,6 +5,7 @@ import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CourtType, CreateWorkoutSessionPayload } from '../types/workouts.types'
 import { createWorkoutSession } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { CAMERA_CONFIG } from '@/config/appConfig'
 
 export default function WorkoutSetupScreen({ navigation }: any) {
     const auth = useContext(AuthContext)
@@ -39,15 +40,16 @@ export default function WorkoutSetupScreen({ navigation }: any) {
                 sessionId: session.id,
                 cameraMode,
                 courtType,
-                selectedResolution: null, // Will use device default
-                selectedFps: null, // Will use device default
+                selectedResolution: { width: 640, height: 360 }, // Force 360p for better FPS (faster inference)
+                selectedFps: 30, // Force 30 FPS for workout (better tracking)
                 selectedPoseResolution: 192, // Default pose resolution
                 yoloDelegate: null, // Will use default
                 poseDelegate: null, // Will use default
-                yoloModelId: null, // Will use default
+                yoloModelId: 'best_320_float16', // Use fastest YOLO model (fpsMax=37)
                 moveNetModelId: null, // Will use default
             }
             console.log('[WorkoutSetup] Navigating to Calibration with params:', calibrationParams)
+            console.log('[WorkoutSetup] yoloModelId being passed:', calibrationParams.yoloModelId)
             navigation.navigate('Calibration', calibrationParams)
         } catch (error: any) {
             console.error('Errore creazione sessione:', error)

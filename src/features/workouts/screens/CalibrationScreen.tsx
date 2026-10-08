@@ -739,16 +739,16 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const isActive = isFocused
     const cameraRef = useRef<CameraRef>(null)
     const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
-    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(DEFAULT_CAPTURE)
-    const [selectedFps, setSelectedFps] = useState<number | null>(DEFAULT_FPS)
-    const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(DEFAULT_POSE_RESOLUTION)
-    const [selectedMoveNetModelId, setSelectedMoveNetModelId] = useState<string>(DEFAULT_MOVENET_MODEL_ID)
-    const [selectedYoloModelId, setSelectedYoloModelId] = useState<string>(DEFAULT_YOLO_MODEL_ID)
+    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(initialResolution ?? DEFAULT_CAPTURE)
+    const [selectedFps, setSelectedFps] = useState<number | null>(initialFps ?? DEFAULT_FPS)
+    const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(initialPoseResolution ?? DEFAULT_POSE_RESOLUTION)
+    const [selectedMoveNetModelId, setSelectedMoveNetModelId] = useState<string>(initialMoveNetModelId ?? DEFAULT_MOVENET_MODEL_ID)
+    const [selectedYoloModelId, setSelectedYoloModelId] = useState<string>(initialYoloModelId ?? DEFAULT_YOLO_MODEL_ID)
     const [yoloDelegate, setYoloDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
-        Platform.OS === 'android' ? 'android-gpu' : DEFAULT_IOS_DELEGATE
+        initialYoloDelegate ?? (Platform.OS === 'android' ? 'android-gpu' : DEFAULT_IOS_DELEGATE)
     )
     const [poseDelegate, setPoseDelegate] = useState<AndroidDelegateOption | IosDelegateOption>(
-        Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE
+        initialPoseDelegate ?? (Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE)
     )
     const [showConfigPanel, setShowConfigPanel] = useState(false)
 
@@ -1002,6 +1002,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         setIsNavigating(true)
         const workoutParams = { sessionId, cameraMode, courtType, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
         console.log('[Calibration] Navigating to WorkoutSession with params:', workoutParams)
+        console.log('[Calibration] selectedYoloModelId:', selectedYoloModelId)
         navigation.replace('WorkoutSession', workoutParams)
     }
 
@@ -1014,6 +1015,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 setIsNavigating(true)
                 const workoutParams = { sessionId, cameraMode, courtType, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
                 console.log('[Calibration] Skipping calibration, navigating to WorkoutSession with params:', workoutParams)
+                console.log('[Calibration] selectedYoloModelId (skip):', selectedYoloModelId)
                 navigation.replace('WorkoutSession', workoutParams)
             }
         )
