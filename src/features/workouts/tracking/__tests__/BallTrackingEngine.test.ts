@@ -1,47 +1,189 @@
 // BallTrackingEngine.test.ts
-// Phase 4.2: Deterministic equivalence tests for BallTrackingEngine
-// Verifies that the new engine produces identical results to legacy Kalman logic
+// Kalman v2: Adaptive gain + outlier detection tests
 
 import { BallTrackingEngine } from '../BallTrackingEngine'
+import { KALMAN_CONFIG } from '../BallTrackingState'
 
-describe('BallTrackingEngine', () => {
+describe('BallTrackingEngine - Kalman v2', () => {
   let engine: BallTrackingEngine
 
   beforeEach(() => {
     engine = new BallTrackingEngine()
   })
 
-  describe('Kalman Update', () => {
-    it('should produce deterministic position for identical inputs', () => {
-      const frameTs = 1000
-      const x = 0.5
-      const y = 0.4
-
-      const result1 = engine.update(x, y, frameTs)
-      const result2 = engine.update(x, y, frameTs + 16)
-
-      // Results should be deterministic
-      expect(result1.x).toBeCloseTo(0.5, 6)
-      expect(result1.y).toBeCloseTo(0.4, 6)
-      expect(result2.x).toBeDefined()
-      expect(result2.y).toBeDefined()
-    })
-
-    it('should handle consecutive detections with smoothing', () => {
+  describe('Perfect Detection', () => {
+    it('should accept first detection unconditionally to initialize tracking', () => {
       const frameTs = 1000
       
-      // First detection
-      const result1 = engine.update(0.5, 0.4, frameTs)
+      // First detection (no prior tracking)
+      const result = engine.update(0.9, 0.8, frameTs)
       
-      // Second detection slightly different (smoothing should apply)
-      const result2 = engine.update(0.51, 0.41, frameTs + 16)
+      // Should accept even if far from initial (0,0) prediction
+      expect(result.x).toBeCloseTo(0.9, 2)
+      expect(result.y).toBeCloseTo(0.8, 2)
       
-      // Smoothed position should be between measurements
-      expect(result2.x).toBeGreaterThan(0.5)
-      expect(result2.x).toBeLessThan(0.51)
+      const state = engine.getState()
+      expect(state.trackState).toBe('DETECTED')
+      expect(state.ballRejectionReason).toBe('')
     })
 
-    it('should calculate velocity correctly', () => {
+    it('should follow YOLO detection closely with high gain', () => {
+      const frameTs = 1000
+      
+      // First detection establishes position
+      engine.update(0.5, 0.4, frameTs)
+      
+      // Second detection very close to prediction (perfect detection)
+      const result = engine.update(0.501, 0.401, frameTs + 16)
+      
+      // With perfect gain (0.95), should follow YOLO very closely
+      expect(result.x).toBeCloseTo(0.501, 2)
+      expect(result.y).toBeCloseTo(0.401, 2)
+      
+      const state = engine.getState()
+      expect(state.trackState).toBe('DETECTED')
+      expect(state.ballRejectionReason).toBe('')
+    })
+  })
+
+  describe('Noisy Detection', () => {
+    it('should apply moderate smoothing for noisy detections', () => {
+      const frameTs = 1000
+      
+      // Establish position and velocity
+      engine.update(0.5, 0.4, frameTs)
+      engine.update(0.6, 0.3, frameTs + 16)
+      
+      // Noisy detection (moderate distance from prediction)
+      const result = engine.update(0.65, 0.25, frameTs + 32)
+      
+      // Should smooth but still follow direction
+      expect(result.x).toBeGreaterThan(0.6)
+      expect(result.x).toBeLessThan(0.65)
+      
+      const state = engine.getState()
+      expect(state.trackState).toBe('DETECTED')
+    })
+  })
+
+  describe('Outlier Detection', () => {
+    it('should reject outlier measurements', () => {
+      const frameTs = 1000
+      
+      // Establish position
+      engine.update(0.5, 0.4, frameTs)
+      
+      // Outlier detection (far from prediction)
+      const result = engine.update(0.9, 0.8, frameTs + 16)
+      
+      // Should use prediction, not outlier
+      expect(result.x).toBeLessThan(0.6)
+      expect(result.y).toBeLessThan(0.5)
+      
+      const state = engine.getState()
+      expect(state.trackState).toBe('PREDICTED')
+      expect(state.ballRejectionReason).toContain('Outlier')
+    })
+
+    it('should set rejection reason with distance and tolerance', () => {
+      const frameTs = 1000
+      
+      engine.update(0.5, 0.4, frameTs)
+      engine.update(0.9, 0.8, frameTs + 16)
+      
+      const state = engine.getState()
+      expect(state.ballRejectionReason).toMatch(/Outlier: distance=.* > tolerance=.*/)
+    })
+  })
+
+  describe('Fast Shot Detection', () => {
+    it('should allow rapid movement during shot with velocity-based tolerance', () => {
+      const frameTs = 1000
+      
+      // Simulate fast upward shot
+      engine.update(0.5, 0.4, frameTs)
+      engine.update(0.5, 0.3, frameTs + 16)
+      engine.update(0.5, 0.2, frameTs + 32)
+      
+      // Fast movement should be accepted due to velocity-based tolerance
+      const result = engine.update(0.5, 0.1, frameTs + 48)
+      
+      expect(result.y).toBeLessThan(0.2)
+      const state = engine.getState()
+      expect(state.trackState).toBe('DETECTED')
+    })
+  })
+
+  describe('Detection Lost and Recovery', () => {
+    it('should predict for short period after detection lost', () => {
+      const frameTs = 1000
+      
+      engine.update(0.5, 0.4, frameTs)
+      
+      // Predict shortly after detection
+      const prediction = engine.predict(frameTs + 50)
+      expect(prediction).not.toBeNull()
+      
+      const state = engine.getState()
+      expect(state.trackState).toBe('PREDICTED')
+      expect(state.trackAge).toBe(50)
+    })
+
+    it('should return null after TTL expires', () => {
+      const frameTs = 1000
+      
+      engine.update(0.5, 0.4, frameTs)
+      
+      // Predict after TTL
+      const prediction = engine.predict(frameTs + KALMAN_CONFIG.predictionTtlMs + 100)
+      expect(prediction).toBeNull()
+      
+      const state = engine.getState()
+      expect(state.trackState).toBe('LOST')
+    })
+
+    it('should recover tracking after outlier rejection', () => {
+      const frameTs = 1000
+      
+      // Establish tracking
+      engine.update(0.5, 0.4, frameTs)
+      
+      // Outlier
+      engine.update(0.9, 0.8, frameTs + 16)
+      
+      // Valid detection near prediction
+      const result = engine.update(0.51, 0.41, frameTs + 32)
+      
+      expect(result.x).toBeCloseTo(0.51, 2)
+      const state = engine.getState()
+      expect(state.trackState).toBe('DETECTED')
+    })
+
+    it('should NOT update ballLastSeenAt on outlier - TTL based on last accepted detection', () => {
+      const frameTs = 1000
+      
+      // Establish tracking with valid detection
+      engine.update(0.5, 0.4, frameTs)
+      
+      // Send multiple outliers over time
+      engine.update(0.9, 0.8, frameTs + 16)  // Outlier
+      engine.update(0.1, 0.1, frameTs + 32)  // Outlier
+      engine.update(0.95, 0.9, frameTs + 48) // Outlier
+      
+      // Predict after TTL from the LAST ACCEPTED detection (frameTs)
+      // The outliers should NOT extend the TTL
+      const prediction = engine.predict(frameTs + KALMAN_CONFIG.predictionTtlMs + 100)
+      
+      // Should be null because TTL is measured from last ACCEPTED detection, not last update
+      expect(prediction).toBeNull()
+      
+      const state = engine.getState()
+      expect(state.trackState).toBe('LOST')
+    })
+  })
+
+  describe('Velocity Calculation', () => {
+    it('should calculate velocity correctly from consecutive detections', () => {
       const frameTs = 1000
       
       engine.update(0.5, 0.4, frameTs)
@@ -52,52 +194,36 @@ describe('BallTrackingEngine', () => {
       expect(velocity!.vx).toBeGreaterThan(0)  // Moving right
       expect(velocity!.vy).toBeLessThan(0)    // Moving up
     })
-  })
 
-  describe('Kalman Predict', () => {
-    it('should predict position based on last velocity', () => {
+    it('should preserve velocity during outlier rejection', () => {
       const frameTs = 1000
       
       engine.update(0.5, 0.4, frameTs)
       engine.update(0.6, 0.3, frameTs + 16)
       
-      const prediction = engine.predict(frameTs + 32)
-      expect(prediction).not.toBeNull()
+      const velocityBefore = engine.getVelocity()
       
-      // Prediction should continue in direction of velocity
-      expect(prediction!.x).toBeGreaterThan(0.6)
-      expect(prediction!.y).toBeLessThan(0.3)
-    })
-
-    it('should return null after TTL expires', () => {
-      const frameTs = 1000
-      const BALL_TRACK_TTL_MS = 500
+      // Outlier - velocity should be preserved
+      engine.update(0.9, 0.8, frameTs + 32)
       
-      engine.update(0.5, 0.4, frameTs)
-      
-      // Predict before TTL
-      const prediction1 = engine.predict(frameTs + 100)
-      expect(prediction1).not.toBeNull()
-      
-      // Predict after TTL
-      const prediction2 = engine.predict(frameTs + BALL_TRACK_TTL_MS + 100)
-      expect(prediction2).toBeNull()
+      const velocityAfter = engine.getVelocity()
+      expect(velocityAfter!.vx).toBeCloseTo(velocityBefore!.vx, 2)
+      expect(velocityAfter!.vy).toBeCloseTo(velocityBefore!.vy, 2)
     })
   })
 
   describe('State Management', () => {
-    it('should track state correctly', () => {
+    it('should maintain raw detection separately', () => {
       const frameTs = 1000
       
-      const state1 = engine.getState()
-      expect(state1.trackState).toBe('LOST')
-      
       engine.update(0.5, 0.4, frameTs)
+      engine.setRawDetection(0.5, 0.4, 0.1, 0.1, 0.95)
       
-      const state2 = engine.getState()
-      expect(state2.trackState).toBe('DETECTED')
-      expect(state2.ballPosition).not.toBeNull()
-      expect(state2.ballPosition!.x).toBeCloseTo(0.5, 6)
+      const state = engine.getState()
+      expect(state.ballPositionRaw).toEqual({ x: 0.5, y: 0.4 })
+      expect(state.ballWidth).toBe(0.1)
+      expect(state.ballHeight).toBe(0.1)
+      expect(state.confidence).toBe(0.95)
     })
 
     it('should reset correctly', () => {
@@ -112,17 +238,25 @@ describe('BallTrackingEngine', () => {
       expect(state.ballPosition).toBeNull()
       expect(state.ballVelocity).toBeNull()
       expect(state.trackState).toBe('LOST')
+      expect(state.ballRejectionReason).toBe('')
     })
   })
 
   describe('Callback Integration', () => {
-    it('should call onBallDetected callback', () => {
+    it('should call onBallDetected only for valid detections', () => {
       const onBallDetected = jest.fn()
       engine = new BallTrackingEngine({ onBallDetected })
       
       engine.update(0.5, 0.4, 1000)
-      
       expect(onBallDetected).toHaveBeenCalledTimes(1)
+      
+      // Outlier should not trigger callback
+      engine.update(0.9, 0.8, 1016)
+      expect(onBallDetected).toHaveBeenCalledTimes(1)
+      
+      // Valid detection should trigger callback
+      engine.update(0.51, 0.41, 1032)
+      expect(onBallDetected).toHaveBeenCalledTimes(2)
     })
 
     it('should call onBallPrediction callback', () => {
@@ -135,31 +269,38 @@ describe('BallTrackingEngine', () => {
       expect(onBallPrediction).toHaveBeenCalled()
     })
 
-    it('should call onBallTrackingExpired callback after TTL', () => {
+    it('should call onBallTrackingExpired after TTL', () => {
       const onBallTrackingExpired = jest.fn()
       engine = new BallTrackingEngine({ onBallTrackingExpired })
       
       engine.update(0.5, 0.4, 1000)
-      engine.predict(2000)  // Well past TTL
+      engine.predict(2000)
       
       expect(onBallTrackingExpired).toHaveBeenCalled()
     })
   })
 
-  describe('Equivalence with Legacy', () => {
-    it('should match legacy Kalman behavior for simple case', () => {
-      // This test verifies the engine matches the legacy implementation
-      // Reference: useTrackingEngine.ts kalmanUpdate logic
+  describe('Adaptive Gain Behavior', () => {
+    it('should use perfect gain for very close detections', () => {
       const frameTs = 1000
-      const x = 0.5
-      const y = 0.4
       
-      const result = engine.update(x, y, frameTs)
+      engine.update(0.5, 0.4, frameTs)
+      const result = engine.update(0.501, 0.401, frameTs + 16)
       
-      // With INITIAL_KALMAN px=0.1, py=0.1, mx=0.5, my=0.5
-      // First update should weight the measurement moderately
-      expect(result.x).toBeCloseTo(x, 2)
-      expect(result.y).toBeCloseTo(y, 2)
+      // Distance is very small, should use perfect gain (0.95)
+      expect(result.x).toBeCloseTo(0.501, 2)
+    })
+
+    it('should use good gain for moderately close detections', () => {
+      const frameTs = 1000
+      
+      engine.update(0.5, 0.4, frameTs)
+      engine.update(0.6, 0.3, frameTs + 16)
+      
+      // Moderate distance, should use good gain (0.85)
+      const result = engine.update(0.65, 0.25, frameTs + 32)
+      expect(result.x).toBeGreaterThan(0.6)
+      expect(result.x).toBeLessThan(0.65)
     })
   })
 })

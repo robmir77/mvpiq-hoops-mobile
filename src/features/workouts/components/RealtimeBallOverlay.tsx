@@ -153,7 +153,7 @@ const RealtimeBallOverlay = React.memo(({
     // Ball color based on tracking state
     const ballColor = useDerivedValue(() => {
         const state = sharedValues?.ballTrackState?.value ?? 'LOST'
-        if (state === 'DETECTED') return '#FF9800' // Orange
+        if (state === 'DETECTED') return '#FFEB3B' // Yellow
         if (state === 'PREDICTED') return '#F44336' // Red
         return '#F44336' // Red (LOST)
     })
@@ -245,13 +245,13 @@ const RealtimeBallOverlay = React.memo(({
     
     const hoopColor = useDerivedValue(() => {
         const state = sharedValues?.rimTrackState?.value ?? 'LOST'
-        if (state === 'DETECTED') return '#FF9800' // Orange
+        if (state === 'DETECTED') return '#22c55e' // Green
         if (state === 'PREDICTED') return '#F44336' // Red
         return '#F44336' // Red (LOST)
     })
     const hoopFillColor = useDerivedValue(() => {
         const state = sharedValues?.rimTrackState?.value ?? 'LOST'
-        if (state === 'DETECTED') return 'rgba(255,152,0,0.18)' // Orange
+        if (state === 'DETECTED') return 'rgba(34,197,94,0.18)' // Green
         if (state === 'PREDICTED') return 'rgba(244,67,54,0.18)' // Red
         return 'rgba(244,67,54,0.18)' // Red (LOST)
     })

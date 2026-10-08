@@ -136,7 +136,7 @@ WorkoutSessionRuntime
 - ✅ Policy YOLO bbox + MoveNet pose implementata (YOLO = coarse bbox, MoveNet = articulated/precise position)
 - ✅ PlayerDetection integrato via TrackingEngine.processFrame() (ottavo parametro)
 - ✅ Test TrackingEngine.test.ts per PlayerDetection aggiunti
-- ✅ Kalman filter ottimizzato come filtro outlier (px/py: 0.02, mx/my: 0.8, dt: 0.02) - CONFIGURAZIONE DEFINITIVA
+- ✅ Kalman filter v2 implementato con adaptive gain + outlier detection - CONFIGURAZIONE DEFINITIVA
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -225,10 +225,67 @@ Shot Analysis + Basketball Logic
 ```
 Target: Ball
 Detection: YOLO
-Tracking: Kalman prediction
-TTL: 500 ms
-Fallback: Prediction durante gap YOLO
-Stati: DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
+Tracking: Kalman v2 (adaptive gain + outlier detection)
+TTL: 150 ms (configurable via KALMAN_CONFIG.predictionTtlMs)
+```
+
+**Kalman v2 Architecture:**
+Il filtro Kalman v2 è stato completamente ridisegnato per il rilevamento del tiro, sostituendo l'approccio di smoothing tradizionale con un sistema intelligente basato su:
+1. **Prediction** - Predizione della posizione basata su velocità
+2. **Outlier Gate** - Rilevamento di anomalie basato su distanza e velocità
+3. **Adaptive Gain** - Gain adattivo che segue YOLO quando è affidabile
+
+**Algoritmo Kalman v2:**
+```
+Step 1: Prediction
+  predX = x + vx * dt
+  predY = y + vy * dt
+
+Step 2: Innovation (distance from prediction)
+  distance = sqrt((measX - predX)² + (measY - predY)²)
+
+Step 3: Adaptive Tolerance (velocity-based)
+  tolerance = minOutlierDistance + (velocity * velocityTolerance * dt)
+  - minOutlierDistance: 0.025 (toleranza minima)
+  - velocityTolerance: 0.8 (fattore velocità)
+  - Durante tiri veloci, la tolleranza aumenta proporzionalmente alla velocità
+
+Step 4: Outlier Gate + Adaptive Gain
+  if isFirstDetection:
+    ACCEPT (initialize tracking) → gain = 0.95
+  else if distance > tolerance:
+    REJECT (outlier) → gain = 0
+  else:
+    ratio = distance / tolerance
+    if ratio < 0.2:   gain = 0.95 (perfect detection)
+    if ratio < 0.5:   gain = 0.85 (good detection)
+    if ratio < 0.8:   gain = 0.60 (noisy detection)
+    else:            gain = 0.30 (near threshold)
+
+Step 5: Update State
+  if outlier:
+    x = predX (use prediction only)
+    velocity unchanged
+  else:
+    x = predX + gain * (measX - predX)
+    velocity = (x - predX) / dt
+```
+
+**Comportamento Kalman v2:**
+- **Detection perfetta** (distanza < 20% tolleranza): 95% gain → segue YOLO quasi istantaneamente
+- **Detection buona** (distanza < 50% tolleranza): 85% gain → segue YOLO con smoothing minimo
+- **Detection rumorosa** (distanza < 80% tolleranza): 60% gain → smoothing moderato
+- **Outlier** (distanza >= 100% tolleranza): 0% gain → ignora detection, usa predizione
+
+**Vantaggi rispetto a Kalman v1:**
+- **Reattività immediata** a detection valide (95% gain vs 2.4% gain v1)
+- **Outlier detection** basata su velocità (accetta movimenti rapidi durante tiri)
+- **Nessun smoothing progressivo** (px non diminuisce, gain stabile nel tempo)
+- **ballPositionRaw** mantenuto separato per debugging
+- **ballRejectionReason** dettagliato con distance e tolerance
+
+**Fallback:** Prediction durante gap YOLO
+**Stati:** DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
 ```
 
 **Player Tracking Policy:**
@@ -407,7 +464,7 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | PlayerDetection integration | ✅ | onPlayerDetection callback aggiunto, fluisce nel nuovo percorso Runtime (Fase 4.4 completata) |
 | PlayerDetection parameter | ✅ | TrackingEngine.processFrame() accetta playerDetection come ottavo parametro (Fase 6 completata) |
 | PlayerDetection tests | ✅ | TrackingEngine.test.ts aggiunti per YOLO + MoveNet integration (Fase 6 completata) |
-| Kalman filter optimization | ✅ | Filtro outlier: px/py 0.02, mx/my 0.8, dt 0.02 (CONFIGURAZIONE DEFINITIVA) |
+| Kalman filter optimization | ✅ | Kalman v2: adaptive gain + outlier detection (prediction → outlier gate → adaptive gain) - CONFIGURAZIONE DEFINITIVA |
 | Performance audit (Decision 28) | ✅ | Telemetry A→F con P50/P95/P99, Kalman analysis completata, schedule wait identificato come principale collo di bottiglia |
 | Legacy useShotTracker disable (Decision 29) | ✅ | REVERTATA - Flag runtimeActive rimosso dal frame processor, useShotTracker continua a eseguire quando Runtime è attivo (VisionEngineAdapter non esegue inferenza, solo forward risultati) |
 

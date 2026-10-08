@@ -12,6 +12,22 @@ export interface BallVelocity {
   vy: number
 }
 
+export interface KalmanDebugInfo {
+  rawX: number
+  rawY: number
+  predX: number
+  predY: number
+  distance: number
+  tolerance: number
+  gain: number
+  filteredX: number
+  filteredY: number
+  vx: number
+  vy: number
+  accepted: boolean
+  dt: number
+}
+
 export interface BallTrackingState {
   ballPosition: BallPosition | null
   ballPositionRaw: BallPosition | null
@@ -22,6 +38,7 @@ export interface BallTrackingState {
   ballRejectionReason: string
   trackState: 'DETECTED' | 'PREDICTED' | 'LOST'
   trackAge: number
+  kalmanDebug?: KalmanDebugInfo | null
 }
 
 export interface KalmanState {
@@ -29,10 +46,6 @@ export interface KalmanState {
   y: number
   vx: number
   vy: number
-  px: number
-  py: number
-  mx: number
-  my: number
 }
 
 export const INITIAL_KALMAN: KalmanState = {
@@ -40,10 +53,30 @@ export const INITIAL_KALMAN: KalmanState = {
   y: 0,
   vx: 0,
   vy: 0,
-  px: 0.02,    // Very low confidence in prediction - minimal prediction influence
-  py: 0.02,    // Very low confidence in prediction - minimal prediction influence
-  mx: 0.8,     // Very high confidence in measurements - trust YOLO detections heavily
-  my: 0.8,     // Very high confidence in measurements - trust YOLO detections heavily
+}
+
+// Kalman v2 Configuration - Adaptive gain + outlier detection
+export const KALMAN_CONFIG = {
+  // Minimum outlier distance (normalized coordinates)
+  minOutlierDistance: 0.025,
+
+  // How much tolerance increases with velocity
+  velocityTolerance: 1.2,
+
+  // How long to predict without detection (ms)
+  predictionTtlMs: 150,
+
+  // Adaptive gain thresholds
+  // Distance as fraction of tolerance threshold
+  perfectDetectionRatio: 0.2,   // < 20% of threshold → 95% gain
+  goodDetectionRatio: 0.5,     // < 50% of threshold → 85% gain
+  noisyDetectionRatio: 0.8,    // < 80% of threshold → 60% gain
+  // >= 100% of threshold → outlier (0% gain)
+
+  // Corresponding gains
+  perfectGain: 0.95,
+  goodGain: 0.85,
+  noisyGain: 0.6,
 }
 
 export const INITIAL_BALL_TRACKING_STATE: BallTrackingState = {
@@ -56,4 +89,5 @@ export const INITIAL_BALL_TRACKING_STATE: BallTrackingState = {
   ballRejectionReason: '',
   trackState: 'LOST',
   trackAge: 0,
+  kalmanDebug: null,
 }

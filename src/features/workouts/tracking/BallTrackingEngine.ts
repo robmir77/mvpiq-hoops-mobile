@@ -9,9 +9,9 @@ import type {
   BallTrackingState,
   KalmanState,
 } from './BallTrackingState'
-import { INITIAL_KALMAN } from './BallTrackingState'
+import { INITIAL_KALMAN, KALMAN_CONFIG } from './BallTrackingState'
 
-const BALL_TRACK_TTL_MS = 500
+const BALL_TRACK_TTL_MS = KALMAN_CONFIG.predictionTtlMs
 
 interface BallTrackingCallbacks {
   onBallDetected?: () => void
@@ -26,6 +26,7 @@ export class BallTrackingEngine {
   private ballTrackingValid = false
   private lastBallWasDetected = false
   private callbacks?: BallTrackingCallbacks
+  private enableKalmanDebug = false // Temporary diagnostic flag
 
   // Pure state (no SharedValue)
   private state: BallTrackingState = {
@@ -40,49 +41,205 @@ export class BallTrackingEngine {
     trackAge: 0,
   }
 
-  constructor(callbacks?: BallTrackingCallbacks) {
+  constructor(callbacks?: BallTrackingCallbacks, enableKalmanDebug = false) {
     this.callbacks = callbacks
+    this.enableKalmanDebug = enableKalmanDebug
   }
 
-  // Kalman update (from useTrackingEngine lines 149-167)
+  setKalmanDebug(enabled: boolean): void {
+    this.enableKalmanDebug = enabled
+  }
+
+  // Kalman v2 update with adaptive gain and outlier detection
   update(measX: number, measY: number, frameTs: number): BallPosition {
     const k = this.kalman
-    const dt = Math.max(0.0001, Math.min(0.02, (frameTs - this.lastFrameTs) / 1000))
 
+    // First detection: initialize position, do NOT calculate velocity
+    if (!this.ballTrackingValid) {
+      k.x = measX
+      k.y = measY
+      k.vx = 0
+      k.vy = 0
+
+      this.lastFrameTs = frameTs
+      this.ballLastSeenAt = frameTs
+      this.ballTrackingValid = true
+      this.lastBallWasDetected = true
+
+      this.state.ballPosition = { x: measX, y: measY }
+      this.state.ballPositionRaw = { x: measX, y: measY }
+      this.state.ballVelocity = { vx: 0, vy: 0 }
+      this.state.ballRejectionReason = ''
+      this.state.trackState = 'DETECTED'
+      this.state.trackAge = 0
+
+      this.callbacks?.onBallDetected?.()
+
+      return { x: measX, y: measY }
+    }
+
+    const dt = Math.max(
+      0.001,
+      Math.min(0.1, (frameTs - this.lastFrameTs) / 1000)
+    )
+
+    // Prediction
     const predX = k.x + k.vx * dt
     const predY = k.y + k.vy * dt
 
-    const gx = k.px / (k.px + k.mx)
-    const gy = k.py / (k.py + k.my)
+    const dx = measX - predX
+    const dy = measY - predY
 
-    k.x = predX + gx * (measX - predX)
-    k.y = predY + gy * (measY - predY)
-    k.vx = (k.x - predX) / dt
-    k.vy = (k.y - predY) / dt
-    k.px = (1 - gx) * k.px
-    k.py = (1 - gy) * k.py
+    const distance = Math.sqrt(dx * dx + dy * dy)
+
+    const velocity = Math.sqrt(
+      k.vx * k.vx +
+      k.vy * k.vy
+    )
+
+    const tolerance =
+      KALMAN_CONFIG.minOutlierDistance +
+      velocity * KALMAN_CONFIG.velocityTolerance * dt
+
+    // Outlier
+    if (distance > tolerance) {
+      k.x = predX
+      k.y = predY
+
+      this.lastFrameTs = frameTs
+      // DO NOT update ballLastSeenAt on outlier - only on accepted detections
+      // this.ballLastSeenAt = frameTs
+
+      this.state.ballPosition = {
+        x: k.x,
+        y: k.y,
+      }
+
+      this.state.ballVelocity = {
+        vx: k.vx,
+        vy: k.vy,
+      }
+
+      this.state.ballRejectionReason =
+        `Outlier: distance=${distance.toFixed(3)} > tolerance=${tolerance.toFixed(3)}`
+
+      this.state.trackState = 'PREDICTED'
+      this.state.trackAge = 0
+
+      if (this.enableKalmanDebug) {
+        this.state.kalmanDebug = {
+          rawX: measX,
+          rawY: measY,
+          predX,
+          predY,
+          distance,
+          tolerance,
+          gain: 0,
+          filteredX: k.x,
+          filteredY: k.y,
+          vx: k.vx,
+          vy: k.vy,
+          accepted: false,
+          dt,
+        }
+      }
+
+      return {
+        x: k.x,
+        y: k.y,
+      }
+    }
+
+    // Detection accepted
+    const ratio = tolerance > 0
+      ? distance / tolerance
+      : 0
+
+    let gain = KALMAN_CONFIG.noisyGain
+
+    if (ratio < KALMAN_CONFIG.perfectDetectionRatio) {
+      gain = KALMAN_CONFIG.perfectGain
+    } else if (ratio < KALMAN_CONFIG.goodDetectionRatio) {
+      gain = KALMAN_CONFIG.goodGain
+    }
+
+    // Correct position
+    const newX = predX + gain * dx
+    const newY = predY + gain * dy
+
+    // Observed velocity from accepted detection
+    const measuredVx = (newX - k.x) / dt
+    const measuredVy = (newY - k.y) / dt
+
+    // Smooth velocity, but stay reactive
+    const velocityAlpha = 0.75
+
+    k.vx =
+      k.vx * (1 - velocityAlpha) +
+      measuredVx * velocityAlpha
+
+    k.vy =
+      k.vy * (1 - velocityAlpha) +
+      measuredVy * velocityAlpha
+
+    k.x = newX
+    k.y = newY
 
     this.lastFrameTs = frameTs
     this.ballLastSeenAt = frameTs
-    this.ballTrackingValid = true
-    this.lastBallWasDetected = true
 
-    // Update pure state
-    this.state.ballPosition = { x: k.x, y: k.y }
-    this.state.ballPositionRaw = { x: measX, y: measY }
-    this.state.ballVelocity = { vx: k.vx, vy: k.vy }
+    this.state.ballPosition = {
+      x: k.x,
+      y: k.y,
+    }
+
+    this.state.ballPositionRaw = {
+      x: measX,
+      y: measY,
+    }
+
+    this.state.ballVelocity = {
+      vx: k.vx,
+      vy: k.vy,
+    }
+
+    this.state.ballRejectionReason = ''
     this.state.trackState = 'DETECTED'
     this.state.trackAge = 0
 
+    if (this.enableKalmanDebug) {
+      this.state.kalmanDebug = {
+        rawX: measX,
+        rawY: measY,
+        predX,
+        predY,
+        distance,
+        tolerance,
+        gain,
+        filteredX: newX,
+        filteredY: newY,
+        vx: k.vx,
+        vy: k.vy,
+        accepted: true,
+        dt,
+      }
+    }
+
     this.callbacks?.onBallDetected?.()
 
-    return { x: k.x, y: k.y }
+    return {
+      x: k.x,
+      y: k.y,
+    }
   }
 
   // Kalman predict (from useTrackingEngine lines 169-189)
   predict(frameTs: number): BallPosition | null {
     const k = this.kalman
-    const dt = Math.max(0.0001, Math.min(0.02, (frameTs - this.lastFrameTs) / 1000))
+    const dt = Math.max(
+      0.001,
+      Math.min(0.1, (frameTs - this.lastFrameTs) / 1000)
+    )
 
     const ageMs = frameTs - this.ballLastSeenAt
     if (ageMs > BALL_TRACK_TTL_MS) {
@@ -136,6 +293,7 @@ export class BallTrackingEngine {
   reset(): void {
     this.kalman = { ...INITIAL_KALMAN }
     this.lastFrameTs = 0
+    this.ballLastSeenAt = Date.now()
     this.ballTrackingValid = false
     this.state = {
       ballPosition: null,
@@ -147,6 +305,7 @@ export class BallTrackingEngine {
       ballRejectionReason: '',
       trackState: 'LOST',
       trackAge: 0,
+      kalmanDebug: null,
     }
   }
 }
