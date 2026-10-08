@@ -9,6 +9,7 @@ useTrackingEngine.ts (legacy)
 ├── Kalman filtering → BallTrackingEngine
 ├── Ball tracking (TTL) → BallTrackingEngine
 ├── Trajectory management → BallTrackingEngine
+├── Trajectory analysis (palleggio/tiro) → BallTrajectoryAnalyzer (NUOVO)
 ├── Player tracking → PlayerTrackingEngine
 ├── Spatial constraint → useTrackingEngine (coordination)
 ├── Dribble filter → ShotDetectionEngine
@@ -155,6 +156,79 @@ private getTrajectory(): TrajectoryPoint[] {
 - `BALL_TRACK_TTL_MS = 500` ✓
 - `MAX_POINTS = 90` ✓
 - `INITIAL_KALMAN` ✓
+
+## 1.5 BallTrajectoryAnalyzer Mapping (NUOVO)
+
+### Legacy: Trajectory Analysis (lines 466-497)
+```typescript
+// useTrackingEngine.ts
+const MIN_RISING_FRAMES = 3
+const MIN_ARC_HEIGHT = 0.08
+const SHOT_LAUNCH_THRESHOLD = 1.5
+const MIN_TRAJECTORY_FRAMES = 4
+
+const risingFrames = useRef<number>(0)
+const flightStartY = useRef<number>(1.0)
+
+if (vel && ball) {
+    const isRising = vel.vy < -SHOT_LAUNCH_THRESHOLD
+    if (isRising) {
+        risingFrames.current++
+        if (risingFrames.current === 1) {
+            flightStartY.current = ball.y
+        }
+    } else {
+        risingFrames.current = 0
+    }
+    if (!inFlightRef.current && risingFrames.current >= MIN_RISING_FRAMES) {
+        const arcSoFar = flightStartY.current - ball.y
+        if (arcSoFar >= MIN_ARC_HEIGHT && trajectoryCount.current >= MIN_TRAJECTORY_FRAMES) {
+            inFlightRef.current = true
+            current.releasePoint = { x: ball.x, y: ball.y }
+        }
+    }
+}
+```
+
+### BallTrajectoryAnalyzer: Motion State Classification
+```typescript
+// BallTrajectoryAnalyzer.ts
+enum BallMotionState {
+  IDLE = 'IDLE',
+  DRIBBLE = 'DRIBBLE',
+  SHOT_CANDIDATE = 'SHOT_CANDIDATE',
+  SHOT_ASCENDING = 'SHOT_ASCENDING',
+  SHOT_APEX = 'SHOT_APEX',
+  SHOT_DESCENDING = 'SHOT_DESCENDING',
+}
+
+const TRAJECTORY_CONFIG = {
+  motionWindowMs: 500,
+  ascendingThreshold: -0.005,
+  descendingThreshold: 0.005,
+  minSpeed: 0.01,
+  maxDirectionChanges: 3,
+  minAscentDuration: 200,
+  maxPointJump: 0.15,
+  releaseAscendingThreshold: -0.01,
+}
+
+// Classificazione basata su:
+// - Motion window trimming (500ms)
+// - Direction changes tracking (max 3 prima di DRIBBLE)
+// - Alternating motion detection (su-giù-su-giù)
+// - Ascent duration tracking (min 200ms per SHOT_CANDIDATE)
+// - Release detection (dy < threshold con ascesa continuata)
+// - Apex detection (minimo Y nella finestra)
+```
+
+**Status**: ✓ Nuovo componente (non presente in legacy)
+
+**Note:**
+- BallTrajectoryAnalyzer è un nuovo componente ispirato a TrajectoryService del backend
+- Non sostituisce logica legacy, ma aggiunge un layer di analisi semantica sopra BallTrackingEngine
+- Il dribble filter legacy in ShotDetectionEngine rimane per compatibilità
+- BallTrajectoryAnalyzer può essere integrato in futuro per sostituire il dribble filter legacy
 
 ## 2. PlayerTrackingEngine Mapping
 

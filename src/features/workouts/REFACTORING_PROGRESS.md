@@ -326,6 +326,39 @@ features/workouts/
 - Nuovi log: [PLAYER][FLOW] e [PLAYER][AGE_BUCKETS]
 - Dati per decisione futura su TTL
 
+**4.6.12: BallTrajectoryAnalyzer Implementation ✓ (Fase 5)**
+- Creato BallTrajectoryAnalyzer.ts per separazione palleggio/tiro
+- Stati del movimento: IDLE, DRIBBLE, SHOT_CANDIDATE, SHOT_ASCENDING, SHOT_APEX, SHOT_DESCENDING
+- Logica di classificazione basata su:
+  - Motion window temporale (500ms)
+  - Vertical direction (vy)
+  - Speed threshold
+  - Direction changes (max 3 prima di DRIBBLE)
+  - Alternating motion detection
+  - Ascent duration (min 200ms per SHOT_CANDIDATE)
+- findReleaseCandidate() ispirato a TrajectoryService.stabilizeReleaseFrame() del backend
+- findApexCandidate() ispirato a TrajectoryService.findApexIndex() del backend
+- Configurazione TRAJECTORY_CONFIG centralizzata
+- Test completi: BallTrajectoryAnalyzer.test.ts (14/14 passati)
+- Architettura: BallTrackingEngine → BallTrajectoryAnalyzer → ShotDetectionEngine
+- Export aggiornati in tracking/index.ts
+
+**4.6.13: Kalman Semantica Correction + Debug ✓ (Fase 5)**
+- Correzione semantica ballLastSeenAt: aggiornato solo su detection accettate, non su outlier
+- TTL di 150ms misura il tempo dall'ultima detection accettata, non dall'ultima chiamata update()
+- Aggiunto KalmanDebugInfo per diagnostica temporanea:
+  - rawX, rawY (detection grezza)
+  - predX, predY (predizione Kalman)
+  - distance (distanza predizione-detection)
+  - tolerance (outlier gate threshold)
+  - gain (adaptive gain applicato)
+  - vx, vy (velocità)
+  - accepted (boolean)
+  - dt (delta time)
+- Aggiunto flag enableKalmanDebug nel costruttore BallTrackingEngine
+- Aggiunto metodo setKalmanDebug() per toggle runtime
+- Test aggiunto per verificare TTL basato su ultima detection accettata
+
 **Architettura risultante (Single Path):**
 ```
 Camera

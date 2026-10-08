@@ -175,6 +175,7 @@ Shot Analysis + Basketball Logic
 - Apex detection
 - Shot quality metrics
 - Ball state management (DETECTED/PREDICTED/LOST)
+- **BallTrajectoryAnalyzer** - Separazione palleggio/tiro con stati IDLE, DRIBBLE, SHOT_CANDIDATE, SHOT_ASCENDING, SHOT_APEX, SHOT_DESCENDING
 
 ### Frame Scheduler
 
@@ -219,6 +220,57 @@ Shot Analysis + Basketball Logic
 - **cropMs misurato:** tempo crop CPU su JS thread
 - **quantizationMs misurato:** tempo conversione Float32 → uint8/int8 (~12 ms)
 
+### BallTrajectoryAnalyzer
+
+**Responsabilità:**
+- Separazione palleggio/tiro (motion state classification)
+- Detection release point (ispirato a TrajectoryService.stabilizeReleaseFrame del backend)
+- Detection apex (ispirato a TrajectoryService.findApexIndex del backend)
+- Motion window analysis (500ms)
+- Direction changes tracking
+- Vertical speed analysis
+
+**Stati del movimento:**
+- `IDLE` - Nessun tracking attivo
+- `DRIBBLE` - Palleggio (movimento breve/alternato, troppi cambi direzione)
+- `SHOT_CANDIDATE` - Ascesa coerente e prolungata (>200ms)
+- `SHOT_ASCENDING` - Release confermato, ascesa in corso
+- `SHOT_APEX` - Apice raggiunto
+- `SHOT_DESCENDING` - Discesa verso il ferro
+
+**Algoritmo di classificazione:**
+1. Motion window trimming (500ms)
+2. Direction changes tracking (max 3 prima di DRIBBLE)
+3. Alternating motion detection (su-giù-su-giù)
+4. Ascent duration tracking (min 200ms per SHOT_CANDIDATE)
+5. Release detection (dy < threshold con ascesa continuata)
+6. Apex detection (minimo Y nella finestra)
+
+**Configurazione (TRAJECTORY_CONFIG):**
+- motionWindowMs: 500
+- ascendingThreshold: -0.005
+- descendingThreshold: 0.005
+- minSpeed: 0.01
+- maxDirectionChanges: 3
+- minAscentDuration: 200
+- maxPointJump: 0.15
+- releaseAscendingThreshold: -0.01
+
+**Architettura:**
+```
+BallTrackingEngine (Kalman + outlier gate)
+  ↓
+BallTrajectoryAnalyzer (classificazione movimento)
+  ↓
+ShotDetectionEngine (shot logic)
+```
+
+**Ispirazione Backend:**
+- `TrajectoryService.stabilizeReleaseFrame()` → `findReleaseCandidate()`
+- `TrajectoryService.findApexIndex()` → `findApexCandidate()`
+- `TrajectoryService.extractFlightArc()` → da implementare (flight arc extraction)
+- `TrajectoryService.fitTrajectory()` → da implementare (quadratic fit)
+
 ### Tracking Policies
 
 **Ball Tracking Policy:**
@@ -227,6 +279,7 @@ Target: Ball
 Detection: YOLO
 Tracking: Kalman v2 (adaptive gain + outlier detection)
 TTL: 150 ms (configurable via KALMAN_CONFIG.predictionTtlMs)
+Trajectory Analysis: BallTrajectoryAnalyzer (motion state classification)
 ```
 
 **Kalman v2 Architecture:**
@@ -283,6 +336,8 @@ Step 5: Update State
 - **Nessun smoothing progressivo** (px non diminuisce, gain stabile nel tempo)
 - **ballPositionRaw** mantenuto separato per debugging
 - **ballRejectionReason** dettagliato con distance e tolerance
+- **ballLastSeenAt semantica corretta**: aggiornato solo su detection accettate, non su outlier
+- **KalmanDebugInfo**: diagnostica temporanea (raw, pred, distance, tolerance, gain, vx/vy, accepted, dt)
 
 **Fallback:** Prediction durante gap YOLO
 **Stati:** DETECTED (🟠), PREDICTED (🔴), LOST (🔴)
@@ -465,8 +520,10 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | PlayerDetection parameter | ✅ | TrackingEngine.processFrame() accetta playerDetection come ottavo parametro (Fase 6 completata) |
 | PlayerDetection tests | ✅ | TrackingEngine.test.ts aggiunti per YOLO + MoveNet integration (Fase 6 completata) |
 | Kalman filter optimization | ✅ | Kalman v2: adaptive gain + outlier detection (prediction → outlier gate → adaptive gain) - CONFIGURAZIONE DEFINITIVA |
+| BallTrajectoryAnalyzer | ✅ | Separazione palleggio/tiro con stati IDLE/DRIBBLE/SHOT_CANDIDATE/SHOT_ASCENDING/SHOT_APEX/SHOT_DESCENDING - ispirato a TrajectoryService del backend |
 | Performance audit (Decision 28) | ✅ | Telemetry A→F con P50/P95/P99, Kalman analysis completata, schedule wait identificato come principale collo di bottiglia |
 | Legacy useShotTracker disable (Decision 29) | ✅ | REVERTATA - Flag runtimeActive rimosso dal frame processor, useShotTracker continua a eseguire quando Runtime è attivo (VisionEngineAdapter non esegue inferenza, solo forward risultati) |
+| BallTrajectoryAnalyzer implementation | ✅ | Nuovo componente per separazione palleggio/tiro - stati IDLE/DRIBBLE/SHOT_CANDIDATE/SHOT_ASCENDING/SHOT_APEX/SHOT_DESCENDING - ispirato a TrajectoryService del backend (stabilizeReleaseFrame, findApexIndex) |
 
 ## Async Queue & Critical Events
 

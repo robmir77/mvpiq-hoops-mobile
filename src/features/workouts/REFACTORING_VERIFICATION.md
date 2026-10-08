@@ -28,6 +28,9 @@
 | **Player Detection** | playerDetection parameter | TrackingEngine.ts, useTrackingEngine.ts | Ottavo parametro aggiunto a processFrame() | playerDetection fluisce nel nuovo percorso | ✅ COMPLETATO | Fase 4.4 completata |
 | **Player Detection** | Test PlayerDetection aggiunti | tracking/__tests__/TrackingEngine.test.ts | Test per YOLO + MoveNet integration | Test aggiunti | ✅ COMPLETATO | Fase 4.4 completata |
 | **Kalman Filter** | Kalman v2: adaptive gain + outlier detection | BallTrackingState.ts, BallTrackingEngine.ts, BallTrackingEngine.test.ts | KALMAN_CONFIG con adaptive gain (0.95/0.85/0.60) + velocity-based outlier detection | Parametri aggiornati - CONFIGURAZIONE DEFINITIVA | ✅ COMPLETATO | Fase 4.5 completata |
+| **Kalman Semantica** | ballLastSeenAt aggiornato solo su detection accettate | BallTrackingEngine.ts:129-145 | Rimosso aggiornamento ballLastSeenAt nel ramo outlier | TTL basato su ultima detection accettata, non su ogni update() | ✅ COMPLETATO | Correzione semantica |
+| **Kalman Debug** | KalmanDebugInfo per diagnostica temporanea | BallTrackingState.ts:15-42, BallTrackingEngine.ts:99-105 | Interfaccia KalmanDebugInfo + kalmanDebug nello stato + enableKalmanDebug flag | Diagnostica raw/pred/distance/tolerance/gain/vx/vy/accepted/dt | ✅ COMPLETATO | Debug temporaneo |
+| **BallTrajectoryAnalyzer** | Separazione palleggio/tiro | BallTrajectoryAnalyzer.ts, BallTrajectoryAnalyzer.test.ts | Stati IDLE/DRIBBLE/SHOT_CANDIDATE/SHOT_ASCENDING/SHOT_APEX/SHOT_DESCENDING + motion window + direction changes + release/apex detection | Ispirato a TrajectoryService del backend (stabilizeReleaseFrame, findApexIndex) | ✅ COMPLETATO | Nuovo componente |
 
 ## Problemi Critici Identificati
 
