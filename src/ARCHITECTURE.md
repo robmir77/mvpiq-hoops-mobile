@@ -124,6 +124,7 @@ WorkoutSessionRuntime
 - Fase 6 COMPLETATA (test PlayerDetection aggiunti, Kalman filter ottimizzato)
 - Decision 31 COMPLETATA (MoveNet bbox corrente - strict current policy)
 - Decision 32 COMPLETATA (Player stability threshold correction + telemetria granulare)
+- Fase 1 ShotEvent COMPLETATA (correzioni P0/P1 - idempotenza, persistenza, posa grezza, UNCERTAIN, percorso unico)
 
 **Stato integrazione:**
 - ✅ Vision collegata via VisionEngineAdapter
@@ -137,6 +138,10 @@ WorkoutSessionRuntime
 - ✅ PlayerDetection integrato via TrackingEngine.processFrame() (ottavo parametro)
 - ✅ Test TrackingEngine.test.ts per PlayerDetection aggiunti
 - ✅ Kalman filter v2 implementato con adaptive gain + outlier detection - CONFIGURAZIONE DEFINITIVA
+- ✅ ShotEvent idempotenza: shotId generato in TrackingEngine, check processedShotIds/pendingShotIds in Runtime
+- ✅ Posa grezza: ShotEventBuilder.addPoseFrame() alimentato da MoveNet in Runtime.processFrame()
+- ✅ UNCERTAIN: callback supporta UNCERTAIN, ShotEventBuilder normalizza AIRBALL/BLOCKED
+- ✅ Percorso unico: tiri automatici e manuali usano ShotEventBuilder
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -511,8 +516,12 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Duplicazione loadAllPendingAndMerge | ✅ | Deduplica per ID implementata |
 | Telemetry batching garantito | ✅ | Accumulation window 250ms implementata |
 | Inizializzazione queue prima camera | 🟡 | Queue inizializzata DOPO attivazione camera |
-| Gestione enqueueCritical false | 🟡 | UI non verifica return boolean per fallimento persistenza |
-| Shot detection single source | ✅ | Sistema unificato via TrackingEngine |
+| Gestione enqueueCritical false | ✅ | Runtime attende esito enqueue prima di aggiornare metriche (Fase 1 P0) |
+| Shot detection single source | ✅ | Sistema unificato via TrackingEngine + ShotEventBuilder (Fase 1 P0/P1) |
+| ShotEvent idempotenza | ✅ | shotId stabile generato in TrackingEngine, deduplicazione in outbox (Fase 1 P0) |
+| Posa grezza associata | ✅ | ShotEventBuilder.addPoseFrame() alimenta buffer durante sessione (Fase 1 P1) |
+| UNCERTAIN gestito | ✅ | Callback supporta UNCERTAIN, ShotEventBuilder normalizza AIRBALL/BLOCKED (Fase 1 P1) |
+| Percorso unico eventi | ✅ | Tiri automatici e manuali usano ShotEventBuilder (Fase 1 P1) |
 | Test coverage lifecycle UI | 🟡 | Buoni sui servizi, mancano test end-to-end UI |
 | Vision extraction YOLO/MoveNet | ✅ | Fase 1 completata, Fase 2 COMPLETATA, Fase 3 COMPLETATA, Fase 4 COMPLETATA (Runtime.processFrame() attivo) |
 | useShotTracker.ts legacy removal | ✅ | ShotDetector.ts rimosso completamente, handleShotEvent rimosso (Fase 5 completata) |

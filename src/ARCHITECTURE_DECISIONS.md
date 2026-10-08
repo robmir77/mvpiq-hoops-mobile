@@ -1356,6 +1356,70 @@ Camera → VisionEngine → Runtime.processFrame() → TrackingEngine → ShotDe
   - Fase 4.4: ✅ COMPLETATO (PlayerDetection integrato nel nuovo percorso - onPlayerDetection callback)
 - Fase 5: ✅ COMPLETATO (Legacy cleanup - ShotDetector.ts rimosso completamente, handleShotEvent rimosso)
 - Fase 6: ✅ COMPLETATO (test PlayerDetection aggiunti, Kalman filter ottimizzato)
+- Fase 1 ShotEvent: ✅ COMPLETATO (correzioni P0/P1 - idempotenza, persistenza, posa grezza, UNCERTAIN, percorso unico)
+
+---
+
+## Decision 33: ShotEvent Fase 1 - Correzioni P0/P1 (Idempotenza e Dati Completi)
+
+**Contesto:** L'audit della Fase 1 ha identificato problemi critici nell'implementazione ShotEvent:
+- P0: shotId non stabile (generato ogni volta in ShotEventBuilder)
+- P0: Runtime non attendeva esito persistenza prima di aggiornare metriche
+- P1: Posa grezza non alimentata (buffer vuoto)
+- P1: UNCERTAIN non gestito coerentemente nel callback
+- P1: Tiri manuali non usavano ShotEventBuilder (percorsi paralleli)
+
+**Decisione:**
+- **P0 - Identità stabile del tiro:**
+  - Aggiunto `shotId?: string` a `TrackingState`
+  - `TrackingEngine` genera UUID stabile quando rileva nuovo tiro (riga 283)
+  - `ShotEventBuilder` usa `trackingState.shotId` invece di generarne uno nuovo
+  - `resetShot()` resetta shotId per preparare prossimo tiro
+
+- **P0 - Verifica persistenza:**
+  - Aggiunto `pendingShotIds` per tracciare tiri in attesa di conferma
+  - `processedShotIds` traccia tiri salvati con successo
+  - `processFrame()` modificato a async per attendere esito `enqueueCritical()`
+  - Metrics aggiornate solo se `enqueueSuccess === true`
+  - Check idempotenza su entrambi i set prima di enqueue
+
+- **P1 - Posa grezza alimentata:**
+  - `Runtime.processFrame()` alimenta `ShotEventBuilder.addPoseFrame()` con dati MoveNet
+  - Buffer posa pulito dopo salvataggio tiro per evitare contaminazione
+
+- **P1 - UNCERTAIN gestito:**
+  - `SessionCallbacks.onShotDetected` accetta `'MADE' | 'MISS' | 'UNCERTAIN'`
+  - Rimosso cast non sicuro nel callback Runtime
+  - `ShotEventBuilder.normalizeShotResult()` converte AIRBALL/BLOCKED → UNCERTAIN
+
+- **P1 - Percorso unico:**
+  - `registerManualShot()` usa `ShotEventBuilder` invece di payload manuale
+  - Genera shotId stabile per tiri manuali
+  - Usa stesso pattern pending/processed per idempotenza
+
+**Rationale:**
+- Idempotenza critica: retry non deve duplicare conteggi
+- Verifica persistenza: tiro non contato se salvataggio fallisce
+- Posa grezza: dati biomeccanici associati al tiro per analisi
+- UNCERTAIN: gestisce casi ambigui (AIRBALL, BLOCKED)
+- Percorso unico: contratto coerente per tiri automatici e manuali
+
+**Conseguenze:**
+- shotId stabile garantisce deduplicazione corretta in outbox
+- Metrics affidabili (solo tiri salvati con successo)
+- Posa grezza disponibile per analisi biomeccanica
+- UNCERTAIN gestito coerentemente fino alla UI
+- Contratto unificato per tutti i tiri
+
+**File modificati:**
+- `src/features/workouts/types/workouts.types.ts` - aggiunto shotId a TrackingState
+- `src/features/workouts/tracking/TrackingEngine.ts` - generazione shotId + reset
+- `src/features/workouts/tracking/ShotEventBuilder.ts` - uso shotId esterno
+- `src/features/workouts/runtime/WorkoutSessionRuntime.ts` - verifica persistenza + posa + UNCERTAIN + unificazione
+- `src/features/workouts/runtime/WorkoutSessionRuntime.types.ts` - callback UNCERTAIN + firma async
+- `src/features/workouts/screens/WorkoutSessionScreen.tsx` - chiamate async con void
+
+**Stato:** ✅ COMPLETATO
 
 ---
 

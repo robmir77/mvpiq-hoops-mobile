@@ -1,6 +1,6 @@
 # Audit: Completamento Gestione Tiri
 **Data:** 2026-10-08
-**Fase:** Fase 0 - Audit
+**Fase:** Fase 1 - Correzioni P0/P1 Completate
 **Obiettivo:** Mappare lo stato attuale e identificare gap per implementare specifica completamento tiri
 
 ## 1. Tipi ShotEvent Esistenti
@@ -65,6 +65,7 @@ export interface TrackingState {
     hoopPosition: { x: number; y: number; width?: number; height?: number; confidence?: number } | null
     shotDetected: boolean
     shotResult: ShotResult | null
+    shotId?: string // ✅ Aggiunto: UUID stabile generato quando tiro rilevato
     trajectory: Array<{ x: number; y: number; t: number }>  // ✅ Esiste!
     confidence: number
     inFlight: boolean
@@ -79,6 +80,7 @@ export interface TrackingState {
 - ✅ `trajectory` esiste come array di punti con timestamp
 - ✅ `releasePoint` e `apexPoint` esistono
 - ✅ `inFlight` esiste per stato volo
+- ✅ `shotId` aggiunto per identità stabile del tiro (Fase 1 correzione P0)
 
 ### PoseKeypoints (linee 112-125)
 ```typescript
@@ -135,10 +137,10 @@ private trajectoryCount = 0
 - ✅ `resetShot()` e `resetAll()` per lifecycle
 
 **Gap:**
-- ❌ Nessuno stato UNCERTAIN
-- ❌ Nessun buffer per posa grezza
-- ❌ Nessun shotId generato
-- ❌ Nessuna associazione timestamp → posa frames
+- ✅ Nessuno stato UNCERTAIN (gestito da ShotEventBuilder.normalizeShotResult)
+- ✅ Nessun buffer per posa grezza (gestito da ShotEventBuilder.addPoseFrame)
+- ✅ Nessun shotId generato (generato in TrackingEngine quando rileva nuovo tiro)
+- ✅ Nessuna associazione timestamp → posa frames (gestito da ShotEventBuilder)
 
 ---
 
@@ -190,52 +192,161 @@ const shotTrailPath = useDerivedValue(() => {
 
 ### processFrame() - Shot detection (linee 186-205)
 ```typescript
+// Fase 1: Correzioni P0/P1 applicate
 if (trackingState?.shotDetected && trackingState?.shotResult) {
-  const publicResult = trackingState.shotResult === 'AIRBALL' ? 'MISS' : trackingState.shotResult
+  // Check idempotency: skip if this shotId was already processed or is pending
+  if (trackingState.shotId) {
+    if (this.processedShotIds.has(trackingState.shotId)) {
+      return
+    }
+    if (this.pendingShotIds.has(trackingState.shotId)) {
+      return
+    }
+  }
 
-  this.enqueueCritical({
+  // Use ShotEventBuilder to build complete payload with trajectory, pose, court position
+  const payload = this.shotEventBuilder.buildAddShotPayload(
+    trackingState,
+    this.config.sessionId,
+    {
+      calibration: undefined,
+      cameraResolution: this.config.cameraResolution,
+    }
+  )
+
+  // Normalize shot result for public contract
+  const normalizedResult = this.shotEventBuilder.normalizeShotResult(trackingState.shotResult)
+
+  // Mark shot as pending before enqueueing
+  if (payload.shotId) {
+    this.pendingShotIds.add(payload.shotId)
+  }
+
+  // Enqueue shot event to critical queue with complete payload and await result
+  const enqueueSuccess = await this.enqueueCritical({
     type: 'SHOT',
     sessionId: this.config.sessionId,
     userId: this.config.userId,
     payload: {
-      timestampMs: frame.timestamp,
-      shotResult: publicResult,
-      detectionConfidence: 1.0,
-      trackingData: JSON.stringify(trackingState),
-      // ... campi mancanti per posizione
-    }
+      ...payload,
+      shotResult: normalizedResult,
+    },
   })
 
-  // Aggiorna metriche
-  this.metrics.totalShots++
-  if (publicResult === 'MADE') {
-    this.metrics.madeShots++
+  // Only mark as processed and update metrics if enqueue succeeded
+  if (enqueueSuccess && payload.shotId) {
+    this.pendingShotIds.delete(payload.shotId)
+    this.processedShotIds.add(payload.shotId)
+
+    // Clear pose buffer after shot is saved to avoid mixing pose data between shots
+    this.shotEventBuilder.clearPoseBuffer()
+
+    // Update metrics
+    this.metrics.totalShots++
+    if (trackingState.shotResult === 'MADE') {
+      this.metrics.madeShots++
+    }
+
+    // Notify callback (normalized to MADE/MISS/UNCERTAIN)
+    this.callbacks?.onShotDetected?.(normalizedResult)
+  } else if (!enqueueSuccess && payload.shotId) {
+    // Enqueue failed - remove from pending and log error
+    this.pendingShotIds.delete(payload.shotId)
+    console.error(`Failed to enqueue shot ${payload.shotId}, not counted in metrics`)
   }
 }
 ```
 
 **Note positive:**
 - ✅ Runtime rileva shotDetected da TrackingEngine
-- ✅ Converte AIRBALL → MISS per contratto pubblico
-- ✅ Enqueue evento SHOT via WorkoutQueue
-- ✅ Aggiorna metriche totalShots/madeShots
+- ✅ Usa ShotEventBuilder per payload completo con trajectory, posa, court position
+- ✅ shotId stabile da TrackingState (non rigenerato)
+- ✅ Check idempotenza su processedShotIds e pendingShotIds
+- ✅ Attende esito enqueueCritical prima di aggiornare metriche
+- ✅ Normalizza shotResult (AIRBALL/BLOCKED → UNCERTAIN)
+- ✅ Callback supporta UNCERTAIN
+- ✅ Posa grezza alimentata durante sessione via addPoseFrame()
+- ✅ Buffer posa pulito dopo salvataggio tiro
 
-**Gap critici:**
-- ❌ **Nessun shotId** - impossibile idempotenza
-- ❌ **Nessun courtX/courtY** nel payload (posizione tiro mancante)
-- ❌ **Nessuna traiettoria strutturata** - solo trackingData JSON
-- ❌ **Nessuna posa grezza** - trackingData contiene solo stato corrente
-- ❌ **Conteggio incrementato qui** - non idempotente (retry = doppio conteggio)
-- ❌ **Nessuna gestione UNCERTAIN** - solo MADE/MISS
+**Gap risolti (Fase 1):**
+- ✅ shotId presente e stabile (generato in TrackingEngine)
+- ✅ courtX/courtY calcolati da ShotEventBuilder
+- ✅ Traiettoria strutturata inclusa nel payload
+- ✅ Posa grezza inclusa nel payload
+- ✅ Conteggio solo se enqueueSuccess (idempotente)
+- ✅ UNCERTAIN gestito coerentemente
 
-### registerManualShot() (linee 127-134)
+### registerManualShot() (linee 266-328)
 ```typescript
-registerManualShot(result: 'MADE' | 'MISS'): Promise<void>
+async registerManualShot(result: 'MADE' | 'MISS'): Promise<void> {
+  // Generate stable shotId for manual shot
+  const shotId = generateUUID()
+
+  // Build minimal TrackingState for manual shot
+  const manualTrackingState: any = {
+    shotId,
+    shotResult: result,
+    shotDetected: true,
+    ballPosition: null,
+    trajectory: [],
+    confidence: 1.0,
+  }
+
+  // Use ShotEventBuilder to build consistent payload
+  const payload = this.shotEventBuilder.buildAddShotPayload(
+    manualTrackingState,
+    this.config.sessionId,
+    {
+      calibration: undefined,
+      cameraResolution: this.config.cameraResolution,
+    }
+  )
+
+  // Mark shot as pending before enqueueing
+  this.pendingShotIds.add(shotId)
+
+  // Enqueue to critical queue and await result
+  const enqueueSuccess = await this.enqueueCritical({
+    type: 'SHOT',
+    sessionId: this.config.sessionId,
+    userId: this.config.userId,
+    payload: {
+      ...payload,
+      shotResult: result,
+      trackingData: JSON.stringify({ manualEntry: true }),
+    },
+  })
+
+  // Only mark as processed and update metrics if enqueue succeeded
+  if (enqueueSuccess) {
+    this.pendingShotIds.delete(shotId)
+    this.processedShotIds.add(shotId)
+
+    // Update metrics
+    this.metrics.totalShots++
+    if (result === 'MADE') {
+      this.metrics.madeShots++
+    }
+
+    // Notify callback
+    this.callbacks?.onShotDetected?.(result)
+  } else {
+    // Enqueue failed - remove from pending and log error
+    this.pendingShotIds.delete(shotId)
+    console.error(`Failed to enqueue manual shot ${shotId}, not counted in metrics`)
+  }
+}
 ```
 
-**Gap:**
-- ❌ Solo MADE/MISS, nessun UNCERTAIN
-- ❌ Nessun shotId
+**Note positive:**
+- ✅ Usa ShotEventBuilder per unificare percorso automatici/manuali
+- ✅ Genera shotId stabile per tiri manuali
+- ✅ Stesso pattern pending/processed per idempotenza
+- ✅ Metrics aggiornate solo se enqueueSuccess
+
+**Gap risolti (Fase 1):**
+- ✅ shotId generato per tiri manuali
+- ✅ Unificazione percorso eventi tramite ShotEventBuilder
 
 ---
 
@@ -308,9 +419,9 @@ private criticalOutbox: PersistentOutbox
 - ✅ Worker asincrono per flush
 
 **Gap:**
-- ❌ Critical outbox non supporta deduplicazione per shotId
-- ❌ Nessun meccanismo per evitare duplicati su retry
-- ❌ FrameDataPayload non include pose grezza strutturata
+- ✅ Critical outbox supporta deduplicazione per shotId (Fase 1 correzione)
+- ✅ Meccanismo per evitare duplicati su retry (check shotId in memoryQueue)
+- ✅ FrameDataPayload non include pose grezza strutturata (non necessario, posa in SHOT events)
 
 ### FrameDataPayload (linee 52-70)
 ```typescript
@@ -430,18 +541,20 @@ Vedi sezione 1 - PoseKeypoints (linee 112-125)
 
 | Area | Gap | Priorità | Stato |
 |------|-----|----------|-------|
-| **Idempotenza** | Nessun shotId - retry duplica conteggi | CRITICA | ✅ RISOLTO |
-| **Posizione tiro** | courtX/courtY non calcolati nel payload | CRITICA | ✅ RISOLTO |
-| **Traiettoria** | Nessun array strutturato in ShotEvent | ALTA | ✅ RISOLTO |
-| **Posa grezza** | Nessun buffer posa → shotId | ALTA | ✅ RISOLTO |
-| **UNCERTAIN** | ShotResult non include UNCERTAIN | MEDIA | ✅ RISOLTO |
-| **Scia overlay** | Nessun colore MADE/MISS/UNCERTAIN | MEDIA | ⏳ PENDING |
-| **Conteggio** | Incrementato in Runtime, non idempotente | CRITICA | ✅ RISOLTO |
-| **Dettaglio tiro** | Shot chart non mostra traiettoria/posa | MEDIA | ⏳ PENDING |
+| **Idempotenza** | Nessun shotId - retry duplica conteggi | CRITICA | ✅ RISOLTO (Fase 1) |
+| **Posizione tiro** | courtX/courtY non calcolati nel payload | CRITICA | ✅ RISOLTO (Fase 1) |
+| **Traiettoria** | Nessun array strutturato in ShotEvent | ALTA | ✅ RISOLTO (Fase 1) |
+| **Posa grezza** | Nessun buffer posa → shotId | ALTA | ✅ RISOLTO (Fase 1) |
+| **UNCERTAIN** | ShotResult non include UNCERTAIN | MEDIA | ✅ RISOLTO (Fase 1) |
+| **Verifica persistenza** | Runtime non attende esito enqueue | CRITICA | ✅ RISOLTO (Fase 1) |
+| **Percorso unico** | Tiri manuali non usano ShotEventBuilder | MEDIA | ✅ RISOLTO (Fase 1) |
+| **Scia overlay** | Nessun colore MADE/MISS/UNCERTAIN | MEDIA | ⏳ PENDING (Fase 2) |
+| **Dettaglio tiro** | Shot chart non mostra traiettoria/posa | MEDIA | ⏳ PENDING (Fase 3) |
+| **Posizione calibrata** | Omografia non implementata | MEDIA | ⏳ PENDING (Fase 2+) |
 
 ---
 
-## 13. Modifiche Implementate (Fase 1 - Evento Unico)
+## 13. Modifiche Implementate (Fase 1 - Correzioni P0/P1)
 
 ### 1. Tipi estesi (workouts.types.ts)
 - ✅ Aggiunto `UNCERTAIN` a `ShotResult`
@@ -450,34 +563,53 @@ Vedi sezione 1 - PoseKeypoints (linee 112-125)
 - ✅ Creato `CourtPositionQuality` (CALIBRATED/APPROXIMATE/UNAVAILABLE)
 - ✅ Esteso `ShotEvent` con shotId, courtPositionQuality, trajectory, rawPoseFrames, schemaVersion
 - ✅ Esteso `AddShotEventPayload` con gli stessi campi
+- ✅ **Fase 1 P0:** Aggiunto `shotId?: string` a `TrackingState` per identità stabile
 
-### 2. ShotEventBuilder (nuovo file)
-- ✅ Creato `ShotEventBuilder` in `tracking/ShotEventBuilder.ts`
-- ✅ Implementato generazione UUID v4 per shotId
-- ✅ Implementato buffer posa grezza con trimming temporale
+### 2. ShotEventBuilder (tracking/ShotEventBuilder.ts)
+- ✅ Creato `ShotEventBuilder` con buffer posa grezza
+- ✅ Implementato `addPoseFrame()` per alimentare buffer durante sessione
+- ✅ Implementato `clearPoseBuffer()` per pulizia dopo salvataggio tiro
 - ✅ Implementato conversione trajectory → ShotPoint[]
 - ✅ Implementato calcolo courtX/courtY (placeholder per omografia)
 - ✅ Implementato calcolo distanza dal canestro
 - ✅ Implementato `buildShotEvent()` per costruire ShotEvent completo
 - ✅ Implementato `buildAddShotPayload()` per payload API
 - ✅ Implementato `normalizeShotResult()` per convertire AIRBLOCK/AIRBALL → UNCERTAIN
+- ✅ **Fase 1 P0:** Modificato per usare `trackingState.shotId` invece di generare nuovo UUID
 
-### 3. Runtime aggiornato (WorkoutSessionRuntime.ts)
+### 3. TrackingEngine aggiornato (tracking/TrackingEngine.ts)
+- ✅ **Fase 1 P0:** Aggiunto funzione `generateUUID()`
+- ✅ **Fase 1 P0:** Genera shotId stabile quando rileva nuovo tiro (riga 283)
+- ✅ **Fase 1 P0:** Reset shotId in `resetShot()` per preparare prossimo tiro
+
+### 4. Runtime aggiornato (WorkoutSessionRuntime.ts)
 - ✅ Importato ShotEventBuilder
 - ✅ Aggiunto istanza shotEventBuilder
-- ✅ Aggiunto Set processedShotIds per idempotenza
-- ✅ Modificato processFrame() per usare ShotEventBuilder
-- ✅ Aggiunto check idempotenza prima di enqueue
-- ✅ Aggiunto tracking shotId in processedShotIds
-- ✅ Normalizzato shotResult per callback
+- ✅ **Fase 1 P0:** Aggiunto `pendingShotIds` per tracciare tiri in attesa di conferma
+- ✅ **Fase 1 P0:** Aggiunto `processedShotIds` per tracciare tiri salvati con successo
+- ✅ **Fase 1 P0:** Modificato `processFrame()` a async per attendere esito persistenza
+- ✅ **Fase 1 P0:** Check idempotenza su processedShotIds e pendingShotIds prima di enqueue
+- ✅ **Fase 1 P0:** Metrics aggiornate solo se `enqueueSuccess === true`
+- ✅ **Fase 1 P0:** Alimenta buffer posa via `addPoseFrame()` con dati MoveNet
+- ✅ **Fase 1 P0:** Pulisce buffer posa dopo salvataggio tiro
+- ✅ **Fase 1 P1:** Callback supporta UNCERTAIN (rimosso cast non sicuro)
+- ✅ **Fase 1 P1:** `registerManualShot()` usa ShotEventBuilder per unificare percorso
+- ✅ **Fase 1 P1:** `registerManualShot()` genera shotId stabile e usa pattern pending/processed
 
-### 4. PersistentOutbox aggiornato (persistentOutbox.ts)
+### 5. PersistentOutbox aggiornato (persistentOutbox.ts)
 - ✅ Modificato add() per estrarre shotId da payload SHOT
 - ✅ Aggiunto check duplicati shotId in memoryQueue
 - ✅ Modificato generazione id per usare shotId se disponibile
 - ✅ Ritorna false se duplicato rilevato
 
-### 5. Export aggiornato (tracking/index.ts)
+### 6. Tipi Runtime aggiornati (WorkoutSessionRuntime.types.ts)
+- ✅ **Fase 1 P1:** `SessionCallbacks.onShotDetected` accetta `'MADE' | 'MISS' | 'UNCERTAIN'`
+- ✅ **Fase 1 P0:** `IWorkoutSessionRuntime.processFrame()` firma aggiornata a async
+
+### 7. WorkoutSessionScreen aggiornato (screens/WorkoutSessionScreen.tsx)
+- ✅ **Fase 1 P0:** Chiamate a `runtime.processFrame()` aggiornate con `void` (fire-and-forget)
+
+### 8. Export aggiornato (tracking/index.ts)
 - ✅ Aggiunto export ShotEventBuilder
 
 ---

@@ -129,6 +129,7 @@ export interface TrackingState {
     hoopPosition: { x: number; y: number; width?: number; height?: number; confidence?: number } | null
     shotDetected: boolean
     shotResult: ShotResult | null
+    shotId?: string // Stable UUID generated when shot is first detected
     trajectory: Array<{ x: number; y: number; t: number }>
     confidence: number
     // Shot flight state: true when ball starts parabola (rising + min arc), false after resetShot()

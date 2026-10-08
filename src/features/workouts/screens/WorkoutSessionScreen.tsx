@@ -295,7 +295,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             if (now - lastRuntimeProcessTimestampRef.current >= RUNTIME_PROCESS_DEBOUNCE_MS) {
                 lastRuntimeProcessTimestampRef.current = now
                 const resolution = effectiveResolutionRef.current
-                runtime.processFrame({
+                void runtime.processFrame({
                     width: resolution.width,
                     height: resolution.height,
                     timestamp: now,
@@ -377,7 +377,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 lastRuntimeProcessTimestampRef.current = now
                 const resolution = effectiveResolutionRef.current
                 const tRuntimeStart = performance.now()
-                runtime.processFrame({
+                void runtime.processFrame({
                     width: resolution.width,
                     height: resolution.height,
                     timestamp: now,

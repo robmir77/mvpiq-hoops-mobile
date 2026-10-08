@@ -17,6 +17,19 @@ import type {
 } from './WorkoutSessionRuntime.types'
 import { ShotEventBuilder } from '../tracking/ShotEventBuilder'
 
+// Generate UUID v4 (compatible React Native)
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+  return template.replace(/[xy]/g, (c: string) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private config: SessionConfig
   private state: SessionState = 'IDLE'
@@ -39,7 +52,8 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private telemetrySampler: ITelemetrySampler | null = null
   private workoutQueue: IWorkoutQueue | null = null
   private shotEventBuilder: ShotEventBuilder = new ShotEventBuilder()
-  private processedShotIds: Set<string> = new Set() // Track processed shots for idempotency
+  private processedShotIds: Set<string> = new Set() // Track successfully saved shots for idempotency
+  private pendingShotIds: Set<string> = new Set() // Track shots being saved (not yet confirmed)
 
   // State machine guards
   private stateTransitions: Record<SessionState, SessionState[]> = {
@@ -145,12 +159,12 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     }
   }
 
-  processFrame(frame: {
+  async processFrame(frame: {
     width: number
     height: number
     timestamp: number
     data?: Uint8Array
-  }): void {
+  }): Promise<void> {
     // Only process frames if session is ACTIVE
     if (this.state !== 'ACTIVE') {
       return
@@ -170,6 +184,15 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       return
     }
 
+    // Feed pose data to ShotEventBuilder for rawPoseFrames
+    if (visionResult.pose) {
+      this.shotEventBuilder.addPoseFrame(
+        visionResult.pose,
+        frame.timestamp,
+        'IMAGE_NORMALIZED'
+      )
+    }
+
     const trackingState = this.trackingEngine.processFrame(
       visionResult.ball,
       visionResult.rim,
@@ -187,6 +210,18 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     // Step 3: Shot detection (already performed by TrackingEngine internally)
     // TrackingEngine.processFrame() calls ShotDetectionEngine and includes result in trackingState
     if (trackingState?.shotDetected && trackingState?.shotResult) {
+      // Check idempotency: skip if this shotId was already processed or is pending
+      if (trackingState.shotId) {
+        if (this.processedShotIds.has(trackingState.shotId)) {
+          console.log(`[WorkoutSessionRuntime] Shot ${trackingState.shotId} already processed, skipping`)
+          return
+        }
+        if (this.pendingShotIds.has(trackingState.shotId)) {
+          console.log(`[WorkoutSessionRuntime] Shot ${trackingState.shotId} already pending, skipping`)
+          return
+        }
+      }
+
       // Use ShotEventBuilder to build complete payload with trajectory, pose, court position
       const payload = this.shotEventBuilder.buildAddShotPayload(
         trackingState,
@@ -197,17 +232,16 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
         }
       )
 
-      // Check idempotency: skip if this shotId was already processed
-      if (payload.shotId && this.processedShotIds.has(payload.shotId)) {
-        console.log(`[WorkoutSessionRuntime] Shot ${payload.shotId} already processed, skipping`)
-        return
-      }
-
       // Normalize shot result for public contract
       const normalizedResult = this.shotEventBuilder.normalizeShotResult(trackingState.shotResult)
 
-      // Enqueue shot event to critical queue with complete payload
-      this.enqueueCritical({
+      // Mark shot as pending before enqueueing
+      if (payload.shotId) {
+        this.pendingShotIds.add(payload.shotId)
+      }
+
+      // Enqueue shot event to critical queue with complete payload and await result
+      const enqueueSuccess = await this.enqueueCritical({
         type: 'SHOT',
         sessionId: this.config.sessionId,
         userId: this.config.userId,
@@ -217,20 +251,28 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
         },
       })
 
-      // Track shotId for idempotency
-      if (payload.shotId) {
+      // Only mark as processed and update metrics if enqueue succeeded
+      if (enqueueSuccess && payload.shotId) {
+        this.pendingShotIds.delete(payload.shotId)
         this.processedShotIds.add(payload.shotId)
-      }
 
-      // Update metrics (TODO: Make idempotent by deriving from persisted events)
-      this.metrics.totalShots++
-      if (trackingState.shotResult === 'MADE') {
-        this.metrics.madeShots++
-      }
+        // Clear pose buffer after shot is saved to avoid mixing pose data between shots
+        this.shotEventBuilder.clearPoseBuffer()
 
-      // Notify callback (normalized to MADE/MISS/UNCERTAIN)
-      this.callbacks?.onShotDetected?.(normalizedResult as 'MADE' | 'MISS')
-      this.notifyTelemetryUpdate()
+        // Update metrics (TODO: Make idempotent by deriving from persisted events)
+        this.metrics.totalShots++
+        if (trackingState.shotResult === 'MADE') {
+          this.metrics.madeShots++
+        }
+
+        // Notify callback (normalized to MADE/MISS/UNCERTAIN)
+        this.callbacks?.onShotDetected?.(normalizedResult)
+        this.notifyTelemetryUpdate()
+      } else if (!enqueueSuccess && payload.shotId) {
+        // Enqueue failed - remove from pending and log error
+        this.pendingShotIds.delete(payload.shotId)
+        console.error(`[WorkoutSessionRuntime] Failed to enqueue shot ${payload.shotId}, not counted in metrics`)
+      }
     }
   }
 
@@ -239,30 +281,63 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       throw new Error(`Cannot register shot from state: ${this.state}`)
     }
 
-    // Enqueue to critical queue
-    if (this.workoutQueue) {
-      await this.workoutQueue.enqueueCritical({
-        type: 'SHOT',
-        sessionId: this.config.sessionId,
-        userId: this.config.userId,
-        payload: {
-          timestampMs: Date.now(),
-          shotResult: result,
-          detectionConfidence: 1.0,
-          trackingData: JSON.stringify({ manualEntry: true }),
-        },
-      })
+    // Generate stable shotId for manual shot
+    const shotId = generateUUID()
+
+    // Build minimal TrackingState for manual shot
+    const manualTrackingState: any = {
+      shotId,
+      shotResult: result,
+      shotDetected: true,
+      ballPosition: null, // Manual shot has no ball position
+      trajectory: [], // Manual shot has no trajectory
+      confidence: 1.0,
     }
 
-    // Update metrics
-    this.metrics.totalShots++
-    if (result === 'MADE') {
-      this.metrics.madeShots++
-    }
+    // Use ShotEventBuilder to build consistent payload
+    const payload = this.shotEventBuilder.buildAddShotPayload(
+      manualTrackingState,
+      this.config.sessionId,
+      {
+        calibration: undefined,
+        cameraResolution: this.config.cameraResolution,
+      }
+    )
 
-    // Notify callback
-    this.callbacks?.onShotDetected?.(result)
-    this.notifyTelemetryUpdate()
+    // Mark shot as pending before enqueueing
+    this.pendingShotIds.add(shotId)
+
+    // Enqueue to critical queue and await result
+    const enqueueSuccess = await this.enqueueCritical({
+      type: 'SHOT',
+      sessionId: this.config.sessionId,
+      userId: this.config.userId,
+      payload: {
+        ...payload,
+        shotResult: result, // Manual shots are always MADE or MISS
+        trackingData: JSON.stringify({ manualEntry: true }),
+      },
+    })
+
+    // Only mark as processed and update metrics if enqueue succeeded
+    if (enqueueSuccess) {
+      this.pendingShotIds.delete(shotId)
+      this.processedShotIds.add(shotId)
+
+      // Update metrics
+      this.metrics.totalShots++
+      if (result === 'MADE') {
+        this.metrics.madeShots++
+      }
+
+      // Notify callback
+      this.callbacks?.onShotDetected?.(result)
+      this.notifyTelemetryUpdate()
+    } else {
+      // Enqueue failed - remove from pending and log error
+      this.pendingShotIds.delete(shotId)
+      console.error(`[WorkoutSessionRuntime] Failed to enqueue manual shot ${shotId}, not counted in metrics`)
+    }
   }
 
   async enqueueCritical(event: {

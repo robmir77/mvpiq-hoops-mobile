@@ -9,6 +9,19 @@ import { ShotDetectionEngine } from './ShotDetectionEngine'
 import { TrackingCoordinator } from './TrackingCoordinator'
 import type { TrackingState } from '../types/workouts.types'
 
+// Generate UUID v4 (compatible React Native)
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+  return template.replace(/[xy]/g, (c: string) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 // Shot detection thresholds
 const SHOT_LAUNCH_THRESHOLD = 1.5
 const MIN_RISING_FRAMES = 3
@@ -267,6 +280,7 @@ export class TrackingEngine implements ITrackingEngine {
     if (engineShotResult.shotDetected && !this.state.shotDetected) {
       this.state.shotDetected = engineShotResult.shotDetected
       this.state.shotResult = engineShotResult.shotResult
+      this.state.shotId = generateUUID() // Generate stable shotId when shot is first detected
       this.lastShotTs = frameTs
       const metrics = trajectoryMetrics || this.computeTrajectoryMetrics()
       this.state.shotQuality = this.calculateShotQuality(metrics, this.state.releaseAngle)
@@ -283,6 +297,7 @@ export class TrackingEngine implements ITrackingEngine {
   resetShot(): void {
     this.state.shotDetected = false
     this.state.shotResult = null
+    this.state.shotId = undefined
     this.state.inFlight = false
     this.state.releasePoint = undefined
     this.state.apexPoint = undefined

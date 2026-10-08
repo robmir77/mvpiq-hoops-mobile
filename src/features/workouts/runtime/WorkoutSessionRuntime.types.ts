@@ -27,7 +27,7 @@ export interface SessionMetrics {
 }
 
 export interface SessionCallbacks {
-  onShotDetected?: (result: 'MADE' | 'MISS') => void
+  onShotDetected?: (result: 'MADE' | 'MISS' | 'UNCERTAIN') => void
   onSessionStateChanged?: (state: SessionState) => void
   onError?: (error: Error) => void
   onTelemetryUpdate?: (metrics: SessionMetrics) => void
@@ -122,7 +122,7 @@ export interface WorkoutSessionRuntime {
     height: number
     timestamp: number
     data?: Uint8Array
-  }): void
+  }): Promise<void>
 
   // Actions
   registerManualShot(result: 'MADE' | 'MISS'): Promise<void>

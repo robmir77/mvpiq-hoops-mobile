@@ -3,7 +3,7 @@
 ## Stato Attuale del Refactoring (Ottobre 2026)
 
 ### Riepilogo Completo
-Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **Vision Migration Fase 3, 4 & 5 COMPLETATE** - Runtime.processFrame() è il PRIMARY path, PlayerDetection integrato, legacy cleanup completato.
+Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **Vision Migration Fase 3, 4 & 5 COMPLETATE** - Runtime.processFrame() è il PRIMARY path, PlayerDetection integrato, legacy cleanup completato. **ShotEvent Fase 1 COMPLETATA** - Correzioni P0/P1 per idempotenza, persistenza, posa grezza, UNCERTAIN e percorso unico.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -24,6 +24,13 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
 │  Screen decomposition       █████████░  90% │
 │  Legacy removal              ██████████ 100% │
 │  New architecture tests     ████████░░  80% │
+│                                             │
+│  ShotEvent Fase 1          ██████████ 100% │
+│  - Idempotenza (P0)         ██████████ 100% │
+│  - Persistenza (P0)         ██████████ 100% │
+│  - Posa grezza (P1)         ██████████ 100% │
+│  - UNCERTAIN (P1)           ██████████ 100% │
+│  - Percorso unico (P1)      ██████████ 100% │
 │                                             │
 └─────────────────────────────────────────────┘
 ```
@@ -46,6 +53,12 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
   - ✅ PlayerDetection integrato nel nuovo percorso (Fase 4.4)
   - 🟡 TelemetrySampler registrato ma non usato dal Runtime (solo log)
   - 🟡 Screen crea ancora Queue e la passa al Runtime (ownership intermedio)
+- ShotEvent Fase 1: 100% - Correzioni P0/P1 COMPLETATE:
+  - ✅ shotId stabile generato in TrackingEngine quando rileva nuovo tiro
+  - ✅ Runtime attende esito persistenza prima di aggiornare metriche
+  - ✅ Posa grezza alimentata da MoveNet durante sessione
+  - ✅ UNCERTAIN gestito coerentemente nel callback
+  - ✅ Tiri automatici e manuali usano ShotEventBuilder (percorso unico)
 - State machine: implementata nel Runtime e utilizzata
 - Screen decomposition: ridotta a ~1200 righe ma ancora possiede tracking/vision hooks (collegati al Runtime)
 - Legacy removal: ShotDetector, handleShotEvent, VisionPipelineAdapter rimossi (Fase 5 completata)
@@ -451,7 +464,55 @@ SharedValues (Reanimated)
 ```
 
 **Milestone Raggiunto:**
-La nuova architettura tracking è **operativa in produzione** per Ball e Player. Shot detection ha due sistemi sovrapposti. L'architettura di sessione è ancora ibrida: la Screen possiede direttamente vision, tracking, queue e telemetry. Il Runtime è un skeleton con API ma non è coordinatore operativo.
+La nuova architettura tracking è **operativa in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **ShotEvent Fase 1 COMPLETATA** - Correzioni P0/P1 per idempotenza, persistenza, posa grezza, UNCERTAIN e percorso unico.
+
+### ShotEvent Fase 1 Completata: Correzioni P0/P1
+
+**Contesto:** L'audit della Fase 1 ha identificato problemi critici nell'implementazione ShotEvent che compromettevano l'idempotenza, il conteggio affidabile e l'associazione dati al tiro.
+
+**P0 - Identità stabile del tiro:**
+- ✅ Aggiunto `shotId?: string` a `TrackingState`
+- ✅ `TrackingEngine` genera UUID stabile quando rileva nuovo tiro (riga 283)
+- ✅ `ShotEventBuilder` usa `trackingState.shotId` invece di generarne uno nuovo
+- ✅ `resetShot()` resetta shotId per preparare prossimo tiro
+- ✅ Deduplicazione in `PersistentOutbox` basata su shotId
+
+**P0 - Verifica persistenza:**
+- ✅ Aggiunto `pendingShotIds` per tracciare tiri in attesa di conferma
+- ✅ `processedShotIds` traccia tiri salvati con successo
+- ✅ `processFrame()` modificato a async per attendere esito `enqueueCritical()`
+- ✅ Metrics aggiornate solo se `enqueueSuccess === true`
+- ✅ Check idempotenza su entrambi i set prima di enqueue
+- ✅ Log errore se enqueue fallisce (tiro non contato)
+
+**P1 - Posa grezza alimentata:**
+- ✅ `Runtime.processFrame()` alimenta `ShotEventBuilder.addPoseFrame()` con dati MoveNet
+- ✅ Buffer posa pulito dopo salvataggio tiro per evitare contaminazione
+- ✅ Coordinate space specificato (IMAGE_NORMALIZED)
+
+**P1 - UNCERTAIN gestito:**
+- ✅ `SessionCallbacks.onShotDetected` accetta `'MADE' | 'MISS' | 'UNCERTAIN'`
+- ✅ Rimosso cast non sicuro nel callback Runtime
+- ✅ `ShotEventBuilder.normalizeShotResult()` converte AIRBALL/BLOCKED → UNCERTAIN
+
+**P1 - Percorso unico:**
+- ✅ `registerManualShot()` usa `ShotEventBuilder` invece di payload manuale
+- ✅ Genera shotId stabile per tiri manuali
+- ✅ Usa stesso pattern pending/processed per idempotenza
+- ✅ Contratto unificato per tiri automatici e manuali
+
+**File modificati:**
+- `src/features/workouts/types/workouts.types.ts` - aggiunto shotId a TrackingState
+- `src/features/workouts/tracking/TrackingEngine.ts` - generazione shotId + reset
+- `src/features/workouts/tracking/ShotEventBuilder.ts` - uso shotId esterno
+- `src/features/workouts/runtime/WorkoutSessionRuntime.ts` - verifica persistenza + posa + UNCERTAIN + unificazione
+- `src/features/workouts/runtime/WorkoutSessionRuntime.types.ts` - callback UNCERTAIN + firma async
+- `src/features/workouts/screens/WorkoutSessionScreen.tsx` - chiamate async con void
+
+**Prossimi passi (Fase 2 - Visualizzazione Scia):**
+- Modificare RealtimeBallOverlay per colore scia basato su shotResult (verde/rosso/giallo)
+- Gestire lifetime scia dopo completamento
+- Implementare proiezione omografia completa per coordinate accurate
 
 **Problemi Aperti:**
 
