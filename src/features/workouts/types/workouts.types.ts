@@ -1,7 +1,7 @@
 export type CameraMode = 'LATERAL' | 'FRONTAL' | 'ANGLE_45'
 export type CourtType = 'HALF_COURT' | 'FULL_COURT'
 export type SessionStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED'
-export type ShotResult = 'MADE' | 'MISS' | 'BLOCKED' | 'AIRBALL'
+export type ShotResult = 'MADE' | 'MISS' | 'BLOCKED' | 'AIRBALL' | 'UNCERTAIN'
 export type CourtZone = 'PAINT' | 'MID_RANGE' | 'THREE_POINT' | 'CORNER'
 
 // Visual tracking state for debugging
@@ -35,9 +35,29 @@ export interface CreateWorkoutSessionPayload {
     calibrationData?: string
 }
 
+// Punto di traiettoria per ShotEvent
+export interface ShotPoint {
+  x: number
+  y: number
+  timestampMs: number
+  source: 'DETECTION' | 'PREDICTION'
+  confidence?: number
+}
+
+// Frame di posa grezza per ShotEvent
+export interface RawPoseFrame {
+  timestampMs: number
+  keypoints: PoseKeypoints
+  coordinateSpace: 'IMAGE_NORMALIZED' | 'IMAGE_PIXELS'
+}
+
+// Qualità della posizione sul campo
+export type CourtPositionQuality = 'CALIBRATED' | 'APPROXIMATE' | 'UNAVAILABLE'
+
 // Shots
 export interface ShotEvent {
     id: string
+    shotId: string  // UUID idempotente generato client-side
     sessionId: string
     timestampMs: number
     shotResult: ShotResult
@@ -51,9 +71,15 @@ export interface ShotEvent {
     zone?: CourtZone
     shotZone?: string
     releaseTimeMs?: number
+    // Nuovi campi per completamento gestione tiri
+    courtPositionQuality?: CourtPositionQuality
+    trajectory?: ShotPoint[]
+    rawPoseFrames?: RawPoseFrame[]
+    schemaVersion: number
 }
 
 export interface AddShotEventPayload {
+    shotId?: string  // UUID idempotente generato client-side
     timestampMs: number
     shotResult: ShotResult
     courtX: number
@@ -63,6 +89,11 @@ export interface AddShotEventPayload {
     releaseVelocity?: number
     detectionConfidence: number
     trackingData?: string
+    // Nuovi campi per completamento gestione tiri
+    courtPositionQuality?: CourtPositionQuality
+    trajectory?: ShotPoint[]
+    rawPoseFrames?: RawPoseFrame[]
+    schemaVersion?: number
 }
 
 // Calibration

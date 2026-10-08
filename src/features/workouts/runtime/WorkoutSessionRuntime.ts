@@ -15,6 +15,7 @@ import type {
   ITelemetrySampler,
   IWorkoutQueue,
 } from './WorkoutSessionRuntime.types'
+import { ShotEventBuilder } from '../tracking/ShotEventBuilder'
 
 export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private config: SessionConfig
@@ -37,6 +38,8 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private shotDetectionEngine: IShotDetectionEngine | null = null
   private telemetrySampler: ITelemetrySampler | null = null
   private workoutQueue: IWorkoutQueue | null = null
+  private shotEventBuilder: ShotEventBuilder = new ShotEventBuilder()
+  private processedShotIds: Set<string> = new Set() // Track processed shots for idempotency
 
   // State machine guards
   private stateTransitions: Record<SessionState, SessionState[]> = {
@@ -184,30 +187,49 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     // Step 3: Shot detection (already performed by TrackingEngine internally)
     // TrackingEngine.processFrame() calls ShotDetectionEngine and includes result in trackingState
     if (trackingState?.shotDetected && trackingState?.shotResult) {
-      // Convert AIRBALL to MISS for public contract (AIRBALL is internal tracking state)
-      const publicResult = trackingState.shotResult === 'AIRBALL' ? 'MISS' : trackingState.shotResult
+      // Use ShotEventBuilder to build complete payload with trajectory, pose, court position
+      const payload = this.shotEventBuilder.buildAddShotPayload(
+        trackingState,
+        this.config.sessionId,
+        {
+          calibration: undefined, // TODO: Pass calibration data when available
+          cameraResolution: this.config.cameraResolution,
+        }
+      )
 
-      // Enqueue shot event to critical queue (normalized to MADE/MISS)
+      // Check idempotency: skip if this shotId was already processed
+      if (payload.shotId && this.processedShotIds.has(payload.shotId)) {
+        console.log(`[WorkoutSessionRuntime] Shot ${payload.shotId} already processed, skipping`)
+        return
+      }
+
+      // Normalize shot result for public contract
+      const normalizedResult = this.shotEventBuilder.normalizeShotResult(trackingState.shotResult)
+
+      // Enqueue shot event to critical queue with complete payload
       this.enqueueCritical({
         type: 'SHOT',
         sessionId: this.config.sessionId,
         userId: this.config.userId,
         payload: {
-          timestampMs: frame.timestamp,
-          shotResult: publicResult,
-          detectionConfidence: 1.0,
-          trackingData: JSON.stringify(trackingState),
+          ...payload,
+          shotResult: normalizedResult, // Override with normalized result
         },
       })
 
-      // Update metrics
+      // Track shotId for idempotency
+      if (payload.shotId) {
+        this.processedShotIds.add(payload.shotId)
+      }
+
+      // Update metrics (TODO: Make idempotent by deriving from persisted events)
       this.metrics.totalShots++
       if (trackingState.shotResult === 'MADE') {
         this.metrics.madeShots++
       }
 
-      // Notify callback (normalized to MADE/MISS)
-      this.callbacks?.onShotDetected?.(publicResult)
+      // Notify callback (normalized to MADE/MISS/UNCERTAIN)
+      this.callbacks?.onShotDetected?.(normalizedResult as 'MADE' | 'MISS')
       this.notifyTelemetryUpdate()
     }
   }

@@ -91,11 +91,26 @@ class PersistentOutbox {
   /**
    * Add item to outbox (persist to AsyncStorage)
    * No size limit - critical events must not be dropped
+   * For SHOT events, uses shotId from payload for deduplication
    */
   async add(item: Omit<OutboxItem, 'id' | 'timestamp' | 'retryCount'>): Promise<boolean> {
+    // For SHOT events, extract shotId for deduplication
+    const shotId = item.type === 'SHOT' && item.payload?.shotId ? item.payload.shotId : null
+
+    // Check for duplicate shotId to prevent duplicate shots on retry
+    if (shotId) {
+      const existingShot = this.memoryQueue.find(
+        i => i.type === 'SHOT' && i.payload?.shotId === shotId
+      )
+      if (existingShot) {
+        console.log(`[PersistentOutbox] Duplicate shotId ${shotId} detected, skipping add`)
+        return false
+      }
+    }
+
     const outboxItem: OutboxItem = {
       ...item,
-      id: `${item.sessionId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: shotId ? `${item.sessionId}_shot_${shotId}` : `${item.sessionId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
       retryCount: 0,
     }

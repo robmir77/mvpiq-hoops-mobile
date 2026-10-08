@@ -3,6 +3,7 @@ export { BallTrackingEngine } from './BallTrackingEngine'
 export { BallTrajectoryAnalyzer } from './BallTrajectoryAnalyzer'
 export { PlayerTrackingEngine } from './PlayerTrackingEngine'
 export { ShotDetectionEngine } from './ShotDetectionEngine'
+export { ShotEventBuilder } from './ShotEventBuilder'
 export { TrackingCoordinator } from './TrackingCoordinator'
 export type {
   BallPosition,
