@@ -917,10 +917,16 @@ export default function CalibrationScreen({ navigation, route }: any) {
         )
     }
 
-    const normalizePoint = (rawX: number, rawY: number): Point => ({
-        x: Math.max(0, Math.min(1, rawX / SW)),
-        y: Math.max(0, Math.min(1, rawY / CAM_H)),
-    })
+    const normalizePoint = (rawX: number, rawY: number): Point => {
+        // Apply mirror to match RealtimeBallOverlay.mapNormalizedToCameraView
+        // which does: x = SCREEN_W - screenX, y = CAMERA_H - screenY
+        const mirroredX = SW - rawX;
+        const mirroredY = CAM_H - rawY;
+        return {
+            x: Math.max(0, Math.min(1, mirroredX / SW)),
+            y: Math.max(0, Math.min(1, mirroredY / CAM_H)),
+        };
+    }
 
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
