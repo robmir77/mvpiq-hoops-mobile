@@ -192,12 +192,27 @@ export const saveFrameDataBatch = async (
 ): Promise<void> => {
     if (frames.length === 0) return
 
-    await apiClient.post(
-        `/workouts/sessions/${sessionId}/frames/batch?userId=${userId}`,
-        {
-            frames,
-        }
-    )
+    const requestBody = { frames }
+    console.log('[API] saveFrameDataBatch request:', {
+        sessionId,
+        userId,
+        frameCount: frames.length,
+        requestBody: JSON.stringify(requestBody, null, 2),
+    })
+
+    try {
+        await apiClient.post(
+            `/workouts/sessions/${sessionId}/frames/batch?userId=${userId}`,
+            requestBody
+        )
+    } catch (error: any) {
+        console.error('[API] saveFrameDataBatch error:', {
+            status: error?.response?.status,
+            statusText: error?.response?.statusText,
+            data: error?.response?.data,
+        })
+        throw error
+    }
 }
 
 // AI Tracking - Pose Analysis

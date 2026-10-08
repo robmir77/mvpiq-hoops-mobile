@@ -4,7 +4,7 @@
 
 import { useCallback } from 'react'
 import { captureRef } from 'react-native-view-shot'
-import * as MediaLibrary from 'expo-media-library'
+import * as MediaLibrary from 'expo-media-library/legacy'
 import type { ShotResult } from '../types/workouts.types'
 
 interface ScreenshotData {

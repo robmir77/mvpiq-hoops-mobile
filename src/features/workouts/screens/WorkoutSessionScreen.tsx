@@ -452,7 +452,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             if (ball || rimForTracking) {
                 const sampler = telemetrySamplerRef.current
                 const runtimeForTelemetry = runtimeRef.current as WorkoutSessionRuntime | null
-                if (sampler && sampler.shouldSample(now) && runtimeForTelemetry) {
+                const runtimeState = runtimeForTelemetry?.getState()
+                // Only send telemetry if session is ACTIVE
+                if (sampler && sampler.shouldSample(now) && runtimeForTelemetry && runtimeState === 'ACTIVE') {
                     const tTelemetryStart = performance.now()
                     runtimeForTelemetry.enqueueTelemetry({
                         frameTimestamp:   now,

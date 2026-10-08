@@ -227,6 +227,11 @@ export const useTrackingEngine = (callbacks?: BallTrackingCallbacks) => {
         shotDetected.value = engineState.shotDetected
         shotResult.value = engineState.shotResult ?? null
 
+        // Activate shot trail when in flight
+        if (engineState.inFlight && !showShotTrail.value) {
+            showShotTrail.value = true
+        }
+
         if (engineState.releasePoint) {
             releasePointX.value = engineState.releasePoint.x
             releasePointY.value = engineState.releasePoint.y

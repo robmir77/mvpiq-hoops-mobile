@@ -86,7 +86,10 @@ export class ShotEventBuilder {
   ): ShotPoint[] {
     if (!trajectory || trajectory.length === 0) return []
 
-    return trajectory.map((point) => ({
+    // Sort trajectory by timestamp to ensure correct order
+    const sortedTrajectory = [...trajectory].sort((a, b) => a.t - b.t)
+
+    return sortedTrajectory.map((point) => ({
       x: point.x,
       y: point.y,
       timestampMs: point.t,
@@ -100,9 +103,9 @@ export class ShotEventBuilder {
   private calculateCourtPosition(
     ballPosition: { x: number; y: number } | null,
     config: CourtProjectionConfig
-  ): { courtX: number; courtY: number; quality: CourtPositionQuality } {
+  ): { courtX: number; courtY: number; quality: CourtPositionQuality } | null {
     if (!ballPosition) {
-      return { courtX: 0, courtY: 0, quality: 'UNAVAILABLE' }
+      return null // Position unavailable - do not use 0,0 as valid position
     }
 
     // Placeholder: usa coordinate normalizzate come approssimazione
@@ -124,7 +127,10 @@ export class ShotEventBuilder {
   }
 
   // Calcola distanza dal canestro
-  private calculateDistanceFromHoop(courtX: number, courtY: number): number {
+  private calculateDistanceFromHoop(courtX: number | null, courtY: number | null): number | null {
+    if (courtX === null || courtY === null) {
+      return null // Cannot calculate distance without valid position
+    }
     // Canestro al centro del campo (7.62m da lato, 1.575m da baseline)
     const hoopX = 7.62
     const hoopY = 1.575
@@ -144,13 +150,15 @@ export class ShotEventBuilder {
     const timestampMs = Date.now()
 
     // Calcola posizione sul campo
-    const { courtX, courtY, quality } = this.calculateCourtPosition(
+    const courtPosition = this.calculateCourtPosition(
       trackingState.ballPosition,
       config
     )
 
-    // Calcola distanza dal canestro
-    const distanceFromHoop = this.calculateDistanceFromHoop(courtX, courtY)
+    // Calcola distanza dal canestro (solo se posizione disponibile)
+    const distanceFromHoop = courtPosition
+      ? this.calculateDistanceFromHoop(courtPosition.courtX, courtPosition.courtY)
+      : null
 
     // Converte traiettoria
     const trajectory = this.convertTrajectory(
@@ -172,8 +180,9 @@ export class ShotEventBuilder {
       sessionId,
       timestampMs,
       shotResult: trackingState.shotResult ?? 'UNCERTAIN',
-      courtX,
-      courtY,
+      courtX: courtPosition?.courtX ?? null,
+      courtY: courtPosition?.courtY ?? null,
+      courtPositionQuality: courtPosition?.quality ?? 'UNAVAILABLE',
       distanceFromHoop,
       releaseAngle: trackingState.releaseAngle,
       releaseVelocity: undefined, // Non disponibile in TrackingState
@@ -183,7 +192,6 @@ export class ShotEventBuilder {
       shotZone: undefined,
       releaseTimeMs: trackingState.releasePoint ? timestampMs : undefined,
       // Nuovi campi
-      courtPositionQuality: quality,
       trajectory,
       rawPoseFrames,
       schemaVersion: SHOT_EVENT_SCHEMA_VERSION,

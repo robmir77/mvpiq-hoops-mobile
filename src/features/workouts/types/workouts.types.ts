@@ -61,9 +61,9 @@ export interface ShotEvent {
     sessionId: string
     timestampMs: number
     shotResult: ShotResult
-    courtX: number
-    courtY: number
-    distanceFromHoop: number
+    courtX: number | null
+    courtY: number | null
+    distanceFromHoop: number | null
     releaseAngle?: number
     releaseVelocity?: number
     detectionConfidence: number
@@ -82,9 +82,9 @@ export interface AddShotEventPayload {
     shotId?: string  // UUID idempotente generato client-side
     timestampMs: number
     shotResult: ShotResult
-    courtX: number
-    courtY: number
-    distanceFromHoop: number
+    courtX: number | null
+    courtY: number | null
+    distanceFromHoop: number | null
     releaseAngle?: number
     releaseVelocity?: number
     detectionConfidence: number
@@ -166,12 +166,16 @@ export interface FrameDataPayload {
     frameTimestamp: number
     ballX?: number
     ballY?: number
+    ballWidth?: number
+    ballHeight?: number
     ballConfidence?: number
     hoopX?: number
     hoopY?: number
     hoopConfidence?: number
     poseData?: Record<string, any>
-    trajectoryData?: Record<string, any>
+    trajectoryData?: {
+        points: any[]
+    }
     ballVelocityX?: number
     ballVelocityY?: number
     shotDetected?: boolean

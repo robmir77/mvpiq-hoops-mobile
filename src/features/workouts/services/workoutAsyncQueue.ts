@@ -1,5 +1,6 @@
 import { saveFrameDataBatch, addShotEvent, addShotEventsBatch, endWorkoutSession, saveCourtCalibration } from '../api/workouts.api'
 import { PersistentOutbox } from './persistentOutbox'
+import type { FrameDataPayload } from '../types/workouts.types'
 
 interface AsyncQueueItem<T> {
   payload: T
@@ -49,26 +50,6 @@ class BoundedQueue<T> {
   }
 }
 
-interface FrameDataPayload {
-  sessionId: string
-  userId: string
-  frameTimestamp: number
-  ballX?: number
-  ballY?: number
-  ballWidth?: number
-  ballHeight?: number
-  ballConfidence?: number
-  hoopX?: number
-  hoopY?: number
-  hoopConfidence?: number
-  ballVelocityX?: number
-  ballVelocityY?: number
-  shotDetected?: boolean
-  trajectoryData?: {
-    points: any[]
-  }
-}
-
 interface CriticalPayload {
   type: 'SHOT' | 'SESSION_START' | 'SESSION_END' | 'CALIBRATION'
   sessionId: string
@@ -115,18 +96,14 @@ class WorkoutAsyncQueue {
     return queue
   }
 
-  enqueueTelemetry(payload: Omit<FrameDataPayload, 'sessionId' | 'userId'>) {
+  enqueueTelemetry(payload: FrameDataPayload) {
     if (!this.initialized) {
       console.error('[WorkoutQueue] Queue not initialized, cannot enqueue telemetry')
       return
     }
 
     this.telemetry.push({
-      payload: {
-        ...payload,
-        sessionId: this.criticalOutbox.sessionId,
-        userId: this.criticalOutbox.userId,
-      },
+      payload,
       timestamp: Date.now(),
     })
 
@@ -336,7 +313,7 @@ class WorkoutAsyncQueue {
   private async processTelemetryItems(items: AsyncQueueItem<FrameDataPayload>[]) {
     const frames = items.map(item => item.payload)
     try {
-      await saveFrameDataBatch(frames[0].sessionId, frames[0].userId, frames)
+      await saveFrameDataBatch(this.criticalOutbox.sessionId, this.criticalOutbox.userId, frames)
     } catch (e) {
       console.error('[WorkoutQueue] Failed to save frame batch (best-effort, data lost):', e)
       // Telemetry is best-effort - we accept data loss here

@@ -166,7 +166,8 @@ const RealtimeBallOverlay = React.memo(({
         const shotResult = sharedValues?.shotResult.value ?? null
         if (inFlight) return 'rgba(255,140,0,0.90)'
         if (shotResult === 'MADE') return 'rgba(34,197,94,0.90)'
-        if (shotResult) return 'rgba(239,68,68,0.90)'
+        if (shotResult === 'UNCERTAIN') return 'rgba(234,179,8,0.90)' // Yellow for UNCERTAIN
+        if (shotResult) return 'rgba(239,68,68,0.90)' // Red for MISS
         return 'rgba(255,140,0,0.70)'
     })
     const trailGlowColor = useDerivedValue(() => {
@@ -174,7 +175,8 @@ const RealtimeBallOverlay = React.memo(({
         const shotResult = sharedValues?.shotResult.value ?? null
         if (inFlight) return 'rgba(255,140,0,0.30)'
         if (shotResult === 'MADE') return 'rgba(34,197,94,0.30)'
-        if (shotResult) return 'rgba(239,68,68,0.30)'
+        if (shotResult === 'UNCERTAIN') return 'rgba(234,179,8,0.30)' // Yellow for UNCERTAIN
+        if (shotResult) return 'rgba(239,68,68,0.30)' // Red for MISS
         return 'rgba(255,140,0,0.20)'
     })
 
@@ -322,8 +324,10 @@ const RealtimeBallOverlay = React.memo(({
     const shotTrailPath = useDerivedValue(() => {
         const showTrail = sharedValues?.showShotTrail.value ?? false
         const isInFlight = sharedValues?.inFlight.value ?? false
+        const shotResult = sharedValues?.shotResult.value ?? null
 
-        if (!showTrail) return shotTrailPathRef.current
+        // Show trail during flight AND after result (until new shot detected)
+        if (!showTrail && !shotResult) return shotTrailPathRef.current
 
         const trajPoints = sharedValues?.trajectoryPoints.value
         const trajCount = sharedValues?.trajectoryPointCount.value ?? 0
