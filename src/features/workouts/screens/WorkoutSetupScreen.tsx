@@ -45,7 +45,7 @@ export default function WorkoutSetupScreen({ navigation }: any) {
                 selectedPoseResolution: 192, // Default pose resolution
                 yoloDelegate: null, // Will use default
                 poseDelegate: null, // Will use default
-                yoloModelId: 'best_320_float16', // Use fastest YOLO model (fpsMax=37)
+                yoloModelId: 'best_384_float16', // Use 384 YOLO model
                 moveNetModelId: null, // Will use default
             }
             console.log('[WorkoutSetup] Navigating to Calibration with params:', calibrationParams)
