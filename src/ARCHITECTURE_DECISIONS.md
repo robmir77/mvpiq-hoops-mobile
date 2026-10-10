@@ -39,6 +39,89 @@
 
 ---
 
+## Decision 33: Fase 1 - Sincronizzazione Temporale delle Rilevazioni
+
+**Contesto:** Con un'inferenza YOLO più lenta della camera e una frequenza MoveNet diversa da quella di YOLO, il sistema trattava tutte le ultime rilevazioni come se fossero state ottenute nello stesso fotogramma. I timestamp originali dai worker venivano sostituiti con Date.now() nei callback, confondendo la latenza d'inferenza con il tempo della rilevazione. VisionEngineAdapter manteneva un unico lastTimestamp per tutti i canali, permettendo di combinare osservazioni di età diversa.
+
+**Problemi identificati (Fase 1 iniziale):**
+1. Il timestamp della rilevazione viene sostituito con l'ora del callback (Date.now())
+2. Un unico timestamp viene usato per quattro canali indipendenti (palla, giocatore, canestro, posa)
+3. Le osservazioni vecchie possono rimanere in cache senza un limite di età
+4. Il debounce può far elaborare più volte le stesse osservazioni con timestamp diversi
+
+**Problemi aggiuntivi identificati (revisione statica P0):**
+5. Il giocatore perde il timestamp YOLO originale (useShotTracker non lo passa al callback)
+6. L'adapter non distingue nuove rilevazioni da osservazioni già elaborate
+7. I log diagnostici possono generare rumore eccessivo
+
+**Decisione:**
+- Conservare il timestamp originale di ogni risultato dai worker
+- Separare i timestamp nell'adapter (ballTimestamp, playerTimestamp, rimTimestamp, poseTimestamp)
+- Aggiungere controllo di freschezza prima di passare le osservazioni al VisionEngine
+- Soglie basate sulle frequenze naturali dei worker:
+  - YOLO: 500ms (2-3x ~200-250ms tra inferenze)
+  - MoveNet: 750ms (2-3x ~250-330ms tra inferenze)
+- Aggiungere log diagnostici throttled per età e novità delle rilevazioni
+- Osservazioni stale non vengono passate al VisionEngine
+- Flag di aggiornamento per canale per distinguere nuove rilevazioni da cache
+
+**Modifiche implementate (Fase 1 iniziale):**
+1. VisionEngineAdapter.ts:
+   - Timestamp separati per canale (ballTimestamp, playerTimestamp, rimTimestamp, poseTimestamp)
+   - Soglie di freschezza basate su frequenze naturali worker
+   - Controllo di freschezza in processFrame()
+   - Log diagnostici per osservazioni stale
+
+2. WorkoutSessionScreen.tsx:
+   - handleBallDetection: usa detection.timestamp (dal worker YOLO)
+   - handlePoseResult: usa result.timestamp (dal worker MoveNet)
+   - handleRimDetection: usa Date.now() come riferimento (non riceve timestamp dal worker)
+   - handlePlayerDetection: usa Date.now() come riferimento (non riceve timestamp dal worker)
+
+**Modifiche implementate (Correzioni P0 revisione statica):**
+1. useShotTracker.ts:
+   - Firma onPlayerDetection aggiornata per ricevere timestamp come secondo parametro
+   - handleYoloAsyncResult ora passa result.timestamp a onPlayerDetectionRef.current
+
+2. WorkoutSessionScreen.tsx:
+   - handlePlayerDetection riceve timestamp come secondo parametro e lo usa invece di Date.now()
+
+3. VisionEngineAdapter.ts:
+   - Flag di aggiornamento per canale (ballUpdated, playerUpdated, rimUpdated, poseUpdated)
+   - updateParsedResults() imposta flag quando canale viene aggiornato
+   - processFrame() resetta flag dopo elaborazione
+   - Log diagnostici throttled (log solo quando canale aggiornato e osservazione stale)
+
+**Rationale:**
+- Distinguere il tempo di acquisizione dal tempo di elaborazione
+- Tenere traccia della freschezza di ogni canale
+- Evitare di combinare dati di età diversa nel tracking
+- Le differenze temporali della traiettoria devono derivare dai timestamp delle osservazioni, non dalla latenza dei callback
+- Distinguere nuove rilevazioni da osservazioni già elaborate per evitare di processare più volte la stessa palla
+- Ridurre rumore diagnostico limitando log a casi rilevanti
+
+**Conseguenze:**
+- Timestamp originali preservati dai worker per palla, posa e giocatore
+- Ogni canale ha il proprio timestamp
+- Osservazioni stale filtrate prima del tracking
+- Log diagnostici throttled per evitare rumore
+- Flag di aggiornamento permettono di distinguere nuove rilevazioni da cache
+- Tracking e rilevamento del tiro aggiornati solo con osservazioni temporalmente valide
+
+**Problemi rimanenti (P1 - da affrontare in fase successiva):**
+- Il tracking continua a usare frame.timestamp (ora di elaborazione) invece dei timestamp originali delle rilevazioni
+- Questo richiede modifiche più ampie all'interfaccia VisionEngineResult e TrackingEngine.processFrame
+- VisionEngineResult ha solo un timestamp globale, ma il tracking ha bisogno dei timestamp originali di ogni rilevazione
+
+**Next steps:**
+- Test con ciclo reale (palleggio, rilascio, traiettoria, canestro o errore)
+- Verificare log diagnostici per età e novità delle rilevazioni
+- Ajustare soglie di freschezza se necessario basato sui log
+- Affrontare P1 (passare timestamp originali al tracking) solo dopo validazione P0
+- Considerare modifiche alla macchina a stati del tiro solo dopo conferma sincronizzazione temporale
+
+---
+
 **Contesto:** Il sistema throttling deterministico (YOLO 10 FPS, MoveNet 3 FPS) limitava artificialmente la detection rate. Rimuovendo i limiti temporali, i modelli possono girare al massimo FPS possibile dato il tempo di inferenza sincrono.
 
 **Decisione:**

@@ -31,8 +31,6 @@ export interface CameraPipelineResult {
     rimRejectionReason: any
     playerTrackState: any
     playerTrackAge: any
-    rimTrackState: any
-    rimTrackAge: any
   }
 }
 
@@ -40,7 +38,7 @@ export const useCameraPipeline = (
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult: (result: PoseResult) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
-  onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }) => void,
+  onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }, timestamp: number) => void,
   rimFromCalibration?: { x: number; y: number; width: number; height: number } | null,
   enabled: boolean = true,
   poseEnabled: boolean = true,

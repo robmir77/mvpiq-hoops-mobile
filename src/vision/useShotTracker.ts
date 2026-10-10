@@ -74,7 +74,8 @@ export const useShotTracker = (
             width: number
             height: number
             confidence: number
-        }
+        },
+        timestamp: number
     ) => void,
 
     rimFromCalibration?: {
@@ -379,7 +380,8 @@ export const useShotTracker = (
             playerTrackState.value = 'DETECTED'
             playerTrackAge.value = 0
             // Emit player detection (actual YOLO detection, not Frame Processor emission)
-            onPlayerDetectionRef.current?.(result.player)
+            // Phase 1 Temporal Sync: Pass original timestamp from YOLO worker
+            onPlayerDetectionRef.current?.(result.player, result.timestamp)
         } else {
             // Reset shared values for overlay when no player detected
             playerX.value = 0

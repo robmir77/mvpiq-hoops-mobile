@@ -4,6 +4,17 @@
 
 La pipeline di vision dell'applicazione MVPIQ Hoops elabora frame dalla camera per rilevare e tracciare tre oggetti chiave: la palla, il canestro e il giocatore. La pipeline è costruita su React Native Vision Camera V5 con un'architettura worklet-safe per garantire performance real-time.
 
+**Scenario dell'Applicazione:**
+L'app non cerca di riconoscere una scena di basket generica, ma un esercizio ripetitivo con tre elementi principali e un ciclo prevedibile:
+1. **Canestro:** Riferimento stabile e fisso nell'inquadratura. Una volta identificato e verificato, dovrebbe diventare un riferimento persistente senza doverlo rideterminare da zero a ogni frame.
+2. **Giocatore:** Identità persistente. È sostanzialmente sempre lo stesso giocatore. La posizione e la posa cambiano, ma l'identità non dovrebbe cambiare continuamente né sparire a causa di una singola detection mancata.
+3. **Pallone:** Tracciamento continuo. Durante il palleggio si muove vicino al giocatore; durante il tiro si separa dal giocatore e segue una traiettoria verso il canestro.
+
+**Ciclo dell'Esercizio:**
+Palleggio → Preparazione → Rilascio → Volo del pallone → Canestro o errore → Nuovo palleggio
+
+Questo significa che l'app può sfruttare contesto, memoria e sequenza temporale, anziché affidarsi soltanto a rilevamenti indipendenti per ogni fotogramma.
+
 ## Principio Fondamentale
 
 **Il frame processor non aspetta mai il backend, React state, persistenza o telemetria JS.**
@@ -13,6 +24,9 @@ Tutto ciò che può essere asincrono deve essere separato dal percorso realtime.
 **Reanimated Shared Values:** I shared values di Reanimated non devono essere letti direttamente durante il render dei componenti React. Per evitare warning di Reanimated, i valori devono essere sincronizzati a variabili di stato regolari tramite useEffect prima di essere passati ai componenti UI.
 
 **Schedule Wait Measurement:** Entrambi i worker (YOLO e MoveNet) misurano il tempo tra `scheduleOnRN()` e l'esecuzione effettiva del callback, permettendo di identificare la contesa del runtime RN come collo di bottiglia primario.
+
+**Principio Fondamentale Aggiunto - Integrità Temporale:**
+Il sistema deve usare le informazioni dei frame precedenti per interpretare quello corrente, senza perdere la capacità di riconoscere quando una stima è diventata troppo vecchia. La scena è prevedibile: un canestro fisso, un giocatore e una palla. Il problema principale non è aggiungere altri modelli: è fare in modo che i dati deicomponenti esistenti descrivano correttamente lo stesso evento nel tempo.
 
 ## Architettura Target
 
@@ -373,6 +387,100 @@ Confidence threshold: 10%
 Note: Non è vero "tracking", è "best-confidence locking" per camera stabile
 ```
 
+## Audit dell'Architettura
+
+### 1. Analisi del percorso completo
+
+La pipeline di vision deve garantire che ogni livello conservi il significato dei dati ricevuti dal livello precedente. Se una posizione stimata viene scambiata per una rilevazione reale, l'errore può propagarsi fino al risultato e alle statistiche.
+
+**Livelli della pipeline:**
+
+1. **Rilevazione visiva**
+   - YOLO: palla, giocatore, canestro
+   - MoveNet: posa grezza
+
+2. **Sincronizzazione delle osservazioni**
+   - Timestamp, freschezza, coordinate e provenienza dei dati
+
+3. **Tracking e macchina a stati**
+   - Palleggio → rilascio → volo → esito → reset
+
+4. **Evento del tiro**
+   - Identificativo, timestamp, traiettoria, risultato, posa e posizione
+
+5. **Overlay, persistenza e report**
+   - Scia corretta, conteggi coerenti, shot chart affidabile
+
+### 2. Primi difetti confermati nel codice
+
+Questa è la prima passata sui sorgenti; non equivale ancora a una validazione dell'app su dispositivo.
+
+**A. Le osservazioni non sono sincronizzate per oggetto** ✅ RISOLTO (Fase 1 Completata + Correzioni P0)
+VisionEngineAdapter conserva separatamente i risultati di palla, giocatore, canestro e posa, ma mantiene un unico lastTimestamp. processFrame() può quindi inoltrare risultati di età diversa senza che l'interfaccia renda esplicita questa differenza.
+
+**Soluzione implementata (Fase 1 iniziale):**
+- Timestamp separati per canale in VisionEngineAdapter (ballTimestamp, playerTimestamp, rimTimestamp, poseTimestamp)
+- WorkoutSessionScreen ora passa timestamp originali dai worker (detection.timestamp per YOLO, result.timestamp per MoveNet) invece di Date.now()
+- Controllo di freschezza in VisionEngineAdapter.processFrame() con soglie basate sulle frequenze naturali dei worker:
+  - YOLO: 500ms (2-3x ~200-250ms tra inferenze)
+  - MoveNet: 750ms (2-3x ~250-330ms tra inferenze)
+- Log diagnostici per età e novità delle rilevazioni
+- Osservazioni stale non vengono passate al VisionEngine
+
+**Correzioni P0 aggiuntive (revisione statica):**
+- Propagazione timestamp originali per giocatore: useShotTracker.handleYoloAsyncResult ora passa result.timestamp a onPlayerDetectionRef.current
+- handlePlayerDetection in WorkoutSessionScreen riceve timestamp come secondo parametro e lo usa invece di Date.now()
+- Flag di aggiornamento per canale (ballUpdated, playerUpdated, rimUpdated, poseUpdated) per distinguere nuove rilevazioni da osservazioni già elaborate
+- Log diagnostici throttled per evitare rumore (log solo quando canale aggiornato e osservazione stale)
+
+**Impatto:** velocità e associazioni spaziali ora calcolate usando dati temporalmente coerenti. Giocatore ora preserva timestamp originale YOLO.
+
+**B. Possibile errore nel centro del giocatore**
+YoloDetector espone coordinate del centro del bounding box; il fallback in TrackingEngine aggiunge nuovamente metà larghezza e altezza.
+
+**Impatto:** se il contratto delle coordinate è quello indicato dal detector, il centro viene calcolato in modo errato. Va verificato e uniformato prima di modificare le soglie YOLO.
+
+**C. Due implementazioni dello stato di tiro**
+TrackingEngine e ShotDetectionEngine mantengono entrambi variabili relative alla salita e allo stato di volo.
+
+**Impatto:** rischio di divergenza fra rilevamento, punto di rilascio, traiettoria e overlay. Va individuata una sola fonte di verità.
+
+**D. Il risultato non prova il passaggio nel canestro**
+ShotDetectionEngine classifica il tiro soprattutto in base a discesa, distanza dal centro del canestro e velocità.
+
+**Impatto:** una palla che passa vicino al centro potrebbe essere classificata come MADE senza evidenza sufficiente di ingresso. Serve una decisione temporale basata sulla traiettoria.
+
+**E. La traiettoria non distingue tutti i punti osservati da quelli stimati**
+Il buffer contiene punti della palla nel tempo, ma la costruzione dell'evento può etichettare i punti come rilevazioni anche quando provengono da predizioni.
+
+**Impatto:** la scia può risultare ingannevole e le metriche del tiro possono includere dati che non sono stati osservati direttamente.
+
+**F. La posizione sul campo è ancora approssimativa**
+WorkoutSessionRuntime passa calibration: undefined al costruttore dell'evento. Il calcolo della posizione non applica una trasformazione di omografia effettiva.
+
+**Impatto:** lo shot chart non dovrebbe essere considerato geometricamente affidabile finché calibrazione e coordinate di rilascio non sono collegate correttamente.
+
+### 3. Come procederei nell'audit
+
+Non cambierei contemporaneamente soglie, tracker e classificazione. Prima verificherei i contratti e le transizioni in modo isolato.
+
+| Fase | Verifica | Criterio di completamento |
+|------|----------|---------------------------|
+| 1 | Rilevazioni e timestamp | Ogni dato ha timestamp e stato di freschezza propri |
+| 2 | Coordinate e tracking | Centro giocatore e palla coerenti nello stesso sistema di riferimento |
+| 3 | Macchina a stati | Un solo rilascio e un solo evento per ogni tiro |
+| 4 | Traiettoria | Punti del tiro isolati, con osservazioni e predizioni distinguibili |
+| 5 | Classificazione | MADE/MISS/UNCERTAIN coerenti con la traiettoria disponibile |
+| 6 | Evento e report | Timestamp, posa grezza, posizione e conteggi corretti |
+
+La priorità è la fase 1, perché un difetto di sincronizzazione può falsare tutte le fasi successive.
+
+### 4. Che cosa non darei ancora per dimostrato
+
+Non concluderei ancora che il modello YOLO debba essere riaddestrato, che le soglie vadano abbassate o che il Kalman sia da sostituire. Per stabilirlo servono verifiche specifiche sul parser del modello, sulle coordinate prodotte e sulle sequenze reali di rilevazione.
+
+Allo stesso modo, la presenza di test unitari non dimostra da sola che l'intera sequenza palleggio-tiro-canestro sia corretta: bisogna controllare anche i test d'integrazione e i casi in cui le rilevazioni arrivano in ritardo o mancano.
+
 ## Configurazione Globale
 
 Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
@@ -511,6 +619,14 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Homography HALF/FULL court | 🔴 | Sempre calcolata come FULL court (15.24 x 28.65) |
 | CALIBRATION in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
 | SESSION_END in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
+| **Audit A: Osservazioni non sincronizzate per oggetto** | 🔴 | VisionEngineAdapter ha unico lastTimestamp per tutti gli oggetti |
+| **Audit B: Centro giocatore potenzialmente errato** | 🔴 | YoloDetector espone centerX/centerY, TrackingEngine aggiunge nuovamente metà width/height |
+| **Audit C: Macchina a stati tiro duplicata** | 🔴 | TrackingEngine e ShotDetectionEngine hanno stati paralleli |
+| **Audit D: Classificazione MADE/MISS senza prova passaggio** | 🔴 | Basata su distanza centro, non su sequenza temporale della traiettoria |
+| **Audit E: Traietoria non distingue osservati vs stimati** | 🔴 | Punti predizioni etichettati come rilevazioni nel buffer |
+| **Audit F: Posizione sul campo approssimativa** | 🔴 | Calibration undefined nel costruttore ShotEvent, omografia non applicata |
+| **P2: Canestro non persistente** | 🟡 | Dipende da YOLO per frame invece di calibrazione |
+| **P2: Persistenza tiro imprecisa** | 🟡 | Posizione non riferita al rilascio, proiezione non calibrata |
 | shutdown() bounded offline | ✅ | Time-bounded con timeout 3 secondi |
 | OutboxRecoveryWorker chiavi | ✅ | Chiavi AsyncStorage corrette (workout_outbox_<id>) |
 | Duplicazione loadAllPendingAndMerge | ✅ | Deduplica per ID implementata |

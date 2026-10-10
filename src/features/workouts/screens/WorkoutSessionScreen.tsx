@@ -276,6 +276,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
         // Update VisionEngineAdapter with parsed pose result (Phase 3)
         // Convert from vision/types to VisionEngine.types format
+        // Phase 1 Temporal Sync: Use original timestamp from MoveNet worker instead of Date.now()
 
         visionEngineAdapterRef.current?.updateParsedResults(
             undefined, // ball
@@ -285,7 +286,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 keypoints: keypointsArray,
                 confidence: avgConfidence,
             }, // pose (VisionEngine.types format)
-            Date.now()
+            result.timestamp // Use original timestamp from MoveNet worker
         )
 
         // Phase 4: Call Runtime.processFrame() with VisionEngine data (debounced)
@@ -325,24 +326,26 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         tracking.setHoopFromCalibration(rim.x, rim.y, rim.width, rim.height)
 
         // Update VisionEngineAdapter with parsed rim result (Phase 3)
+        // Phase 1 Temporal Sync: Use original timestamp from YOLO worker instead of Date.now()
         visionEngineAdapterRef.current?.updateParsedResults(
             undefined, // ball
             undefined, // player
             rim, // rim
             undefined, // pose
-            Date.now()
+            now // Use callback timestamp (rim detection callback uses Date.now() as reference)
         )
     }, [tracking])
 
     // Player detection callback (for VisionEngine integration)
-    const handlePlayerDetection = useCallback((player: { x: number; y: number; width: number; height: number; confidence: number }) => {
+    const handlePlayerDetection = useCallback((player: { x: number; y: number; width: number; height: number; confidence: number }, timestamp: number) => {
         // Update VisionEngineAdapter with parsed player result
+        // Phase 1 Temporal Sync: Use original timestamp from YOLO worker
         visionEngineAdapterRef.current?.updateParsedResults(
             undefined, // ball
             player, // player
             undefined, // rim
             undefined, // pose
-            Date.now()
+            timestamp // Use original timestamp from YOLO worker
         )
     }, [])
 
@@ -360,12 +363,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         const tAdapterStart = performance.now()
         // Update VisionEngineAdapter with parsed ball/rim results (Phase 3)
         // Convert from vision/types to VisionEngine.types format
+        // Phase 1 Temporal Sync: Use original timestamp from YOLO worker instead of Date.now()
         visionEngineAdapterRef.current?.updateParsedResults(
             ball || null, // BallDetection (flat)
             undefined, // player (not in BallDetection type)
             rim || null, // RimDetection
             undefined, // pose (updated separately)
-            now
+            detection.timestamp // Use original timestamp from YOLO worker
         )
         const tAdapterEnd = performance.now()
 

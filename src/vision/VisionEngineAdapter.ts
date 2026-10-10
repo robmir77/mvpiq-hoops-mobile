@@ -25,8 +25,26 @@ export class VisionEngineAdapter implements IVisionEngine {
   private lastPlayer: PlayerDetection | null = null
   private lastRim: RimDetection | null = null
   private lastPose: PoseResult | null = null
-  private lastTimestamp: number = 0
+  // Phase 1 Audit: Separate timestamps per channel to avoid mixing observations of different ages
+  private lastBallTimestamp: number = 0
+  private lastPlayerTimestamp: number = 0
+  private lastRimTimestamp: number = 0
+  private lastPoseTimestamp: number = 0
   private isRunning = false
+
+  // Phase 1 Temporal Sync: Freshness thresholds based on natural worker frequencies
+  // YOLO: ~4-5 FPS natural → ~200-250ms between inferences → threshold 500ms (2-3x)
+  // MoveNet: ~3-4 FPS natural → ~250-330ms between inferences → threshold 750ms (2-3x)
+  private readonly BALL_FRESHNESS_MS = 500
+  private readonly PLAYER_FRESHNESS_MS = 500
+  private readonly RIM_FRESHNESS_MS = 500
+  private readonly POSE_FRESHNESS_MS = 750
+
+  // Phase 1 Temporal Sync: Track which channels have new observations since last processFrame
+  private ballUpdated = false
+  private playerUpdated = false
+  private rimUpdated = false
+  private poseUpdated = false
 
   constructor(ballConfThreshold?: number, rimConfThreshold?: number, poseScoreThreshold?: number) {
     // VisionEngine now handles parsed results from workers
@@ -45,27 +63,49 @@ export class VisionEngineAdapter implements IVisionEngine {
     pose: PoseResult | null | undefined,
     timestamp: number
   ): void {
-    if (ball !== undefined) this.lastBall = ball
-    if (player !== undefined) this.lastPlayer = player
-    if (rim !== undefined) this.lastRim = rim
-    if (pose !== undefined) this.lastPose = pose
-    this.lastTimestamp = timestamp
+    if (ball !== undefined) {
+      this.lastBall = ball
+      this.lastBallTimestamp = timestamp
+      this.ballUpdated = true
+    }
+    if (player !== undefined) {
+      this.lastPlayer = player
+      this.lastPlayerTimestamp = timestamp
+      this.playerUpdated = true
+    }
+    if (rim !== undefined) {
+      this.lastRim = rim
+      this.lastRimTimestamp = timestamp
+      this.rimUpdated = true
+    }
+    if (pose !== undefined) {
+      this.lastPose = pose
+      this.lastPoseTimestamp = timestamp
+      this.poseUpdated = true
+    }
   }
 
   // Get current parsed results for Runtime integration
+  // Phase 1 Audit: Returns separate timestamps per channel and freshness info
   getCurrentResults(): {
     ball: BallDetection | null
     player: PlayerDetection | null
     rim: RimDetection | null
     pose: PoseResult | null
-    timestamp: number
+    ballTimestamp: number
+    playerTimestamp: number
+    rimTimestamp: number
+    poseTimestamp: number
   } {
     return {
       ball: this.lastBall,
       player: this.lastPlayer,
       rim: this.lastRim,
       pose: this.lastPose,
-      timestamp: this.lastTimestamp,
+      ballTimestamp: this.lastBallTimestamp,
+      playerTimestamp: this.lastPlayerTimestamp,
+      rimTimestamp: this.lastRimTimestamp,
+      poseTimestamp: this.lastPoseTimestamp,
     }
   }
 
@@ -75,17 +115,81 @@ export class VisionEngineAdapter implements IVisionEngine {
     timestamp: number
     data?: Uint8Array
   }): VisionEngineResult {
-    // Pass parsed results to VisionEngine for orchestration
-    return this.visionEngine.processFrame({
+    // Phase 1 Temporal Sync: Check freshness of each channel before passing to VisionEngine
+    const referenceTimestamp = Math.max(
+      this.lastBallTimestamp,
+      this.lastPlayerTimestamp,
+      this.lastRimTimestamp,
+      this.lastPoseTimestamp,
+      frame.timestamp
+    )
+
+    // Calculate age of each observation
+    const ballAge = this.lastBallTimestamp > 0 ? referenceTimestamp - this.lastBallTimestamp : Infinity
+    const playerAge = this.lastPlayerTimestamp > 0 ? referenceTimestamp - this.lastPlayerTimestamp : Infinity
+    const rimAge = this.lastRimTimestamp > 0 ? referenceTimestamp - this.lastRimTimestamp : Infinity
+    const poseAge = this.lastPoseTimestamp > 0 ? referenceTimestamp - this.lastPoseTimestamp : Infinity
+
+    // Filter stale observations
+    const ballFresh = ballAge < this.BALL_FRESHNESS_MS
+    const playerFresh = playerAge < this.PLAYER_FRESHNESS_MS
+    const rimFresh = rimAge < this.RIM_FRESHNESS_MS
+    const poseFresh = poseAge < this.POSE_FRESHNESS_MS
+
+    // Phase 1 Temporal Sync: Log diagnostics for age and freshness (throttled to avoid noise)
+    if (this.lastBall && !ballFresh && this.ballUpdated) {
+      console.log('[VisionEngineAdapter] Ball observation stale:', {
+        age: ballAge.toFixed(0) + 'ms',
+        threshold: this.BALL_FRESHNESS_MS + 'ms',
+        timestamp: this.lastBallTimestamp,
+        reference: referenceTimestamp,
+      })
+    }
+    if (this.lastPlayer && !playerFresh && this.playerUpdated) {
+      console.log('[VisionEngineAdapter] Player observation stale:', {
+        age: playerAge.toFixed(0) + 'ms',
+        threshold: this.PLAYER_FRESHNESS_MS + 'ms',
+        timestamp: this.lastPlayerTimestamp,
+        reference: referenceTimestamp,
+      })
+    }
+    if (this.lastRim && !rimFresh && this.rimUpdated) {
+      console.log('[VisionEngineAdapter] Rim observation stale:', {
+        age: rimAge.toFixed(0) + 'ms',
+        threshold: this.RIM_FRESHNESS_MS + 'ms',
+        timestamp: this.lastRimTimestamp,
+        reference: referenceTimestamp,
+      })
+    }
+    if (this.lastPose && !poseFresh && this.poseUpdated) {
+      console.log('[VisionEngineAdapter] Pose observation stale:', {
+        age: poseAge.toFixed(0) + 'ms',
+        threshold: this.POSE_FRESHNESS_MS + 'ms',
+        timestamp: this.lastPoseTimestamp,
+        reference: referenceTimestamp,
+      })
+    }
+
+    // Pass only fresh observations to VisionEngine
+    // Phase 1 Temporal Sync: Use updated flags to distinguish new observations from cached ones
+    const result = this.visionEngine.processFrame({
       width: frame.width,
       height: frame.height,
-      timestamp: this.lastTimestamp || frame.timestamp,
+      timestamp: referenceTimestamp,
       data: frame.data,
-      ball: this.lastBall,
-      player: this.lastPlayer,
-      rim: this.lastRim,
-      pose: this.lastPose,
+      ball: ballFresh ? this.lastBall : null,
+      player: playerFresh ? this.lastPlayer : null,
+      rim: rimFresh ? this.lastRim : null,
+      pose: poseFresh ? this.lastPose : null,
     })
+
+    // Reset update flags after processing
+    this.ballUpdated = false
+    this.playerUpdated = false
+    this.rimUpdated = false
+    this.poseUpdated = false
+
+    return result
   }
 
   setBallDetectionEnabled(enabled: boolean): void {

@@ -603,3 +603,42 @@ Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
 - Schedule wait monitorato con P50/P95/P99
 - Kalman filter funzionante come fallback
 - Ottimizzazioni future solo se necessario
+
+**Fase 1 Sincronizzazione Temporale (Decision 33):**
+- ✅ COMPLETATA - Timestamp separati per canale in VisionEngineAdapter
+- ✅ COMPLETATA - WorkoutSessionScreen passa timestamp originali dai worker
+- ✅ COMPLETATA - Controllo di freschezza in processFrame() con soglie basate su frequenze worker
+- ✅ COMPLETATA - Log diagnostici per età e novità delle rilevazioni
+- ✅ COMPLETATA - Osservazioni stale filtrate prima del tracking
+- ✅ COMPLETATA (Correzioni P0) - Propagazione timestamp originali per giocatore
+- ✅ COMPLETATA (Correzioni P0) - Flag di aggiornamento per distinguere nuove rilevazioni
+- ✅ COMPLETATA (Correzioni P0) - Log diagnostici throttled per evitare rumore
+
+**Soglie di freschezza implementate:**
+- YOLO (ball, player, rim): 500ms (2-3x ~200-250ms tra inferenze)
+- MoveNet (pose): 750ms (2-3x ~250-330ms tra inferenze)
+
+**Modifiche architetturali (Fase 1 iniziale):**
+- Timestamp originali preservati dai worker (detection.timestamp per YOLO, result.timestamp per MoveNet)
+- Timestamp separati per canale (ballTimestamp, playerTimestamp, rimTimestamp, poseTimestamp)
+- Controllo di freschezza prima di passare osservazioni al VisionEngine
+- Log diagnostici per monitorare età delle rilevazioni
+- Tracking e rilevamento del tiro aggiornati solo con osservazioni temporalmente valide
+
+**Modifiche architetturali (Correzioni P0 revisione statica):**
+- useShotTracker.ts: firma onPlayerDetection aggiornata per ricevere timestamp
+- useShotTracker.ts: handleYoloAsyncResult passa result.timestamp a onPlayerDetectionRef.current
+- WorkoutSessionScreen.tsx: handlePlayerDetection riceve e usa timestamp originale
+- VisionEngineAdapter.ts: flag di aggiornamento per canale (ballUpdated, playerUpdated, rimUpdated, poseUpdated)
+- VisionEngineAdapter.ts: log diagnostici throttled (solo quando canale aggiornato e osservazione stale)
+
+**Problemi rimanenti (P1 - da affrontare in fase successiva):**
+- Il tracking continua a usare frame.timestamp (ora di elaborazione) invece dei timestamp originali delle rilevazioni
+- Questo richiede modifiche più ampie all'interfaccia VisionEngineResult e TrackingEngine.processFrame
+- VisionEngineResult ha solo un timestamp globale, ma il tracking ha bisogno dei timestamp originali di ogni rilevazione
+
+**Next steps:**
+- Test con ciclo reale (palleggio, rilascio, traiettoria, canestro o errore)
+- Verificare log diagnostici per età e novità delle rilevazioni
+- Ajustare soglie di freschezza se necessario basato sui log
+- Affrontare P1 (passare timestamp originali al tracking) solo dopo validazione P0

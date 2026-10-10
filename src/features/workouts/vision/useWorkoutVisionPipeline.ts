@@ -43,7 +43,7 @@ export const useWorkoutVisionPipeline = (
   onBallDetection: (detection: BallDetection) => void,
   onPoseResult: (result: PoseResult) => void,
   onRimDetection?: (rim: { x: number; y: number; width: number; height: number; confidence: number }) => void,
-  onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }) => void,
+  onPlayerDetection?: (player: { x: number; y: number; width: number; height: number; confidence: number }, timestamp: number) => void,
   runtimeActive: boolean = false, // Parameter kept for API compatibility, but not used (Decision 29 reverted)
 ): UseWorkoutVisionPipelineResult => {
   const {
