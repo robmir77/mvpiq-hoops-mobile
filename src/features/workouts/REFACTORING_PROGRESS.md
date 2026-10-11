@@ -386,6 +386,12 @@ features/workouts/
 - Conferma salvataggio nell'outbox locale prima di restituire success
 - Il backend può fallire ma l'evento è conservato per recupero
 
+**4.6.19: Overlay Frequency Increased ✓**
+- Ridotto RUNTIME_PROCESS_DEBOUNCE_MS da 50ms a 20ms (50 FPS teorici vs 20 FPS precedenti)
+- Migliora fluidità overlay per analisi workout in tempo reale
+- File modificato: WorkoutSessionScreen.tsx (riga 222)
+- Note: FPS effettivi dipendono da camera, YOLO, MoveNet e costo processFrame()
+
 **4.6.17: BallTrajectoryAnalyzer Implementation ✓ (Fase 5)**
 - Creato BallTrajectoryAnalyzer.ts per separazione palleggio/tiro
 - Stati del movimento: IDLE, DRIBBLE, SHOT_CANDIDATE, SHOT_ASCENDING, SHOT_APEX, SHOT_DESCENDING

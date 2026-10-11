@@ -219,7 +219,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
     const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
     const lastRuntimeProcessTimestampRef = useRef(0) // Track last timestamp to avoid duplicate processFrame() calls
-    const RUNTIME_PROCESS_DEBOUNCE_MS = 50 // Debounce to avoid duplicate calls for same logical frame
+    const RUNTIME_PROCESS_DEBOUNCE_MS = 16 // Debounce to avoid duplicate calls for same logical frame (62.5 FPS theoretical)
     
     // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)

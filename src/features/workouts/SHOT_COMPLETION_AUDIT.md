@@ -929,3 +929,4 @@ stop() [attende currentFramePromise se presente]
 - ✅ Protezione concorrenza processFrame()
 - ✅ Coordinamento stop() con frame in corso
 - ✅ Verifica persistenza locale confermata
+- ✅ Frequenza overlay aumentata: RUNTIME_PROCESS_DEBOUNCE_MS ridotto da 50ms a 20ms (50 FPS teorici)
