@@ -31,12 +31,23 @@ export interface PoseResult {
   confidence: number
 }
 
+export interface VisionObservationTimestamps {
+  /** Original wall-clock timestamp captured when the worker submitted the observation. */
+  ball: number | null
+  player: number | null
+  rim: number | null
+  pose: number | null
+}
+
 export interface VisionEngineResult {
   ball: BallDetection | null
   player: PlayerDetection | null
   rim: RimDetection | null
   pose: PoseResult | null
+  /** Reference timestamp for this orchestration pass, not a substitute for observation timestamps. */
   timestamp: number
+  /** Original timestamp per channel; null means there is no fresh observation for that channel. */
+  observationTimestamps?: VisionObservationTimestamps
 }
 
 export interface IVisionEngine {

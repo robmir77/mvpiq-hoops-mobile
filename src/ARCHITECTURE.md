@@ -415,7 +415,7 @@ La pipeline di vision deve garantire che ogni livello conservi il significato de
 
 Questa è la prima passata sui sorgenti; non equivale ancora a una validazione dell'app su dispositivo.
 
-**A. Le osservazioni non sono sincronizzate per oggetto** ✅ RISOLTO (Fase 1 Completata + Correzioni P0)
+**A. Le osservazioni non sono sincronizzate per oggetto** ✅ RISOLTO (Fase 1 + Phase 2 Completate)
 VisionEngineAdapter conserva separatamente i risultati di palla, giocatore, canestro e posa, ma mantiene un unico lastTimestamp. processFrame() può quindi inoltrare risultati di età diversa senza che l'interfaccia renda esplicita questa differenza.
 
 **Soluzione implementata (Fase 1 iniziale):**
@@ -424,6 +424,7 @@ VisionEngineAdapter conserva separatamente i risultati di palla, giocatore, cane
 - Controllo di freschezza in VisionEngineAdapter.processFrame() con soglie basate sulle frequenze naturali dei worker:
   - YOLO: 500ms (2-3x ~200-250ms tra inferenze)
   - MoveNet: 750ms (2-3x ~250-330ms tra inferenze)
+- Timestamp di acquisizione propagati separatamente per palla, giocatore, canestro e pose; i dati cache non aggiornati non vengono reinoltrati al tracking come nuove misure. Il timestamp del frame resta il riferimento per la predizione e la macchina a stati del tiro.
 - Log diagnostici per età e novità delle rilevazioni
 - Osservazioni stale non vengono passate al VisionEngine
 
@@ -433,7 +434,15 @@ VisionEngineAdapter conserva separatamente i risultati di palla, giocatore, cane
 - Flag di aggiornamento per canale (ballUpdated, playerUpdated, rimUpdated, poseUpdated) per distinguere nuove rilevazioni da osservazioni già elaborate
 - Log diagnostici throttled per evitare rumore (log solo quando canale aggiornato e osservazione stale)
 
-**Impatto:** velocità e associazioni spaziali ora calcolate usando dati temporalmente coerenti. Giocatore ora preserva timestamp originale YOLO.
+**Phase 2 - Original observation timestamps in tracking:**
+- VisionEngineAdapter inoltra un'osservazione cache solo quando il canale è stato aggiornato e l'osservazione è ancora fresca
+- I dati fresh-but-cached rimangono visibili nei diagnostici ma non vengono trattati ripetutamente come nuove misure
+- L'adapter restituisce il timestamp di acquisizione originale solo per le osservazioni inoltrate in quel passaggio
+- WorkoutSessionRuntime passa questi timestamp a TrackingEngine; ball e player tracking usano i propri timestamp di misurazione, mentre il frame time resta il riferimento per predizione e valutazione stato tiro
+- Questo impedisce che una detection venga consumata più volte solo perché un altro canale ha attivato un passaggio runtime
+- Aggiunti test per VisionEngineAdapter per verificare conservazione timestamp e inoltro una tantum delle osservazioni
+
+**Impatto:** velocità e associazioni spaziali ora calcolate usando dati temporalmente coerenti. Giocatore ora preserva timestamp originale YOLO. Niente doppio conteggio delle osservazioni.
 
 **B. Possibile errore nel centro del giocatore**
 YoloDetector espone coordinate del centro del bounding box; il fallback in TrackingEngine aggiunge nuovamente metà larghezza e altezza.
@@ -619,7 +628,7 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Homography HALF/FULL court | 🔴 | Sempre calcolata come FULL court (15.24 x 28.65) |
 | CALIBRATION in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
 | SESSION_END in critical queue | 🔴 | UI chiama API direttamente, bypassa outbox |
-| **Audit A: Osservazioni non sincronizzate per oggetto** | 🔴 | VisionEngineAdapter ha unico lastTimestamp per tutti gli oggetti |
+| **Audit A: Osservazioni non sincronizzate per oggetto** | ✅ | RISOLTO - Timestamp separati per canale + mancato reinvio cache (Fase 1 + Phase 2) |
 | **Audit B: Centro giocatore potenzialmente errato** | 🔴 | YoloDetector espone centerX/centerY, TrackingEngine aggiunge nuovamente metà width/height |
 | **Audit C: Macchina a stati tiro duplicata** | 🔴 | TrackingEngine e ShotDetectionEngine hanno stati paralleli |
 | **Audit D: Classificazione MADE/MISS senza prova passaggio** | 🔴 | Basata su distanza centro, non su sequenza temporale della traiettoria |
@@ -841,3 +850,139 @@ async shutdown() {
 - ✅ WorkoutSessionRuntime state machine tests - IMPLEMENTATO
 - ✅ ShotDetectionUIAdapter removal (anti-pattern) - IMPLEMENTATO
 - ✅ Subsystem connection timing fix - IMPLEMENTATO
+
+## Fase 3 - Completamento del Resoconto del Workout
+
+### Obiettivo della Fase 3
+
+Il resoconto dovrà rappresentare i dati reali di una sessione conclusa, non una simulazione. La Fase 3 si concentra su:
+
+**A. Tabellone del campo**
+- Metà campo da basket con orientamento e proporzioni coerenti
+- Un pallino per ciascun tiro registrato, nella posizione del giocatore al momento del rilascio
+- Verde per il canestro, rosso per l'errore
+- Voto da 1 a 10 dentro il pallino, se disponibile
+- Angolo della parabola in gradi sopra il pallino, se disponibile
+- Gestione etichette ravvicinate per evitare sovrapposizioni
+
+**B. Riepilogo statistico**
+- Tiri totali (N)
+- Canestri (N / %)
+- Voto medio (— / 10) - solo tiri con voto disponibile
+- Angolo medio (—°) - solo tiri con angolo valido
+
+**C. Dettaglio dei singoli tiri**
+- Esito, posizione, voto, angolo, distanza dal canestro
+- Confronto rapido tra ciò che è disegnato sul campo e il dato salvato
+
+### Fase 0 - Audit dei Sorgenti (In Corso)
+
+Prima di decidere cosa cambiare, ricostruiamo il percorso completo di un tiro senza modifiche al codice.
+
+**0.1 - Identificare la versione esatta**
+- Frontend React Native e schermata del workout
+- Backend, API, modelli e schema del database
+- Motore di visione, tracking e rilevamento del tiro
+- Documentazione architetturale e decisioni già prese
+
+**0.2 - Ricostruire il ciclo di vita del tiro**
+Seguiremo il singolo tiro dall'inizio alla fine:
+- Rilevamento visione (YOLO/MoveNet)
+- Tracking e macchina a stati
+- Costruzione evento di tiro
+- Accodamento e persistenza
+- Salvataggio backend
+- Recupero per resoconto
+
+Per ciascun passaggio cercheremo:
+- Quale componente è responsabile
+- Quali dati riceve e quali produce
+- Se conserva il timestamp originale
+- Se può perdere, duplicare o ritardare un evento
+- Come vengono gestiti gli errori
+
+**0.3 - Verificare la posizione del giocatore**
+Dobbiamo distinguere tre cose non intercambiabili:
+1. La posizione della palla
+2. La posizione del giocatore nell'immagine della videocamera
+3. La posizione del giocatore rappresentata sul campo da basket
+
+**Criticità identificata (ShotEventBuilder.ts):**
+- Il metodo che calcola la posizione sul campo riceve `trackingState.ballPosition`
+- Il commento dichiara che la proiezione tramite omografia è ancora da implementare
+- Usa un'approssimazione delle coordinate
+- `timestampMs` viene assegnato usando `Date.now()` al momento della costruzione dell'evento
+
+**Criterio di accettazione:** Il punto sul campo deve rappresentare la posizione del giocatore al momento del tiro, non la posizione della palla, il centro del riquadro YOLO o la posizione del giocatore qualche istante dopo.
+
+**0.4 - Verificare voto e angolo**
+
+| Dato | Domanda da risolvere |
+|------|---------------------|
+| Esito | Come viene stabilito se il tiro è realizzato o sbagliato? |
+| Voto | Esiste già? Qual è la scala e come viene calcolato? |
+| Angolo | È riferito al rilascio del tiro oppure a un frame successivo? |
+| Distanza | È calcolata in coordinate reali o in coordinate dell'immagine? |
+| Timestamp | È quello dell'evento originale o quello di elaborazione? |
+
+**Nota:** La visualizzazione durante il workout e il dato storico del resoconto sono due percorsi distinti. Non daremo per scontato che un valore presente nell'overlay sia disponibile anche nel record persistito.
+
+**0.5 - Verificare salvataggio e recupero**
+- Struttura dell'evento inviato
+- Identificativo della sessione e del singolo tiro
+- Coda degli eventi e gestione dei tentativi falliti
+- Eventuali duplicazioni durante i retry
+- Salvataggio effettivo nel database
+- Risposta dell'API utilizzata dal resoconto
+- Comportamento quando uno o più campi non sono disponibili
+
+**Criterio di accettazione:** Un tiro confermato come registrato deve poter essere recuperato con gli stessi dati essenziali con cui è stato generato.
+
+**0.6 - Verificare la chiusura del workout**
+Ricostruiremo la sequenza eseguita quando premi "Fine workout":
+1. Il runtime smette di elaborare nuovi frame
+2. Gli ultimi eventi di tiro vengono completati
+3. La coda viene gestita secondo le garanzie effettive del sistema
+4. Il backend conferma i salvataggi necessari
+5. Il resoconto recupera i dati della sessione
+6. La schermata mostra il riepilogo completo
+
+### Fasi Successive - Analisi e Implementazione Guidata
+
+Dopo l'audit, le fasi seguenti verranno affrontate nell'ordine indicato:
+
+| Fase | Attività | Risultato da verificare |
+|------|----------|-------------------------|
+| 1 | Definizione del contratto dati del tiro | Tutti i componenti concordano sui campi e sul loro significato |
+| 2 | Correttezza temporale e posizione del giocatore | Il tiro è associato al frame e alla posizione corretti |
+| 3 | Esito, voto e angolo | Regole definite, dati coerenti e valori mancanti gestiti |
+| 4 | Persistenza e API | I dati arrivano al backend e vengono recuperati senza perdite |
+| 5 | Schermata del resoconto | Campo, pallini, etichette, dettaglio e statistiche sono coerenti |
+| 6 | Chiusura e sincronizzazione | Il resoconto include anche gli ultimi tiri |
+| 7 | Collaudo end-to-end | I risultati superano una checklist di test ripetibili |
+
+### Metodologia di Lavoro
+
+Ogni passaggio avrà sempre cinque elementi:
+1. **Analisi:** Cosa succede nel codice attuale
+2. **Problema dimostrato:** Cosa manca o cosa non funziona, con riferimenti ai file e ai punti pertinenti
+3. **Istruzioni operative:** Cosa dovrai fare tu, in quale ordine
+4. **Verifica:** Quali risultati, log o test dovrai condividere
+5. **Decisione:** Passiamo oltre soltanto se i criteri sono soddisfatti
+
+Non considereremo conclusa una fase perché il codice compila soltanto: per esempio, un pallino che appare sul campo non dimostra che la posizione sia quella corretta.
+
+### Matrice di Test Finale
+
+Prima di dichiarare conclusa la Fase 3, prepareremo una matrice di test che comprenda almeno questi casi:
+- Workout con soli canestri
+- Workout con soli errori
+- Workout misto
+- Tiri ravvicinati sul tabellone
+- Tiro senza voto o senza angolo disponibile
+- Più tiri in rapida successione
+- Interruzione o ritardo di rete
+- Chiusura immediata dopo l'ultimo tiro
+- Riapertura del resoconto dopo aver concluso la sessione
+
+Per ogni caso confronteremo tre conteggi: tiri effettivamente eseguiti, eventi registrati e tiri visualizzati. Verificheremo anche le singole coordinate, gli esiti e i valori mostrati.

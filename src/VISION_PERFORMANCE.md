@@ -614,6 +614,14 @@ Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
 - ✅ COMPLETATA (Correzioni P0) - Flag di aggiornamento per distinguere nuove rilevazioni
 - ✅ COMPLETATA (Correzioni P0) - Log diagnostici throttled per evitare rumore
 
+**Phase 2 - Original observation timestamps in tracking:**
+- ✅ COMPLETATA - VisionEngineAdapter inoltra osservazioni cache solo quando aggiornate e fresche
+- ✅ COMPLETATA - Restituisce observationTimestamps con timestamp originali solo per osservazioni inoltrate
+- ✅ COMPLETATA - WorkoutSessionRuntime passa observationTimestamps a TrackingEngine
+- ✅ COMPLETATA - Ball e player tracking usano i propri timestamp di misurazione
+- ✅ COMPLETATA - Niente doppio conteggio delle osservazioni cache
+- ✅ COMPLETATA - Test aggiunti e passanti (3/3)
+
 **Soglie di freschezza implementate:**
 - YOLO (ball, player, rim): 500ms (2-3x ~200-250ms tra inferenze)
 - MoveNet (pose): 750ms (2-3x ~250-330ms tra inferenze)
@@ -632,13 +640,51 @@ Le ottimizzazioni future (riduzione contesa RN runtime) richiedono:
 - VisionEngineAdapter.ts: flag di aggiornamento per canale (ballUpdated, playerUpdated, rimUpdated, poseUpdated)
 - VisionEngineAdapter.ts: log diagnostici throttled (solo quando canale aggiornato e osservazione stale)
 
-**Problemi rimanenti (P1 - da affrontare in fase successiva):**
-- Il tracking continua a usare frame.timestamp (ora di elaborazione) invece dei timestamp originali delle rilevazioni
-- Questo richiede modifiche più ampie all'interfaccia VisionEngineResult e TrackingEngine.processFrame
-- VisionEngineResult ha solo un timestamp globale, ma il tracking ha bisogno dei timestamp originali di ogni rilevazione
+**Modifiche architetturali (Phase 2):**
+- VisionEngineAdapter.ts: inoltra osservazioni cache solo quando aggiornate e fresche
+- VisionEngineAdapter.ts: restituisce observationTimestamps con timestamp originali per osservazioni inoltrate
+- WorkoutSessionRuntime: passa observationTimestamps a TrackingEngine
+- TrackingEngine: ball e player tracking usano i propri timestamp di misurazione
+- Test VisionEngineAdapter.test.ts aggiunti per verificare conservazione timestamp e mancato reinvio
 
 **Next steps:**
-- Test con ciclo reale (palleggio, rilascio, traiettoria, canestro o errore)
+- Test su dispositivo con ciclo reale (palleggio, rilascio, traiettoria, canestro o errore)
 - Verificare log diagnostici per età e novità delle rilevazioni
-- Ajustare soglie di freschezza se necessario basato sui log
-- Affrontare P1 (passare timestamp originali al tracking) solo dopo validazione P0
+- Analizzare timestamp, velocità palla e predizioni per coerenza
+- Considerare modifiche alla macchina a stati del tiro solo dopo conferma sincronizzazione temporale
+
+
+## Phase 1 — Temporal synchronization diagnostics (2026-10-10)
+
+Per verificare la freschezza delle osservazioni durante un singolo ciclo completo (palleggio → tiro → esito), sono stati aggiunti due log diagnostici, senza modificare soglie o decisioni del tracking:
+
+**Diagnostica temporale opt-in (costo contenuto):** in `src/config/debugConfig.ts`, impostare temporaneamente `ENABLE_VISION_DIAGNOSTICS = VISION_DEBUG && true` per attivare i riepiloghi. Il valore predefinito è `false`; lasciarlo così fuori dalle sessioni di test. I log per callback lenta sono emessi solo oltre 10 ms e il debug YOLO giocatore viene aggregato in una riga ogni ~2 s, non più stampato a ogni inferenza.
+
+- `[VISION_SYNC_DIAG]` — ogni ~2 s: timestamp del frame e riferimento, scarto rispetto a `Date.now()`, età/freschezza di ball/player/rim/pose, soglia applicata, canale aggiornato dall'ultimo `processFrame()` e uso di un'osservazione cache.
+- `[RUNTIME_TRACKING_DIAG]` — ogni ~2 s: intervallo tra chiamate runtime, input effettivamente ricevuti da VisionEngine, confidenze, stato/posizione/velocità del tracking e stato di tiro.
+
+### Come leggere i log
+
+- `clockDeltaMs` deve rimanere vicino a 0 (ordine di pochi millisecondi). Un valore enorme o sistematicamente negativo segnala un possibile disallineamento dei domini temporali.
+- `ageMs` deve essere non negativo e crescere tra nuove osservazioni; `fresh: false` indica che l'osservazione è oltre la soglia (ball/player/rim 500 ms, pose 750 ms).
+- `updatedSinceLastProcess: true` indica che il callback di quel canale ha aggiornato il valore dall'ultimo passaggio dell'adapter. `reusedCachedObservation: true` indica che il valore è presente ma non è stato aggiornato in quel ciclo.
+- `frameDeltaMs` deve essere positivo e coerente con la frequenza di chiamata runtime. Salti molto grandi o negativi richiedono un controllo dei timestamp.
+- In `[RUNTIME_TRACKING_DIAG]`, confrontare `input` e `tracking`: la presenza di input senza aggiornamenti coerenti di posizione/velocità può indicare un problema nel tracking; input spesso assenti con canali stale può indicare un problema di sincronizzazione o di rilevamento.
+
+Raccogliere i log dall'avvio sessione fino a un tiro concluso. Questi log sono diagnostici e non costituiscono da soli una prova che la classificazione MADE/MISS sia corretta.
+
+
+## Temporal synchronization — Step 2: timestamp propagation
+
+`VisionEngineAdapter` now carries the original worker timestamp for each fresh channel (`ball`, `player`, `rim`, `pose`) in `observationTimestamps`. `WorkoutSessionRuntime` passes this metadata to `TrackingEngine`; ball and player measurement updates use their own acquisition timestamps, while frame-time prediction and shot-state evaluation continue to use the runtime reference timestamp. Raw pose frames are stored with the original pose timestamp. This avoids treating detections from different inference cycles as if they were acquired on the same frame.
+
+Compatibility note: `observationTimestamps` is optional in the tracking interface, so existing direct callers retain the previous behavior. Build and device tests are still required.
+
+
+## Phase 2 — original observation timestamps in tracking
+
+- `VisionEngineAdapter` now forwards a channel's cached observation only on the pass where that channel was updated and the observation is still fresh. Fresh-but-cached data remains visible in diagnostics but is not repeatedly treated as a new measurement.
+- The adapter returns the original acquisition timestamp only for observations forwarded on that pass. `WorkoutSessionRuntime` passes these timestamps to `TrackingEngine`; ball and player tracking use their own measurement timestamps, while frame time remains the reference for prediction and shot-state evaluation.
+- This prevents one detection from being consumed multiple times merely because another channel triggered a runtime pass. Missing channel updates lead to prediction/retention paths rather than duplicate measurement updates.
+- Added adapter tests for timestamp preservation and one-time forwarding of observations.
+- Validation status: source-level changes and tests added; run the project's TypeScript/Jest checks and on-device session test before considering the phase verified.

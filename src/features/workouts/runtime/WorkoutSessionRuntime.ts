@@ -16,6 +16,7 @@ import type {
   IWorkoutQueue,
 } from './WorkoutSessionRuntime.types'
 import { ShotEventBuilder } from '../tracking/ShotEventBuilder'
+import { ENABLE_VISION_DIAGNOSTICS } from '../../../config/debugConfig'
 
 // Generate UUID v4 (compatible React Native)
 const generateUUID = (): string => {
@@ -43,6 +44,9 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     cameraFps: 0,
   }
   private sessionStartTime: number | null = null
+  private lastProcessDiagnosticAt = 0
+  private processFrameCount = 0
+  private previousProcessFrameTimestamp = 0
   private sessionDurationInterval: ReturnType<typeof setInterval> | null = null
 
   // Subsystem references (to be initialized)
@@ -188,7 +192,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     if (visionResult.pose) {
       this.shotEventBuilder.addPoseFrame(
         visionResult.pose,
-        frame.timestamp,
+        visionResult.observationTimestamps?.pose ?? frame.timestamp,
         'IMAGE_NORMALIZED'
       )
     }
@@ -201,8 +205,46 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       undefined, // sizeCategory
       undefined, // adaptThreshold
       undefined, // rejectedBall
-      visionResult.player
+      visionResult.player,
+      visionResult.observationTimestamps
     )
+
+    // Diagnostic-only telemetry for one-cycle validation; no detection/tracking behavior changes.
+    this.processFrameCount += 1
+    const diagnosticNow = Date.now()
+    const frameDeltaMs = this.previousProcessFrameTimestamp > 0
+      ? frame.timestamp - this.previousProcessFrameTimestamp
+      : null
+    this.previousProcessFrameTimestamp = frame.timestamp
+    if (ENABLE_VISION_DIAGNOSTICS && diagnosticNow - this.lastProcessDiagnosticAt >= 2000) {
+      this.lastProcessDiagnosticAt = diagnosticNow
+      console.log('[RUNTIME_TRACKING_DIAG]', {
+        state: this.state,
+        processFrameCount: this.processFrameCount,
+        frameTimestamp: frame.timestamp,
+        frameDeltaMs: frameDeltaMs === null ? null : Math.round(frameDeltaMs),
+        input: {
+          ball: !!visionResult.ball,
+          ballConfidence: visionResult.ball?.confidence ?? null,
+          player: !!visionResult.player,
+          playerConfidence: visionResult.player?.confidence ?? null,
+          rim: !!visionResult.rim,
+          pose: !!visionResult.pose,
+        },
+        observationTimestamps: visionResult.observationTimestamps ?? null,
+        tracking: {
+          ballPosition: trackingState?.ballPosition ?? null,
+          ballPositionRaw: trackingState?.ballPositionRaw ?? null,
+          ballVelocity: trackingState?.ballVelocity ?? null,
+          hoopPosition: trackingState?.hoopPosition ?? null,
+          confidence: trackingState?.confidence ?? null,
+          inFlight: trackingState?.inFlight ?? null,
+          shotDetected: trackingState?.shotDetected ?? null,
+          shotResult: trackingState?.shotResult ?? null,
+          trajectoryPoints: trackingState?.trajectory?.length ?? null,
+        },
+      })
+    }
 
     // Notify callback of tracking state update (Phase 4)
     this.callbacks?.onTrackingStateUpdate?.(trackingState)

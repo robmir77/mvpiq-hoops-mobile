@@ -5,7 +5,7 @@ export type {
   SessionConfig,
   SessionMetrics,
   SessionCallbacks,
-  IVisionPipeline,
+  IVisionEngine,
   ITrackingEngine,
   IShotDetectionEngine,
   ITelemetrySampler,

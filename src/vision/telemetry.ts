@@ -1,4 +1,5 @@
 // Structured telemetry system for model comparison and performance tracking
+import { ENABLE_VISION_DIAGNOSTICS } from '../config/debugConfig'
 
 // PASS 5B: Telemetry re-enabled - not the root cause of frame processor variability
 export const TELEMETRY_ENABLED = true
@@ -216,6 +217,15 @@ class TelemetryLogger {
   private deviceMetrics: DeviceMetrics | null = null
   private testStartTime: number | null = null
   private testEndTime: number | null = null
+
+  // Lightweight, sampled player-debug aggregation (no console output per inference).
+  private playerDebugWindowStartedAt = 0
+  private playerDebugSamples = 0
+  private playerDebugAccepted = 0
+  private playerDebugNoAccepted = 0
+  private playerDebugBestConfidenceSum = 0
+  private playerDebugBestConfidenceMin = 1
+  private playerDebugBestConfidenceMax = 0
   
   // Granular YOLO metrics
   private yoloRequested: number = 0
@@ -1084,9 +1094,38 @@ class TelemetryLogger {
   }
 
   logPlayerDebugMetrics(playerDebug: { rawCandidates: number; confidencePassed: number; sizePassed: number; accepted: number; bestConfidence: number; rejectedConfidence: number } | undefined): void {
-    if (!TELEMETRY_ENABLED) return
-    if (!playerDebug) return
-    console.log('[YOLO][PLAYER DEBUG]', `exec=${this.yoloExecuted} raw=${playerDebug.rawCandidates} confPassed=${playerDebug.confidencePassed} sizePassed=${playerDebug.sizePassed} accepted=${playerDebug.accepted} bestConf=${playerDebug.bestConfidence.toFixed(3)} rejectedConf=${playerDebug.rejectedConfidence.toFixed(3)}`)
+    if (!TELEMETRY_ENABLED || !ENABLE_VISION_DIAGNOSTICS || !playerDebug) return
+
+    const now = Date.now()
+    if (this.playerDebugWindowStartedAt === 0) this.playerDebugWindowStartedAt = now
+    this.playerDebugSamples += 1
+    this.playerDebugAccepted += playerDebug.accepted > 0 ? 1 : 0
+    this.playerDebugNoAccepted += playerDebug.accepted > 0 ? 0 : 1
+    this.playerDebugBestConfidenceSum += playerDebug.bestConfidence
+    this.playerDebugBestConfidenceMin = Math.min(this.playerDebugBestConfidenceMin, playerDebug.bestConfidence)
+    this.playerDebugBestConfidenceMax = Math.max(this.playerDebugBestConfidenceMax, playerDebug.bestConfidence)
+
+    const windowMs = now - this.playerDebugWindowStartedAt
+    if (windowMs < 2000) return
+
+    const samples = this.playerDebugSamples
+    console.log('[YOLO_PLAYER_DIAG]', {
+      windowMs,
+      samples,
+      acceptedFrames: this.playerDebugAccepted,
+      noAcceptedFrames: this.playerDebugNoAccepted,
+      acceptanceRatePct: samples > 0 ? Math.round((this.playerDebugAccepted / samples) * 1000) / 10 : 0,
+      bestConfidenceAvg: samples > 0 ? Math.round((this.playerDebugBestConfidenceSum / samples) * 1000) / 1000 : 0,
+      bestConfidenceMin: samples > 0 ? this.playerDebugBestConfidenceMin : null,
+      bestConfidenceMax: this.playerDebugBestConfidenceMax,
+    })
+    this.playerDebugWindowStartedAt = now
+    this.playerDebugSamples = 0
+    this.playerDebugAccepted = 0
+    this.playerDebugNoAccepted = 0
+    this.playerDebugBestConfidenceSum = 0
+    this.playerDebugBestConfidenceMin = 1
+    this.playerDebugBestConfidenceMax = 0
   }
 
   getMoveNetMetrics(): MoveNetMetrics {

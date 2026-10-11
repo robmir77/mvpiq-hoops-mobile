@@ -51,6 +51,7 @@ import { useVideoRecording } from '../hooks/useVideoRecording'
 import { useTrackingStatus } from '../hooks/useTrackingStatus'
 import { useVisionConfig } from '../hooks/useVisionConfig'
 import { WorkoutSessionRuntime } from '../runtime/WorkoutSessionRuntime'
+import { ENABLE_VISION_DIAGNOSTICS } from '@/config/debugConfig'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
@@ -306,7 +307,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
         const tEnd = performance.now()
         const duration = tEnd - tStart
-        if (duration > 5) {
+        if (ENABLE_VISION_DIAGNOSTICS && duration > 10) {
             console.log('[POSE CALLBACK] slow:', duration.toFixed(1) + 'ms')
         }
         // console.log('[POSE STATE] setPoseKeypoints called')
@@ -392,7 +393,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Runtime.processFrame() already calls TrackingEngine internally
             const tEnd = performance.now()
             const duration = tEnd - tStart
-            if (duration > 5) {
+            if (ENABLE_VISION_DIAGNOSTICS && duration > 10) {
                 console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms', {
                     adapter: (tAdapterEnd - tAdapterStart).toFixed(2) + 'ms',
                     runtime: tRuntimeMs.toFixed(2) + 'ms',
@@ -482,7 +483,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
         const tEnd = performance.now()
         const duration = tEnd - tStart
-        if (duration > 5) {
+        if (ENABLE_VISION_DIAGNOSTICS && duration > 10) {
             console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms', {
                 adapter: (tAdapterEnd - tAdapterStart).toFixed(2) + 'ms',
                 tracking: tTrackingMs.toFixed(2) + 'ms',

@@ -9,7 +9,11 @@ export const VISION_DEBUG = __DEV__
 
 export const HOT_PATH_LOGS = VISION_DEBUG && false // Disabled by default even in DEV
 
-export const ENABLE_VISION_DIAGNOSTICS = VISION_DEBUG
+// Opt-in only: enable temporarily when collecting temporal-sync diagnostics.
+// Keep false by default to avoid console overhead in the real-time frame path.
+export const ENABLE_VISION_DIAGNOSTICS = VISION_DEBUG && false
+
+// Per-inference player debug is aggregated in telemetry.ts and never logged per inference.
 
 export const ENABLE_ADAPTIVE_PERFORMANCE_LOGS = VISION_DEBUG
 

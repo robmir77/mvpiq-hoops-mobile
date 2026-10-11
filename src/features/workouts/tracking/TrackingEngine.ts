@@ -93,8 +93,14 @@ export class TrackingEngine implements ITrackingEngine {
     sizeCategory?: 'small' | 'medium' | 'large' | null,
     adaptThreshold?: number,
     rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
-    playerDetection?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
+    playerDetection?: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
+    observationTimestamps?: { ball: number | null; player: number | null; rim: number | null; pose: number | null }
   ): TrackingState {
+    // Keep the frame/reference clock for predictions and state-machine evaluation,
+    // but use acquisition timestamps for measurements that drive tracking deltas.
+    const ballMeasurementTs = observationTimestamps?.ball ?? frameTs
+    const playerMeasurementTs = observationTimestamps?.player ?? frameTs
+
     // Player tracking: combine YOLO bbox (coarse detection) + MoveNet pose (articulated tracking)
     // Policy: YOLO provides bbox for state, Pose provides precise center for spatial constraints
     if (playerDetection) {
@@ -104,7 +110,7 @@ export class TrackingEngine implements ITrackingEngine {
         playerDetection.width || 0,
         playerDetection.height || 0,
         playerDetection.confidence,
-        frameTs
+        playerMeasurementTs
       )
       // Call telemetry callback for player detection
       this.callbacks?.onPlayerDetected?.()
@@ -130,7 +136,7 @@ export class TrackingEngine implements ITrackingEngine {
 
     // Process ball detection or prediction
     if (ballDetection) {
-      const engineResult = this.ballTrackingEngine.update(ballDetection.x, ballDetection.y, frameTs)
+      const engineResult = this.ballTrackingEngine.update(ballDetection.x, ballDetection.y, ballMeasurementTs)
       const engineState = this.ballTrackingEngine.getState()
 
       // Set raw detection data
@@ -154,12 +160,12 @@ export class TrackingEngine implements ITrackingEngine {
       this.callbacks?.onBallDetected?.()
 
       // Ring buffer insert (O(1))
-      this.trajectoryBuffer[this.trajectoryHead] = { x: engineResult.x, y: engineResult.y, t: frameTs }
+      this.trajectoryBuffer[this.trajectoryHead] = { x: engineResult.x, y: engineResult.y, t: ballMeasurementTs }
       this.trajectoryHead = (this.trajectoryHead + 1) % this.MAX_POINTS
       if (this.trajectoryCount < this.MAX_POINTS) this.trajectoryCount++
 
       // Update trajectory in ShotDetectionEngine
-      this.shotDetectionEngine.addTrajectoryPoint(engineResult.x, engineResult.y, frameTs)
+      this.shotDetectionEngine.addTrajectoryPoint(engineResult.x, engineResult.y, ballMeasurementTs)
 
       // Copy trajectory for UI every 5 frames when inFlight
       if (this.inFlight && this.trajectoryCount % 5 === 0) {

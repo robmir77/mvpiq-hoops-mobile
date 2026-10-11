@@ -18,6 +18,7 @@
 
 import type { IVisionEngine, VisionEngineResult, BallDetection, PlayerDetection, RimDetection, PoseResult } from './VisionEngine.types'
 import { VisionEngine } from './engine/VisionEngine'
+import { ENABLE_VISION_DIAGNOSTICS } from '../config/debugConfig'
 
 export class VisionEngineAdapter implements IVisionEngine {
   private visionEngine: VisionEngine
@@ -45,6 +46,8 @@ export class VisionEngineAdapter implements IVisionEngine {
   private playerUpdated = false
   private rimUpdated = false
   private poseUpdated = false
+  private lastDiagnosticsLogAt = 0
+  private processFrameCount = 0
 
   constructor(ballConfThreshold?: number, rimConfThreshold?: number, poseScoreThreshold?: number) {
     // VisionEngine now handles parsed results from workers
@@ -136,52 +139,79 @@ export class VisionEngineAdapter implements IVisionEngine {
     const rimFresh = rimAge < this.RIM_FRESHNESS_MS
     const poseFresh = poseAge < this.POSE_FRESHNESS_MS
 
-    // Phase 1 Temporal Sync: Log diagnostics for age and freshness (throttled to avoid noise)
-    if (this.lastBall && !ballFresh && this.ballUpdated) {
-      console.log('[VisionEngineAdapter] Ball observation stale:', {
-        age: ballAge.toFixed(0) + 'ms',
-        threshold: this.BALL_FRESHNESS_MS + 'ms',
-        timestamp: this.lastBallTimestamp,
-        reference: referenceTimestamp,
+    // Diagnostics are opt-in and sampled; never emit a log per frame/channel.
+    this.processFrameCount += 1
+    const diagnosticsNow = Date.now()
+    if (ENABLE_VISION_DIAGNOSTICS && diagnosticsNow - this.lastDiagnosticsLogAt >= 2000) {
+      this.lastDiagnosticsLogAt = diagnosticsNow
+      const channel = (
+        value: unknown,
+        timestamp: number,
+        age: number,
+        fresh: boolean,
+        updated: boolean,
+        threshold: number
+      ) => ({
+        present: value !== null,
+        timestamp: timestamp || null,
+        ageMs: Number.isFinite(age) ? Math.round(age) : null,
+        fresh,
+        stale: value !== null && !fresh,
+        updatedSinceLastProcess: updated,
+        reusedCachedObservation: value !== null && !updated,
+        thresholdMs: threshold,
       })
-    }
-    if (this.lastPlayer && !playerFresh && this.playerUpdated) {
-      console.log('[VisionEngineAdapter] Player observation stale:', {
-        age: playerAge.toFixed(0) + 'ms',
-        threshold: this.PLAYER_FRESHNESS_MS + 'ms',
-        timestamp: this.lastPlayerTimestamp,
-        reference: referenceTimestamp,
-      })
-    }
-    if (this.lastRim && !rimFresh && this.rimUpdated) {
-      console.log('[VisionEngineAdapter] Rim observation stale:', {
-        age: rimAge.toFixed(0) + 'ms',
-        threshold: this.RIM_FRESHNESS_MS + 'ms',
-        timestamp: this.lastRimTimestamp,
-        reference: referenceTimestamp,
-      })
-    }
-    if (this.lastPose && !poseFresh && this.poseUpdated) {
-      console.log('[VisionEngineAdapter] Pose observation stale:', {
-        age: poseAge.toFixed(0) + 'ms',
-        threshold: this.POSE_FRESHNESS_MS + 'ms',
-        timestamp: this.lastPoseTimestamp,
-        reference: referenceTimestamp,
+      console.log('[VISION_SYNC_DIAG]', {
+        frameTimestamp: frame.timestamp,
+        referenceTimestamp,
+        clockDeltaMs: Math.round(diagnosticsNow - referenceTimestamp),
+        processFrameCount: this.processFrameCount,
+        channels: {
+          ball: channel(this.lastBall, this.lastBallTimestamp, ballAge, ballFresh, this.ballUpdated, this.BALL_FRESHNESS_MS),
+          player: channel(this.lastPlayer, this.lastPlayerTimestamp, playerAge, playerFresh, this.playerUpdated, this.PLAYER_FRESHNESS_MS),
+          rim: channel(this.lastRim, this.lastRimTimestamp, rimAge, rimFresh, this.rimUpdated, this.RIM_FRESHNESS_MS),
+          pose: channel(this.lastPose, this.lastPoseTimestamp, poseAge, poseFresh, this.poseUpdated, this.POSE_FRESHNESS_MS),
+        },
       })
     }
 
-    // Pass only fresh observations to VisionEngine
-    // Phase 1 Temporal Sync: Use updated flags to distinguish new observations from cached ones
+    // Snapshot update flags for this orchestration pass. Cached detections may remain
+    // fresh for diagnostics, but must not be fed to tracking repeatedly as new measurements.
+    // Otherwise the same timestamp/position can be consumed on multiple runtime frames
+    // and distort velocity estimates (especially when another channel triggers processFrame).
+    const ballUpdated = this.ballUpdated
+    const playerUpdated = this.playerUpdated
+    const rimUpdated = this.rimUpdated
+    const poseUpdated = this.poseUpdated
+
+    const ballForFrame = ballFresh && ballUpdated ? this.lastBall : null
+    const playerForFrame = playerFresh && playerUpdated ? this.lastPlayer : null
+    const rimForFrame = rimFresh && rimUpdated ? this.lastRim : null
+    const poseForFrame = poseFresh && poseUpdated ? this.lastPose : null
+
     const result = this.visionEngine.processFrame({
       width: frame.width,
       height: frame.height,
       timestamp: referenceTimestamp,
       data: frame.data,
-      ball: ballFresh ? this.lastBall : null,
-      player: playerFresh ? this.lastPlayer : null,
-      rim: rimFresh ? this.lastRim : null,
-      pose: poseFresh ? this.lastPose : null,
+      ball: ballForFrame,
+      player: playerForFrame,
+      rim: rimForFrame,
+      pose: poseForFrame,
     })
+
+    // Preserve acquisition timestamps only for observations actually forwarded on this pass.
+    // The reference timestamp is for orchestration/freshness; it must never replace a
+    // measurement timestamp used by tracking to calculate deltas.
+    const resultWithObservationTimestamps = {
+      ...result,
+      observationTimestamps: {
+        ball: ballForFrame ? this.lastBallTimestamp : null,
+        player: playerForFrame ? this.lastPlayerTimestamp : null,
+        rim: rimForFrame ? this.lastRimTimestamp : null,
+        pose: poseForFrame ? this.lastPoseTimestamp : null,
+      },
+    }
 
     // Reset update flags after processing
     this.ballUpdated = false
@@ -189,7 +219,7 @@ export class VisionEngineAdapter implements IVisionEngine {
     this.rimUpdated = false
     this.poseUpdated = false
 
-    return result
+    return resultWithObservationTimestamps
   }
 
   setBallDetectionEnabled(enabled: boolean): void {

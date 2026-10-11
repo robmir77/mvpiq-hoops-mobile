@@ -647,3 +647,117 @@ Vedi sezione 1 - PoseKeypoints (linee 112-125)
    - Lista tiri con dettagli selezionabili
    - Filtri per esito/zone
    - Esportazione dati opzionale
+
+---
+
+## Fase 3 - Completamento del Resoconto del Workout
+
+### Obiettivo
+
+Il resoconto dovrà rappresentare i dati reali di una sessione conclusa, non una simulazione.
+
+**A. Tabellone del campo**
+- Metà campo da basket con orientamento e proporzioni coerenti
+- Un pallino per ciascun tiro registrato, nella posizione del giocatore al momento del rilascio
+- Verde per il canestro, rosso per l'errore
+- Voto da 1 a 10 dentro il pallino, se disponibile
+- Angolo della parabola in gradi sopra il pallino, se disponibile
+- Gestione etichette ravvicinate per evitare sovrapposizioni
+
+**B. Riepilogo statistico**
+- Tiri totali (N)
+- Canestri (N / %)
+- Voto medio (— / 10) - solo tiri con voto disponibile
+- Angolo medio (—°) - solo tiri con angolo valido
+
+**C. Dettaglio dei singoli tiri**
+- Esito, posizione, voto, angolo, distanza dal canestro
+- Confronto rapido tra ciò che è disegnato sul campo e il dato salvato
+
+### Fase 0 - Audit dei Sorgenti (In Corso)
+
+Questo documento (SHOT_COMPLETION_AUDIT.md) rappresenta la base della Fase 0 dell'audit. Le verifiche già eseguite in questo documento sono:
+
+**Verifiche completate:**
+- ✅ Tipi ShotEvent esistenti analizzati
+- ✅ ShotDetectionEngine analizzato
+- ✅ Overlay e scia analizzati
+- ✅ Runtime e gestione eventi SHOT analizzati
+- ✅ API Backend e DTO analizzati
+- ✅ Persistenza locale e offline queue analizzata
+- ✅ Schermate Shot Chart e statistiche analizzate
+- ✅ Formato posa MoveNet analizzato
+- ✅ Decisioni aperte identificate
+- ✅ Gap critici riepilogati
+- ✅ Modifiche implementate (Fase 1 - Correzioni P0/P1) documentate
+
+**Verifiche aggiuntive richieste per Fase 0:**
+
+**0.3 - Verificare la posizione del giocatore (Criticità confermata)**
+- ShotEventBuilder usa `trackingState.ballPosition` invece della posizione del giocatore
+- Omografia non implementata (commento nel codice)
+- `timestampMs` assegnato con `Date.now()` al momento della costruzione dell'evento
+
+**0.4 - Verificare voto e angolo**
+- `TrackingState` contiene `releaseAngle` e `shotQuality`
+- `ShotEventBuilder` trasferisce `releaseAngle` nell'evento
+- Domande aperte:
+  - `shotQuality` corrisponde a un voto 1-10?
+  - Angolo e qualità vengono salvati e restituiti dall'API?
+
+**0.5 - Verificare salvataggio e recupero**
+- Struttura evento inviato: analizzata
+- Identificativo sessione/tiro: analizzato
+- Coda e retry: analizzati
+- Salvataggio database: da verificare nel backend
+- API resoconto: da verificare nel backend
+
+**0.6 - Verificare la chiusura del workout**
+- Sequenza "Fine workout": da ricostruire nei sorgenti
+- Ultimi eventi tiro: da verificare
+- Gestione coda: analizzata
+- Conferma backend: da verificare
+- Recupero resoconto: da verificare
+
+### Fasi Successive - Analisi e Implementazione Guidata
+
+| Fase | Attività | Risultato da verificare |
+|------|----------|-------------------------|
+| 1 | Definizione del contratto dati del tiro | Tutti i componenti concordano sui campi e sul loro significato |
+| 2 | Correttezza temporale e posizione del giocatore | Il tiro è associato al frame e alla posizione corretti |
+| 3 | Esito, voto e angolo | Regole definite, dati coerenti e valori mancanti gestiti |
+| 4 | Persistenza e API | I dati arrivano al backend e vengono recuperati senza perdite |
+| 5 | Schermata del resoconto | Campo, pallini, etichette, dettaglio e statistiche sono coerenti |
+| 6 | Chiusura e sincronizzazione | Il resoconto include anche gli ultimi tiri |
+| 7 | Collaudo end-to-end | I risultati superano una checklist di test ripetibili |
+
+### Metodologia di Lavoro
+
+Ogni passaggio avrà sempre cinque elementi:
+1. **Analisi:** Cosa succede nel codice attuale
+2. **Problema dimostrato:** Cosa manca o cosa non funziona, con riferimenti ai file e ai punti pertinenti
+3. **Istruzioni operative:** Cosa dovrai fare tu, in quale ordine
+4. **Verifica:** Quali risultati, log o test dovrai condividere
+5. **Decisione:** Passiamo oltre soltanto se i criteri sono soddisfatti
+
+Non considereremo conclusa una fase perché il codice compila soltanto.
+
+### Matrice di Test Finale
+
+Prima di dichiarare conclusa la Fase 3, prepareremo una matrice di test che comprenda almeno questi casi:
+- Workout con soli canestri
+- Workout con soli errori
+- Workout misto
+- Tiri ravvicinati sul tabellone
+- Tiro senza voto o senza angolo disponibile
+- Più tiri in rapida successione
+- Interruzione o ritardo di rete
+- Chiusura immediata dopo l'ultimo tiro
+- Riapertura del resoconto dopo aver concluso la sessione
+
+Per ogni caso confronteremo tre conteggi: tiri effettivamente eseguiti, eventi registrati e tiri visualizzati. Verificheremo anche le singole coordinate, gli esiti e i valori mostrati.
+
+### Stato Fase 3
+
+- 🟡 Fase 0 - Audit dei sorgenti: IN CORSO (questo documento è la base dell'audit frontend)
+- ⏳ Fase 1-7: PENDING (dipendono da completamento Fase 0)

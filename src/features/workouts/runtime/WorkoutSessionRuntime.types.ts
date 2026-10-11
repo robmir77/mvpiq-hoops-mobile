@@ -46,6 +46,8 @@ export interface IVisionEngine {
     player: { x: number; y: number; width: number; height: number; confidence: number } | null
     rim: { x: number; y: number; width: number; height: number; confidence: number } | null
     pose: any | null
+    /** Original acquisition timestamp for each observation forwarded on this pass. */
+    observationTimestamps?: { ball: number | null; player: number | null; rim: number | null; pose: number | null }
     timestamp: number
   }
   setBallDetectionEnabled(enabled: boolean): void
@@ -66,7 +68,8 @@ export interface ITrackingEngine {
     sizeCategory?: 'small' | 'medium' | 'large' | null,
     adaptThreshold?: number,
     rejectedBall?: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
-    playerDetection?: { x: number; y: number; width?: number; height?: number; confidence: number } | null
+    playerDetection?: { x: number; y: number; width?: number; height?: number; confidence: number } | null,
+    observationTimestamps?: { ball: number | null; player: number | null; rim: number | null; pose: number | null }
   ): any
   resetShot(): void
   resetAll(): void

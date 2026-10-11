@@ -13,6 +13,12 @@ interface PlayerPosition {
   confidence: number
 }
 
+interface PlayerPositionWithTimestamp {
+  position: PlayerPosition
+  timestampMs: number
+  isValid: boolean
+}
+
 export class PlayerTrackingEngine {
   private lastSeenAt = 0
   private trackingValid = false
@@ -83,5 +89,24 @@ export class PlayerTrackingEngine {
 
   isValid(): boolean {
     return this.trackingValid
+  }
+
+  // Get position with timestamp and temporal validity
+  getPositionWithTimestamp(): PlayerPositionWithTimestamp {
+    return {
+      position: { ...this.state },
+      timestampMs: this.lastSeenAt,
+      isValid: this.trackingValid && this.lastSeenAt > 0,
+    }
+  }
+
+  // Check if position is recent enough for shot registration
+  // Returns true if position is within maxAgeMs of referenceTimestamp
+  isPositionRecent(referenceTimestamp: number, maxAgeMs: number = 200): boolean {
+    if (!this.trackingValid || this.lastSeenAt === 0) {
+      return false
+    }
+    const ageMs = referenceTimestamp - this.lastSeenAt
+    return ageMs >= 0 && ageMs <= maxAgeMs
   }
 }
