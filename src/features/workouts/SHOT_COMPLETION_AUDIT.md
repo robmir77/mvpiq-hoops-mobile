@@ -1,7 +1,7 @@
 # Audit: Completamento Gestione Tiri
 **Data:** 2026-10-11
-**Fase:** Fase 1 COMPLETATA + PASS 5K-A.2 Ottimizzazioni Performance
-**Obiettivo:** Documentare lo stato attuale dell'implementazione ShotEvent e ottimizzazioni performance
+**Fase:** Fase 1 COMPLETATA + PASS 5K-A.2 Ottimizzazioni Performance + Refactoring Player Position Snapshot
+**Obiettivo:** Documentare lo stato attuale dell'implementazione ShotEvent, ottimizzazioni performance e correzioni tracking
 
 ## 1. Tipi ShotEvent Esistenti
 
@@ -832,5 +832,100 @@ Per ogni caso confronteremo tre conteggi: tiri effettivamente eseguiti, eventi r
 - ✅ Fase 1 - Correzioni P0/P1: COMPLETATA
 - ✅ Vision Migration Fase 2-5: COMPLETATE
 - ✅ PASS 5K-A.2 Ottimizzazioni Performance: COMPLETATE
+- ✅ Refactoring Player Position Snapshot: COMPLETATA
+- ✅ Protezione Concorrenza Runtime: COMPLETATA
 - ⏳ Fase 2 - Visualizzazione Scia: PENDING
 - ⏳ Fase 3 - Report Sessione: PENDING
+
+---
+
+## 16. Refactoring Player Position Snapshot (2026-10-11)
+
+### Problema Risolto
+- Il calcolo del centro YOLO aggiungeva metà larghezza e altezza alle coordinate fornite dal detector
+- La selezione snapshot playerPositionAtRelease non aveva una gerarchia chiara tra MoveNet e YOLO
+- Il Runtime non resettava lo stato del tiro dopo il salvataggio, bloccando il rilevamento dei tiri successivi
+
+### Soluzione Applicata
+
+#### 1. Correzione Calcolo Centro YOLO (TrackingEngine.ts)
+- **Prima:** `x: playerDetection.x + width/2, y: playerDetection.y + height/2`
+- **Dopo:** `x: playerDetection.x, y: playerDetection.y` (usa coordinate centrali fornite dal detector)
+- **File:** `src/features/workouts/tracking/TrackingEngine.ts` (righe 117-140)
+
+#### 2. Riorganizzazione Selezione Snapshot (TrackingEngine.ts)
+- **Priorità:** MoveNet (se valido e recente ≤200ms) → YOLO (se valido e recente ≤200ms) → undefined
+- **File:** `src/features/workouts/tracking/TrackingEngine.ts` (righe 292-341)
+- **Logica:**
+  1. Se playerCenter disponibile da poseKeypoints → usa direttamente
+  2. Se playerPositionAtRelease non ancora impostato e playerTrackingEngine ha posizione valida e recente → usa YOLO
+  3. Se nessuna delle condizioni → undefined
+
+#### 3. Reset Shot dopo Salvataggio (WorkoutSessionRuntime.ts)
+- **Posizione:** Nel ramo di successo di `enqueueCritical()` (riga 324)
+- **Condizione:** Solo se `enqueueSuccess && payload.shotId`
+- **Azione:** `this.trackingEngine?.resetShot()` dopo callback onShotDetected
+- **File:** `src/features/workouts/runtime/WorkoutSessionRuntime.ts`
+
+#### 4. Protezione Concorrenza Runtime (WorkoutSessionRuntime.ts)
+- **Campi aggiunti:**
+  - `isProcessingFrame: boolean` - flag per bloccare chiamate concorrenti
+  - `currentFramePromise: Promise<void> | null` - Promise per coordinamento stop()
+- **Separazione metodi:**
+  - `processFrame()` pubblico - coordinamento e gestione flag
+  - `processFrameInternal()` privato - esecuzione effettiva
+- **Comportamento:**
+  - Se `isProcessingFrame = true` → nuova chiamata scartata
+  - try/finally garantisce ripristino flag anche in caso di errore
+- **File:** `src/features/workouts/runtime/WorkoutSessionRuntime.ts` (righe 171-349)
+
+#### 5. Coordinamento Stop() (WorkoutSessionRuntime.ts)
+- **Modifica:** `stop()` ora attende `currentFramePromise` prima di passare a SYNCING
+- **Sequenza:**
+  1. Imposta STOPPING (blocca nuove chiamate processFrame)
+  2. Se `currentFramePromise` esiste → await completamento
+  3. Passa a SYNCING
+  4. Chiude coda
+  5. Passa a COMPLETED
+- **Beneficio:** Garantisce che frame in corso completi metriche, callback e reset prima della chiusura
+- **File:** `src/features/workouts/runtime/WorkoutSessionRuntime.ts` (righe 138-165)
+
+### Verifica Persistenza Locale
+- `enqueueCritical()` in `workoutAsyncQueue.ts` (riga 119) usa `await this.criticalOutbox.add()`
+- Conferma salvataggio nell'outbox locale prima di restituire `success`
+- Il backend può fallire ma l'evento è conservato per recupero
+
+### Architettura Aggiornata
+```
+Camera → useCameraPipeline → Workers → Callbacks
+  ↓
+VisionEngineAdapter.updateParsedResults()
+  ↓
+Runtime.processFrame() [con protezione concorrenza]
+  ↓
+processFrameInternal() [esecuzione]
+  ↓
+TrackingEngine.processFrame()
+  ↓
+ShotDetectionEngine (interno)
+  ↓
+if shotDetected:
+  buildAddShotPayload() [snapshot playerPositionAtRelease]
+  ↓
+await enqueueCritical() [persistenza locale]
+  ↓
+if success:
+  update metrics
+  onShotDetected callback
+  trackingEngine.resetShot() [permette prossimo tiro]
+  ↓
+stop() [attende currentFramePromise se presente]
+```
+
+### Stato Implementazione
+- ✅ Calcolo centro YOLO corretto
+- ✅ Selezione snapshot MoveNet → YOLO → undefined
+- ✅ ResetShot() dopo salvataggio locale riuscito
+- ✅ Protezione concorrenza processFrame()
+- ✅ Coordinamento stop() con frame in corso
+- ✅ Verifica persistenza locale confermata

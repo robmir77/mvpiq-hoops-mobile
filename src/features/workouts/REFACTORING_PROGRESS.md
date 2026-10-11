@@ -3,7 +3,7 @@
 ## Stato Attuale del Refactoring (Ottobre 2026)
 
 ### Riepilogo Completo
-Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **Vision Migration Fase 2-5 COMPLETATE** - Runtime.processFrame() è il PRIMARY path, PlayerDetection integrato, legacy cleanup completato. **ShotEvent Fase 1 COMPLETATA** - Correzioni P0/P1 per idempotenza, persistenza, posa grezza, UNCERTAIN e percorso unico. **PASS 5K-A.2 COMPLETATA** - Ottimizzazione percorso cache-hit + profiling semplificato.
+Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **Vision Migration Fase 2-5 COMPLETATE** - Runtime.processFrame() è il PRIMARY path, PlayerDetection integrato, legacy cleanup completato. **ShotEvent Fase 1 COMPLETATA** - Correzioni P0/P1 per idempotenza, persistenza, posa grezza, UNCERTAIN e percorso unico. **PASS 5K-A.2 COMPLETATA** - Ottimizzazione percorso cache-hit + profiling semplificato. **Refactoring Player Position Snapshot COMPLETATA** - Correzione calcolo centro YOLO, riorganizzazione snapshot MoveNet→YOLO→undefined, resetShot() dopo salvataggio, protezione concorrenza Runtime, coordinamento stop().
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -59,6 +59,10 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
   - 🟡 TelemetrySampler registrato ma non usato dal Runtime (solo log)
   - 🟡 Screen crea ancora Queue e la passa al Runtime (ownership intermedio)
   - ✅ PASS 5K-A.2 completata: ottimizzazione percorso cache-hit + profiling semplificato
+  - ✅ Refactoring Player Position Snapshot completata: correzione calcolo centro YOLO, snapshot MoveNet→YOLO→undefined
+  - ✅ Runtime Concurrency Protection completata: isProcessingFrame + currentFramePromise
+  - ✅ Runtime Stop() Coordination completata: await currentFramePromise prima di SYNCING
+  - ✅ Persistenza Locale Verificata: enqueueCritical conferma salvataggio outbox locale
 - ShotEvent Fase 1: 100% - Correzioni P0/P1 COMPLETATE:
   - ✅ shotId stabile generato in TrackingEngine quando rileva nuovo tiro
   - ✅ Runtime attende esito persistenza prima di aggiornare metriche
@@ -356,13 +360,33 @@ features/workouts/
 - [BBOX][STABILITY] identificato come ball stability, non player stability
 - Telemetria granulare aggiunta:
   - playerTrackingCurrent - tracking con bbox corrente
-  - playerTrackingLastBbox - tracking con bbox persistente
-  - playerMoveNetExecutions - esecuzioni MoveNet
-  - playerBboxAgeBuckets - distribuzione età bbox (0, 1-100, 100-250, 250-500, 500-750, expired ms)
-- Nuovi log: [PLAYER][FLOW] e [PLAYER][AGE_BUCKETS]
-- Dati per decisione futura su TTL
 
-**4.6.13: BallTrajectoryAnalyzer Implementation ✓ (Fase 5)**
+**4.6.13: Player Position Snapshot Refactoring ✓**
+- Corretto calcolo centro YOLO in TrackingEngine.ts (rimosso width/2 e height/2 offset)
+- Riorganizzata selezione snapshot playerPositionAtRelease: MoveNet (≤200ms) → YOLO (≤200ms) → undefined
+- Aggiunto resetShot() in Runtime dopo enqueueCritical() successo nel ramo if (enqueueSuccess && payload.shotId)
+- Verificato che resetShot() e resetAll() azzerano playerPositionAtRelease
+- File modificati: TrackingEngine.ts (righe 117-140, 292-341), WorkoutSessionRuntime.ts (riga 324)
+
+**4.6.14: Runtime Concurrency Protection ✓**
+- Aggiunto isProcessingFrame flag per bloccare chiamate concorrenti a processFrame()
+- Aggiunto currentFramePromise per tracciare Promise dell'elaborazione corrente
+- Separato processFrame() in metodo pubblico (coordinamento) e processFrameInternal() (esecuzione)
+- try/finally garantisce ripristino flag anche in caso di errore o uscita anticipata
+- File modificati: WorkoutSessionRuntime.ts (righe 61-62, 171-349)
+
+**4.6.15: Runtime Stop() Coordination ✓**
+- Modificato stop() per attendere currentFramePromise prima di passare a SYNCING
+- Garantisce che frame in corso completi metriche, callback e reset prima della chiusura
+- Sequenza: STOPPING → await currentFramePromise → SYNCING → shutdown queue → COMPLETED
+- File modificati: WorkoutSessionRuntime.ts (righe 148-152)
+
+**4.6.16: Persistenza Locale Verificata ✓**
+- Verificato che enqueueCritical() in workoutAsyncQueue.ts usa await this.criticalOutbox.add()
+- Conferma salvataggio nell'outbox locale prima di restituire success
+- Il backend può fallire ma l'evento è conservato per recupero
+
+**4.6.17: BallTrajectoryAnalyzer Implementation ✓ (Fase 5)**
 - Creato BallTrajectoryAnalyzer.ts per separazione palleggio/tiro
 - Stati del movimento: IDLE, DRIBBLE, SHOT_CANDIDATE, SHOT_ASCENDING, SHOT_APEX, SHOT_DESCENDING
 - Logica di classificazione basata su:
@@ -379,7 +403,7 @@ features/workouts/
 - Architettura: BallTrackingEngine → BallTrajectoryAnalyzer → ShotDetectionEngine
 - Export aggiornati in tracking/index.ts
 
-**4.6.14: Kalman Semantica Correction + Debug ✓ (Fase 5)**
+**4.6.18: Kalman Semantica Correction + Debug ✓ (Fase 5)**
 - Correzione semantica ballLastSeenAt: aggiornato solo su detection accettate, non su outlier
 - TTL di 150ms misura il tempo dall'ultima detection accettata, non dall'ultima chiamata update()
 - Aggiunto KalmanDebugInfo per diagnostica temporanea:

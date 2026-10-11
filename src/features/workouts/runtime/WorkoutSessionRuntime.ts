@@ -58,6 +58,8 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private shotEventBuilder: ShotEventBuilder = new ShotEventBuilder()
   private processedShotIds: Set<string> = new Set() // Track successfully saved shots for idempotency
   private pendingShotIds: Set<string> = new Set() // Track shots being saved (not yet confirmed)
+  private isProcessingFrame: boolean = false // Guard against concurrent processFrame() calls
+  private currentFramePromise: Promise<void> | null = null // Track current frame processing for stop() coordination
 
   // State machine guards
   private stateTransitions: Record<SessionState, SessionState[]> = {
@@ -143,6 +145,12 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     try {
       // Vision processing stopped via VisionEngineAdapter
 
+      // Wait for any in-flight frame processing to complete
+      if (this.currentFramePromise) {
+        console.log('[WorkoutSessionRuntime] Waiting for in-flight frame to complete before stopping')
+        await this.currentFramePromise
+      }
+
       // Transition to SYNCING state for data persistence
       this.setState('SYNCING')
 
@@ -164,6 +172,31 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   }
 
   async processFrame(frame: {
+    width: number
+    height: number
+    timestamp: number
+    data?: Uint8Array
+  }): Promise<void> {
+    // Guard against concurrent processing
+    if (this.isProcessingFrame) {
+      return
+    }
+
+    this.isProcessingFrame = true
+
+    // Create and store the processing promise for stop() coordination
+    const framePromise = this.processFrameInternal(frame)
+    this.currentFramePromise = framePromise
+
+    try {
+      await framePromise
+    } finally {
+      this.isProcessingFrame = false
+      this.currentFramePromise = null
+    }
+  }
+
+  private async processFrameInternal(frame: {
     width: number
     height: number
     timestamp: number
@@ -310,6 +343,9 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
         // Notify callback (normalized to MADE/MISS/UNCERTAIN)
         this.callbacks?.onShotDetected?.(normalizedResult)
         this.notifyTelemetryUpdate()
+
+        // Reset tracking state to allow next shot detection
+        this.trackingEngine?.resetShot()
       } else if (!enqueueSuccess && payload.shotId) {
         // Enqueue failed - remove from pending and log error
         this.pendingShotIds.delete(payload.shotId)

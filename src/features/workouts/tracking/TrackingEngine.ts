@@ -299,8 +299,8 @@ export class TrackingEngine implements ITrackingEngine {
       const releaseTimestampMs = this.shotDetectionEngine.getReleaseTimestamp()
       const playerPosWithTs = this.playerTrackingEngine.getPositionWithTimestamp()
 
+      // Try MoveNet first (precise pose center)
       if (playerCenter && releaseTimestampMs > 0) {
-        // MoveNet pose center: verify freshness using pose timestamp directly
         const poseAgeMs = releaseTimestampMs - poseMeasurementTs
         const isPoseRecent = poseMeasurementTs > 0 && poseAgeMs >= 0 && poseAgeMs <= 200
         if (isPoseRecent) {
@@ -310,12 +310,11 @@ export class TrackingEngine implements ITrackingEngine {
             timestampMs: poseMeasurementTs,
             isValid: true,
           }
-        } else {
-          // Pose not recent enough or timestamp unavailable
-          this.state.playerPositionAtRelease = undefined
         }
-      } else if (playerPosWithTs.isValid && releaseTimestampMs > 0) {
-        // YOLO bbox center: verify freshness using YOLO timestamp directly
+      }
+
+      // If MoveNet not used, try YOLO bbox center (fallback)
+      if (!this.state.playerPositionAtRelease && playerPosWithTs.isValid && releaseTimestampMs > 0) {
         const yoloAgeMs = releaseTimestampMs - playerPosWithTs.timestampMs
         const isYoloRecent = playerPosWithTs.timestampMs > 0 && yoloAgeMs >= 0 && yoloAgeMs <= 200
         if (isYoloRecent) {
@@ -325,12 +324,11 @@ export class TrackingEngine implements ITrackingEngine {
             timestampMs: playerPosWithTs.timestampMs,
             isValid: true,
           }
-        } else {
-          // YOLO position not recent enough
-          this.state.playerPositionAtRelease = undefined
         }
-      } else {
-        // No valid position available or no release timestamp
+      }
+
+      // If neither source provided a valid snapshot, ensure undefined
+      if (!this.state.playerPositionAtRelease) {
         this.state.playerPositionAtRelease = undefined
       }
     }
