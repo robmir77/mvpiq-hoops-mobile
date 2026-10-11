@@ -46,7 +46,7 @@ import ReactOverlay from '../components/ReactOverlay'
 import { WorkoutControls } from '../components/WorkoutControls'
 import { WorkoutHeader } from '../components/WorkoutHeader'
 import { ShotFeedback } from '../components/ShotFeedback'
-import { useScreenshotCapture } from '../hooks/useScreenshotCapture'
+// import { useScreenshotCapture } from '../hooks/useScreenshotCapture' // Screenshot capture disabled
 import { useVideoRecording } from '../hooks/useVideoRecording'
 import { useTrackingStatus } from '../hooks/useTrackingStatus'
 import { useVisionConfig } from '../hooks/useVisionConfig'
@@ -137,8 +137,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         formatVideoDuration,
     } = useVideoRecording()
 
-    // Screenshot capture hook
-    const { captureShotScreenshot, saveScreenshotWithResult } = useScreenshotCapture(cameraViewRef)
+    // Screenshot capture hook (disabled)
+    // const { captureShotScreenshot, saveScreenshotWithResult } = useScreenshotCapture(cameraViewRef)
     const [shotCount, setShotCount]         = useState({ total: 0, made: 0 })
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
@@ -792,19 +792,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             easing: Easing.out(Easing.ease), useNativeDriver: true,
                         }).start()
 
+                        // Screenshot capture disabled
                         // Handle screenshot capture and persistence (moved from legacy handleShotEvent)
-                        shotCounter.current += 1
-                        const screenshotData = await captureShotScreenshot(shotCounter.current)
-                        if (screenshotData) {
-                            pendingScreenshotUri.current = JSON.stringify(screenshotData)
-                        }
+                        // shotCounter.current += 1
+                        // const screenshotData = await captureShotScreenshot(shotCounter.current)
+                        // if (screenshotData) {
+                        //     pendingScreenshotUri.current = JSON.stringify(screenshotData)
+                        // }
 
                         // Save screenshot with result
-                        if (pendingScreenshotUri.current) {
-                            const data = JSON.parse(pendingScreenshotUri.current)
-                            void saveScreenshotWithResult(data, result)
-                            pendingScreenshotUri.current = null
-                        }
+                        // if (pendingScreenshotUri.current) {
+                        //     const data = JSON.parse(pendingScreenshotUri.current)
+                        //     void saveScreenshotWithResult(data, result)
+                        //     pendingScreenshotUri.current = null
+                        // }
                     },
                     onTelemetryUpdate: (metrics) => {
                         // Disabled - FPS metrics are already available via fpsMetrics from useShotTracker

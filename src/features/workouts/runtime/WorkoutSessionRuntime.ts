@@ -184,8 +184,12 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
     this.isProcessingFrame = true
 
-    // Create and store the processing promise for stop() coordination
-    const framePromise = this.processFrameInternal(frame)
+    // Schedule the internal work only after registering its Promise.
+    // This prevents synchronous callbacks from calling stop() before
+    // currentFramePromise is available.
+    const framePromise = Promise.resolve().then(
+      () => this.processFrameInternal(frame)
+    )
     this.currentFramePromise = framePromise
 
     try {

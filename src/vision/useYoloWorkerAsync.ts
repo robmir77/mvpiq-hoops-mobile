@@ -206,7 +206,20 @@ export const useYoloWorkerAsync = (
   useEffect(() => {
     const isLoaded = yoloModel.state === 'loaded' && yoloModel.model != null
     isReady.value = isLoaded
-  }, [yoloModel.state, yoloModel.model, isReady])
+
+    // Log model metadata when model loads
+    if (isLoaded && selectedYoloModel) {
+      const delegateName = yoloDelegate !== undefined && yoloDelegate !== null
+        ? typeof yoloDelegate === 'string' ? yoloDelegate : 'unknown'
+        : Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE
+
+      telemetryLogger.logModelMetadata({
+        name: selectedYoloModel.fileName,
+        inputSize: selectedYoloModel.inputSize,
+        delegate: delegateName
+      })
+    }
+  }, [yoloModel.state, yoloModel.model, isReady, selectedYoloModel, yoloDelegate])
 
   const yoloResizerConfig = useMemo(
     () => {

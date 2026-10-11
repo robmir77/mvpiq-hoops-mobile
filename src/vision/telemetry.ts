@@ -1229,11 +1229,8 @@ class TelemetryLogger {
   }
 
   generateTestSummary(cameraFPS: number, moveNetFPS: number): TestSummary | null {
-    if (!this.modelMetadata || !this.batteryMetrics) {
-      console.error('[Telemetry] Cannot generate summary:', {
-        hasModelMetadata: !!this.modelMetadata,
-        hasBatteryMetrics: !!this.batteryMetrics,
-      })
+    if (!this.modelMetadata) {
+      console.error('[Telemetry] Cannot generate summary: missing modelMetadata')
       return null
     }
 
@@ -1244,10 +1241,20 @@ class TelemetryLogger {
     const fpMetrics = this.getBallQualityMetrics()
     const bboxMetrics = this.getBboxStabilityMetrics()
 
+    // Use default battery metrics if not available (battery tracking not implemented)
+    const batteryMetrics = this.batteryMetrics || {
+      startLevel: 0,
+      endLevel: 0,
+      drain: 0,
+      temperatureStart: 0,
+      temperatureEnd: 0,
+      duration: this.testEndTime && this.testStartTime ? this.testEndTime - this.testStartTime : 0,
+    }
+
     return {
       model: this.modelMetadata,
       perf: {
-        duration: this.batteryMetrics.duration,
+        duration: batteryMetrics.duration,
         cameraFPS,
         yoloFPS: yoloPerf.throughputFps,
         yoloAvgMs: yoloPerf.avgMs,
@@ -1259,7 +1266,7 @@ class TelemetryLogger {
       falsePositive: fpMetrics,
       bbox: bboxMetrics,
       pipeline: this.pipelineMetrics,
-      battery: this.batteryMetrics,
+      battery: batteryMetrics,
       device: this.deviceMetrics || { temperature: 0 },
     }
   }
