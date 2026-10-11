@@ -227,7 +227,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
     const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
     const lastRuntimeProcessTimestampRef = useRef(0) // Track last timestamp to avoid duplicate processFrame() calls
-    const RUNTIME_PROCESS_DEBOUNCE_MS = 16 // Debounce to avoid duplicate calls for same logical frame (62.5 FPS theoretical)
+    const RUNTIME_PROCESS_DEBOUNCE_MS = 32 // Debounce to avoid duplicate calls for same logical frame (31.25 FPS theoretical)
     
     // Get YOLO model name for loading messages
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
@@ -374,9 +374,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         // Convert from vision/types to VisionEngine.types format
         // Phase 1 Temporal Sync: Use original timestamp from YOLO worker instead of Date.now()
         visionEngineAdapterRef.current?.updateParsedResults(
-            ball || null, // BallDetection (flat)
+            ball || undefined, // BallDetection (flat) - pass undefined if no ball
             undefined, // player (not in BallDetection type)
-            rim || null, // RimDetection
+            rim || undefined, // RimDetection - pass undefined if no rim
             undefined, // pose (updated separately)
             detection.timestamp // Use original timestamp from YOLO worker
         )

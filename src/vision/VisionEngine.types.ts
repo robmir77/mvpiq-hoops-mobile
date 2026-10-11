@@ -60,6 +60,18 @@ export interface IVisionEngine {
     data?: Uint8Array
   }): VisionEngineResult
 
+  // Get current raw results (for diagnostics, includes all detections not just updated ones)
+  getCurrentResults(): {
+    ball: BallDetection | null
+    player: PlayerDetection | null
+    rim: RimDetection | null
+    pose: PoseResult | null
+    ballTimestamp: number
+    playerTimestamp: number
+    rimTimestamp: number
+    poseTimestamp: number
+  }
+
   // Enable/disable specific detection modules
   setBallDetectionEnabled(enabled: boolean): void
   setPlayerDetectionEnabled(enabled: boolean): void

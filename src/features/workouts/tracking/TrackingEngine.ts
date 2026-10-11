@@ -281,7 +281,8 @@ export class TrackingEngine implements ITrackingEngine {
         height: this.state.hoopPosition.height,
         confidence: this.state.hoopPosition.confidence ?? 0,
       } : null,
-      frameTs
+      frameTs,
+      this.state.ballPositionRaw // Pass raw YOLO position for hoop verification (bypasses Kalman)
     )
 
     // Apply engine shot detection results
@@ -408,9 +409,9 @@ export class TrackingEngine implements ITrackingEngine {
   // Get current player position (for manual shot registration)
   getCurrentPlayerPosition(): { x: number; y: number } | null {
     const playerState = this.playerTrackingEngine.getState()
-    // Lower threshold for manual shots - use position even with low confidence
+    // Very low threshold for manual shots - use position even with minimal confidence
     // as fallback when automatic detection fails
-    if (playerState.confidence > 0.05 && this.playerTrackingEngine.isValid()) {
+    if (playerState.confidence > 0.01) {
       return { x: playerState.x, y: playerState.y }
     }
     return null

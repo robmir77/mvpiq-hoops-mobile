@@ -140,6 +140,31 @@ export class VisionEngine implements IVisionEngine {
     this.poseDetectionEnabled = enabled
   }
 
+  // Get current raw results (for diagnostics, includes all detections not just updated ones)
+  // Pure VisionEngine doesn't maintain state, so returns default values
+  // VisionEngineAdapter overrides this to return actual cached results
+  getCurrentResults(): {
+    ball: BallDetection | null
+    player: PlayerDetection | null
+    rim: RimDetection | null
+    pose: PoseResult | null
+    ballTimestamp: number
+    playerTimestamp: number
+    rimTimestamp: number
+    poseTimestamp: number
+  } {
+    return {
+      ball: null,
+      player: null,
+      rim: null,
+      pose: null,
+      ballTimestamp: 0,
+      playerTimestamp: 0,
+      rimTimestamp: 0,
+      poseTimestamp: 0,
+    }
+  }
+
   // Get current state
   isReady(): boolean {
     return this.ready

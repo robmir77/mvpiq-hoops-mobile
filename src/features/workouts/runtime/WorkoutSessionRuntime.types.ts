@@ -51,6 +51,16 @@ export interface IVisionEngine {
     observationTimestamps?: { ball: number | null; player: number | null; rim: number | null; pose: number | null }
     timestamp: number
   }
+  getCurrentResults(): {
+    ball: { x: number; y: number; width: number; height: number; confidence: number } | null
+    player: { x: number; y: number; width: number; height: number; confidence: number } | null
+    rim: { x: number; y: number; width: number; height: number; confidence: number } | null
+    pose: any | null
+    ballTimestamp: number
+    playerTimestamp: number
+    rimTimestamp: number
+    poseTimestamp: number
+  }
   setBallDetectionEnabled(enabled: boolean): void
   setPlayerDetectionEnabled(enabled: boolean): void
   setRimDetectionEnabled(enabled: boolean): void
@@ -94,6 +104,7 @@ export interface IShotDetectionEngine {
   }
   resetShot(): void
   resetAll(): void
+  setOnHoopDetectedCallback(callback: (result: 'MADE' | 'MISS') => void): void
 }
 
 export interface ITelemetrySampler {

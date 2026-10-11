@@ -6,7 +6,7 @@
 
 // Constants from useTrackingEngine
 const SHOT_LAUNCH_THRESHOLD = 1.5
-const DESCENDING_VY_THRESHOLD = 0.3
+const DESCENDING_VY_THRESHOLD = 0.01 // Lowered from 0.3 to work with Kalman velocity issues
 const MIN_TRAJECTORY_FRAMES = 4
 const SHOT_COOLDOWN_MS = 600
 const MIN_RISING_FRAMES = 3
@@ -64,6 +64,13 @@ export class ShotDetectionEngine {
   private shotDetected = false
   private shotResult: 'MADE' | 'MISS' | 'AIRBALL' | null = null
 
+  // Raw position tracking for hoop verification (bypasses Kalman)
+  private lastRawBallY: number | null = null
+  private lastRawBallTimestamp: number = 0
+
+  // Callback for hoop detection (for automatic manual shot registration)
+  private onHoopDetectedCallback: ((result: 'MADE' | 'MISS') => void) | null = null
+
   // Dribble filter state
   private risingFrames = 0
   private flightStartY = 1.0
@@ -101,7 +108,8 @@ export class ShotDetectionEngine {
     ballPosition: BallPosition | null,
     ballVelocity: BallVelocity | null,
     hoopPosition: HoopPosition | null,
-    frameTs: number
+    frameTs: number,
+    ballPositionRaw?: BallPosition | null // Raw YOLO detection for hoop verification (bypasses Kalman)
   ): {
     shotDetected: boolean
     shotResult: 'MADE' | 'MISS' | 'AIRBALL' | null
@@ -111,6 +119,25 @@ export class ShotDetectionEngine {
   } {
     const vel = ballVelocity
     const ball = ballPosition
+    // Use raw position for hoop verification if available, otherwise use filtered position
+    const ballForHoopCheck = ballPositionRaw || ballPosition
+
+    // Calculate raw velocity from YOLO position (bypasses Kalman)
+    let rawVy = 0
+    let rawDescending = false // Direct position-based descending check
+    if (ballPositionRaw && this.lastRawBallY !== null) {
+      const dt = frameTs - this.lastRawBallTimestamp
+      if (dt > 0) {
+        rawVy = (ballPositionRaw.y - this.lastRawBallY) / dt
+      }
+      // Direct position check: if Y increased, ball is descending (Y=0 is top of image)
+      rawDescending = ballPositionRaw.y > this.lastRawBallY
+    }
+    // Update last raw position
+    if (ballPositionRaw) {
+      this.lastRawBallY = ballPositionRaw.y
+      this.lastRawBallTimestamp = frameTs
+    }
 
     // Dribble filter: count rising frames (from useTrackingEngine lines 466-496)
     if (vel && ball) {
@@ -140,34 +167,51 @@ export class ShotDetectionEngine {
     }
 
     // Shot detection (MADE / MISS / AIRBALL) - from useTrackingEngine lines 513-556
+    // TEMPORARILY DISABILITATO PER DEBUG - solo log quando la palla passa nel canestro
     const hoop = hoopPosition
     const cooldownOk = (frameTs - this.lastShotTs) > SHOT_COOLDOWN_MS
 
-    if (vel && hoop && ball && cooldownOk && !this.shotDetected) {
-      const descending = vel.vy > DESCENDING_VY_THRESHOLD
+    if (hoop && ballForHoopCheck && cooldownOk && !this.shotDetected) {
+      // Use raw position-based descending check (bypasses Kalman velocity issues)
+      const descending = rawDescending
       const dynamicHoopRadius = getDynamicHoopRadius(hoop)
 
-      if (this.inFlight && descending) {
-        const dx = ball.x - hoop.x
-        const dy = ball.y - hoop.y
+      // Check hoop regardless of inFlight state
+      if (descending) {
+        const dx = ballForHoopCheck.x - hoop.x
+        const dy = ballForHoopCheck.y - hoop.y
         const dist = Math.sqrt(dx * dx + dy * dy)
 
         const descendingTowardHoop = dy > 0 && dist < dynamicHoopRadius * 2
 
+        // Debug log when ball passes through hoop (using raw position to bypass Kalman)
         if (descendingTowardHoop && dist < dynamicHoopRadius) {
-          this.shotDetected = true
-          this.shotResult = 'MADE'
-          this.lastShotTs = frameTs
+          console.log('[SHOT_DEBUG] + CANESTRO - Ball passed through hoop (dist=' + dist.toFixed(3) + ', radius=' + dynamicHoopRadius.toFixed(3) + ', rawDescending=' + rawDescending + ')')
+          // Call callback to register manual shot automatically
+          if (this.onHoopDetectedCallback) {
+            this.onHoopDetectedCallback('MADE')
+          }
         } else if (descendingTowardHoop && dist >= dynamicHoopRadius) {
-          this.shotDetected = true
-          this.shotResult = 'MISS'
-          this.lastShotTs = frameTs
-        } else if (descending && vel.vy > SHOT_LAUNCH_THRESHOLD * 2) {
-          this.shotDetected = true
-          this.shotResult = dist < 0.25 ? 'MISS' : 'AIRBALL'
-          this.lastShotTs = frameTs
+          // Call callback to register manual shot automatically (MISS)
+          if (this.onHoopDetectedCallback) {
+            this.onHoopDetectedCallback('MISS')
+          }
+        } else if (descending && rawVy > SHOT_LAUNCH_THRESHOLD * 2) {
+          // Call callback to register manual shot automatically (AIRBALL as MISS)
+          if (this.onHoopDetectedCallback) {
+            this.onHoopDetectedCallback('MISS')
+          }
         }
+      } else {
+        // Debug: why not descending?
+        console.log('[SHOT_DEBUG] Not descending (rawDescending=' + rawDescending + ')')
       }
+    } else {
+      // Debug: why not entering shot detection?
+      if (!hoop) console.log('[SHOT_DEBUG] No hoop')
+      if (!ballForHoopCheck) console.log('[SHOT_DEBUG] No ball')
+      if (!cooldownOk) console.log('[SHOT_DEBUG] Cooldown not ok (lastShot=' + this.lastShotTs + ', now=' + frameTs + ')')
+      if (this.shotDetected) console.log('[SHOT_DEBUG] Shot already detected')
     }
 
     return {
@@ -197,6 +241,13 @@ export class ShotDetectionEngine {
     this.trajectoryCount = 0
     this.peakY = Infinity
     this.lastShotTs = 0
+    this.lastRawBallY = null
+    this.lastRawBallTimestamp = 0
+  }
+
+  // Set callback for hoop detection (for automatic manual shot registration)
+  setOnHoopDetectedCallback(callback: (result: 'MADE' | 'MISS') => void): void {
+    this.onHoopDetectedCallback = callback
   }
 
   // Getters for current state

@@ -225,6 +225,9 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       return
     }
 
+    // Get raw results for diagnostics (includes all detections, not just updated ones)
+    const rawVisionResults = this.visionEngine.getCurrentResults()
+
     const visionResult = this.visionEngine.processFrame(frame)
 
     // Step 2: Tracking (Ball + Player + Shot)
@@ -256,25 +259,26 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
     // Collect diagnostic events if mode is enabled
     if (this.diagnosticMode) {
-      if (visionResult.ball) {
+      // Use raw results to capture ALL detections, not just updated ones
+      if (rawVisionResults.ball) {
         this.diagnosticEvents.push({
           timestamp: frame.timestamp,
           type: 'ball_detected',
           data: {
-            x: visionResult.ball.x,
-            y: visionResult.ball.y,
-            confidence: visionResult.ball.confidence,
+            x: rawVisionResults.ball.x,
+            y: rawVisionResults.ball.y,
+            confidence: rawVisionResults.ball.confidence,
           },
         })
       }
-      if (visionResult.player) {
+      if (rawVisionResults.player) {
         this.diagnosticEvents.push({
           timestamp: frame.timestamp,
           type: 'player_detected',
           data: {
-            x: visionResult.player.x,
-            y: visionResult.player.y,
-            confidence: visionResult.player.confidence,
+            x: rawVisionResults.player.x,
+            y: rawVisionResults.player.y,
+            confidence: rawVisionResults.player.confidence,
           },
         })
       }
@@ -585,6 +589,16 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     // The Runtime coordinates shot detection but doesn't own the engine
     if (this.shotDetectionEngine) {
       console.log('[WorkoutSessionRuntime] Shot detection initialized')
+      // Set callback for automatic manual shot registration when ball passes through hoop
+      this.shotDetectionEngine.setOnHoopDetectedCallback(async (result: 'MADE' | 'MISS') => {
+        // Only register shot if runtime is ACTIVE or STOPPING (not SYNCING, COMPLETED, etc.)
+        if (this.state === 'ACTIVE' || this.state === 'STOPPING') {
+          console.log('[WorkoutSessionRuntime] Hoop detected - registering manual shot: ' + result + ' (state=' + this.state + ')')
+          await this.registerManualShot(result)
+        } else {
+          console.log('[WorkoutSessionRuntime] Hoop detected but skipping registration - state is ' + this.state)
+        }
+      })
     } else {
       console.warn('[WorkoutSessionRuntime] Shot detection engine not set - will be provided by React hook')
     }

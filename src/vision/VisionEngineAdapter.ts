@@ -34,9 +34,9 @@ export class VisionEngineAdapter implements IVisionEngine {
   private isRunning = false
 
   // Phase 1 Temporal Sync: Freshness thresholds based on natural worker frequencies
-  // YOLO: ~4-5 FPS natural → ~200-250ms between inferences → threshold 500ms (2-3x)
+  // YOLO: ~4-5 FPS natural → ~200-250ms between inferences → threshold 2000ms (8-10x) for hoop verification
   // MoveNet: ~3-4 FPS natural → ~250-330ms between inferences → threshold 750ms (2-3x)
-  private readonly BALL_FRESHNESS_MS = 500
+  private readonly BALL_FRESHNESS_MS = 2000 // Increased from 500ms to allow older detections for hoop verification
   private readonly PLAYER_FRESHNESS_MS = 500
   private readonly RIM_FRESHNESS_MS = 500
   private readonly POSE_FRESHNESS_MS = 750
@@ -66,7 +66,9 @@ export class VisionEngineAdapter implements IVisionEngine {
     pose: PoseResult | null | undefined,
     timestamp: number
   ): void {
+    // Debug log for ball updates
     if (ball !== undefined) {
+      console.log('[VISION_ADAPTER] updateParsedResults: ball=' + JSON.stringify(ball) + ', timestamp=' + timestamp)
       this.lastBall = ball
       this.lastBallTimestamp = timestamp
       this.ballUpdated = true
@@ -184,10 +186,18 @@ export class VisionEngineAdapter implements IVisionEngine {
     const rimUpdated = this.rimUpdated
     const poseUpdated = this.poseUpdated
 
-    const ballForFrame = ballFresh && ballUpdated ? this.lastBall : null
+    // Pass fresh cached detections even if not updated this frame
+    // This is needed for hoop verification when YOLO is slow (~6-7 FPS)
+    // and the ball passes through the hoop between YOLO inferences
+    const ballForFrame = ballFresh ? this.lastBall : null
     const playerForFrame = playerFresh && playerUpdated ? this.lastPlayer : null
     const rimForFrame = rimFresh && rimUpdated ? this.lastRim : null
     const poseForFrame = poseFresh && poseUpdated ? this.lastPose : null
+
+    // Debug log for ball passing
+    if (ballFresh && !ballForFrame) {
+      console.log('[VISION_ADAPTER] ballFresh=true but ballForFrame=null (lastBall=' + JSON.stringify(this.lastBall) + ')')
+    }
 
     const result = this.visionEngine.processFrame({
       width: frame.width,
