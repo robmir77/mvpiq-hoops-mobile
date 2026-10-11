@@ -458,15 +458,18 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     this.pendingShotIds.add(shotId)
 
     // Enqueue to critical queue and await result
+    const fullPayload = {
+      ...payload,
+      shotResult: result, // Manual shots are always MADE or MISS
+      trackingData: JSON.stringify({ manualEntry: true }),
+    }
+    console.log('[WorkoutSessionRuntime] Full manual shot payload:', JSON.stringify(fullPayload, null, 2))
+
     const enqueueSuccess = await this.enqueueCritical({
       type: 'SHOT',
       sessionId: this.config.sessionId,
       userId: this.config.userId,
-      payload: {
-        ...payload,
-        shotResult: result, // Manual shots are always MADE or MISS
-        trackingData: JSON.stringify({ manualEntry: true }),
-      },
+      payload: fullPayload,
     })
 
     // Only mark as processed and update metrics if enqueue succeeded
