@@ -139,6 +139,13 @@ export interface TrackingState {
     apexPoint?: { x: number; y: number }
     releaseAngle?: number
     shotQuality?: number
+    // Player position snapshot at shot release (for shot chart)
+    playerPositionAtRelease?: {
+        x: number
+        y: number
+        timestampMs: number
+        isValid: boolean
+    }
 }
 
 export interface PoseKeypoints {

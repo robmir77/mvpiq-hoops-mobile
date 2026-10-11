@@ -55,6 +55,7 @@ export class TrackingEngine implements ITrackingEngine {
     apexPoint: undefined,
     releaseAngle: undefined,
     shotQuality: undefined,
+    playerPositionAtRelease: undefined,
   }
 
   // Timing state
@@ -100,6 +101,7 @@ export class TrackingEngine implements ITrackingEngine {
     // but use acquisition timestamps for measurements that drive tracking deltas.
     const ballMeasurementTs = observationTimestamps?.ball ?? frameTs
     const playerMeasurementTs = observationTimestamps?.player ?? frameTs
+    const poseMeasurementTs = observationTimestamps?.pose ?? frameTs
 
     // Player tracking: combine YOLO bbox (coarse detection) + MoveNet pose (articulated tracking)
     // Policy: YOLO provides bbox for state, Pose provides precise center for spatial constraints
@@ -122,10 +124,10 @@ export class TrackingEngine implements ITrackingEngine {
     if (poseKeypoints) {
       playerCenter = this.playerTrackingEngine.updateFromPose(poseKeypoints)
     } else if (playerDetection) {
-      // Fallback: calculate center from YOLO bbox
+      // Fallback: use YOLO bbox center directly (x,y are already center coordinates)
       playerCenter = {
-        x: playerDetection.x + (playerDetection.width || 0) / 2,
-        y: playerDetection.y + (playerDetection.height || 0) / 2,
+        x: playerDetection.x,
+        y: playerDetection.y,
       }
     }
 
@@ -290,6 +292,47 @@ export class TrackingEngine implements ITrackingEngine {
       this.lastShotTs = frameTs
       const metrics = trajectoryMetrics || this.computeTrajectoryMetrics()
       this.state.shotQuality = this.calculateShotQuality(metrics, this.state.releaseAngle)
+
+      // Capture player position snapshot at shot release
+      // Priority: MoveNet pose center (precise) > YOLO bbox center (fallback)
+      // Verify temporal freshness using the timestamp of the same observation source
+      const releaseTimestampMs = this.shotDetectionEngine.getReleaseTimestamp()
+      const playerPosWithTs = this.playerTrackingEngine.getPositionWithTimestamp()
+
+      if (playerCenter && releaseTimestampMs > 0) {
+        // MoveNet pose center: verify freshness using pose timestamp directly
+        const poseAgeMs = releaseTimestampMs - poseMeasurementTs
+        const isPoseRecent = poseMeasurementTs > 0 && poseAgeMs >= 0 && poseAgeMs <= 200
+        if (isPoseRecent) {
+          this.state.playerPositionAtRelease = {
+            x: playerCenter.x,
+            y: playerCenter.y,
+            timestampMs: poseMeasurementTs,
+            isValid: true,
+          }
+        } else {
+          // Pose not recent enough or timestamp unavailable
+          this.state.playerPositionAtRelease = undefined
+        }
+      } else if (playerPosWithTs.isValid && releaseTimestampMs > 0) {
+        // YOLO bbox center: verify freshness using YOLO timestamp directly
+        const yoloAgeMs = releaseTimestampMs - playerPosWithTs.timestampMs
+        const isYoloRecent = playerPosWithTs.timestampMs > 0 && yoloAgeMs >= 0 && yoloAgeMs <= 200
+        if (isYoloRecent) {
+          this.state.playerPositionAtRelease = {
+            x: playerPosWithTs.position.x,
+            y: playerPosWithTs.position.y,
+            timestampMs: playerPosWithTs.timestampMs,
+            isValid: true,
+          }
+        } else {
+          // YOLO position not recent enough
+          this.state.playerPositionAtRelease = undefined
+        }
+      } else {
+        // No valid position available or no release timestamp
+        this.state.playerPositionAtRelease = undefined
+      }
     }
 
     // Update inFlight from engine
@@ -309,6 +352,7 @@ export class TrackingEngine implements ITrackingEngine {
     this.state.apexPoint = undefined
     this.state.releaseAngle = undefined
     this.state.shotQuality = undefined
+    this.state.playerPositionAtRelease = undefined
     this.state.ballPositionRaw = null
     this.resetTrajectoryBuffer()
     this.peakY = Infinity
@@ -346,6 +390,7 @@ export class TrackingEngine implements ITrackingEngine {
       apexPoint: undefined,
       releaseAngle: undefined,
       shotQuality: undefined,
+      playerPositionAtRelease: undefined,
     }
   }
 

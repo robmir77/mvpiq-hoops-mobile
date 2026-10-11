@@ -1,7 +1,7 @@
 # Audit: Completamento Gestione Tiri
-**Data:** 2026-10-08
-**Fase:** Fase 1 - Correzioni P0/P1 Completate
-**Obiettivo:** Mappare lo stato attuale e identificare gap per implementare specifica completamento tiri
+**Data:** 2026-10-11
+**Fase:** Fase 1 COMPLETATA + PASS 5K-A.2 Ottimizzazioni Performance
+**Obiettivo:** Documentare lo stato attuale dell'implementazione ShotEvent e ottimizzazioni performance
 
 ## 1. Tipi ShotEvent Esistenti
 
@@ -554,7 +554,7 @@ Vedi sezione 1 - PoseKeypoints (linee 112-125)
 
 ---
 
-## 13. Modifiche Implementate (Fase 1 - Correzioni P0/P1)
+## 13. Modifiche Implementate (Fase 1 - Correzioni P0/P1) COMPLETATE
 
 ### 1. Tipi estesi (workouts.types.ts)
 - ✅ Aggiunto `UNCERTAIN` a `ShotResult`
@@ -614,39 +614,108 @@ Vedi sezione 1 - PoseKeypoints (linee 112-125)
 
 ---
 
-## 14. Prossimi Passi (Fase 2 - Visualizzazione Scia)
+## 14. Ottimizzazioni Performance Completate (PASS 5K-A.2)
 
-1. Modificare RealtimeBallOverlay per colore scia basato su shotResult
-   - Verde per MADE
-   - Rosso per MISS
-   - Giallo/Grigio per UNCERTAIN
-   - Gestire lifetime scia dopo completamento
+### Problema Risolto
+- PASS 5K-A.2 leggeva 21 SharedValue ogni frame prima di sapere se la cache era valida
+- 42+ chiamate Date.now() per misurare ogni singolo .value contaminavano il benchmark
+- Cache hit rate ~77% ma sharedValueReads rimaneva ~29 ms perché leggeva comunque tutto
 
-2. Aggiungere gestione UNCERTAIN in ShotDetectionEngine
-   - Stato provvisorio quando esito non chiaro
-   - Timeout per conversione automatica
+### Soluzione Applicata
+1. **Riorganizzato letture SharedValue:**
+   - Percorso iniziale: hasBbox, lastSeenAt, detectionId, lastProcessedDetectionId, cachedBboxDetectionId (5 reads)
+   - Cache hit: aggiunge cachedBbox×5 + detectedAt (6 reads aggiuntive, totale 11)
+   - Cache miss: aggiunge bbox×5 + smoothed×5 + detectedAt (11 reads aggiuntive, totale 16)
+   - Prima: 21 reads sempre
 
-3. Implementare proiezione omografia completa
-   - Sostituire placeholder in ShotEventBuilder
-   - Usare homographyMatrix per coordinate accurate
+2. **Profiling semplificato:**
+   - Rimosso 21 timer individuali (svReadHasBboxMs, svReadLastSeenAtMs, ecc.)
+   - Sostituito con 2 metriche: cachePathReadMs, missPathReadMs
+   - Rimosso dateNowOverheadMs, smoothingUnaccountedMs, resultUnaccountedMs
+   - Rimosso getEffectiveBboxSvWritesMs (misurava solo il contatore, non le write reali)
+
+3. **Reset completo:**
+   - Aggiunto reset di bboxX, bboxY, bboxWidth, bboxHeight
+   - Aggiunto reset di consecutiveRejects
+   - Aggiunto reset di cacheHits, cacheMisses
+   - Aggiunto reset di tutti i profiler per per-session metrics
+
+4. **Ripristinato smoothingFactor a 0.3** (valore originale, 0.1 era solo per test)
+
+### Nuovi Export
+- cachePathReadMs: tempo per leggere SharedValues necessarie alla validazione cache
+- missPathReadMs: tempo per leggere SharedValues aggiuntive su cache miss
+
+### Architettura
+- Semantica strict-current inalterata
+- Semantica cache inalterata
+- Solo ottimizzazione del percorso di lettura e riduzione overhead profiler
 
 ---
 
-## 15. Prossimi Passi (Fase 3 - Report Sessione)
+## 15. Vision Migration Completata (Fase 2-5)
 
-1. Estendere ShotChartScreen per dettaglio tiro
-   - Tap su punto mostra traiettoria
-   - Mostra posa grezza opzionale
-   - Mostra metadati (timestamp, distanza, esito)
+### Fase 2 - Pure Layer + Worker Integration
+- Creato vision/engine/ con:
+  - VisionEngine.ts: orchestrazione YOLO + MoveNet
+  - YoloDetector.ts: parsing YOLO puro worklet-safe
+  - MoveNetPoseEstimator.ts: parsing MoveNet puro worklet-safe
+  - BallDetectionProcessor.ts: filtraggio ball detection
+  - VisionEngineAdapter.ts: bridge transitorio
+- YoloDetector integrato in useYoloWorker (sostituisce parseYoloOutputFloat16)
+- MoveNetPoseEstimator integrato in useMoveNetWorker (sostituisce parseMoveNetOutput)
+- Codice legacy rimosso: poseParser.ts, yoloParserFloat16.ts
 
-2. Estendere StatsScreen per supporto UNCERTAIN
-   - Mostra conteggio UNCERTAIN separato
-   - Filtraggio opzionale
+### Fase 3 - VisionEngine Integration
+- Workers restituiscono parsed results (non raw output)
+- VisionEngine accetta parsed results con fallback per raw outputs
+- VisionEngineAdapter istanzia VisionEngine e gli passa parsed results
+- Callbacks aggiornati per feed VisionEngineAdapter
+- Conversione tipo: vision/types → VisionEngine.types
 
-3. Implementare report sessione completo
-   - Lista tiri con dettagli selezionabili
-   - Filtri per esito/zone
-   - Esportazione dati opzionale
+### Fase 4 - Runtime.processFrame() Activation
+- VisionEngineAdapter istanziato in WorkoutSessionScreen
+- Collegato a Runtime via setVisionEngine()
+- Runtime.processFrame() chiamato dai callbacks quando Runtime è ACTIVE
+- Flag useRuntimeProcessingRef per toggle tra path Runtime e legacy
+- Fix double ShotDetectionEngine call
+- Tracking state sync via onTrackingStateUpdate callback
+
+### Fase 5 - Legacy Cleanup
+- ShotDetector.ts rimosso completamente
+- handleShotEvent rimosso da WorkoutSessionScreen
+- VisionPipelineAdapter rimosso da Runtime e Screen
+- useShotTracker ridotto a wrapper di workers
+- BallTrajectoryAnalyzer implementato per separazione palleggio/tiro
+- Kalman semantica corretta (ballLastSeenAt basato su detection accettate)
+- MoveNet bbox current detection (Decision 31)
+- Player stability threshold correction (Decision 32)
+
+### Architettura Finale (Single Path)
+```
+Camera
+  ↓
+useWorkoutVisionPipeline (useCameraPipeline)
+  ↓
+Workers (useYoloWorker, useMoveNetWorker)
+  ↓ (inference + parsing)
+  ↓
+Callbacks (handleBallDetection, handlePoseResult, handleRimDetection, handlePlayerDetection)
+  ↓
+VisionEngineAdapter.updateParsedResults()
+  ↓
+Runtime.processFrame() [ATTIVO QUANDO useRuntimeProcessingRef = true]
+  ↓
+VisionEngine.processFrame() (orchestrazione)
+  ↓
+TrackingEngine.processFrame()
+  ↓
+ShotDetectionEngine (interno)
+  ↓
+onTrackingStateUpdate callback
+  ↓
+setTrackingState + tracking.updateSharedValuesFromState()
+```
 
 ---
 
@@ -759,5 +828,9 @@ Per ogni caso confronteremo tre conteggi: tiri effettivamente eseguiti, eventi r
 
 ### Stato Fase 3
 
-- 🟡 Fase 0 - Audit dei sorgenti: IN CORSO (questo documento è la base dell'audit frontend)
-- ⏳ Fase 1-7: PENDING (dipendono da completamento Fase 0)
+- ✅ Fase 0 - Audit dei sorgenti: COMPLETATA
+- ✅ Fase 1 - Correzioni P0/P1: COMPLETATA
+- ✅ Vision Migration Fase 2-5: COMPLETATE
+- ✅ PASS 5K-A.2 Ottimizzazioni Performance: COMPLETATE
+- ⏳ Fase 2 - Visualizzazione Scia: PENDING
+- ⏳ Fase 3 - Report Sessione: PENDING

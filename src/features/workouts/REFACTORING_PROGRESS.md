@@ -3,7 +3,7 @@
 ## Stato Attuale del Refactoring (Ottobre 2026)
 
 ### Riepilogo Completo
-Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **Vision Migration Fase 3, 4 & 5 COMPLETATE** - Runtime.processFrame() è il PRIMARY path, PlayerDetection integrato, legacy cleanup completato. **ShotEvent Fase 1 COMPLETATA** - Correzioni P0/P1 per idempotenza, persistenza, posa grezza, UNCERTAIN e percorso unico.
+Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova architettura tracking è ora **autorevole in produzione** per Ball e Player. Shot detection ha un solo sistema autorevole (ShotDetectionEngine). L'architettura di sessione è operativa: Runtime è coordinatore Vision + Tracking. **Vision Migration Fase 2-5 COMPLETATE** - Runtime.processFrame() è il PRIMARY path, PlayerDetection integrato, legacy cleanup completato. **ShotEvent Fase 1 COMPLETATA** - Correzioni P0/P1 per idempotenza, persistenza, posa grezza, UNCERTAIN e percorso unico. **PASS 5K-A.2 COMPLETATA** - Ottimizzazione percorso cache-hit + profiling semplificato.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -32,11 +32,16 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
 │  - UNCERTAIN (P1)           ██████████ 100% │
 │  - Percorso unico (P1)      ██████████ 100% │
 │                                             │
+│  PASS 5K-A.2                ██████████ 100% │
+│  - Cache hit optimization   ██████████ 100% │
+│  - Profiling semplificato    ██████████ 100% │
+│  - Reset completo           ██████████ 100% │
+│                                             │
 └─────────────────────────────────────────────┘
 ```
 
 **Legenda:**
-- Runtime: 100% - FASE B completata (Vision + Tracking ownership) + FASE 3, 4 & 5 COMPLETATE (Vision Migration + Legacy Cleanup):
+- Runtime: 100% - FASE B completata (Vision + Tracking ownership) + FASE 2-5 COMPLETATE (Vision Migration + Legacy Cleanup):
   - ✅ Runtime API definite (enqueueCritical, enqueueTelemetry)
   - ✅ Screen usa Runtime API per enqueueCritical (4 chiamate migrate)
   - ✅ Screen usa Runtime.stop() per shutdown
@@ -53,6 +58,7 @@ Il refactoring ha raggiunto un **milestone critico** per il tracking: la nuova a
   - ✅ PlayerDetection integrato nel nuovo percorso (Fase 4.4)
   - 🟡 TelemetrySampler registrato ma non usato dal Runtime (solo log)
   - 🟡 Screen crea ancora Queue e la passa al Runtime (ownership intermedio)
+  - ✅ PASS 5K-A.2 completata: ottimizzazione percorso cache-hit + profiling semplificato
 - ShotEvent Fase 1: 100% - Correzioni P0/P1 COMPLETATE:
   - ✅ shotId stabile generato in TrackingEngine quando rileva nuovo tiro
   - ✅ Runtime attende esito persistenza prima di aggiornare metriche
@@ -320,7 +326,24 @@ features/workouts/
 - Kalman filter ora segue misurazioni quasi istantaneamente
 - Ottimizzato per tracking palla real-time con ritardo minimo
 
-**4.6.10: MoveNet Bbox Current Detection ✓ (Decision 31)**
+**4.6.10: PASS 5K-A.2 Completata ✓**
+- Riorganizzato letture SharedValue:
+  - Percorso iniziale: 5 reads (hasBbox, lastSeenAt, detectionId, lastProcessedDetectionId, cachedBboxDetectionId)
+  - Cache hit: 11 reads totali (5 iniziali + 6 aggiuntive)
+  - Cache miss: 16 reads totali (5 iniziali + 11 aggiuntive)
+  - Prima: 21 reads sempre
+- Profiling semplificato:
+  - Rimosso 21 timer individuali
+  - Sostituito con 2 metriche: cachePathReadMs, missPathReadMs
+  - Rimosso overhead profiler non necessario
+- Reset completo:
+  - bboxX, bboxY, bboxWidth, bboxHeight
+  - consecutiveRejects
+  - cacheHits, cacheMisses
+  - Tutti i profiler per per-session metrics
+- Ripristinato smoothingFactor a 0.3 (valore originale)
+
+**4.6.11: MoveNet Bbox Current Detection ✓ (Decision 31)**
 - MoveNet richiede bbox corrente (non stale/persistente)
 - Condizione aggiornata: `!trackedBbox.isUsingLastBbox`
 - MoveNet esegue solo quando YOLO produce detection player nel frame corrente
@@ -328,7 +351,7 @@ features/workouts/
 - Nessun cambio TTL (750ms PlayerCrop, 2000ms useShotTracker, 1000ms PlayerTracking)
 - Costo MoveNet eliminato quando player non rilevato correntemente (0 FPS vs 3-4 FPS)
 
-**4.6.11: Player Stability Threshold Correction + Granular Telemetry ✓ (Decision 32)**
+**4.6.12: Player Stability Threshold Correction + Granular Telemetry ✓ (Decision 32)**
 - Threshold player stability corretto: 30 → 0.02 (2% del frame)
 - [BBOX][STABILITY] identificato come ball stability, non player stability
 - Telemetria granulare aggiunta:
@@ -339,7 +362,7 @@ features/workouts/
 - Nuovi log: [PLAYER][FLOW] e [PLAYER][AGE_BUCKETS]
 - Dati per decisione futura su TTL
 
-**4.6.12: BallTrajectoryAnalyzer Implementation ✓ (Fase 5)**
+**4.6.13: BallTrajectoryAnalyzer Implementation ✓ (Fase 5)**
 - Creato BallTrajectoryAnalyzer.ts per separazione palleggio/tiro
 - Stati del movimento: IDLE, DRIBBLE, SHOT_CANDIDATE, SHOT_ASCENDING, SHOT_APEX, SHOT_DESCENDING
 - Logica di classificazione basata su:
@@ -356,7 +379,7 @@ features/workouts/
 - Architettura: BallTrackingEngine → BallTrajectoryAnalyzer → ShotDetectionEngine
 - Export aggiornati in tracking/index.ts
 
-**4.6.13: Kalman Semantica Correction + Debug ✓ (Fase 5)**
+**4.6.14: Kalman Semantica Correction + Debug ✓ (Fase 5)**
 - Correzione semantica ballLastSeenAt: aggiornato solo su detection accettate, non su outlier
 - TTL di 150ms misura il tempo dall'ultima detection accettata, non dall'ultima chiamata update()
 - Aggiunto KalmanDebugInfo per diagnostica temporanea:
@@ -685,5 +708,9 @@ Per ogni caso confronteremo tre conteggi: tiri effettivamente eseguiti, eventi r
 
 ### Stato Fase 3
 
-- 🟡 Fase 0 - Audit dei sorgenti: IN CORSO
-- ⏳ Fase 1-7: PENDING (dipendono da completamento Fase 0)
+- ✅ Fase 0 - Audit dei sorgenti: COMPLETATA
+- ✅ Fase 1 - Correzioni P0/P1: COMPLETATA
+- ✅ Vision Migration Fase 2-5: COMPLETATE
+- ✅ PASS 5K-A.2 Ottimizzazioni Performance: COMPLETATA
+- ⏳ Fase 2 - Visualizzazione Scia: PENDING
+- ⏳ Fase 3 - Report Sessione: PENDING

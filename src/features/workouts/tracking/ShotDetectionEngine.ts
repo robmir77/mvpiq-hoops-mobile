@@ -18,6 +18,11 @@ interface TrajectoryPoint {
   t: number
 }
 
+interface ReleasePointWithTimestamp {
+  point: BallPosition | null
+  timestampMs: number
+}
+
 interface HoopPosition {
   x: number
   y: number
@@ -55,6 +60,7 @@ export class ShotDetectionEngine {
   private apexPoint: BallPosition | null = null
   private inFlight = false
   private releasePoint: BallPosition | null = null
+  private releaseTimestampMs = 0 // Timestamp when releasePoint was identified
   private shotDetected = false
   private shotResult: 'MADE' | 'MISS' | 'AIRBALL' | null = null
 
@@ -126,8 +132,9 @@ export class ShotDetectionEngine {
         const arcSoFar = this.flightStartY - ball.y  // positivo = salita
         if (arcSoFar >= MIN_ARC_HEIGHT && this.trajectoryCount >= MIN_TRAJECTORY_FRAMES) {
           this.inFlight = true
-          // Save release point
+          // Save release point with its timestamp
           this.releasePoint = { x: ball.x, y: ball.y }
+          this.releaseTimestampMs = frameTs
         }
       }
     }
@@ -177,6 +184,7 @@ export class ShotDetectionEngine {
     this.shotResult = null
     this.inFlight = false
     this.releasePoint = null
+    this.releaseTimestampMs = 0
     this.apexPoint = null
     this.risingFrames = 0
     this.flightStartY = 1.0
@@ -198,6 +206,10 @@ export class ShotDetectionEngine {
 
   getShotResult(): 'MADE' | 'MISS' | 'AIRBALL' | null {
     return this.shotResult
+  }
+
+  getReleaseTimestamp(): number {
+    return this.releaseTimestampMs
   }
 
   getTrajectoryPoints(): TrajectoryPoint[] {
