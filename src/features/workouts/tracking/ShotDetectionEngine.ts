@@ -68,9 +68,6 @@ export class ShotDetectionEngine {
   private lastRawBallY: number | null = null
   private lastRawBallTimestamp: number = 0
 
-  // Callback for hoop detection (for automatic manual shot registration)
-  private onHoopDetectedCallback: ((result: 'MADE' | 'MISS') => void) | null = null
-
   // Dribble filter state
   private risingFrames = 0
   private flightStartY = 1.0
@@ -182,25 +179,29 @@ export class ShotDetectionEngine {
         const dy = ballForHoopCheck.y - hoop.y
         const dist = Math.sqrt(dx * dx + dy * dy)
 
-        const descendingTowardHoop = dy > 0 && dist < dynamicHoopRadius * 2
+        // Ball must be descending AND passing through hoop from above
+        // dy > 0 means ball is below hoop center (in screen coordinates, y increases downward)
+        // We need to ensure ball was above hoop before entering the hoop area
+        const ballAboveHoop = dy < -0.02 // Ball is at least 2% above hoop center
+        const ballNearHoop = dist < dynamicHoopRadius * 2
+        const ballThroughHoop = dist < dynamicHoopRadius
 
-        // Debug log when ball passes through hoop (using raw position to bypass Kalman)
-        if (descendingTowardHoop && dist < dynamicHoopRadius) {
-          console.log('[SHOT_DEBUG] + CANESTRO - Ball passed through hoop (dist=' + dist.toFixed(3) + ', radius=' + dynamicHoopRadius.toFixed(3) + ', rawDescending=' + rawDescending + ')')
-          // Call callback to register manual shot automatically
-          if (this.onHoopDetectedCallback) {
-            this.onHoopDetectedCallback('MADE')
-          }
-        } else if (descendingTowardHoop && dist >= dynamicHoopRadius) {
-          // Call callback to register manual shot automatically (MISS)
-          if (this.onHoopDetectedCallback) {
-            this.onHoopDetectedCallback('MISS')
-          }
+        // Only count as MADE if ball passes through hoop from above (descending through the rim)
+        if (ballNearHoop && ballThroughHoop && rawVy > 0) {
+          console.log('[SHOT_DEBUG] + CANESTRO - Ball passed through hoop from above (dist=' + dist.toFixed(3) + ', radius=' + dynamicHoopRadius.toFixed(3) + ', rawVy=' + rawVy.toFixed(3) + ')')
+          this.shotDetected = true
+          this.shotResult = 'MADE'
+          this.lastShotTs = frameTs
+        } else if (ballNearHoop && !ballThroughHoop && rawVy > 0) {
+          // Near hoop but missed
+          this.shotDetected = true
+          this.shotResult = 'MISS'
+          this.lastShotTs = frameTs
         } else if (descending && rawVy > SHOT_LAUNCH_THRESHOLD * 2) {
-          // Call callback to register manual shot automatically (AIRBALL as MISS)
-          if (this.onHoopDetectedCallback) {
-            this.onHoopDetectedCallback('MISS')
-          }
+          // Descending rapidly but not near hoop - airball or miss
+          this.shotDetected = true
+          this.shotResult = dist < 0.25 ? 'MISS' : 'AIRBALL'
+          this.lastShotTs = frameTs
         }
       } else {
         // Debug: why not descending?
@@ -243,11 +244,6 @@ export class ShotDetectionEngine {
     this.lastShotTs = 0
     this.lastRawBallY = null
     this.lastRawBallTimestamp = 0
-  }
-
-  // Set callback for hoop detection (for automatic manual shot registration)
-  setOnHoopDetectedCallback(callback: (result: 'MADE' | 'MISS') => void): void {
-    this.onHoopDetectedCallback = callback
   }
 
   // Getters for current state

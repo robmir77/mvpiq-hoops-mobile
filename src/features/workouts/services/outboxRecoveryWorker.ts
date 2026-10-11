@@ -180,8 +180,30 @@ export class OutboxRecoveryWorker {
           console.warn(`[RecoveryWorker] Unknown item type: ${item.type}`)
           return false
       }
-    } catch (e) {
-      console.error(`[RecoveryWorker] Failed to retry item ${item.id}:`, e)
+    } catch (e: any) {
+      console.error(`[RecoveryWorker] Failed to retry item ${item.id}:`, {
+        status: e?.response?.status,
+        statusText: e?.response?.statusText,
+        data: e?.response?.data,
+        message: e?.message,
+      })
+
+      // If session not found (404), remove the item from outbox
+      // This happens when a session was deleted from backend but item remains in local storage
+      if (e?.response?.status === 404 || e?.response?.data?.error?.includes('not found')) {
+        console.warn(`[RecoveryWorker] Session ${item.sessionId} not found (404), removing item ${item.id} from outbox`)
+        await this.removeItem(item.id)
+        return true // Return true to indicate item was handled (removed)
+      }
+
+      // If session is not active (400 with "Session is not active"), remove the item
+      // This happens when a session was already ended or deleted but SESSION_END event remains
+      if (e?.response?.status === 400 && e?.response?.data?.message?.includes('not active')) {
+        console.warn(`[RecoveryWorker] Session ${item.sessionId} is not active, removing item ${item.id} from outbox`)
+        await this.removeItem(item.id)
+        return true // Return true to indicate item was handled (removed)
+      }
+
       return false
     }
   }

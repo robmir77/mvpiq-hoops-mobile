@@ -68,8 +68,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private pendingShotIds: Set<string> = new Set() // Track shots being saved (not yet confirmed)
   private isProcessingFrame: boolean = false // Guard against concurrent processFrame() calls
   private currentFramePromise: Promise<void> | null = null // Track current frame processing for stop() coordination
-  private lastHoopDetectionTs: number = 0 // Cooldown for hoop detection callback to avoid duplicate shot registrations
-  private HOOP_DETECTION_COOLDOWN_MS: number = 1000 // Minimum time between hoop-triggered shot registrations
 
   // State machine guards
   private stateTransitions: Record<SessionState, SessionState[]> = {
@@ -110,7 +108,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       await this.initializeQueue()
 
       this.sessionStartTime = Date.now()
-      this.lastHoopDetectionTs = 0 // Reset cooldown on session start
       this.startDurationTracking()
 
       this.setState('ACTIVE')
@@ -342,6 +339,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     // Step 3: Shot detection (already performed by TrackingEngine internally)
     // TrackingEngine.processFrame() calls ShotDetectionEngine and includes result in trackingState
     if (trackingState?.shotDetected && trackingState?.shotResult) {
+      console.log('[WorkoutSessionRuntime] Shot detected: result=' + trackingState.shotResult + ', shotId=' + trackingState.shotId)
       // Check idempotency: skip if this shotId was already processed or is pending
       if (trackingState.shotId) {
         if (this.processedShotIds.has(trackingState.shotId)) {
@@ -353,6 +351,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
           return
         }
       }
+      console.log('[WorkoutSessionRuntime] Shot passed idempotency check, proceeding to enqueue')
 
       // Use ShotEventBuilder to build complete payload with trajectory, pose, court position
       const payload = this.shotEventBuilder.buildAddShotPayload(
@@ -373,6 +372,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       }
 
       // Enqueue shot event to critical queue with complete payload and await result
+      console.log('[WorkoutSessionRuntime] Enqueuing shot ' + payload.shotId + ' to critical queue')
       const enqueueSuccess = await this.enqueueCritical({
         type: 'SHOT',
         sessionId: this.config.sessionId,
@@ -382,6 +382,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
           shotResult: normalizedResult, // Override with normalized result
         },
       })
+      console.log('[WorkoutSessionRuntime] Shot ' + payload.shotId + ' enqueue result: ' + enqueueSuccess)
 
       // Only mark as processed and update metrics if enqueue succeeded
       if (enqueueSuccess && payload.shotId) {
@@ -595,23 +596,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     // The Runtime coordinates shot detection but doesn't own the engine
     if (this.shotDetectionEngine) {
       console.log('[WorkoutSessionRuntime] Shot detection initialized')
-      // Set callback for automatic manual shot registration when ball passes through hoop
-      this.shotDetectionEngine.setOnHoopDetectedCallback(async (result: 'MADE' | 'MISS') => {
-        const now = Date.now()
-        // Check cooldown to avoid duplicate registrations
-        if (now - this.lastHoopDetectionTs < this.HOOP_DETECTION_COOLDOWN_MS) {
-          console.log('[WorkoutSessionRuntime] Hoop detected but skipping - cooldown active (last=' + (now - this.lastHoopDetectionTs) + 'ms ago)')
-          return
-        }
-        // Only register shot if runtime is ACTIVE or STOPPING (not SYNCING, COMPLETED, etc.)
-        if (this.state === 'ACTIVE' || this.state === 'STOPPING') {
-          this.lastHoopDetectionTs = now
-          console.log('[WorkoutSessionRuntime] Hoop detected - registering manual shot: ' + result + ' (state=' + this.state + ')')
-          await this.registerManualShot(result)
-        } else {
-          console.log('[WorkoutSessionRuntime] Hoop detected but skipping registration - state is ' + this.state)
-        }
-      })
     } else {
       console.warn('[WorkoutSessionRuntime] Shot detection engine not set - will be provided by React hook')
     }

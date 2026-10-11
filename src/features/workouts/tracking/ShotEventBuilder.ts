@@ -149,9 +149,15 @@ export class ShotEventBuilder {
     const shotId = trackingState.shotId || generateUUID()
     const timestampMs = Date.now()
 
+    // Use player position at release for court position (where player shot from)
+    // Fallback to ball position if player position unavailable
+    const positionForCourt = trackingState.playerPositionAtRelease
+      ? { x: trackingState.playerPositionAtRelease.x, y: trackingState.playerPositionAtRelease.y }
+      : trackingState.ballPosition
+
     // Calcola posizione sul campo
     const courtPosition = this.calculateCourtPosition(
-      trackingState.ballPosition,
+      positionForCourt,
       config
     )
 

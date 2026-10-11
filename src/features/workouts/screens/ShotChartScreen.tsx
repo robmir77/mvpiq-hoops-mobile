@@ -7,12 +7,13 @@
 
 import React, { useState, useContext, useEffect } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Platform } from 'react-native'
-import Svg, { Circle, Line, Rect, Path } from 'react-native-svg'
+import Svg, { Circle, Line, Rect, Path, RNSVGText } from 'react-native-svg'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { ShotChartResponse, CourtZone } from '../types/workouts.types'
-import { getShotChart } from '../api/workouts.api'
+import { ShotChartResponse, CourtZone, ShotEvent } from '../types/workouts.types'
+import { getShotChart, getSessionShots } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { COURT_CONFIG } from '@/config/appConfig'
+import { calculatePoseScore } from '../utils/poseScoring'
 
 const { width: SW } = Dimensions.get('window')
 
@@ -29,11 +30,13 @@ const CourtSVG = ({
     selectedZone,
     courtW,
     courtH,
+    poseScores,
 }: {
     shots: ShotChartResponse['shots']
     selectedZone: CourtZone | 'ALL'
     courtW: number
     courtH: number
+    poseScores: Map<string, number>
 }) => {
     const mx = (v: number) => (v / COURT_W_M) * courtW
     const my = (v: number) => courtH - (v / COURT_H_M) * courtH  // y=0 = baseline
@@ -99,15 +102,33 @@ const CourtSVG = ({
                 // courtX ∈ [0, 15.24], courtY ∈ distanza baseline
                 const dotX = mx(shot.x)
                 const dotY = my(shot.y)
+
+                // Cerca punteggio pose matchingando coordinate e risultato
+                const shotKey = `${shot.x.toFixed(2)}_${shot.y.toFixed(2)}_${shot.made}`
+                const poseScore = poseScores.get(shotKey)
+
                 return (
-                    <Circle
-                        key={i}
-                        cx={dotX} cy={dotY}
-                        r={6}
-                        fill={shot.made ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'}
-                        stroke={shot.made ? '#22c55e' : '#ef4444'}
-                        strokeWidth={1.5}
-                    />
+                    <React.Fragment key={i}>
+                        <Circle
+                            cx={dotX} cy={dotY}
+                            r={6}
+                            fill={shot.made ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'}
+                            stroke={shot.made ? '#22c55e' : '#ef4444'}
+                            strokeWidth={1.5}
+                        />
+                        {/* Mostra punteggio pose se disponibile */}
+                        {poseScore !== undefined && (
+                            <RNSVGText
+                                x={dotX + 8}
+                                y={dotY - 8}
+                                fontSize={8}
+                                fill="#fff"
+                                fontWeight="600"
+                            >
+                                {poseScore}
+                            </RNSVGText>
+                        )}
+                    </React.Fragment>
                 )
             })}
         </Svg>
@@ -121,6 +142,8 @@ export default function ShotChartScreen({ navigation, route }: any) {
     const { user } = auth || {}
 
     const [shotChart, setShotChart] = useState<ShotChartResponse | null>(null)
+    const [shots, setShots] = useState<ShotEvent[]>([])
+    const [poseScores, setPoseScores] = useState<Map<string, number>>(new Map())
     const [isLoading, setIsLoading] = useState(true)
     const [selectedZone, setSelectedZone] = useState<CourtZone | 'ALL'>('ALL')
     const { alert, showError } = useCustomAlert()
@@ -134,8 +157,24 @@ export default function ShotChartScreen({ navigation, route }: any) {
         if (!user?.id || !sessionId) return
         setIsLoading(true)
         try {
-            const data = await getShotChart(sessionId, user.id)
-            setShotChart(data)
+            const [chartData, shotsData] = await Promise.all([
+                getShotChart(sessionId, user.id),
+                getSessionShots(sessionId, user.id)
+            ])
+            setShotChart(chartData)
+            setShots(shotsData)
+
+            // Calcola punteggi pose per ogni tiro e crea mappa per matching
+            const scoresMap = new Map<string, number>()
+            shotsData.forEach(shot => {
+                if (shot.rawPoseFrames && shot.rawPoseFrames.length > 0 && shot.courtX !== null && shot.courtY !== null) {
+                    const score = calculatePoseScore(shot.rawPoseFrames)
+                    // Usa coordinate come chiave per matching con ShotChart
+                    const key = `${shot.courtX.toFixed(2)}_${shot.courtY.toFixed(2)}_${shot.shotResult}`
+                    scoresMap.set(key, score)
+                }
+            })
+            setPoseScores(scoresMap)
         } catch (e: any) {
             showError('Errore', e.message || 'Impossibile caricare lo shot chart')
         } finally {
@@ -230,6 +269,7 @@ export default function ShotChartScreen({ navigation, route }: any) {
                             selectedZone={selectedZone}
                             courtW={courtW}
                             courtH={courtH}
+                            poseScores={poseScores}
                         />
                     ) : (
                         <View style={styles.loadingBox}>

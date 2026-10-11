@@ -239,6 +239,7 @@ export interface SessionStats {
 
 export interface ShotChartPoint {
     x: number; y: number; made: boolean; distance: number; zone: string
+    poseScore?: number  // Punteggio della pose (0-100), se disponibile
 }
 
 export interface ShotChartResponse {

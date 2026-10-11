@@ -104,7 +104,6 @@ export interface IShotDetectionEngine {
   }
   resetShot(): void
   resetAll(): void
-  setOnHoopDetectedCallback(callback: (result: 'MADE' | 'MISS') => void): void
 }
 
 export interface ITelemetrySampler {
