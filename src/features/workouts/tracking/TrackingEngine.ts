@@ -220,7 +220,7 @@ export class TrackingEngine implements ITrackingEngine {
     }
 
     // Process hoop detection
-    if (hoopDetection && hoopDetection.confidence > 0.15) {
+    if (hoopDetection && hoopDetection.confidence > 0.20) {
       this.state.hoopPosition = {
         x: hoopDetection.x,
         y: hoopDetection.y,
@@ -484,8 +484,8 @@ export class TrackingEngine implements ITrackingEngine {
   }
 
   // Additional methods for hoop calibration
-  setHoopFromCalibration(x: number, y: number, width?: number, height?: number): void {
-    this.state.hoopPosition = { x, y, width, height }
+  setHoopFromCalibration(x: number, y: number, width?: number, height?: number, confidence: number = 0.05): void {
+    this.state.hoopPosition = { x, y, width, height, confidence }
   }
 
   // Expose internal ShotDetectionEngine for Runtime integration

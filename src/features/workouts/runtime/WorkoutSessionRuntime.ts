@@ -68,6 +68,8 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private pendingShotIds: Set<string> = new Set() // Track shots being saved (not yet confirmed)
   private isProcessingFrame: boolean = false // Guard against concurrent processFrame() calls
   private currentFramePromise: Promise<void> | null = null // Track current frame processing for stop() coordination
+  private lastHoopDetectionTs: number = 0 // Cooldown for hoop detection callback to avoid duplicate shot registrations
+  private HOOP_DETECTION_COOLDOWN_MS: number = 1000 // Minimum time between hoop-triggered shot registrations
 
   // State machine guards
   private stateTransitions: Record<SessionState, SessionState[]> = {
@@ -108,8 +110,9 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       await this.initializeQueue()
 
       this.sessionStartTime = Date.now()
+      this.lastHoopDetectionTs = 0 // Reset cooldown on session start
       this.startDurationTracking()
-      
+
       this.setState('ACTIVE')
       console.log('[WorkoutSessionRuntime] Session started')
     } catch (error) {
@@ -594,8 +597,15 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       console.log('[WorkoutSessionRuntime] Shot detection initialized')
       // Set callback for automatic manual shot registration when ball passes through hoop
       this.shotDetectionEngine.setOnHoopDetectedCallback(async (result: 'MADE' | 'MISS') => {
+        const now = Date.now()
+        // Check cooldown to avoid duplicate registrations
+        if (now - this.lastHoopDetectionTs < this.HOOP_DETECTION_COOLDOWN_MS) {
+          console.log('[WorkoutSessionRuntime] Hoop detected but skipping - cooldown active (last=' + (now - this.lastHoopDetectionTs) + 'ms ago)')
+          return
+        }
         // Only register shot if runtime is ACTIVE or STOPPING (not SYNCING, COMPLETED, etc.)
         if (this.state === 'ACTIVE' || this.state === 'STOPPING') {
+          this.lastHoopDetectionTs = now
           console.log('[WorkoutSessionRuntime] Hoop detected - registering manual shot: ' + result + ' (state=' + this.state + ')')
           await this.registerManualShot(result)
         } else {

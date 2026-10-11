@@ -38,6 +38,9 @@ export class YoloDetector {
   private ballConfThreshold: number
   private rimConfThreshold: number
 
+  // Persistent rim detection state (for confidence-based replacement)
+  private persistentRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+
   constructor(
     ballConfThreshold: number = YOLO_CONFIG.BALL_CONF_THRESHOLD,
     rimConfThreshold: number = YOLO_CONFIG.RIM_CONF_THRESHOLD
@@ -228,6 +231,11 @@ export class YoloDetector {
           }
         }
 
+        // Rim persistence: keep previous rim if new detection has lower confidence
+        if (this.persistentRim && (!bestRim || bestRim.confidence < this.persistentRim.confidence)) {
+          bestRim = this.persistentRim
+        }
+
         // Player detection pipeline with debug counters
         if (humanProb > 0) {
           rawCandidates++
@@ -277,6 +285,11 @@ export class YoloDetector {
         rejectedConfidence,
       }
 
+      // Update persistent rim if we found a better one
+      if (bestRim) {
+        this.persistentRim = bestRim
+      }
+
       return {
         ball: bestBall,
         player: bestPlayer,
@@ -299,5 +312,10 @@ export class YoloDetector {
 
   setRimConfThreshold(threshold: number): void {
     this.rimConfThreshold = threshold
+  }
+
+  // Reset persistent rim (call when starting new session or recalibrating)
+  resetPersistentRim(): void {
+    this.persistentRim = null
   }
 }
