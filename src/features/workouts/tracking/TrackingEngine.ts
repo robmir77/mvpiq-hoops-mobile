@@ -405,6 +405,15 @@ export class TrackingEngine implements ITrackingEngine {
     }
   }
 
+  // Get current player position (for manual shot registration)
+  getCurrentPlayerPosition(): { x: number; y: number } | null {
+    const playerState = this.playerTrackingEngine.getState()
+    if (playerState.confidence > 0.1 && this.playerTrackingEngine.isValid()) {
+      return { x: playerState.x, y: playerState.y }
+    }
+    return null
+  }
+
   // Helper methods
   private getTrajectory(): Array<{ x: number; y: number; t: number }> {
     const result: Array<{ x: number; y: number; t: number }> = []

@@ -15,6 +15,7 @@ export interface SessionConfig {
   poseResolution?: number
   yoloDelegate?: unknown
   poseDelegate?: unknown
+  calibration?: any // Calibration data for court position calculation
 }
 
 export interface SessionMetrics {
@@ -75,6 +76,7 @@ export interface ITrackingEngine {
   resetAll(): void
   getState(): any
   getComparisonStats(): any
+  getCurrentPlayerPosition(): { x: number; y: number } | null
 }
 
 export interface IShotDetectionEngine {
@@ -143,4 +145,7 @@ export interface WorkoutSessionRuntime {
 
   // Subsystems
   getTrackingEngine(): ITrackingEngine | null
+
+  // Configuration
+  setCalibration(calibration: any): void
 }

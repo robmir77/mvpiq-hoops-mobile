@@ -853,6 +853,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 console.log('[WorkoutSession] Calibration loaded', cal.hoopCenter)
                 setCalibration(cal)
                 tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
+                runtime.setCalibration(cal)
             } catch (e) {
                 console.log('[WorkoutSession] Calibration not loaded', e)
                 /* calibrazione opzionale */

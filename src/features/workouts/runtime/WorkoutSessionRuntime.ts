@@ -363,15 +363,26 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       throw new Error(`Cannot register shot from state: ${this.state}`)
     }
 
+    console.log('[WorkoutSessionRuntime] registerManualShot called with result:', result)
+
     // Generate stable shotId for manual shot
     const shotId = generateUUID()
+
+    // Try to get current player position from tracking engine for court position calculation
+    let manualBallPosition: { x: number; y: number } | null = null
+    if (this.trackingEngine) {
+      manualBallPosition = this.trackingEngine.getCurrentPlayerPosition()
+      console.log('[WorkoutSessionRuntime] Player position for manual shot:', manualBallPosition)
+    } else {
+      console.warn('[WorkoutSessionRuntime] TrackingEngine not available for manual shot')
+    }
 
     // Build minimal TrackingState for manual shot
     const manualTrackingState: any = {
       shotId,
       shotResult: result,
       shotDetected: true,
-      ballPosition: null, // Manual shot has no ball position
+      ballPosition: manualBallPosition, // Use player position if available
       trajectory: [], // Manual shot has no trajectory
       confidence: 1.0,
     }
@@ -381,10 +392,17 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       manualTrackingState,
       this.config.sessionId,
       {
-        calibration: undefined,
+        calibration: this.config.calibration,
         cameraResolution: this.config.cameraResolution,
       }
     )
+
+    console.log('[WorkoutSessionRuntime] Manual shot payload:', {
+      shotId,
+      courtX: payload.courtX,
+      courtY: payload.courtY,
+      shotResult: payload.shotResult,
+    })
 
     // Mark shot as pending before enqueueing
     this.pendingShotIds.add(shotId)
@@ -454,6 +472,10 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
   getTrackingEngine(): ITrackingEngine | null {
     return this.trackingEngine
+  }
+
+  setCalibration(calibration: any): void {
+    this.config.calibration = calibration
   }
 
   // Private initialization methods
