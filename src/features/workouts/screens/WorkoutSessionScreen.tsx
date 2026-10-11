@@ -153,6 +153,14 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [cameraFps, setCameraFps] = useState(0)
     const [showTelemetry, setShowTelemetry] = useState<boolean>(TEST_CONFIG.ENABLE_TELEMETRY_OVERLAY)
     const [debugMode, setDebugMode] = useState<boolean>(TEST_CONFIG.ENABLE_DEBUG_OVERLAY)
+    const [diagnosticMode, setDiagnosticMode] = useState<boolean>(false)
+    const [diagnosticStats, setDiagnosticStats] = useState({
+      totalEvents: 0,
+      ballDetected: 0,
+      shotDetected: 0,
+      shotConfirmed: 0,
+      playerDetected: 0,
+    })
     const [usageMinutes, setUsageMinutes] = useState(0)
     const [usageSeconds, setUsageSeconds] = useState(0)
     const sessionStartTimeRef = useRef<number | null>(null)
@@ -1170,6 +1178,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 poseEnabled={poseEnabled}
                 rimDetectionEnabled={rimDetectionEnabled}
                 debugMode={debugMode}
+                diagnosticMode={diagnosticMode}
                 autoStatusText={autoStatusText}
                 autoDotActive={autoDotActive}
                 onToggleBall={() => setBallEnabled(!ballEnabled)}
@@ -1180,10 +1189,58 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 }}
                 onToggleRim={() => setRimDetectionEnabled(!rimDetectionEnabled)}
                 onToggleDebug={() => setDebugMode(!debugMode)}
+                onToggleDiagnostic={() => {
+                    const newValue = !diagnosticMode
+                    setDiagnosticMode(newValue)
+                    const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+                    if (runtimeForManual) {
+                        runtimeForManual.setDiagnosticMode(newValue)
+                        if (!newValue) {
+                            // Update stats when disabling
+                            setDiagnosticStats(runtimeForManual.getDiagnosticStats())
+                        }
+                    }
+                }}
                 onManualShot={handleManualShot}
                 onToggleVideoRecording={toggleSessionVideoRecording}
                 onEndSession={handleEndSession}
             />
+
+            {/* Diagnostic Panel */}
+            {diagnosticMode && (
+                <View style={styles.diagnosticPanel}>
+                    <Text style={styles.diagnosticTitle}>DIAGNOSTICA TIRO</Text>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Rilevamenti candidati:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.ballDetected}</Text>
+                    </View>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Rilasci rilevati:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.shotDetected}</Text>
+                    </View>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Tiri confermati:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.shotConfirmed}</Text>
+                    </View>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Giocatore rilevato:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.playerDetected}</Text>
+                    </View>
+                    <TouchableOpacity
+                        style={styles.diagnosticExportBtn}
+                        onPress={() => {
+                            const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+                            if (runtimeForManual) {
+                                const diagnostics = runtimeForManual.exportDiagnostics()
+                                console.log('[DIAGNOSTICS] Export:', diagnostics)
+                                showSuccess('Esportazione completata', 'Log diagnostici esportati in console')
+                            }
+                        }}
+                    >
+                        <Text style={styles.diagnosticExportBtnText}>Esporta Log</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
             <CustomAlert {...alert} />
         </GestureHandlerRootView>
     )
@@ -1273,5 +1330,49 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '700',
         fontSize: 16,
+    },
+    diagnosticPanel: {
+        position: 'absolute',
+        top: 60,
+        left: 12,
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        padding: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#ff8c00',
+        minWidth: 200,
+    },
+    diagnosticTitle: {
+        color: '#ff8c00',
+        fontSize: 13,
+        fontWeight: '800',
+        marginBottom: 8,
+    },
+    diagnosticRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 6,
+    },
+    diagnosticLabel: {
+        color: '#aaa',
+        fontSize: 11,
+        fontWeight: '500',
+    },
+    diagnosticValue: {
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    diagnosticExportBtn: {
+        marginTop: 8,
+        backgroundColor: '#ff8c00',
+        paddingVertical: 8,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    diagnosticExportBtnText: {
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: '700',
     },
 })

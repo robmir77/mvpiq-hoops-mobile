@@ -49,6 +49,14 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private previousProcessFrameTimestamp = 0
   private sessionDurationInterval: ReturnType<typeof setInterval> | null = null
 
+  // Diagnostic mode for shot detection testing
+  private diagnosticMode: boolean = false
+  private diagnosticEvents: Array<{
+    timestamp: number
+    type: 'ball_detected' | 'shot_detected' | 'shot_confirmed' | 'player_detected'
+    data: any
+  }> = []
+
   // Subsystem references (to be initialized)
   private visionEngine: IVisionEngine | null = null
   private trackingEngine: ITrackingEngine | null = null
@@ -245,6 +253,44 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       visionResult.player,
       visionResult.observationTimestamps
     )
+
+    // Collect diagnostic events if mode is enabled
+    if (this.diagnosticMode) {
+      if (visionResult.ball) {
+        this.diagnosticEvents.push({
+          timestamp: frame.timestamp,
+          type: 'ball_detected',
+          data: {
+            x: visionResult.ball.x,
+            y: visionResult.ball.y,
+            confidence: visionResult.ball.confidence,
+          },
+        })
+      }
+      if (visionResult.player) {
+        this.diagnosticEvents.push({
+          timestamp: frame.timestamp,
+          type: 'player_detected',
+          data: {
+            x: visionResult.player.x,
+            y: visionResult.player.y,
+            confidence: visionResult.player.confidence,
+          },
+        })
+      }
+      if (trackingState?.shotDetected) {
+        this.diagnosticEvents.push({
+          timestamp: frame.timestamp,
+          type: 'shot_detected',
+          data: {
+            shotResult: trackingState.shotResult,
+            ballPosition: trackingState.ballPosition,
+            trajectory: trackingState.trajectory,
+            confidence: trackingState.confidence,
+          },
+        })
+      }
+    }
 
     // Diagnostic-only telemetry for one-cycle validation; no detection/tracking behavior changes.
     this.processFrameCount += 1
@@ -476,6 +522,45 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
   setCalibration(calibration: any): void {
     this.config.calibration = calibration
+  }
+
+  // Diagnostic mode control
+  setDiagnosticMode(enabled: boolean): void {
+    this.diagnosticMode = enabled
+    if (enabled) {
+      this.diagnosticEvents = [] // Clear previous events when starting new diagnostic session
+      console.log('[WorkoutSessionRuntime] Diagnostic mode ENABLED')
+    } else {
+      console.log('[WorkoutSessionRuntime] Diagnostic mode DISABLED')
+    }
+  }
+
+  getDiagnosticMode(): boolean {
+    return this.diagnosticMode
+  }
+
+  getDiagnosticStats(): {
+    totalEvents: number
+    ballDetected: number
+    shotDetected: number
+    shotConfirmed: number
+    playerDetected: number
+  } {
+    return {
+      totalEvents: this.diagnosticEvents.length,
+      ballDetected: this.diagnosticEvents.filter(e => e.type === 'ball_detected').length,
+      shotDetected: this.diagnosticEvents.filter(e => e.type === 'shot_detected').length,
+      shotConfirmed: this.diagnosticEvents.filter(e => e.type === 'shot_confirmed').length,
+      playerDetected: this.diagnosticEvents.filter(e => e.type === 'player_detected').length,
+    }
+  }
+
+  exportDiagnostics(): string {
+    return JSON.stringify(this.diagnosticEvents, null, 2)
+  }
+
+  clearDiagnostics(): void {
+    this.diagnosticEvents = []
   }
 
   // Private initialization methods

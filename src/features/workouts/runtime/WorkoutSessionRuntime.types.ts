@@ -148,4 +148,17 @@ export interface WorkoutSessionRuntime {
 
   // Configuration
   setCalibration(calibration: any): void
+
+  // Diagnostic mode
+  setDiagnosticMode(enabled: boolean): void
+  getDiagnosticMode(): boolean
+  getDiagnosticStats(): {
+    totalEvents: number
+    ballDetected: number
+    shotDetected: number
+    shotConfirmed: number
+    playerDetected: number
+  }
+  exportDiagnostics(): string
+  clearDiagnostics(): void
 }

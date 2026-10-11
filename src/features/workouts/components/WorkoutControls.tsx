@@ -17,12 +17,14 @@ interface WorkoutControlsProps {
     poseEnabled: boolean
     rimDetectionEnabled: boolean
     debugMode: boolean
+    diagnosticMode: boolean
     autoStatusText: string
     autoDotActive: boolean
     onToggleBall: () => void
     onTogglePose: () => void
     onToggleRim: () => void
     onToggleDebug: () => void
+    onToggleDiagnostic: () => void
     onManualShot: (result: ShotResult) => void
     onToggleVideoRecording: () => void
     onEndSession: () => void
@@ -60,12 +62,14 @@ export const WorkoutControls: React.FC<WorkoutControlsProps> = ({
     poseEnabled,
     rimDetectionEnabled,
     debugMode,
+    diagnosticMode,
     autoStatusText,
     autoDotActive,
     onToggleBall,
     onTogglePose,
     onToggleRim,
     onToggleDebug,
+    onToggleDiagnostic,
     onManualShot,
     onToggleVideoRecording,
     onEndSession,
@@ -127,6 +131,13 @@ export const WorkoutControls: React.FC<WorkoutControlsProps> = ({
                     labelOn="🔍 Debug"
                     labelOff="🔍 Debug"
                     onPress={onToggleDebug}
+                />
+                <ToggleButton
+                    active={diagnosticMode}
+                    disabled={isPaused || isEnding}
+                    labelOn="🏀 SHOT"
+                    labelOff="🏀 SHOT"
+                    onPress={onToggleDiagnostic}
                 />
             </View>
             <View style={styles.manualRow}>

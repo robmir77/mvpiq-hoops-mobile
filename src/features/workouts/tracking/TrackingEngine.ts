@@ -408,7 +408,9 @@ export class TrackingEngine implements ITrackingEngine {
   // Get current player position (for manual shot registration)
   getCurrentPlayerPosition(): { x: number; y: number } | null {
     const playerState = this.playerTrackingEngine.getState()
-    if (playerState.confidence > 0.1 && this.playerTrackingEngine.isValid()) {
+    // Lower threshold for manual shots - use position even with low confidence
+    // as fallback when automatic detection fails
+    if (playerState.confidence > 0.05 && this.playerTrackingEngine.isValid()) {
       return { x: playerState.x, y: playerState.y }
     }
     return null
