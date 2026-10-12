@@ -905,8 +905,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const normalizePoint = (rawX: number, rawY: number): Point => {
-        // Apply mirror to match RealtimeBallOverlay.mapNormalizedToCameraView
-        // which does: x = SCREEN_W - screenX, y = CAMERA_H - screenY
+        // Apply mirror to match YOLO detection space
+        // Touch coordinates are relative to view, but YOLO detections are in mirrored camera space
+        // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
         const mirroredX = SW - rawX;
         const mirroredY = CAM_H - rawY;
         return {
@@ -1006,7 +1007,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 yoloDelegate,
                 poseDelegate,
                 yoloModelId: selectedYoloModelId,
-                moveNetModelId: selectedMoveNetModelId
+                moveNetModelId: selectedMoveNetModelId,
+                calibration: savedCalibration, // Pass calibration data to WorkoutSession
             }
             console.log('[Calibration] Navigating to WorkoutSession with params:', workoutParams)
             console.log('[Calibration] selectedYoloModelId:', selectedYoloModelId)

@@ -387,6 +387,58 @@ Confidence threshold: 10%
 Note: Non è vero "tracking", è "best-confidence locking" per camera stabile
 ```
 
+### Sistema di Coordinate e Mirror
+
+**Sistema di coordinate YOLO (camera frontale):**
+- Coordinate normalizzate (0-1): (0,0) = in alto a sinistra, (1,1) = in basso a destra
+- Mirror orizzontale (X): applicato per camera frontale (`1 - x`)
+- Mirror verticale (Y): applicato per camera frontale (`1 - y` o `CAMERA_H - screenY`)
+- Le detection YOLO (palla, giocatore, rim) sono nello spazio con mirror X+Y
+
+**Flusso coordinate calibrazione:**
+```
+Touch UI (coordinate schermo)
+  ↓
+normalizePoint() in CalibrationScreen
+  - Applica mirror X: SW - rawX
+  - Applica mirror Y: CAM_H - rawY
+  - Normalizza: x / SW, y / CAM_H
+  ↓
+Coordinate YOLO space (con mirror X+Y)
+  ↓
+Salvataggio (backend o passaggio param)
+  ↓
+Caricamento in WorkoutSessionScreen
+  - Nessun inverse mirror (coordinate già in YOLO space)
+  ↓
+Passaggio a TrackingEngine/SharedValues
+  ↓
+mapNormalizedToCameraView() in overlay
+  - Applica mirror X: SCREEN_W - screenX
+  - Applica mirror Y: CAMERA_H - screenY
+  ↓
+Visualizzazione overlay (corretta)
+```
+
+**Decision 35 - Correzione Logica Mirror Coordinate Calibrazione:**
+La calibrazione del rim appariva invertita sull'asse Y nell'overlay. Il problema era causato da una gestione incoerente delle coordinate tra touch UI, spazio YOLO e visualizzazione overlay.
+
+**Modifiche implementate:**
+1. **CalibrationScreen.tsx - normalizePoint():** Applica mirror X+Y per convertire coordinate touch in spazio YOLO
+2. **WorkoutSessionScreen.tsx - caricamento calibrazione:** Rimuove "inverse mirror" su Y (coordinate già in YOLO space)
+3. **RealtimeBallOverlay.tsx - mapNormalizedToCameraView():** Mantiene mirror X+Y per visualizzazione detection
+4. **ReactOverlay.tsx - mapNormalizedToCameraView():** Mantiene mirror X+Y per visualizzazione detection
+
+**Logica coerente:**
+- Touch → YOLO space (mirror X+Y)
+- YOLO space → Display (mirror X+Y)
+- Nessun doppio invertimento delle coordinate
+
+**Stato:**
+- ✅ Calibrazione rim visualizzata nella posizione corretta nell'overlay
+- ✅ Detection YOLO (palla, giocatore, rim) visualizzate correttamente
+- ✅ Logica coerente documentata in ARCHITECTURE_DECISIONS.md (Decision 35)
+
 ## Audit dell'Architettura
 
 ### 1. Analisi del percorso completo

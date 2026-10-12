@@ -79,7 +79,7 @@ function toCourtMeters(
 
 
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId } = route.params || {}
+    const { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId, calibration: calibrationParam } = route.params || {}
     // TEMP: Commented to reduce log noise during performance investigation
     // console.log('[WorkoutSession] Received params from route.params:', {
     //     sessionId,
@@ -871,24 +871,51 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Note: TrackingEngine and VisionPipelineAdapter will be connected via useEffect
             // after the component renders. Runtime.start() will be called after both are connected.
 
-            // Load calibration
-            try {
-                const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
-                const cal: CalibrationData = {
-                    homographyMatrix: r.data.homographyMatrix ?? [],
-                    hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
-                    cameraResolution: r.data.cameraResolutionWidth && r.data.cameraResolutionHeight
-                        ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
-                        : undefined,
-                    courtCorners:     r.data.courtCorners,
+            // Load calibration - try param first, then backend
+            let cal: CalibrationData | null = null
+            if (calibrationParam) {
+                // Calibration passed from CalibrationScreen (already in YOLO space with mirror)
+                console.log('[WorkoutSession] Using calibration from param (raw):', calibrationParam.hoopCenter)
+                // No inverse mirror needed - coordinates are already in YOLO space
+                cal = {
+                    homographyMatrix: calibrationParam.homographyMatrix ?? [],
+                    hoopCenter:       calibrationParam.hoopCenter,
+                    cameraResolution: calibrationParam.cameraResolution,
+                    courtCorners:     calibrationParam.courtCorners,
                 }
-                console.log('[WorkoutSession] Calibration loaded', cal.hoopCenter)
+                console.log('[WorkoutSession] Calibration from param (no conversion):', cal.hoopCenter)
+            } else {
+                // Try loading from backend (already in YOLO space with mirror)
+                try {
+                    const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+                    console.log('[WorkoutSession] Raw calibration from backend:', {
+                        hoopCenterX: r.data.hoopCenterX,
+                        hoopCenterY: r.data.hoopCenterY
+                    })
+                    // No inverse mirror needed - coordinates are already in YOLO space
+                    cal = {
+                        homographyMatrix: r.data.homographyMatrix ?? [],
+                        hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
+                        cameraResolution: r.data.cameraResolutionWidth && r.data.cameraResolutionHeight
+                            ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
+                            : undefined,
+                        courtCorners:     r.data.courtCorners,
+                    }
+                    console.log('[WorkoutSession] Calibration loaded from backend (no conversion):', cal.hoopCenter)
+                } catch (e) {
+                    console.log('[WorkoutSession] Calibration not loaded from backend', e)
+                    /* calibrazione opzionale */
+                }
+            }
+
+            if (cal) {
                 setCalibration(cal)
+                // Pass coordinates in YOLO space (with X+Y mirror) to setHoopFromCalibration
+                // Calibration coordinates are converted from touch to YOLO space with mirror X+Y in CalibrationScreen
+                // No inverse mirror applied here - coordinates are already in correct YOLO space
+                // mapNormalizedToCameraView will apply mirror X+Y for display
                 tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
                 runtime.setCalibration(cal)
-            } catch (e) {
-                console.log('[WorkoutSession] Calibration not loaded', e)
-                /* calibrazione opzionale */
             }
 
             // Activate camera ONLY after queue, telemetry, and calibration are ready

@@ -31,13 +31,15 @@ const TRAIL_DELAY_POINTS = 5
 // Maps normalized camera coordinates (0-1) to screen coordinates
 const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number) => {
     'worklet';
-    
+
     // X: mapping on actual view width
     const screenX = normX * SCREEN_W;
-    
+
     // Y: mapping on actual view height
     const screenY = normY * CAMERA_H;
-    
+
+    // Apply mirror for YOLO detections (ball, player, rim from detection)
+    // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
     const result = {
         x: SCREEN_W - screenX,
         y: CAMERA_H - screenY,

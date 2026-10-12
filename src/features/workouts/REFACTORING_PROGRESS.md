@@ -406,19 +406,34 @@ features/workouts/
   - Implementato scheduleRuntimeProcessFrame() come unico punto di coordinamento
   - isProcessingFrameRef: true se elaborazione in corso
   - hasPendingUpdatesRef: true se aggiornamenti arrivati durante elaborazione
+  - consecutiveErrorsRef: contatore errori consecutivi per backoff
+  - lastErrorTimeRef: timestamp ultimo errore per backoff
   - Se già in elaborazione → setta pending flag e return
   - Al completamento → se pending flag true → programma nuova elaborazione
-  - Gestisce errori e riprogramma se necessario
+  - Gestisce errori con backoff esponenziale
+- **Backoff Esponenziale**:
+  - MAX_CONSECUTIVE_ERRORS = 5
+  - ERROR_BACKOFF_MS = 100ms (base)
+  - MAX_BACKOFF_MS = 1000ms
+  - Reset error counter su successo
+  - Reset error counter dopo MAX_BACKOFF_MS timeout
+  - Previene cicli incontrollati in caso di errori persistenti
+- **Test di Concorrenza**:
+  - Creato RuntimeProcessFrameCoordinator.test.ts
+  - Scenario 1: YOLO e MoveNet notificano aggiornamenti durante elaborazione → seconda elaborazione programmata
+  - Scenario 2: Molti aggiornamenti durante stesso frame → elaborazione seriale, ultimo dato consumato
+  - Scenario 3: processFrame() fallisce ripetutamente → backoff esponenziale, limite MAX_CONSECUTIVE_ERRORS
 - **Callback aggiornati**:
   - handlePoseResult: rimossa chiamata diretta runtime.processFrame(), usa scheduleRuntimeProcessFrame()
   - handleBallDetection: rimossa chiamata diretta runtime.processFrame(), usa scheduleRuntimeProcessFrame()
 - File modificati:
   - VisionEngineAdapter.ts (righe 50-54, 76-99, 189-242)
   - WorkoutSessionScreen.tsx (righe 230-280, 349-350, 421-435)
+  - RuntimeProcessFrameCoordinator.test.ts (nuovo file test)
 - Architettura risultante:
   ```
   YOLO/MoveNet Workers → updateParsedResults() → VisionEngineAdapter (version-based protection)
-  YOLO/MoveNet Workers → scheduleRuntimeProcessFrame() → Coordinator (single processing)
+  YOLO/MoveNet Workers → scheduleRuntimeProcessFrame() → Coordinator (single processing + backoff)
   Coordinator → runtime.processFrame() → VisionEngine → TrackingEngine
   ```
 

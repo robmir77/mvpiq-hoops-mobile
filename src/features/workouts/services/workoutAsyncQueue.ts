@@ -312,7 +312,7 @@ class WorkoutAsyncQueue {
         if (e?.response?.status === 400 && e?.response?.data?.message?.includes('not active')) {
           console.warn(`[WorkoutQueue] Session ${sessionId} is not active, removing item ${itemId} from outbox`)
           await this.criticalOutbox.remove(itemId)
-          return true // Return true to indicate item was handled (removed)
+          return true // Mark as success since session is already in correct state
         }
 
         // Skip backoff during fastFail (shutdown mode)

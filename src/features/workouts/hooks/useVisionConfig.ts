@@ -36,11 +36,12 @@ export const useVisionConfig = ({
     rimFromDetection,
     trackingState,
 }: UseVisionConfigProps) => {
-    const rimFromCalibration = useMemo(() =>
-        calibration?.hoopCenter
-            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.05, height: 0.05 }
-            : null
-    , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
+    const rimFromCalibration = useMemo(() => {
+        if (!calibration?.hoopCenter) return null
+        const result = { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.05, height: 0.05 }
+        console.log('[useVisionConfig] rimFromCalibration:', result, 'from calibration.hoopCenter:', calibration.hoopCenter)
+        return result
+    }, [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
 
     const effectiveRim = rimFromDetection || rimFromCalibration
 

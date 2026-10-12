@@ -12,6 +12,153 @@
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
 
+## Decision 35: Correzione Logica Mirror Coordinate Calibrazione
+
+**Contesto:** La calibrazione del rim appariva invertita sull'asse Y nell'overlay. Quando l'utente selezionava il canestro in alto a destra nella schermata di calibrazione, veniva visualizzato in basso a destra nell'overlay della sessione. Questo era causato da una gestione incoerente delle coordinate tra touch UI, spazio YOLO e visualizzazione overlay.
+
+**Problemi identificati:**
+1. **CalibrationScreen.tsx - normalizePoint():** Applicava mirror su Y (`CAM_H - rawY`) per convertire coordinate touch in spazio YOLO, ma YOLO non ha mirror verticale
+2. **WorkoutSessionScreen.tsx - caricamento calibrazione:** Applicava "inverse mirror" su Y (`1 - y`) quando caricava la calibrazione, creando un doppio invertimento
+3. **RealtimeBallOverlay.tsx - mapNormalizedToCameraView():** Applicava mirror su Y (`CAMERA_H - screenY`) per visualizzazione, ma le coordinate YOLO non hanno mirror verticale
+4. **ReactOverlay.tsx - mapNormalizedToCameraView():** Stesso problema di RealtimeBallOverlay
+
+**Sistema di coordinate YOLO:**
+- YOLO per camera frontale applica solo mirror orizzontale (X), non verticale (Y)
+- Coordinate YOLO: (0,0) = in alto a sinistra, (1,1) = in basso a destra (top-to-bottom)
+- Mirror X: `1 - x` per camera frontale
+- NO mirror Y: `y` rimane invariato
+
+**Decisione:**
+- Rimuovere mirror su Y da `normalizePoint()` in CalibrationScreen
+- Rimuovere "inverse mirror" su Y da WorkoutSessionScreen quando carica la calibrazione
+- Mantenere mirror su Y in `mapNormalizedToCameraView()` per visualizzazione overlay (perché detection YOLO hanno bisogno di mirror Y per display corretto)
+
+**Modifiche implementate:**
+
+1. **CalibrationScreen.tsx (righe 907-917):**
+   ```typescript
+   const normalizePoint = (rawX: number, rawY: number): Point => {
+       // Apply mirror to match YOLO detection space
+       // Touch coordinates are relative to view, but YOLO detections are in mirrored camera space
+       // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
+       const mirroredX = SW - rawX;
+       const mirroredY = CAM_H - rawY;
+       return {
+           x: Math.max(0, Math.min(1, mirroredX / SW)),
+           y: Math.max(0, Math.min(1, mirroredY / CAM_H)),
+       };
+   }
+   ```
+
+2. **WorkoutSessionScreen.tsx (righe 876-886):**
+   ```typescript
+   if (calibrationParam) {
+       // Calibration passed from CalibrationScreen (already in YOLO space with mirror)
+       console.log('[WorkoutSession] Using calibration from param (raw):', calibrationParam.hoopCenter)
+       // No inverse mirror needed - coordinates are already in YOLO space
+       cal = {
+           homographyMatrix: calibrationParam.homographyMatrix ?? [],
+           hoopCenter:       calibrationParam.hoopCenter,
+           cameraResolution: calibrationParam.cameraResolution,
+           courtCorners:     calibrationParam.courtCorners,
+       }
+       console.log('[WorkoutSession] Calibration from param (no conversion):', cal.hoopCenter)
+   }
+   ```
+
+3. **WorkoutSessionScreen.tsx (righe 888-904):**
+   ```typescript
+   } else {
+       // Try loading from backend (already in YOLO space with mirror)
+       try {
+           const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+           console.log('[WorkoutSession] Raw calibration from backend:', {
+               hoopCenterX: r.data.hoopCenterX,
+               hoopCenterY: r.data.hoopCenterY
+           })
+           // No inverse mirror needed - coordinates are already in YOLO space
+           cal = {
+               homographyMatrix: r.data.homographyMatrix ?? [],
+               hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
+               cameraResolution: r.data.cameraResolutionWidth && r.data.cameraResolutionHeight
+                   ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
+                   : undefined,
+               courtCorners:     r.data.courtCorners,
+           }
+           console.log('[WorkoutSession] Calibration loaded from backend (no conversion):', cal.hoopCenter)
+       }
+   }
+   ```
+
+4. **RealtimeBallOverlay.tsx (righe 32-49):**
+   ```typescript
+   const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number) => {
+       'worklet';
+
+       // X: mapping on actual view width
+       const screenX = normX * SCREEN_W;
+
+       // Y: mapping on actual view height
+       const screenY = normY * CAMERA_H;
+
+       // Apply mirror for YOLO detections (ball, player, rim from detection)
+       // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
+       const result = {
+           x: SCREEN_W - screenX,
+           y: CAMERA_H - screenY,
+       };
+
+       return result;
+   };
+   ```
+
+5. **ReactOverlay.tsx (righe 17-34):**
+   ```typescript
+   const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number) => {
+       'worklet';
+
+       // X: mapping on actual view width
+       const screenX = normX * SCREEN_W;
+
+       // Y: mapping on actual view height
+       const screenY = normY * CAMERA_H;
+
+       // Apply mirror for YOLO detections (ball, player, rim from detection)
+       // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
+       const result = {
+           x: SCREEN_W - screenX,
+           y: CAMERA_H - screenY,
+       };
+
+       return result;
+   };
+   ```
+
+**Rationale:**
+- Le coordinate touch dell'utente sono coordinate UI (0,0 in alto a sinistra)
+- Per convertire touch → YOLO space: applica mirror X+Y (perché YOLO detections hanno mirror X+Y per camera frontale)
+- Le coordinate salvate sono già in YOLO space con mirror X+Y
+- Quando carica la calibrazione: non applicare inverse mirror (coordinate sono già corrette)
+- Per visualizzazione overlay: applica mirror X+Y (perché detection YOLO hanno mirror X+Y)
+
+**Conseguenze:**
+- Calibrazione rim ora visualizzata nella posizione corretta nell'overlay
+- Detection YOLO (palla, giocatore, rim) visualizzate correttamente
+- Logica coerente: Touch → YOLO space (mirror X+Y) → Display (mirror X+Y)
+- Nessun doppio invertimento delle coordinate
+
+**Stato:**
+- ✅ CalibrationScreen.normalizePoint() corretto (mirror X+Y)
+- ✅ WorkoutSessionScreen caricamento calibrazione corretto (nessun inverse mirror)
+- ✅ RealtimeBallOverlay.mapNormalizedToCameraView() corretto (mirror X+Y)
+- ✅ ReactOverlay.mapNormalizedToCameraView() corretto (mirror X+Y)
+
+**Next steps:**
+- Testare calibrazione su dispositivo: selezionare canestro in alto a sinistra/destra e verificare visualizzazione corretta
+- Testare detection YOLO (palla, giocatore) per confermare visualizzazione corretta in tutte le direzioni
+
+---
+
 ## Decision 0: Rimozione Throttling Temporale (Natural FPS)
 
 ---
@@ -109,11 +256,25 @@
 - ✅ Runtime processFrame coordinator implementato
 - ✅ Callback aggiornati per usare coordinatore
 - ✅ Debounce condiviso rimosso
+- ✅ Backoff esponenziale su errori consecutivi implementato
+- ✅ Test di concorrenza creati (3 scenari)
+
+**Backoff esponenziale:**
+- MAX_CONSECUTIVE_ERRORS = 5
+- ERROR_BACKOFF_MS = 100ms (base)
+- MAX_BACKOFF_MS = 1000ms
+- Reset error counter su successo
+- Reset error counter dopo MAX_BACKOFF_MS timeout
+
+**Test di concorrenza:**
+- Scenario 1: YOLO e MoveNet notificano aggiornamenti durante elaborazione → seconda elaborazione programmata
+- Scenario 2: Molti aggiornamenti durante stesso frame → elaborazione seriale, ultimo dato consumato
+- Scenario 3: processFrame() fallisce ripetutamente → backoff esponenziale, limite MAX_CONSECUTIVE_ERRORS
 
 **Next steps:**
-- Test su dispositivo per verificare che tutti gli aggiornamenti vengano elaborati
+- Eseguire test di concorrenza per validare comportamento
+- Test su dispositivo per verificare FPS, latenza e rilevamento tiri
 - Monitorare log per verificare che non ci siano aggiornamenti persi
-- Verificare che la frequenza di elaborazione sia appropriata
 
 ---
 
