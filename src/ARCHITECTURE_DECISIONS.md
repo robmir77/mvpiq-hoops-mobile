@@ -39,6 +39,84 @@
 
 ---
 
+## Decision 34: Coordinatore Centralizzato Runtime ProcessFrame + Protezione Race Condition VisionEngineAdapter
+
+**Contesto:** Due callback asincroni (YOLO e MoveNet) chiamavano runtime.processFrame() con un debounce condiviso (lastRuntimeProcessTimestampRef). Questo creava due problemi:
+1. Race condition: se YOLO e MoveNet producevano risultati quasi contemporaneamente, solo la prima chiamata passava il debounce, la seconda veniva bloccata
+2. Perdita di aggiornamenti: VisionEngineAdapter resetta i flag updated indiscriminatamente alla fine di processFrame(), cancellando aggiornamenti arrivati durante l'elaborazione
+
+**Problemi identificati:**
+1. Due sorgenti asincrone (YOLO ~10 FPS, MoveNet variabile) cercavano di avviare lo stesso ciclo di elaborazione
+2. Debounce condiviso (RUNTIME_PROCESS_DEBOUNCE_MS = 32ms) non garantiva elaborazione di tutti gli aggiornamenti
+3. VisionEngineAdapter.processFrame() era sincrono ma il reset dei flag non distingueva aggiornamenti acquisiti da quelli arrivati durante l'elaborazione
+4. Se aggiornamento arrivava durante processFrame(), veniva cancellato dal reset finale
+
+**Decisione:**
+- Implementare coordinatore centralizzato per gestire chiamate a runtime.processFrame()
+- Proteggere VisionEngineAdapter con contatori di versione per distinguere aggiornamenti
+- Rimuovere debounce condiviso dai callback
+- Garantire che nessun aggiornamento venga perso
+
+**Modifiche implementate (VisionEngineAdapter):**
+1. Aggiunto contatori di versione per canale (ballVersion, playerVersion, rimVersion, poseVersion)
+2. updateParsedResults() incrementa versione quando arriva nuovo dato
+3. processFrame() acquisisce snapshot delle versioni prima dell'elaborazione
+4. Reset condizionale dei flag basato su confronto versione snapshot vs versione corrente:
+   ```typescript
+   this.ballUpdated = ballUpdated && this.ballVersion === ballVersionSnapshot ? false : this.ballUpdated
+   ```
+5. Se versione non cambiata → flag resettato (consumato)
+6. Se versione cambiata → flag preservato (nuovo aggiornamento arrivato)
+
+**Modifiche implementate (WorkoutSessionScreen):**
+1. Rimosso debounce condiviso (lastRuntimeProcessTimestampRef, RUNTIME_PROCESS_DEBOUNCE_MS)
+2. Implementato scheduleRuntimeProcessFrame() come unico punto di coordinamento
+3. Stato coordinatore:
+   - isProcessingFrameRef: true se elaborazione in corso
+   - hasPendingUpdatesRef: true se aggiornamenti arrivati durante elaborazione
+4. Logica coordinatore:
+   - Se runtime non ACTIVE → return
+   - Se già in elaborazione → setta hasPendingUpdatesRef = true e return
+   - Se non in elaborazione → avvia runtime.processFrame()
+   - Al completamento → resetta isProcessingFrameRef
+   - Se hasPendingUpdatesRef = true → programma nuova elaborazione con setTimeout(..., 0)
+   - Gestisce errori e riprogramma se necessario
+5. Callback aggiornati:
+   - handlePoseResult: usa scheduleRuntimeProcessFrame() invece di chiamata diretta
+   - handleBallDetection: usa scheduleRuntimeProcessFrame() invece di chiamata diretta
+
+**Rationale:**
+- Coordinatore centralizzato garantisce una sola elaborazione alla volta
+- Version counters permettono di distinguere aggiornamenti acquisiti da quelli arrivati durante elaborazione
+- Nessun aggiornamento viene perso anche se arriva durante processFrame()
+- Rimozione debounce elimina duplicazione logica tra callback
+- Architettura più pulita con singolo punto di decisione per elaborazione
+
+**Conseguenze:**
+- YOLO e MoveNet aggiornano VisionEngineAdapter e notificano coordinatore
+- Coordinatore garantisce elaborazione sequenziale senza race condition
+- Aggiornamenti arrivati durante elaborazione vengono pianificati per dopo il completamento
+- VisionEngineAdapter preserva aggiornamenti concorrenti tramite version counters
+- Architettura risultante:
+  ```
+  YOLO/MoveNet Workers → updateParsedResults() → VisionEngineAdapter (version-based protection)
+  YOLO/MoveNet Workers → scheduleRuntimeProcessFrame() → Coordinator (single processing)
+  Coordinator → runtime.processFrame() → VisionEngine → TrackingEngine
+  ```
+
+**Stato:**
+- ✅ VisionEngineAdapter version-based protection implementata
+- ✅ Runtime processFrame coordinator implementato
+- ✅ Callback aggiornati per usare coordinatore
+- ✅ Debounce condiviso rimosso
+
+**Next steps:**
+- Test su dispositivo per verificare che tutti gli aggiornamenti vengano elaborati
+- Monitorare log per verificare che non ci siano aggiornamenti persi
+- Verificare che la frequenza di elaborazione sia appropriata
+
+---
+
 ## Decision 33: Fase 1 + Phase 2 - Sincronizzazione Temporale delle Rilevazioni
 
 **Contesto:** Con un'inferenza YOLO più lenta della camera e una frequenza MoveNet diversa da quella di YOLO, il sistema trattava tutte le ultime rilevazioni come se fossero state ottenute nello stesso fotogramma. I timestamp originali dai worker venivano sostituiti con Date.now() nei callback, confondendo la latenza d'inferenza con il tempo della rilevazione. VisionEngineAdapter manteneva un unico lastTimestamp per tutti i canali, permettendo di combinare osservazioni di età diversa.

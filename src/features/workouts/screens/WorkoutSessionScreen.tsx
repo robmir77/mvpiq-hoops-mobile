@@ -226,10 +226,58 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const trackingConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
     const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
     const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
-    const lastRuntimeProcessTimestampRef = useRef(0) // Track last timestamp to avoid duplicate processFrame() calls
-    const RUNTIME_PROCESS_DEBOUNCE_MS = 32 // Debounce to avoid duplicate calls for same logical frame (31.25 FPS theoretical)
-    
-    // Get YOLO model name for loading messages
+
+    // Coordinator for runtime.processFrame() calls from YOLO and MoveNet callbacks
+    // Ensures single processing at a time and schedules re-processing if updates arrive during processing
+    const isProcessingFrameRef = useRef(false) // True if a processFrame() call is in progress
+    const hasPendingUpdatesRef = useRef(false) // True if updates arrived during processing
+
+    // Coordinator function: schedules processFrame() if not already processing
+    // If updates arrive during processing, sets pending flag and schedules re-processing after completion
+    const scheduleRuntimeProcessFrame = useCallback(() => {
+        const runtime = runtimeRef.current
+        if (!runtime || runtime.getState() !== 'ACTIVE' || !useRuntimeProcessingRef.current) {
+            return
+        }
+
+        if (isProcessingFrameRef.current) {
+            // Already processing - mark that we have pending updates
+            hasPendingUpdatesRef.current = true
+            return
+        }
+
+        // Start processing
+        isProcessingFrameRef.current = true
+        hasPendingUpdatesRef.current = false
+
+        const resolution = effectiveResolutionRef.current
+        const now = Date.now()
+
+        void runtime.processFrame({
+            width: resolution.width,
+            height: resolution.height,
+            timestamp: now,
+        }).then(() => {
+            // Processing complete
+            isProcessingFrameRef.current = false
+
+            // If updates arrived during processing, schedule another pass
+            if (hasPendingUpdatesRef.current) {
+                hasPendingUpdatesRef.current = false
+                // Small delay to allow event loop to process other tasks
+                setTimeout(() => scheduleRuntimeProcessFrame(), 0)
+            }
+        }).catch((error) => {
+            console.error('[RUNTIME COORDINATOR] processFrame error:', error)
+            isProcessingFrameRef.current = false
+
+            // Still schedule re-processing if updates arrived, even on error
+            if (hasPendingUpdatesRef.current) {
+                hasPendingUpdatesRef.current = false
+                setTimeout(() => scheduleRuntimeProcessFrame(), 0)
+            }
+        })
+    }, [])
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
 
@@ -298,20 +346,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             result.timestamp // Use original timestamp from MoveNet worker
         )
 
-        // Phase 4: Call Runtime.processFrame() with VisionEngine data (debounced)
-        const runtime = runtimeRef.current
-        const now = Date.now()
-        if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
-            if (now - lastRuntimeProcessTimestampRef.current >= RUNTIME_PROCESS_DEBOUNCE_MS) {
-                lastRuntimeProcessTimestampRef.current = now
-                const resolution = effectiveResolutionRef.current
-                void runtime.processFrame({
-                    width: resolution.width,
-                    height: resolution.height,
-                    timestamp: now,
-                })
-            }
-        }
+        // Phase 4: Notify coordinator to schedule Runtime.processFrame()
+        scheduleRuntimeProcessFrame()
 
         const tEnd = performance.now()
         const duration = tEnd - tStart
@@ -382,21 +418,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         )
         const tAdapterEnd = performance.now()
 
-        // Phase 4: Call Runtime.processFrame() with VisionEngine data (debounced)
+        // Phase 4: Notify coordinator to schedule Runtime.processFrame()
         const runtime = runtimeRef.current
-        let tRuntimeMs = 0
         if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
-            if (now - lastRuntimeProcessTimestampRef.current >= RUNTIME_PROCESS_DEBOUNCE_MS) {
-                lastRuntimeProcessTimestampRef.current = now
-                const resolution = effectiveResolutionRef.current
-                const tRuntimeStart = performance.now()
-                void runtime.processFrame({
-                    width: resolution.width,
-                    height: resolution.height,
-                    timestamp: now,
-                })
-                tRuntimeMs = performance.now() - tRuntimeStart
-            }
+            scheduleRuntimeProcessFrame()
+
             // Skip legacy tracking path when Runtime.processFrame() is active
             // Runtime.processFrame() already calls TrackingEngine internally
             const tEnd = performance.now()
@@ -404,8 +430,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             if (ENABLE_VISION_DIAGNOSTICS && duration > 10) {
                 console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms', {
                     adapter: (tAdapterEnd - tAdapterStart).toFixed(2) + 'ms',
-                    runtime: tRuntimeMs.toFixed(2) + 'ms',
-                    other: (duration - (tAdapterEnd - tAdapterStart) - tRuntimeMs).toFixed(2) + 'ms'
                 })
             }
             return

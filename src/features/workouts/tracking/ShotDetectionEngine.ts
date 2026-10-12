@@ -188,7 +188,6 @@ export class ShotDetectionEngine {
 
         // Only count as MADE if ball passes through hoop from above (descending through the rim)
         if (ballNearHoop && ballThroughHoop && rawVy > 0) {
-          console.log('[SHOT_DEBUG] + CANESTRO - Ball passed through hoop from above (dist=' + dist.toFixed(3) + ', radius=' + dynamicHoopRadius.toFixed(3) + ', rawVy=' + rawVy.toFixed(3) + ')')
           this.shotDetected = true
           this.shotResult = 'MADE'
           this.lastShotTs = frameTs
@@ -203,16 +202,7 @@ export class ShotDetectionEngine {
           this.shotResult = dist < 0.25 ? 'MISS' : 'AIRBALL'
           this.lastShotTs = frameTs
         }
-      } else {
-        // Debug: why not descending?
-        console.log('[SHOT_DEBUG] Not descending (rawDescending=' + rawDescending + ')')
       }
-    } else {
-      // Debug: why not entering shot detection?
-      if (!hoop) console.log('[SHOT_DEBUG] No hoop')
-      if (!ballForHoopCheck) console.log('[SHOT_DEBUG] No ball')
-      if (!cooldownOk) console.log('[SHOT_DEBUG] Cooldown not ok (lastShot=' + this.lastShotTs + ', now=' + frameTs + ')')
-      if (this.shotDetected) console.log('[SHOT_DEBUG] Shot already detected')
     }
 
     return {

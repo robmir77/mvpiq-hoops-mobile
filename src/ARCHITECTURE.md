@@ -614,6 +614,8 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | ShotDetectionEngine connection | ✅ | Connesso via TrackingEngine.getShotDetectionEngine() (no double ownership) |
 | Subsystem connection timing | ✅ | Tutti i sottosistemi connessi PRIMA di runtime.start() |
 | ShotDetectionUIAdapter removal | ✅ | Rimosso anti-pattern (useSharedValue in class) |
+| Runtime processFrame coordinator | ✅ | Coordinatore centralizzato per gestire chiamate da YOLO/MoveNet callbacks |
+| VisionEngineAdapter race condition fix | ✅ | Version counters per proteggere aggiornamenti durante elaborazione |
 | WorkoutSessionRuntime tests | ✅ | Test state machine completi implementati |
 | Runtime lifecycle migration | ✅ | handlePauseResume, handleEndSession, handleManualShot migrate al Runtime |
 | IVisionEngine interface | ✅ | Creato per definire contratto Vision Engine puro |
@@ -658,6 +660,9 @@ Conseguenza: il backend conosce FULL_COURT, ma la calibrazione lavora come HALF_
 | Performance audit (Decision 28) | ✅ | Telemetry A→F con P50/P95/P99, Kalman analysis completata, schedule wait identificato come principale collo di bottiglia |
 | Legacy useShotTracker disable (Decision 29) | ✅ | REVERTATA - Flag runtimeActive rimosso dal frame processor, useShotTracker continua a eseguire quando Runtime è attivo (VisionEngineAdapter non esegue inferenza, solo forward risultati) |
 | BallTrajectoryAnalyzer implementation | ✅ | Nuovo componente per separazione palleggio/tiro - stati IDLE/DRIBBLE/SHOT_CANDIDATE/SHOT_ASCENDING/SHOT_APEX/SHOT_DESCENDING - ispirato a TrajectoryService del backend (stabilizeReleaseFrame, findApexIndex) |
+| Rimozione log verbosi | ✅ | Rimossi SHOT_DEBUG, VISION_ADAPTER, YOLO WORKLET timing logs per ridurre rumore in console |
+| Pose scoring | ✅ | Aggiunto poseScoring.ts per calcolo punteggio qualità pose (angolo gomito, allineamento spalle, confidenza) |
+| Pose score in ShotChart | ✅ | ShotChartScreen mostra punteggi pose accanto ai cerchi verde/rosso se rawPoseFrames disponibili |
 
 ## Async Queue & Critical Events
 

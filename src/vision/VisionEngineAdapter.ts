@@ -46,6 +46,13 @@ export class VisionEngineAdapter implements IVisionEngine {
   private playerUpdated = false
   private rimUpdated = false
   private poseUpdated = false
+
+  // Version counters to distinguish updates acquired during processFrame from updates that arrived after
+  private ballVersion = 0
+  private playerVersion = 0
+  private rimVersion = 0
+  private poseVersion = 0
+
   private lastDiagnosticsLogAt = 0
   private processFrameCount = 0
 
@@ -66,27 +73,29 @@ export class VisionEngineAdapter implements IVisionEngine {
     pose: PoseResult | null | undefined,
     timestamp: number
   ): void {
-    // Debug log for ball updates
     if (ball !== undefined) {
-      console.log('[VISION_ADAPTER] updateParsedResults: ball=' + JSON.stringify(ball) + ', timestamp=' + timestamp)
       this.lastBall = ball
       this.lastBallTimestamp = timestamp
       this.ballUpdated = true
+      this.ballVersion += 1
     }
     if (player !== undefined) {
       this.lastPlayer = player
       this.lastPlayerTimestamp = timestamp
       this.playerUpdated = true
+      this.playerVersion += 1
     }
     if (rim !== undefined) {
       this.lastRim = rim
       this.lastRimTimestamp = timestamp
       this.rimUpdated = true
+      this.rimVersion += 1
     }
     if (pose !== undefined) {
       this.lastPose = pose
       this.lastPoseTimestamp = timestamp
       this.poseUpdated = true
+      this.poseVersion += 1
     }
   }
 
@@ -177,14 +186,21 @@ export class VisionEngineAdapter implements IVisionEngine {
       })
     }
 
-    // Snapshot update flags for this orchestration pass. Cached detections may remain
+    // Snapshot update flags and versions for this orchestration pass. Cached detections may remain
     // fresh for diagnostics, but must not be fed to tracking repeatedly as new measurements.
     // Otherwise the same timestamp/position can be consumed on multiple runtime frames
     // and distort velocity estimates (especially when another channel triggers processFrame).
+    // Version counters allow us to distinguish updates that arrived during processing from
+    // updates that were already present when we started.
     const ballUpdated = this.ballUpdated
     const playerUpdated = this.playerUpdated
     const rimUpdated = this.rimUpdated
     const poseUpdated = this.poseUpdated
+
+    const ballVersionSnapshot = this.ballVersion
+    const playerVersionSnapshot = this.playerVersion
+    const rimVersionSnapshot = this.rimVersion
+    const poseVersionSnapshot = this.poseVersion
 
     // Pass fresh cached detections even if not updated this frame
     // This is needed for hoop verification when YOLO is slow (~6-7 FPS)
@@ -193,11 +209,6 @@ export class VisionEngineAdapter implements IVisionEngine {
     const playerForFrame = playerFresh && playerUpdated ? this.lastPlayer : null
     const rimForFrame = rimFresh && rimUpdated ? this.lastRim : null
     const poseForFrame = poseFresh && poseUpdated ? this.lastPose : null
-
-    // Debug log for ball passing
-    if (ballFresh && !ballForFrame) {
-      console.log('[VISION_ADAPTER] ballFresh=true but ballForFrame=null (lastBall=' + JSON.stringify(this.lastBall) + ')')
-    }
 
     const result = this.visionEngine.processFrame({
       width: frame.width,
@@ -223,11 +234,12 @@ export class VisionEngineAdapter implements IVisionEngine {
       },
     }
 
-    // Reset update flags after processing
-    this.ballUpdated = false
-    this.playerUpdated = false
-    this.rimUpdated = false
-    this.poseUpdated = false
+    // Reset update flags only if no new updates arrived during processing
+    // If the version changed, a new update arrived and we must preserve the flag
+    this.ballUpdated = ballUpdated && this.ballVersion === ballVersionSnapshot ? false : this.ballUpdated
+    this.playerUpdated = playerUpdated && this.playerVersion === playerVersionSnapshot ? false : this.playerUpdated
+    this.rimUpdated = rimUpdated && this.rimVersion === rimVersionSnapshot ? false : this.rimUpdated
+    this.poseUpdated = poseUpdated && this.poseVersion === poseVersionSnapshot ? false : this.poseUpdated
 
     return resultWithObservationTimestamps
   }

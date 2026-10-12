@@ -513,15 +513,6 @@ export const useYoloWorkerAsync = (
           tB,
         }
 
-        // Log worklet timing every 100 frames
-        if (frameCounter && frameCounter % 100 === 0) {
-          console.log('[YOLO WORKLET] timing:', {
-            resize: resizeMs.toFixed(1),
-            bufferExtract: bufferExtractMs.toFixed(1),
-            totalWorklet: (resizeMs + bufferExtractMs).toFixed(1)
-          })
-        }
-
         // Mark as processing and submit to RN runtime
         isProcessing.value = true
         scheduleOnRN(processYoloAsync, frameData)

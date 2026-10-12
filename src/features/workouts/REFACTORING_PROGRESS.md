@@ -392,6 +392,36 @@ features/workouts/
 - File modificato: WorkoutSessionScreen.tsx (riga 222)
 - Note: FPS effettivi dipendono da camera, YOLO, MoveNet e costo processFrame()
 
+**4.6.20: Runtime ProcessFrame Coordinator + VisionEngineAdapter Race Condition Fix ✓**
+- **Problema identificato**: Due callback (YOLO e MoveNet) chiamavano runtime.processFrame() con debounce condiviso, causando potenziali race condition e perdita di aggiornamenti
+- **VisionEngineAdapter Version-Based Protection**:
+  - Aggiunto contatori di versione per ogni canale (ballVersion, playerVersion, rimVersion, poseVersion)
+  - updateParsedResults() incrementa versione quando arriva nuovo dato
+  - processFrame() acquisisce snapshot delle versioni prima dell'elaborazione
+  - Reset condizionale dei flag basato su confronto versione snapshot vs versione corrente
+  - Se versione non cambiata → flag resettato (consumato)
+  - Se versione cambiata → flag preservato (nuovo aggiornamento arrivato durante elaborazione)
+- **Runtime ProcessFrame Coordinator**:
+  - Rimosso debounce condiviso (lastRuntimeProcessTimestampRef, RUNTIME_PROCESS_DEBOUNCE_MS)
+  - Implementato scheduleRuntimeProcessFrame() come unico punto di coordinamento
+  - isProcessingFrameRef: true se elaborazione in corso
+  - hasPendingUpdatesRef: true se aggiornamenti arrivati durante elaborazione
+  - Se già in elaborazione → setta pending flag e return
+  - Al completamento → se pending flag true → programma nuova elaborazione
+  - Gestisce errori e riprogramma se necessario
+- **Callback aggiornati**:
+  - handlePoseResult: rimossa chiamata diretta runtime.processFrame(), usa scheduleRuntimeProcessFrame()
+  - handleBallDetection: rimossa chiamata diretta runtime.processFrame(), usa scheduleRuntimeProcessFrame()
+- File modificati:
+  - VisionEngineAdapter.ts (righe 50-54, 76-99, 189-242)
+  - WorkoutSessionScreen.tsx (righe 230-280, 349-350, 421-435)
+- Architettura risultante:
+  ```
+  YOLO/MoveNet Workers → updateParsedResults() → VisionEngineAdapter (version-based protection)
+  YOLO/MoveNet Workers → scheduleRuntimeProcessFrame() → Coordinator (single processing)
+  Coordinator → runtime.processFrame() → VisionEngine → TrackingEngine
+  ```
+
 **4.6.17: BallTrajectoryAnalyzer Implementation ✓ (Fase 5)**
 - Creato BallTrajectoryAnalyzer.ts per separazione palleggio/tiro
 - Stati del movimento: IDLE, DRIBBLE, SHOT_CANDIDATE, SHOT_ASCENDING, SHOT_APEX, SHOT_DESCENDING
@@ -697,6 +727,37 @@ Ricostruiremo la sequenza eseguita quando premi "Fine workout":
 4. Il backend conferma i salvataggi necessari
 5. Il resoconto recupera i dati della sessione
 6. La schermata mostra il riepilogo completo
+
+---
+
+## Implementazioni Recenti
+
+### Pose Scoring (2026-10-11)
+- File: `src/features/workouts/utils/poseScoring.ts` (nuovo)
+- Calcola punteggio qualità pose (0-100) dai keypoints MoveNet
+- Valuta: angolo del gomito (ideale ~90°), allineamento spalle, confidenza media keypoints
+- Funzione `calculatePoseScore(rawPoseFrames)` restituisce punteggio medio
+
+### Visualizzazione Pose Score in ShotChart (2026-10-11)
+- File: `src/features/workouts/screens/ShotChartScreen.tsx`
+- Aggiunto campo `poseScore?: number` a `ShotChartPoint`
+- Carica tiri dettagliati con `getSessionShots` per ottenere `rawPoseFrames`
+- Calcola punteggi pose e crea mappa per matching con ShotChart
+- Mostra punteggio come numero bianco accanto ai cerchi verde/rosso
+
+### Rimozione Log Verbosi (2026-10-11)
+- File: `src/features/workouts/tracking/ShotDetectionEngine.ts`
+  - Rimossi log `SHOT_DEBUG` (No hoop, No ball, Cooldown not ok, Shot already detected, etc.)
+- File: `src/vision/VisionEngineAdapter.ts`
+  - Rimossi log `VISION_ADAPTER` (updateParsedResults, ballFresh debug)
+- File: `src/vision/useYoloWorkerAsync.ts`
+  - Rimossi log `YOLO WORKLET` timing (ogni 100 frame)
+
+### Rimozione Commenti Obsoleti (2026-10-11)
+- File: `src/features/workouts/screens/ShotChartScreen.tsx`
+  - Rimossi commenti `FIX #6` (navigazione coerente)
+- File: `src/features/workouts/screens/StatsScreen.tsx`
+  - Rimossi commenti `FIX #6` (back porta a WorkoutHome)
 
 ### Fasi Successive - Analisi e Implementazione Guidata
 

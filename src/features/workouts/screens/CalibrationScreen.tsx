@@ -18,8 +18,8 @@ import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from 're
 import { Picker } from '@react-native-picker/picker'
 import { useIsFocused } from '@react-navigation/native'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { CameraMode, CalibrationData, CourtType } from '../types/workouts.types'
-import { createWorkoutQueue, type CriticalPayload } from '../services/workoutAsyncQueue'
+import { CameraMode, CalibrationData, CourtType, CreateWorkoutSessionPayload } from '../types/workouts.types'
+import { createWorkoutSession } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { calculateHomography, getCourtCornersMeters } from '../utils/homography'
 import {
@@ -726,7 +726,7 @@ const MODE_META: Record<CameraMode, { title: string; icon: string; description: 
 }
 
 export default function CalibrationScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode: rawMode, courtType: rawCourtType, selectedResolution: initialResolution, selectedFps: initialFps, selectedPoseResolution: initialPoseResolution, yoloDelegate: initialYoloDelegate, poseDelegate: initialPoseDelegate, yoloModelId: initialYoloModelId, moveNetModelId: initialMoveNetModelId } = route.params || {}
+    const { cameraMode: rawMode, courtType: rawCourtType, selectedResolution: initialResolution, selectedFps: initialFps, selectedPoseResolution: initialPoseResolution, yoloDelegate: initialYoloDelegate, poseDelegate: initialPoseDelegate, yoloModelId: initialYoloModelId, moveNetModelId: initialMoveNetModelId } = route.params || {}
     // Removed hot-path logging to reduce overhead during workout
     const cameraMode: CameraMode = rawMode || 'ANGLE_45'
     const courtType: 'HALF_COURT' | 'FULL_COURT' = rawCourtType || 'HALF_COURT'
@@ -738,7 +738,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const isFocused = useIsFocused()
     const isActive = isFocused
     const cameraRef = useRef<CameraRef>(null)
-    const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
     const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(initialResolution ?? DEFAULT_CAPTURE)
     const [selectedFps, setSelectedFps] = useState<number | null>(initialFps ?? DEFAULT_FPS)
     const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(initialPoseResolution ?? DEFAULT_POSE_RESOLUTION)
@@ -867,20 +866,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const meta = MODE_META[cameraMode]
 
-    // Initialize workout queue for critical calibration event
-    useEffect(() => {
-        if (sessionId && user?.id) {
-            createWorkoutQueue({ sessionId, userId: user.id }).then(queue => {
-                workoutQueueRef.current = queue
-                console.log('[Calibration] Workout queue initialized')
-            }).catch(e => {
-                console.error('[Calibration] Failed to initialize workout queue:', e)
-            })
-        }
-        return () => {
-            workoutQueueRef.current = null
-        }
-    }, [sessionId, user?.id])
+    // Workout queue will be initialized in WorkoutSessionScreen after session creation
+    // Removed from CalibrationScreen since session doesn't exist yet
 
     // Log device info for GPU capability testing
     useEffect(() => {
@@ -940,13 +927,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const handleSave = async () => {
-        if (!hoopCenter || !user?.id || !sessionId) {
+        if (!hoopCenter || !user?.id) {
             showError('Errore', 'Seleziona prima il centro del canestro')
-            return
-        }
-        const workoutQueue = workoutQueueRef.current
-        if (!workoutQueue) {
-            showError('Errore', 'Queue non pronta. Riprova.')
             return
         }
         setIsSaving(true)
@@ -983,17 +965,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 courtCorners,
             }
 
-            // Enqueue calibration as critical event - will be persisted and retried automatically
-            const payload: CriticalPayload = {
-                type: 'CALIBRATION',
-                sessionId,
-                userId: user.id,
-                payload: cal,
-            }
-            const persisted = await workoutQueue.enqueueCritical(payload)
-            if (!persisted) {
-                throw new Error('Impossibile persistere la calibrazione')
-            }
+            // Save calibration locally - will be sent to backend after session creation
             setSavedCalibration(cal)
             showSuccess('✓ Calibrazione salvata', 'Puoi procedere con la sessione')
         } catch (e: any) {
@@ -1003,26 +975,94 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }
 
-    const handleProceed = () => {
+    const handleProceed = async () => {
         if (isNavigating) return
         setIsNavigating(true)
-        const workoutParams = { sessionId, cameraMode, courtType, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
-        console.log('[Calibration] Navigating to WorkoutSession with params:', workoutParams)
-        console.log('[Calibration] selectedYoloModelId:', selectedYoloModelId)
-        navigation.replace('WorkoutSession', workoutParams)
+
+        try {
+            // Crea la sessione dopo la calibrazione
+            if (!user?.id) {
+                showError('Errore', 'Utente non autenticato')
+                setIsNavigating(false)
+                return
+            }
+
+            const payload: CreateWorkoutSessionPayload = {
+                cameraMode,
+                courtType,
+            }
+
+            console.log('[Calibration] Creazione sessione con payload:', payload)
+            const session = await createWorkoutSession(user.id, payload)
+            showSuccess('Sessione creata', 'Allenamento avviato con successo')
+
+            const workoutParams = {
+                sessionId: session.id,
+                cameraMode,
+                courtType,
+                selectedResolution,
+                selectedFps,
+                selectedPoseResolution,
+                yoloDelegate,
+                poseDelegate,
+                yoloModelId: selectedYoloModelId,
+                moveNetModelId: selectedMoveNetModelId
+            }
+            console.log('[Calibration] Navigating to WorkoutSession with params:', workoutParams)
+            console.log('[Calibration] selectedYoloModelId:', selectedYoloModelId)
+            navigation.replace('WorkoutSession', workoutParams)
+        } catch (error: any) {
+            console.error('[Calibration] Errore creazione sessione:', error)
+            showError('Errore', error?.response?.data?.message || error.message || 'Impossibile creare la sessione')
+            setIsNavigating(false)
+        }
     }
 
-    const handleSkip = () => {
+    const handleSkip = async () => {
         showWarning(
             'Salta calibrazione',
             'Senza calibrazione il tracking sarà meno preciso.',
-            () => {
+            async () => {
                 if (isNavigating) return
                 setIsNavigating(true)
-                const workoutParams = { sessionId, cameraMode, courtType, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId: selectedYoloModelId, moveNetModelId: selectedMoveNetModelId }
-                console.log('[Calibration] Skipping calibration, navigating to WorkoutSession with params:', workoutParams)
-                console.log('[Calibration] selectedYoloModelId (skip):', selectedYoloModelId)
-                navigation.replace('WorkoutSession', workoutParams)
+
+                try {
+                    // Crea la sessione anche quando si salta la calibrazione
+                    if (!user?.id) {
+                        showError('Errore', 'Utente non autenticato')
+                        setIsNavigating(false)
+                        return
+                    }
+
+                    const payload: CreateWorkoutSessionPayload = {
+                        cameraMode,
+                        courtType,
+                    }
+
+                    console.log('[Calibration] Creazione sessione (skip) con payload:', payload)
+                    const session = await createWorkoutSession(user.id, payload)
+                    showSuccess('Sessione creata', 'Allenamento avviato con successo')
+
+                    const workoutParams = {
+                        sessionId: session.id,
+                        cameraMode,
+                        courtType,
+                        selectedResolution,
+                        selectedFps,
+                        selectedPoseResolution,
+                        yoloDelegate,
+                        poseDelegate,
+                        yoloModelId: selectedYoloModelId,
+                        moveNetModelId: selectedMoveNetModelId
+                    }
+                    console.log('[Calibration] Skipping calibration, navigating to WorkoutSession with params:', workoutParams)
+                    console.log('[Calibration] selectedYoloModelId (skip):', selectedYoloModelId)
+                    navigation.replace('WorkoutSession', workoutParams)
+                } catch (error: any) {
+                    console.error('[Calibration] Errore creazione sessione (skip):', error)
+                    showError('Errore', error?.response?.data?.message || error.message || 'Impossibile creare la sessione')
+                    setIsNavigating(false)
+                }
             }
         )
     }

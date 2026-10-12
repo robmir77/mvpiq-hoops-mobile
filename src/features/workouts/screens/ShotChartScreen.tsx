@@ -1,9 +1,4 @@
 // src/features/workouts/screens/ShotChartScreen.tsx
-//
-// FIX #6 — Navigazione coerente:
-//   - Se arriva da WorkoutSession (fromSession=true) mostra il pulsante "Vedi Statistiche →"
-//   - Navigation.replace verso Stats così non rimane nello stack intermedio
-//   - goBack() da Stats torna alla Home, non a ShotChart (che sarebbe già rimossa dallo stack)
 
 import React, { useState, useContext, useEffect } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Platform } from 'react-native'
@@ -198,7 +193,6 @@ export default function ShotChartScreen({ navigation, route }: any) {
                     <Text style={styles.headerBtnText}>←</Text>
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Shot Chart</Text>
-                {/* FIX #6 — Pulsante "Statistiche" visibile solo se arriva dalla sessione */}
                 {fromSession ? (
                     <TouchableOpacity
                         style={styles.statsBtn}
@@ -321,7 +315,6 @@ export default function ShotChartScreen({ navigation, route }: any) {
                     </View>
                 )}
 
-                {/* FIX #6 — CTA finale verso Stats */}
                 {fromSession && (
                     <TouchableOpacity
                         style={styles.goStatsBtn}
