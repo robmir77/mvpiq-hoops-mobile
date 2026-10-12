@@ -12,6 +12,78 @@
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
 
+## Decision 36: Vision Configuration Persistence
+
+**Contesto:** L'obiettivo è garantire che ogni sessione conservi i parametri vision realmente utilizzati (fps, risoluzione camera, risoluzione pose, modelli YOLO/MoveNet, delegate), così che quando viene recuperata il frontend possa ripristinare la stessa configurazione. Senza questa persistenza, le sessioni salvate non potevano ripristinare la configurazione vision originale.
+
+**Problemi identificati:**
+1. I parametri vision non erano inclusi nel modello `WorkoutSession`
+2. Quando si recuperava una sessione, la configurazione vision veniva persa
+3. Sessioni vecchie senza configurazione salvata non avevano fallback adeguato
+4. La configurazione geometrica della calibrazione era mescolata con la configurazione vision
+
+**Decisione:**
+- Aggiungere campi vision a `WorkoutSession` e `CreateWorkoutSessionPayload`
+- Passare configurazione completa da CalibrationScreen al backend durante creazione sessione
+- Recuperare e applicare configurazione da sessione in WorkoutSessionScreen
+- Implementare priorità configurazione: route.params > sessione persistita > default locali
+- Separare concettualmente calibrazione geometrica da configurazione vision
+
+**Parametri persistiti:**
+- `fps?: number` - FPS selezionati per la fotocamera
+- `cameraResolutionWidth?: number` - Larghezza della risoluzione
+- `cameraResolutionHeight?: number` - Altezza della risoluzione
+- `poseResolution?: number` - Risoluzione utilizzata da MoveNet
+- `yoloModelId?: string` - Modello YOLO selezionato
+- `moveNetModelId?: string` - Modello MoveNet selezionato
+- `yoloDelegate?: string` - Delegate utilizzato da YOLO
+- `poseDelegate?: string` - Delegate utilizzato da MoveNet
+
+**Modifiche implementate:**
+
+1. **workouts.types.ts (righe 27-35, 45-54):**
+   - Aggiunto campi vision a `WorkoutSession` interface
+   - Aggiunto campi vision a `CreateWorkoutSessionPayload` interface
+   - Tutti i campi sono opzionali per compatibilità con sessioni vecchie
+
+2. **CalibrationScreen.tsx (righe 991-1003, 1048-1060):**
+   - `handleProceed()`: Aggiunto tutti i parametri vision al payload `CreateWorkoutSessionPayload`
+   - `handleSkip()`: Aggiunto tutti i parametri vision al payload anche quando si salta la calibrazione
+   - Tutti gli 8 campi passati al backend durante creazione sessione
+
+3. **WorkoutSessionScreen.tsx (righe 798-813):**
+   - `loadSession()`: Recupera configurazione vision dalla sessione caricata
+   - Applica configurazione solo se non già fornita via route.params (nuova sessione)
+   - Log diagnostici per tracciare configurazione applicata
+
+**Rationale:**
+- Separazione responsabilità: calibrazione geometrica (hoopCenter, courtCorners) vs configurazione vision (fps, modelli, delegate)
+- Priorità configurazione: route.params ha precedenza per nuove sessioni, sessione persistita per ripristino
+- Fallback robusto: default locali per sessioni vecchie senza configurazione salvata
+- Compatibilità backward: campi opzionali permettono migrazione graduale
+
+**Conseguenze:**
+- Sessioni salvate ora conservano la configurazione vision completa
+- Ripristino sessione ripristina anche configurazione vision (camera + modelli)
+- Sessioni vecchie senza configurazione usano default locali senza errori
+- Backend già predisposto per ricevere e restituire questi campi
+- Flusso dati chiaro: Setup → Calibration → Backend → Session → Ripristino
+
+**Stato:**
+- ✅ workouts.types.ts aggiornato con campi vision
+- ✅ CalibrationScreen passa configurazione completa al backend
+- ✅ WorkoutSessionScreen recupera e applica configurazione da sessione
+- ✅ Priorità configurazione implementata (params > session > default)
+- ✅ Compatibilità backward mantenuta (campi opzionali)
+
+**Next steps:**
+- Testare creazione nuova sessione e verifica salvataggio configurazione
+- Testare ripristino sessione salvata e verifica applicazione configurazione
+- Testare sessione vecchia senza configurazione e verifica fallback default
+- Verificare log diagnostici per conferma configurazione applicata
+
+---
+
 ## Decision 35: Correzione Logica Mirror Coordinate Calibrazione
 
 **Contesto:** La calibrazione del rim appariva invertita sull'asse Y nell'overlay. Quando l'utente selezionava il canestro in alto a destra nella schermata di calibrazione, veniva visualizzato in basso a destra nell'overlay della sessione. Questo era causato da una gestione incoerente delle coordinate tra touch UI, spazio YOLO e visualizzazione overlay.

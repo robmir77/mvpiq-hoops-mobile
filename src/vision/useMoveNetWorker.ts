@@ -28,7 +28,7 @@ const ENABLE_MOVENET = true
 // Aligned with YOLO_CONFIG.PLAYER_CROP_MIN_CONFIDENCE (5%)
 const PLAYER_CONFIDENCE_THRESH = 0.05
 const PLAYER_MIN_WIDTH = 0.05
-const PLAYER_MAX_WIDTH = 0.80
+const PLAYER_MAX_WIDTH = 0.95 // Increased from 0.80 for YOLO 640 compatibility
 const PLAYER_MIN_HEIGHT = 0.1
 const PLAYER_MAX_HEIGHT = 0.95
 

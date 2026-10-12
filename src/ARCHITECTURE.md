@@ -542,6 +542,48 @@ Non concluderei ancora che il modello YOLO debba essere riaddestrato, che le sog
 
 Allo stesso modo, la presenza di test unitari non dimostra da sola che l'intera sequenza palleggio-tiro-canestro sia corretta: bisogna controllare anche i test d'integrazione e i casi in cui le rilevazioni arrivano in ritardo o mancano.
 
+## Vision Configuration Persistence
+
+**Obiettivo:** Garantire che ogni sessione conservi i parametri vision realmente utilizzati, così che quando viene recuperata il frontend possa ripristinare la stessa configurazione.
+
+**Parametri persistiti:**
+- `fps` - FPS selezionati per la fotocamera
+- `cameraResolutionWidth` - Larghezza della risoluzione
+- `cameraResolutionHeight` - Altezza della risoluzione
+- `poseResolution` - Risoluzione utilizzata da MoveNet
+- `yoloModelId` - Modello YOLO selezionato
+- `moveNetModelId` - Modello MoveNet selezionato
+- `yoloDelegate` - Delegate utilizzato da YOLO
+- `poseDelegate` - Delegate utilizzato da MoveNet
+
+**Flusso dati:**
+```
+WorkoutSetupScreen → CalibrationScreen (config selezionata)
+  ↓
+CalibrationScreen.createWorkoutSession (config salvata in payload)
+  ↓
+Backend (persiste configurazione in sessione)
+  ↓
+WorkoutSessionScreen.loadSession (config recuperata)
+  ↓
+Applicazione configurazione (camera + modelli)
+```
+
+**Priorità configurazione:**
+1. route.params (nuova sessione con configurazione passata)
+2. sessione persistita (ripristino configurazione salvata)
+3. default locali (fallback per sessioni vecchie senza configurazione)
+
+**Modifiche frontend:**
+- `workouts.types.ts`: Aggiunto campi vision a `WorkoutSession` e `CreateWorkoutSessionPayload`
+- `CalibrationScreen.tsx`: Passa configurazione completa in `createWorkoutSession`
+- `WorkoutSessionScreen.tsx`: Recupera e applica configurazione da sessione in `loadSession()`
+
+**Note:**
+- I parametri geometrici della calibrazione (hoopCenter, courtCorners) sono separati dalla configurazione vision
+- Sessioni vecchie senza configurazione salvata usano i default locali
+- Il backend è già predisposto per ricevere e restituire questi campi
+
 ## Configurazione Globale
 
 Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:

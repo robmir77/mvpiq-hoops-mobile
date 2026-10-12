@@ -24,6 +24,15 @@ export interface WorkoutSession {
     notes?: string
     averageShotDistance?: number
     workoutScore?: number
+    // Vision configuration for session resume
+    fps?: number
+    cameraResolutionWidth?: number
+    cameraResolutionHeight?: number
+    poseResolution?: number
+    yoloModelId?: string
+    moveNetModelId?: string
+    yoloDelegate?: string
+    poseDelegate?: string
 }
 
 export const getMissedShots = (s: WorkoutSession): number =>
@@ -33,6 +42,15 @@ export interface CreateWorkoutSessionPayload {
     cameraMode: CameraMode
     courtType: CourtType
     calibrationData?: string
+    // Vision configuration for session
+    fps?: number
+    cameraResolutionWidth?: number
+    cameraResolutionHeight?: number
+    poseResolution?: number
+    yoloModelId?: string
+    moveNetModelId?: string
+    yoloDelegate?: string
+    poseDelegate?: string
 }
 
 // Punto di traiettoria per ShotEvent
@@ -109,6 +127,13 @@ export interface CalibrationData {
         bottomRight: { x: number; y: number }
     }
     courtLines?: Array<{ start: { x: number; y: number }; end: { x: number; y: number } }>
+    // Vision parameters for session resume
+    yoloModelId?: string
+    moveNetModelId?: string
+    fps?: number
+    poseResolution?: number
+    yoloDelegate?: string
+    poseDelegate?: string
 }
 
 // AI Tracking

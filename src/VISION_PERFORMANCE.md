@@ -1,5 +1,31 @@
 # MVPIQ Hoops - Vision Performance Analysis
 
+## Vision Configuration Persistence
+
+**Obiettivo:** Garantire che ogni sessione conservi i parametri vision realmente utilizzati per permettere il ripristino della configurazione quando la sessione viene recuperata.
+
+**Parametri persistiti:**
+- `fps` - FPS selezionati per la fotocamera
+- `cameraResolutionWidth/Height` - Risoluzione camera
+- `poseResolution` - Risoluzione MoveNet
+- `yoloModelId` - Modello YOLO selezionato
+- `moveNetModelId` - Modello MoveNet selezionato
+- `yoloDelegate` - Delegate YOLO
+- `poseDelegate` - Delegate MoveNet
+
+**Flusso dati:**
+- Setup → Calibration (selezione configurazione)
+- Calibration → Backend (salvataggio configurazione in sessione)
+- Backend → Session (recupero configurazione)
+- Session → Camera/Models (applicazione configurazione)
+
+**Priorità configurazione:**
+1. route.params (nuova sessione)
+2. sessione persistita (ripristino)
+3. default locali (fallback)
+
+**Decision 36:** Completata - Frontend modificato per persistere e recuperare configurazione vision.
+
 ## Performance Targets
 
 | Componente | Target FPS | Observed FPS | Note |

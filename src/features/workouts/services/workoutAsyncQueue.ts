@@ -2,6 +2,10 @@ import { saveFrameDataBatch, addShotEvent, addShotEventsBatch, endWorkoutSession
 import { PersistentOutbox } from './persistentOutbox'
 import type { FrameDataPayload } from '../types/workouts.types'
 
+// Shared retry configuration
+const MAX_RETRY_ATTEMPTS = 5
+const RETRY_BASE_DELAY_MS = 1000
+
 interface AsyncQueueItem<T> {
   payload: T
   timestamp: number
@@ -150,9 +154,13 @@ class WorkoutAsyncQueue {
       const MIN_BATCH_SIZE = 5
 
       while (this.criticalOutbox.size > 0 || this.telemetry.size > 0) {
-        // For critical items, process immediately
-        if (this.criticalOutbox.size > 0) {
+        // For critical items, only process if there are retryable items (not suspended)
+        if (this.criticalOutbox.size > 0 && this.criticalOutbox.getRetryableCount() > 0) {
           await this.flush({ critical: true, telemetry: false })
+        } else if (this.criticalOutbox.size > 0 && this.criticalOutbox.getRetryableCount() === 0) {
+          // Only suspended items remain - stop processing to avoid useless loops
+          console.log(`[WorkoutQueue] Only ${this.criticalOutbox.getSuspendedCount()} suspended items remain, stopping automatic processing`)
+          break
         }
 
         // For telemetry, wait for accumulation or minimum batch size
@@ -172,8 +180,9 @@ class WorkoutAsyncQueue {
       this.running = false
       this.workerPromise = null
 
+      // Only restart if there are retryable items or telemetry
       if (
-        this.criticalOutbox.size > 0 ||
+        this.criticalOutbox.getRetryableCount() > 0 ||
         this.telemetry.size > 0
       ) {
         this.ensureWorker()
@@ -207,8 +216,15 @@ class WorkoutAsyncQueue {
       const item = this.criticalOutbox.peek()
       if (!item) break
 
-      const success = await this.processCriticalItemWithRetry(item, fastFail)
-      if (success) {
+      // Skip suspended items (e.g., 401 auth errors)
+      if (this.criticalOutbox.isSuspended(item.id)) {
+        console.log(`[WorkoutQueue] Skipping suspended item ${item.id}, moving to next`)
+        await this.criticalOutbox.remove(item.id) // Remove from memory but keep in storage for manual recovery
+        continue
+      }
+
+      const result = await this.processCriticalItemWithRetry(item, fastFail)
+      if (result.success) {
         await this.criticalOutbox.remove(item.id)
       } else {
         // Item failed - keep it in outbox for future retry
@@ -217,13 +233,14 @@ class WorkoutAsyncQueue {
           id: item.id,
           type: item.type,
           retryCount: item.retryCount,
+          shouldRetry: result.shouldRetry,
         })
         break // Stop processing this batch to avoid infinite loop
       }
     }
   }
 
-  private async processCriticalItemWithRetry(item: any, fastFail: boolean = false): Promise<boolean> {
+  private async processCriticalItemWithRetry(item: any, fastFail: boolean = false): Promise<{ success: boolean; shouldRetry: boolean }> {
     const { type, sessionId, userId, payload, retryCount, id } = item
 
     if (type === 'SHOT') {
@@ -231,26 +248,36 @@ class WorkoutAsyncQueue {
     } else if (type === 'SESSION_START' || type === 'SESSION_END' || type === 'CALIBRATION') {
       return await this.retryCriticalEvent(type, sessionId, userId, payload, retryCount, id, fastFail)
     }
-    return true
+    return { success: true, shouldRetry: false }
   }
 
-  private async retryShotEvent(sessionId: string, userId: string, payload: any, retryCount: number, itemId: string, fastFail: boolean = false): Promise<boolean> {
-    const maxRetries = 5
-    const baseDelay = 1000 // 1 second
+  private async retryShotEvent(sessionId: string, userId: string, payload: any, retryCount: number, itemId: string, fastFail: boolean = false): Promise<{ success: boolean; shouldRetry: boolean }> {
+    // If already exceeded retry limit, don't attempt
+    if (retryCount >= MAX_RETRY_ATTEMPTS) {
+      console.warn(`[WorkoutQueue] Item ${itemId} already exceeded retry limit (${retryCount}), keeping for manual recovery`)
+      return { success: false, shouldRetry: false }
+    }
 
-    for (let attempt = retryCount; attempt < maxRetries; attempt++) {
+    for (let attempt = retryCount; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
       try {
         // Update retry count before attempt
         await this.criticalOutbox.updateRetryCount(itemId, attempt)
 
         await addShotEvent(sessionId, userId, payload)
-        return true
-      } catch (e) {
-        console.error(`[WorkoutQueue] Shot event failed (attempt ${attempt + 1}/${maxRetries}):`, e)
+        return { success: true, shouldRetry: false }
+      } catch (e: any) {
+        console.error(`[WorkoutQueue] Shot event failed (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS}):`, e)
+
+        // For 401 authentication errors, suspend automatic retries
+        if (e?.response?.status === 401) {
+          console.warn(`[WorkoutQueue] Authentication failed (401) for item ${itemId}, suspending automatic retries`)
+          await this.criticalOutbox.setSuspended(itemId, true)
+          return { success: false, shouldRetry: false }
+        }
 
         // Skip backoff during fastFail (shutdown mode)
-        if (!fastFail && attempt < maxRetries - 1) {
-          const delay = baseDelay * Math.pow(2, attempt)
+        if (!fastFail && attempt < MAX_RETRY_ATTEMPTS - 1) {
+          const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt)
           await new Promise(resolve => setTimeout(resolve, delay))
         }
       }
@@ -259,44 +286,47 @@ class WorkoutAsyncQueue {
     console.error('[WorkoutQueue] Shot event failed after retries, will retry later:', {
       sessionId,
       itemId,
-      retryCount: maxRetries
+      retryCount: MAX_RETRY_ATTEMPTS
     })
-    return false
+    return { success: false, shouldRetry: true }
   }
 
-  private async retryCriticalEvent(type: string, sessionId: string, userId: string, payload: any, retryCount: number, itemId: string, fastFail: boolean = false): Promise<boolean> {
-    const maxRetries = 5
-    const baseDelay = 1000
+  private async retryCriticalEvent(type: string, sessionId: string, userId: string, payload: any, retryCount: number, itemId: string, fastFail: boolean = false): Promise<{ success: boolean; shouldRetry: boolean }> {
+    // If already exceeded retry limit, don't attempt
+    if (retryCount >= MAX_RETRY_ATTEMPTS) {
+      console.warn(`[WorkoutQueue] Item ${itemId} already exceeded retry limit (${retryCount}), keeping for manual recovery`)
+      return { success: false, shouldRetry: false }
+    }
 
-    for (let attempt = retryCount; attempt < maxRetries; attempt++) {
+    for (let attempt = retryCount; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
       try {
         // Update retry count before attempt
         await this.criticalOutbox.updateRetryCount(itemId, attempt)
-        
+
         if (type === 'SESSION_START') {
           // SESSION_START is handled by createWorkoutSession API call when session is created
           // This event is mainly for tracking purposes, so we mark it as successful
           console.log(`[WorkoutQueue] SESSION_START event acknowledged: ${sessionId}`)
-          return true
+          return { success: true, shouldRetry: false }
         } else if (type === 'SESSION_END') {
           // Call the real SESSION_END API
           await endWorkoutSession(sessionId, userId)
           console.log(`[WorkoutQueue] SESSION_END event processed: ${sessionId}`)
-          return true
+          return { success: true, shouldRetry: false }
         } else if (type === 'CALIBRATION') {
           // Call the real CALIBRATION API
           await saveCourtCalibration(sessionId, userId, payload)
           console.log(`[WorkoutQueue] CALIBRATION event processed: ${sessionId}`)
-          return true
+          return { success: true, shouldRetry: false }
         }
-        return true
+        return { success: true, shouldRetry: false }
       } catch (e: any) {
         // If session not found (404), remove the item from outbox
         // This happens when a session was deleted from backend but item remains in local storage
         if (e?.response?.status === 404 || e?.response?.data?.error?.includes('not found')) {
           console.warn(`[WorkoutQueue] Session ${sessionId} not found (404), removing item ${itemId} from outbox`)
           await this.criticalOutbox.remove(itemId)
-          return true // Return true to indicate item was handled (removed)
+          return { success: true, shouldRetry: false } // Item was handled (removed)
         }
 
         // If session is not active (400 with "Session is not active"), remove the item
@@ -304,10 +334,17 @@ class WorkoutAsyncQueue {
         if (e?.response?.status === 400 && e?.response?.data?.message?.includes('not active')) {
           console.warn(`[WorkoutQueue] Session ${sessionId} is not active, removing item ${itemId} from outbox`)
           await this.criticalOutbox.remove(itemId)
-          return true // Mark as success since session is already in correct state
+          return { success: true, shouldRetry: false } // Mark as success since session is already in correct state
         }
 
-        console.error(`[WorkoutQueue] Critical event failed (attempt ${attempt + 1}/${maxRetries}):`, {
+        // For 401 authentication errors, suspend automatic retries
+        if (e?.response?.status === 401) {
+          console.warn(`[WorkoutQueue] Authentication failed (401) for item ${itemId}, suspending automatic retries`)
+          await this.criticalOutbox.setSuspended(itemId, true)
+          return { success: false, shouldRetry: false }
+        }
+
+        console.error(`[WorkoutQueue] Critical event failed (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS}):`, {
           type,
           status: e?.response?.status,
           statusText: e?.response?.statusText,
@@ -316,8 +353,8 @@ class WorkoutAsyncQueue {
         })
 
         // Skip backoff during fastFail (shutdown mode)
-        if (!fastFail && attempt < maxRetries - 1) {
-          const delay = baseDelay * Math.pow(2, attempt)
+        if (!fastFail && attempt < MAX_RETRY_ATTEMPTS - 1) {
+          const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt)
           await new Promise(resolve => setTimeout(resolve, delay))
         }
       }
@@ -327,9 +364,9 @@ class WorkoutAsyncQueue {
       type,
       sessionId,
       itemId,
-      retryCount: maxRetries
+      retryCount: MAX_RETRY_ATTEMPTS
     })
-    return false
+    return { success: false, shouldRetry: true }
   }
 
   private async processTelemetryItems(items: AsyncQueueItem<FrameDataPayload>[]) {
@@ -345,18 +382,20 @@ class WorkoutAsyncQueue {
   async flushCriticalOnly(maxAttempts: number = 50, timeoutMs: number = 3000) {
     const startTime = Date.now()
     let attempts = 0
-    while (this.criticalOutbox.size > 0 && attempts < maxAttempts) {
+    while (this.criticalOutbox.getRetryableCount() > 0 && attempts < maxAttempts) {
       // Check time budget
       if (Date.now() - startTime > timeoutMs) {
-        console.warn(`[WorkoutQueue] flushCriticalOnly timed out after ${timeoutMs}ms with ${this.criticalOutbox.size} pending items - items remain in outbox for recovery`)
+        console.warn(`[WorkoutQueue] flushCriticalOnly timed out after ${timeoutMs}ms with ${this.criticalOutbox.getRetryableCount()} retryable items - items remain in outbox for recovery`)
         break
       }
       await this.flush({ critical: true, telemetry: false, fastFail: true })
       attempts++
     }
 
-    if (this.criticalOutbox.size > 0) {
-      console.warn(`[WorkoutQueue] flushCriticalOnly stopped after ${attempts} attempts (${Date.now() - startTime}ms) with ${this.criticalOutbox.size} pending items - items remain in outbox for recovery`)
+    if (this.criticalOutbox.getRetryableCount() > 0) {
+      console.warn(`[WorkoutQueue] flushCriticalOnly stopped after ${attempts} attempts (${Date.now() - startTime}ms) with ${this.criticalOutbox.getRetryableCount()} retryable items - items remain in outbox for recovery`)
+    } else if (this.criticalOutbox.getSuspendedCount() > 0) {
+      console.log(`[WorkoutQueue] flushCriticalOnly complete with ${this.criticalOutbox.getSuspendedCount()} suspended items (not retried automatically)`)
     }
   }
 
@@ -367,7 +406,7 @@ class WorkoutAsyncQueue {
   }
 
   async flushAll() {
-    while (this.criticalOutbox.size > 0 || this.telemetry.size > 0) {
+    while (this.criticalOutbox.getRetryableCount() > 0 || this.telemetry.size > 0) {
       await this.flush({ critical: true, telemetry: true })
     }
   }

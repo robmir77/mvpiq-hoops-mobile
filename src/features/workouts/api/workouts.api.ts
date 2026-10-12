@@ -166,6 +166,14 @@ export const saveCourtCalibration = async (
         body.sidelineLeftY         = bottomLeft.y
     }
 
+    // Vision parameters for session resume
+    if (data.yoloModelId) body.yoloModelId = data.yoloModelId
+    if (data.moveNetModelId) body.moveNetModelId = data.moveNetModelId
+    if (data.fps) body.fps = data.fps
+    if (data.poseResolution) body.poseResolution = data.poseResolution
+    if (data.yoloDelegate) body.yoloDelegate = data.yoloDelegate
+    if (data.poseDelegate) body.poseDelegate = data.poseDelegate
+
     await apiClient.post(
         `/workouts/sessions/${sessionId}/calibration?userId=${userId}`,
         body

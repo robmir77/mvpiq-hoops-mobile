@@ -795,6 +795,23 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             setSession(s)
             setShotCount({ total: s.totalShots, made: s.madeShots })
 
+            // Apply vision configuration from session (for session resume)
+            // Only if not already provided via route.params (new session)
+            if (!selectedResolution && s.cameraResolutionWidth && s.cameraResolutionHeight) {
+                effectiveResolutionRef.current = { width: s.cameraResolutionWidth, height: s.cameraResolutionHeight }
+            }
+            if (!selectedFps && s.fps) {
+                setEffectiveFps(s.fps)
+            }
+            if (!yoloModelId && s.yoloModelId) {
+                setEffectiveYoloModelId(s.yoloModelId)
+            }
+            console.log('[WorkoutSession] Vision configuration from session:', {
+                resolution: s.cameraResolutionWidth && s.cameraResolutionHeight ? { width: s.cameraResolutionWidth, height: s.cameraResolutionHeight } : null,
+                fps: s.fps,
+                yoloModelId: s.yoloModelId,
+            })
+
             // Create session-scoped queue FIRST (async initialization with global recovery)
             workoutQueueRef.current = await createWorkoutQueue({ sessionId, userId: user.id })
             console.log('[WorkoutSession] Queue initialized')
@@ -883,6 +900,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     hoopCenter:       calibrationParam.hoopCenter,
                     cameraResolution: calibrationParam.cameraResolution,
                     courtCorners:     calibrationParam.courtCorners,
+                    // Vision parameters for session resume
+                    yoloModelId:      yoloModelId,
+                    moveNetModelId:   moveNetModelId,
+                    fps:              selectedFps,
+                    poseResolution:   selectedPoseResolution,
+                    yoloDelegate:     yoloDelegate,
+                    poseDelegate:     poseDelegate,
                 }
                 console.log('[WorkoutSession] Calibration from param (no conversion):', cal.hoopCenter)
             } else {
@@ -891,7 +915,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                     console.log('[WorkoutSession] Raw calibration from backend:', {
                         hoopCenterX: r.data.hoopCenterX,
-                        hoopCenterY: r.data.hoopCenterY
+                        hoopCenterY: r.data.hoopCenterY,
+                        yoloModelId: r.data.yoloModelId,
+                        fps: r.data.fps,
                     })
                     // No inverse mirror needed - coordinates are already in YOLO space
                     cal = {
@@ -901,6 +927,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
                             : undefined,
                         courtCorners:     r.data.courtCorners,
+                        // Vision parameters for session resume
+                        yoloModelId:      r.data.yoloModelId,
+                        moveNetModelId:   r.data.moveNetModelId,
+                        fps:              r.data.fps,
+                        poseResolution:   r.data.poseResolution,
+                        yoloDelegate:    r.data.yoloDelegate,
+                        poseDelegate:     r.data.poseDelegate,
                     }
                     console.log('[WorkoutSession] Calibration loaded from backend (no conversion):', cal.hoopCenter)
                 } catch (e) {
@@ -917,6 +950,18 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 // mapNormalizedToCameraView will apply mirror X+Y for display
                 tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
                 runtime.setCalibration(cal)
+
+                // Apply vision parameters from calibration (for session resume)
+                if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
+                if (cal.fps) setEffectiveFps(cal.fps)
+                if (cal.cameraResolution) {
+                    effectiveResolutionRef.current = cal.cameraResolution
+                }
+                console.log('[WorkoutSession] Vision parameters applied from calibration:', {
+                    yoloModelId: cal.yoloModelId,
+                    fps: cal.fps,
+                    resolution: cal.cameraResolution,
+                })
 
                 // Save calibration to backend when creating new session (from param)
                 // This ensures calibration is available when resuming the session
@@ -1073,7 +1118,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     const r = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                     console.log('[WorkoutSession] Reloaded calibration on resume:', {
                         hoopCenterX: r.data.hoopCenterX,
-                        hoopCenterY: r.data.hoopCenterY
+                        hoopCenterY: r.data.hoopCenterY,
+                        yoloModelId: r.data.yoloModelId,
+                        fps: r.data.fps,
                     })
                     const cal: CalibrationData = {
                         homographyMatrix: r.data.homographyMatrix ?? [],
@@ -1082,10 +1129,29 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
                             : undefined,
                         courtCorners: r.data.courtCorners,
+                        // Vision parameters for session resume
+                        yoloModelId:      r.data.yoloModelId,
+                        moveNetModelId:   r.data.moveNetModelId,
+                        fps:              r.data.fps,
+                        poseResolution:   r.data.poseResolution,
+                        yoloDelegate:    r.data.yoloDelegate,
+                        poseDelegate:     r.data.poseDelegate,
                     }
                     setCalibration(cal)
                     tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
                     runtime.setCalibration(cal)
+
+                    // Apply vision parameters from calibration (for session resume)
+                    if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
+                    if (cal.fps) setEffectiveFps(cal.fps)
+                    if (cal.cameraResolution) {
+                        effectiveResolutionRef.current = cal.cameraResolution
+                    }
+                    console.log('[WorkoutSession] Vision parameters applied on resume:', {
+                        yoloModelId: cal.yoloModelId,
+                        fps: cal.fps,
+                        resolution: cal.cameraResolution,
+                    })
                     console.log('[WorkoutSession] Calibration reloaded and applied on resume')
                 } catch (e) {
                     console.log('[WorkoutSession] Calibration not reloaded on resume', e)

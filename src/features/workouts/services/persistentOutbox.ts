@@ -8,6 +8,7 @@ interface OutboxItem {
   payload: any
   timestamp: number
   retryCount: number
+  suspended?: boolean // If true, item is suspended from automatic retries (e.g., 401 auth error)
 }
 
 const OUTBOX_KEY_PREFIX = 'workout_outbox_'
@@ -64,7 +65,7 @@ class PersistentOutbox {
     try {
       const keys = await AsyncStorage.getAllKeys()
       const allOutboxKeys = keys.filter(k => k.startsWith(OUTBOX_KEY_PREFIX))
-      
+
       if (allOutboxKeys.length === 0) return
 
       const items = await AsyncStorage.multiGet(allOutboxKeys)
@@ -80,9 +81,13 @@ class PersistentOutbox {
         .filter((item): item is OutboxItem => item !== null)
         .sort((a, b) => a.timestamp - b.timestamp)
 
+      // Deduplicate by id to avoid duplicates when called multiple times
+      const existingIds = new Set(this.memoryQueue.map(item => item.id))
+      const newItems = allItems.filter(item => !existingIds.has(item.id))
+
       // Merge with existing memory queue
-      this.memoryQueue = [...this.memoryQueue, ...allItems]
-      console.log(`[PersistentOutbox] Loaded and merged ${allItems.length} pending items from ALL sessions`)
+      this.memoryQueue = [...this.memoryQueue, ...newItems]
+      console.log(`[PersistentOutbox] Loaded and merged ${newItems.length} pending items from ALL sessions (${allItems.length - newItems.length} duplicates skipped)`)
     } catch (e) {
       console.error('[PersistentOutbox] Failed to load all pending items:', e)
     }
@@ -168,6 +173,46 @@ class PersistentOutbox {
     } catch (e) {
       console.error('[PersistentOutbox] Failed to update retry count:', e)
     }
+  }
+
+  /**
+   * Set suspended state for an item (e.g., after 401 auth error)
+   */
+  async setSuspended(id: string, suspended: boolean): Promise<void> {
+    const item = this.memoryQueue.find(i => i.id === id)
+    if (!item) return
+
+    item.suspended = suspended
+
+    try {
+      const key = `${OUTBOX_KEY_PREFIX}${id}`
+      await AsyncStorage.setItem(key, JSON.stringify(item))
+      console.log(`[PersistentOutbox] Item ${id} suspended state set to ${suspended}`)
+    } catch (e) {
+      console.error('[PersistentOutbox] Failed to update suspended state:', e)
+    }
+  }
+
+  /**
+   * Check if an item is suspended
+   */
+  isSuspended(id: string): boolean {
+    const item = this.memoryQueue.find(i => i.id === id)
+    return item?.suspended === true
+  }
+
+  /**
+   * Get count of suspended items
+   */
+  getSuspendedCount(): number {
+    return this.memoryQueue.filter(item => item.suspended === true).length
+  }
+
+  /**
+   * Get count of non-suspended items (eligible for retry)
+   */
+  getRetryableCount(): number {
+    return this.memoryQueue.filter(item => item.suspended !== true).length
   }
 
   /**

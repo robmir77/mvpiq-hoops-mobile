@@ -13,6 +13,7 @@ export interface OutboxItem {
   payload: any
   timestamp: number
   retryCount: number
+  suspended?: boolean // If true, item is suspended from automatic retries (e.g., 401 auth error)
 }
 
 /**
@@ -80,7 +81,7 @@ export class OutboxRecoveryWorker {
   private async runRecovery() {
     try {
       const items = await this.loadAllPendingItems()
-      
+
       if (items.length === 0) {
         return
       }
@@ -89,14 +90,26 @@ export class OutboxRecoveryWorker {
 
       let recovered = 0
       let failed = 0
+      let suspended = 0
 
       for (const item of items) {
+        // Skip suspended items (e.g., 401 auth errors)
+        if (item.suspended === true) {
+          suspended++
+          continue
+        }
+
         try {
-          const success = await this.retryItem(item)
-          if (success) {
+          const result = await this.retryItem(item)
+          if (result.success) {
             await this.removeItem(item.id)
             recovered++
+          } else if (!result.shouldRetry) {
+            // Item exceeded retry limit or should not be retried - keep for manual recovery
+            // Do NOT increment retry count to avoid infinite loop
+            failed++
           } else {
+            // Item failed but should be retried - increment count
             await this.incrementRetryCount(item)
             failed++
           }
@@ -106,8 +119,8 @@ export class OutboxRecoveryWorker {
         }
       }
 
-      if (recovered > 0 || failed > 0) {
-        console.log(`[RecoveryWorker] Recovery pass complete: ${recovered} recovered, ${failed} failed`)
+      if (recovered > 0 || failed > 0 || suspended > 0) {
+        console.log(`[RecoveryWorker] Recovery pass complete: ${recovered} recovered, ${failed} failed, ${suspended} suspended`)
       }
     } catch (e) {
       console.error('[RecoveryWorker] Recovery pass failed:', e)
@@ -146,12 +159,15 @@ export class OutboxRecoveryWorker {
 
   /**
    * Retry a single item
+   * Returns { success: boolean, shouldRetry: boolean }
+   * - success: true if item was successfully retried or removed
+   * - shouldRetry: false if item exceeded retry limit or should not be retried automatically
    */
-  private async retryItem(item: OutboxItem): Promise<boolean> {
+  private async retryItem(item: OutboxItem): Promise<{ success: boolean; shouldRetry: boolean }> {
     // Check retry limit
     if (item.retryCount >= MAX_RETRY_ATTEMPTS) {
       console.warn(`[RecoveryWorker] Item ${item.id} exceeded retry limit (${item.retryCount}), keeping for manual recovery`)
-      return false
+      return { success: false, shouldRetry: false }
     }
 
     // Calculate backoff delay
@@ -163,21 +179,21 @@ export class OutboxRecoveryWorker {
         case 'SHOT':
           await addShotEvent(item.sessionId, item.userId, item.payload)
           console.log(`[RecoveryWorker] Successfully retried SHOT ${item.id}`)
-          return true
+          return { success: true, shouldRetry: false }
         case 'SESSION_END':
           await endWorkoutSession(item.sessionId, item.userId)
           console.log(`[RecoveryWorker] Successfully retried SESSION_END ${item.id}`)
-          return true
+          return { success: true, shouldRetry: false }
         case 'CALIBRATION':
           await saveCourtCalibration(item.sessionId, item.userId, item.payload)
           console.log(`[RecoveryWorker] Successfully retried CALIBRATION ${item.id}`)
-          return true
+          return { success: true, shouldRetry: false }
         case 'SESSION_START':
           console.log(`[RecoveryWorker] SESSION_START ${item.id} is confirmed, skipping retry`)
-          return true
+          return { success: true, shouldRetry: false }
         default:
           console.warn(`[RecoveryWorker] Unknown item type: ${item.type}`)
-          return false
+          return { success: false, shouldRetry: false }
       }
     } catch (e: any) {
       console.error(`[RecoveryWorker] Failed to retry item ${item.id}:`, {
@@ -192,7 +208,7 @@ export class OutboxRecoveryWorker {
       if (e?.response?.status === 404 || e?.response?.data?.error?.includes('not found')) {
         console.warn(`[RecoveryWorker] Session ${item.sessionId} not found (404), removing item ${item.id} from outbox`)
         await this.removeItem(item.id)
-        return true // Return true to indicate item was handled (removed)
+        return { success: true, shouldRetry: false } // Item was handled (removed)
       }
 
       // If session is not active (400 with "Session is not active"), remove the item
@@ -200,10 +216,19 @@ export class OutboxRecoveryWorker {
       if (e?.response?.status === 400 && e?.response?.data?.message?.includes('not active')) {
         console.warn(`[RecoveryWorker] Session ${item.sessionId} is not active, removing item ${item.id} from outbox`)
         await this.removeItem(item.id)
-        return true // Return true to indicate item was handled (removed)
+        return { success: true, shouldRetry: false } // Item was handled (removed)
       }
 
-      return false
+      // For 401 authentication errors, do not retry automatically
+      // User may need to re-login, but we keep the item for manual recovery
+      if (e?.response?.status === 401) {
+        console.warn(`[RecoveryWorker] Authentication failed (401) for item ${item.id}, suspending automatic retries`)
+        await this.setSuspended(item.id, true)
+        return { success: false, shouldRetry: false }
+      }
+
+      // For other errors, allow retry
+      return { success: false, shouldRetry: true }
     }
   }
 
@@ -233,10 +258,63 @@ export class OutboxRecoveryWorker {
   }
 
   /**
+   * Set suspended state for an item (e.g., after 401 auth error)
+   */
+  private async setSuspended(id: string, suspended: boolean) {
+    try {
+      const key = `${OUTBOX_KEY_PREFIX}${id}`
+      const value = await AsyncStorage.getItem(key)
+      if (!value) return
+
+      const item = JSON.parse(value) as OutboxItem
+      item.suspended = suspended
+      await AsyncStorage.setItem(key, JSON.stringify(item))
+      console.log(`[RecoveryWorker] Item ${id} suspended state set to ${suspended}`)
+    } catch (e) {
+      console.error(`[RecoveryWorker] Failed to update suspended state for ${id}:`, e)
+    }
+  }
+
+  /**
    * Sleep helper for backoff delay
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  /**
+   * Remove all items for a specific session ID
+   * Useful for cleaning up items from obsolete sessions
+   */
+  async removeItemsBySession(sessionId: string): Promise<number> {
+    try {
+      const keys = await AsyncStorage.getAllKeys()
+      const sessionOutboxKeys = keys.filter(k => k.startsWith(OUTBOX_KEY_PREFIX))
+
+      if (sessionOutboxKeys.length === 0) return 0
+
+      const items = await AsyncStorage.multiGet(sessionOutboxKeys)
+      const itemsToRemove = items
+        .filter(([_, value]) => {
+          if (!value) return false
+          try {
+            const item = JSON.parse(value) as OutboxItem
+            return item.sessionId === sessionId
+          } catch {
+            return false
+          }
+        })
+        .map(([key]) => key)
+
+      if (itemsToRemove.length === 0) return 0
+
+      await AsyncStorage.multiRemove(itemsToRemove)
+      console.log(`[RecoveryWorker] Removed ${itemsToRemove.length} items for session ${sessionId}`)
+      return itemsToRemove.length
+    } catch (e) {
+      console.error(`[RecoveryWorker] Failed to remove items for session ${sessionId}:`, e)
+      return 0
+    }
   }
 }
 
@@ -267,4 +345,13 @@ export function startRecoveryWorker(intervalMs: number = 30000) {
 export function stopRecoveryWorker() {
   const worker = getRecoveryWorker()
   worker.stop()
+}
+
+/**
+ * Remove all items for a specific session ID
+ * Useful for cleaning up items from obsolete sessions
+ */
+export async function removeOutboxItemsBySession(sessionId: string): Promise<number> {
+  const worker = getRecoveryWorker()
+  return await worker.removeItemsBySession(sessionId)
 }

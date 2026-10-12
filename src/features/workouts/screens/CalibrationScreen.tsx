@@ -991,6 +991,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
             const payload: CreateWorkoutSessionPayload = {
                 cameraMode,
                 courtType,
+                // Vision configuration for session
+                fps: selectedFps ?? undefined,
+                cameraResolutionWidth: selectedResolution?.width,
+                cameraResolutionHeight: selectedResolution?.height,
+                poseResolution: selectedPoseResolution,
+                yoloModelId: selectedYoloModelId,
+                moveNetModelId: selectedMoveNetModelId,
+                yoloDelegate: yoloDelegate,
+                poseDelegate: poseDelegate,
             }
 
             console.log('[Calibration] Creazione sessione con payload:', payload)
@@ -1039,6 +1048,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     const payload: CreateWorkoutSessionPayload = {
                         cameraMode,
                         courtType,
+                        // Vision configuration for session
+                        fps: selectedFps ?? undefined,
+                        cameraResolutionWidth: selectedResolution?.width,
+                        cameraResolutionHeight: selectedResolution?.height,
+                        poseResolution: selectedPoseResolution,
+                        yoloModelId: selectedYoloModelId,
+                        moveNetModelId: selectedMoveNetModelId,
+                        yoloDelegate: yoloDelegate,
+                        poseDelegate: poseDelegate,
                     }
 
                     console.log('[Calibration] Creazione sessione (skip) con payload:', payload)
