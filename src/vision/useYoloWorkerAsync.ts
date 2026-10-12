@@ -273,7 +273,7 @@ export const useYoloWorkerAsync = (
       telemetryLogger.recordRnYoloCallbackStart()
 
       // Detailed scheduling diagnostics (gated to reduce overhead)
-      if (__DEV__ && frameCounter && frameCounter % 100 === 0) {
+      if (__DEV__ && frameCounter && frameCounter % 500 === 0) {
         console.log('[YoloWorkerAsync] scheduling diagnostics', {
           frameCounter,
           callbackStart: tC,

@@ -291,14 +291,6 @@ class WorkoutAsyncQueue {
         }
         return true
       } catch (e: any) {
-        console.error(`[WorkoutQueue] Critical event failed (attempt ${attempt + 1}/${maxRetries}):`, {
-          type,
-          status: e?.response?.status,
-          statusText: e?.response?.statusText,
-          data: e?.response?.data,
-          message: e?.message,
-        })
-
         // If session not found (404), remove the item from outbox
         // This happens when a session was deleted from backend but item remains in local storage
         if (e?.response?.status === 404 || e?.response?.data?.error?.includes('not found')) {
@@ -314,6 +306,14 @@ class WorkoutAsyncQueue {
           await this.criticalOutbox.remove(itemId)
           return true // Mark as success since session is already in correct state
         }
+
+        console.error(`[WorkoutQueue] Critical event failed (attempt ${attempt + 1}/${maxRetries}):`, {
+          type,
+          status: e?.response?.status,
+          statusText: e?.response?.statusText,
+          data: e?.response?.data,
+          message: e?.message,
+        })
 
         // Skip backoff during fastFail (shutdown mode)
         if (!fastFail && attempt < maxRetries - 1) {

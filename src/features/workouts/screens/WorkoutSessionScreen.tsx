@@ -1019,7 +1019,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
                 // Export telemetry summary for saving with session
                 const telemetrySummary = telemetryLogger.exportTestSummary(pipelineFpsMetrics.yoloFps?.value ?? 0, pipelineFpsMetrics.moveNetFps?.value ?? 0)
-                console.log('[WorkoutSession] Telemetry Summary:', telemetrySummary)
 
                 // Stop runtime session (includes queue shutdown via Runtime.stop())
                 if (runtimeForEnd) {

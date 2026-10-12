@@ -339,19 +339,15 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     // Step 3: Shot detection (already performed by TrackingEngine internally)
     // TrackingEngine.processFrame() calls ShotDetectionEngine and includes result in trackingState
     if (trackingState?.shotDetected && trackingState?.shotResult) {
-      console.log('[WorkoutSessionRuntime] Shot detected: result=' + trackingState.shotResult + ', shotId=' + trackingState.shotId)
       // Check idempotency: skip if this shotId was already processed or is pending
       if (trackingState.shotId) {
         if (this.processedShotIds.has(trackingState.shotId)) {
-          console.log(`[WorkoutSessionRuntime] Shot ${trackingState.shotId} already processed, skipping`)
           return
         }
         if (this.pendingShotIds.has(trackingState.shotId)) {
-          console.log(`[WorkoutSessionRuntime] Shot ${trackingState.shotId} already pending, skipping`)
           return
         }
       }
-      console.log('[WorkoutSessionRuntime] Shot passed idempotency check, proceeding to enqueue')
 
       // Use ShotEventBuilder to build complete payload with trajectory, pose, court position
       const payload = this.shotEventBuilder.buildAddShotPayload(
@@ -372,7 +368,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       }
 
       // Enqueue shot event to critical queue with complete payload and await result
-      console.log('[WorkoutSessionRuntime] Enqueuing shot ' + payload.shotId + ' to critical queue')
       const enqueueSuccess = await this.enqueueCritical({
         type: 'SHOT',
         sessionId: this.config.sessionId,
@@ -382,7 +377,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
           shotResult: normalizedResult, // Override with normalized result
         },
       })
-      console.log('[WorkoutSessionRuntime] Shot ' + payload.shotId + ' enqueue result: ' + enqueueSuccess)
 
       // Only mark as processed and update metrics if enqueue succeeded
       if (enqueueSuccess && payload.shotId) {

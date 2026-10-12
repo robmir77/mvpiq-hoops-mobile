@@ -652,8 +652,8 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
                         fill="rgba(74,222,128,0.20)" stroke="#4ade80" strokeWidth={2} />
                     <Circle cx={c.x} cy={c.y} r={4} fill="#4ade80" />
                     <SvgText x={c.x} y={c.y - 22} textAnchor="middle"
-                        fill="#4ade80" fontSize={13}>
-                        {['↖','↗','↘','↙'][i]}
+                        fill="#4ade80" fontSize={14} fontWeight="700">
+                        {i + 1}
                     </SvgText>
                 </G>
             ))}

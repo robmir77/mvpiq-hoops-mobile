@@ -79,12 +79,9 @@ export class OutboxRecoveryWorker {
    */
   private async runRecovery() {
     try {
-      console.log('[RecoveryWorker] Running recovery pass')
-      
       const items = await this.loadAllPendingItems()
       
       if (items.length === 0) {
-        console.log('[RecoveryWorker] No pending items to recover')
         return
       }
 
@@ -109,7 +106,9 @@ export class OutboxRecoveryWorker {
         }
       }
 
-      console.log(`[RecoveryWorker] Recovery pass complete: ${recovered} recovered, ${failed} failed`)
+      if (recovered > 0 || failed > 0) {
+        console.log(`[RecoveryWorker] Recovery pass complete: ${recovered} recovered, ${failed} failed`)
+      }
     } catch (e) {
       console.error('[RecoveryWorker] Recovery pass failed:', e)
     }

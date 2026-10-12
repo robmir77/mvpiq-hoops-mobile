@@ -6,6 +6,7 @@
 import React from 'react'
 import { View, Text, StyleSheet, Dimensions } from 'react-native'
 import { useAnimatedReaction, runOnJS } from 'react-native-reanimated'
+import Svg, { Line, Circle, Text as SvgText } from 'react-native-svg'
 import type { PoseKeypoints, TrackingState, CalibrationData, JointAngles } from '../types/workouts.types'
 import { YOLO_CONFIG } from '@/config/appConfig'
 
@@ -458,6 +459,66 @@ const ReactOverlay = React.memo(({
 
     return (
         <>
+            {/* Court calibration debug overlay */}
+            {showDebug && calibration?.courtCorners && (
+                <Svg style={StyleSheet.absoluteFill} width={SCREEN_W} height={CAMERA_H} pointerEvents="none">
+                    {/* Convert normalized corners to screen coordinates */}
+                    {(() => {
+                        const tl = mapNormalizedToCameraView(
+                            calibration.courtCorners.topLeft.x,
+                            calibration.courtCorners.topLeft.y,
+                            effectiveResolution.width,
+                            effectiveResolution.height
+                        )
+                        const tr = mapNormalizedToCameraView(
+                            calibration.courtCorners.topRight.x,
+                            calibration.courtCorners.topRight.y,
+                            effectiveResolution.width,
+                            effectiveResolution.height
+                        )
+                        const br = mapNormalizedToCameraView(
+                            calibration.courtCorners.bottomRight.x,
+                            calibration.courtCorners.bottomRight.y,
+                            effectiveResolution.width,
+                            effectiveResolution.height
+                        )
+                        const bl = mapNormalizedToCameraView(
+                            calibration.courtCorners.bottomLeft.x,
+                            calibration.courtCorners.bottomLeft.y,
+                            effectiveResolution.width,
+                            effectiveResolution.height
+                        )
+
+                        return (
+                            <>
+                                {/* Court perimeter lines */}
+                                <Line x1={tl.x} y1={tl.y} x2={tr.x} y2={tr.y} stroke="#4ade80" strokeWidth={2} strokeOpacity={0.6} />
+                                <Line x1={tr.x} y1={tr.y} x2={br.x} y2={br.y} stroke="#4ade80" strokeWidth={2} strokeOpacity={0.6} />
+                                <Line x1={br.x} y1={br.y} x2={bl.x} y2={bl.y} stroke="#4ade80" strokeWidth={2} strokeOpacity={0.6} />
+                                <Line x1={bl.x} y1={bl.y} x2={tl.x} y2={tl.y} stroke="#4ade80" strokeWidth={2} strokeOpacity={0.6} />
+
+                                {/* Corner markers with numbers */}
+                                <Circle cx={tl.x} cy={tl.y} r={12} fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth={2} />
+                                <Circle cx={tl.x} cy={tl.y} r={4} fill="#4ade80" />
+                                <SvgText x={tl.x} y={tl.y - 18} textAnchor="middle" fill="#4ade80" fontSize={14} fontWeight="700">1</SvgText>
+
+                                <Circle cx={tr.x} cy={tr.y} r={12} fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth={2} />
+                                <Circle cx={tr.x} cy={tr.y} r={4} fill="#4ade80" />
+                                <SvgText x={tr.x} y={tr.y - 18} textAnchor="middle" fill="#4ade80" fontSize={14} fontWeight="700">2</SvgText>
+
+                                <Circle cx={br.x} cy={br.y} r={12} fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth={2} />
+                                <Circle cx={br.x} cy={br.y} r={4} fill="#4ade80" />
+                                <SvgText x={br.x} y={br.y + 28} textAnchor="middle" fill="#4ade80" fontSize={14} fontWeight="700">3</SvgText>
+
+                                <Circle cx={bl.x} cy={bl.y} r={12} fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth={2} />
+                                <Circle cx={bl.x} cy={bl.y} r={4} fill="#4ade80" />
+                                <SvgText x={bl.x} y={bl.y + 28} textAnchor="middle" fill="#4ade80" fontSize={14} fontWeight="700">4</SvgText>
+                            </>
+                        )
+                    })()}
+                </Svg>
+            )}
+
             {ballLabelVisible && (
                 <View
                     pointerEvents="none"
