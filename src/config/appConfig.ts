@@ -10,7 +10,7 @@ export const YOLO_CONFIG = {
   PLAYER_CROP_MIN_CONFIDENCE: 0.05, // Minimum confidence for player crop manager (5%)
 
   // Rim detection thresholds
-  RIM_CONF_THRESHOLD: 0.20, // Minimum confidence for rim detection (20%) - lowered for better detection rate with persistence logic
+  RIM_CONF_THRESHOLD: 0.30, // Minimum confidence for rim detection (30%) - increased for more reliable rim detection
 
   // NMS threshold
   NMS_IOU_THRESHOLD: 0.4, // IoU threshold for non-maximum suppression

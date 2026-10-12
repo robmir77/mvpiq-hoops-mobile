@@ -87,6 +87,7 @@ export const useYoloWorkerAsync = (
   yoloScheduledCount?: { value: number },
   perfYoloScheduleWaitTotal?: SharedValue<number>,
   onResultCallback?: (result: YoloWorkerResult) => void,
+  rimEnabled: boolean = true,
   // Ball rejection diagnostics
   ballYoloParsed?: SharedValue<number>,
   ballRejectedSize?: SharedValue<number>,
@@ -128,6 +129,11 @@ export const useYoloWorkerAsync = (
   useEffect(() => {
     onResultCallbackRef.current = onResultCallback || null
   }, [onResultCallback])
+
+  // Update rim detection enabled flag
+  useEffect(() => {
+    yoloDetectorRef.current.setRimDetectionEnabled(rimEnabled)
+  }, [rimEnabled])
 
   // Cleanup on unmount: cancel pending work
   useEffect(() => {

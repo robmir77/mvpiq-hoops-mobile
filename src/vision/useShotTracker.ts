@@ -350,7 +350,7 @@ export const useShotTracker = (
         // IMPORTANT: Async YOLO must feed the same TrackingEngine path as sync YOLO.
         const detection: BallDetection = {
             ball: result.ball ?? undefined,
-            rim: result.rim ?? undefined,
+            rim: rimEnabledShared.value ? result.rim ?? undefined : undefined,
             timestamp: result.timestamp,
         }
 
@@ -395,7 +395,7 @@ export const useShotTracker = (
             // Reset PlayerCrop when no player detected
             playerCrop.update(null, latestPlayerDetectionId.value)
         }
-    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge, latestPlayerDetectionId])
+    }, [playerX, playerY, playerWidth, playerHeight, playerConfidence, playerTrackState, playerTrackAge, latestPlayerDetectionId, rimEnabledShared])
 
 
     // Initialize async YOLO worker with callback (must be after handleYoloAsyncResult)
@@ -405,7 +405,8 @@ export const useShotTracker = (
         yoloModelId,
         undefined, // yoloScheduledCount
         undefined, // perfYoloScheduleWaitTotal
-        handleYoloAsyncResult
+        handleYoloAsyncResult,
+        rimEnabled,
         // Profiling parameters removed - simplified for production
     )
 

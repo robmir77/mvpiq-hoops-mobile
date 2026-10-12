@@ -39,6 +39,8 @@ interface BallVelocity {
 interface BallPosition {
   x: number
   y: number
+  width?: number
+  height?: number
 }
 
 // Dynamic hoop radius calculation (from useTrackingEngine)
@@ -187,9 +189,22 @@ export class ShotDetectionEngine {
         const ballThroughHoop = dist < dynamicHoopRadius
 
         // Only count as MADE if ball passes through hoop from above (descending through the rim)
-        if (ballNearHoop && ballThroughHoop && rawVy > 0) {
+        // Additional check: ball must not be wider than rim (optical perspective check)
+        // If ball appears wider than rim, it's closer to camera than hoop - cannot be a made shot
+        const ballWidth = ballForHoopCheck.width || 0
+        const ballHeight = ballForHoopCheck.height || 0
+        const rimWidth = hoop.width || 0
+        const rimHeight = hoop.height || 0
+        const ballWiderThanRim = (ballWidth > rimWidth * 1.2) || (ballHeight > rimHeight * 1.2)
+
+        if (ballNearHoop && ballThroughHoop && rawVy > 0 && !ballWiderThanRim) {
           this.shotDetected = true
           this.shotResult = 'MADE'
+          this.lastShotTs = frameTs
+        } else if (ballNearHoop && ballThroughHoop && rawVy > 0 && ballWiderThanRim) {
+          // Ball passes through hoop area but is wider than rim - optical perspective, not a made shot
+          this.shotDetected = true
+          this.shotResult = 'MISS'
           this.lastShotTs = frameTs
         } else if (ballNearHoop && !ballThroughHoop && rawVy > 0) {
           // Near hoop but missed

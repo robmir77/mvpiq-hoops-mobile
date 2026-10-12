@@ -272,7 +272,12 @@ export class TrackingEngine implements ITrackingEngine {
 
     // Shot detection via ShotDetectionEngine
     const engineShotResult = this.shotDetectionEngine.processFrame(
-      this.state.ballPosition,
+      this.state.ballPosition ? {
+        x: this.state.ballPosition.x,
+        y: this.state.ballPosition.y,
+        width: this.state.ballWidth,
+        height: this.state.ballHeight,
+      } : null,
       this.state.ballVelocity,
       this.state.hoopPosition ? {
         x: this.state.hoopPosition.x,
@@ -282,7 +287,12 @@ export class TrackingEngine implements ITrackingEngine {
         confidence: this.state.hoopPosition.confidence ?? 0,
       } : null,
       frameTs,
-      this.state.ballPositionRaw // Pass raw YOLO position for hoop verification (bypasses Kalman)
+      this.state.ballPositionRaw ? {
+        x: this.state.ballPositionRaw.x,
+        y: this.state.ballPositionRaw.y,
+        width: this.state.ballWidth,
+        height: this.state.ballHeight,
+      } : null // Pass raw YOLO position for hoop verification (bypasses Kalman)
     )
 
     // Apply engine shot detection results

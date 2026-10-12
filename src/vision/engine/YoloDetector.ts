@@ -37,6 +37,7 @@ export interface YoloResult {
 export class YoloDetector {
   private ballConfThreshold: number
   private rimConfThreshold: number
+  private rimDetectionEnabled: boolean = true
 
   // Persistent rim detection state (for confidence-based replacement)
   private persistentRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
@@ -47,6 +48,14 @@ export class YoloDetector {
   ) {
     this.ballConfThreshold = ballConfThreshold
     this.rimConfThreshold = rimConfThreshold
+  }
+
+  setRimDetectionEnabled(enabled: boolean): void {
+    this.rimDetectionEnabled = enabled
+    if (!enabled) {
+      // Clear persistent rim when disabled
+      this.persistentRim = null
+    }
   }
 
   // Adaptive confidence threshold based on detected ball size
@@ -217,23 +226,26 @@ export class YoloDetector {
           }
         }
 
-        const effectiveRimThreshold = this.rimConfThreshold
-        if (rimProb >= effectiveRimThreshold) {
-          const detection = {
-            x: cameraCx,
-            y: cameraCy,
-            width: cameraW,
-            height: cameraH,
-            confidence: rimProb,
+        // Rim detection pipeline (skip if disabled)
+        if (this.rimDetectionEnabled) {
+          const effectiveRimThreshold = this.rimConfThreshold
+          if (rimProb >= effectiveRimThreshold) {
+            const detection = {
+              x: cameraCx,
+              y: cameraCy,
+              width: cameraW,
+              height: cameraH,
+              confidence: rimProb,
+            }
+            if (!bestRim || detection.confidence > bestRim.confidence) {
+              bestRim = detection
+            }
           }
-          if (!bestRim || detection.confidence > bestRim.confidence) {
-            bestRim = detection
-          }
-        }
 
-        // Rim persistence: keep previous rim if new detection has lower confidence
-        if (this.persistentRim && (!bestRim || bestRim.confidence < this.persistentRim.confidence)) {
-          bestRim = this.persistentRim
+          // Rim persistence: keep previous rim if new detection has lower confidence
+          if (this.persistentRim && (!bestRim || bestRim.confidence < this.persistentRim.confidence)) {
+            bestRim = this.persistentRim
+          }
         }
 
         // Player detection pipeline with debug counters

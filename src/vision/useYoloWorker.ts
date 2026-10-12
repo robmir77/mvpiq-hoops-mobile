@@ -53,7 +53,8 @@ export const useYoloWorker = (
   perfYoloScheduleWaitTotal?: any, // SharedValue for schedule wait tracking
   perfYoloWorkletPrepTotal?: any, // SharedValue for worklet preprocessing (A→B)
   perfYoloJsPreprocessTotal?: any, // SharedValue for JS preprocessing (C→D)
-  perfYoloPostprocessTotal?: any // SharedValue for postprocess/callback (E→F)
+  perfYoloPostprocessTotal?: any, // SharedValue for postprocess/callback (E→F)
+  rimEnabled: boolean = true
 ) => {
   // Pure YOLO detector instance (worklet-safe)
   const yoloDetectorRef = useRef(new YoloDetector(
@@ -179,14 +180,14 @@ export const useYoloWorker = (
   useEffect(() => {
     const isLoaded = yoloModel.state === 'loaded' && yoloModel.model != null
     isReady.value = isLoaded
-    
+
     // Log model metadata when model loads
     if (isLoaded && selectedYoloModel) {
-      const delegateName = Platform.OS === 'android' 
+      const delegateName = Platform.OS === 'android'
         ? (yoloDelegate as AndroidDelegateOption) || DEFAULT_ANDROID_DELEGATE
         : (yoloDelegate as IosDelegateOption) || DEFAULT_IOS_DELEGATE
-      
-      
+
+
       telemetryLogger.logModelMetadata({
         name: selectedYoloModel.fileName,
         inputSize: selectedYoloModel.inputSize,
@@ -194,6 +195,11 @@ export const useYoloWorker = (
       })
     }
   }, [yoloModel.state, yoloModel.model, isReady, selectedYoloModel, yoloDelegate])
+
+  // Update rim detection enabled flag
+  useEffect(() => {
+    yoloDetectorRef.current.setRimDetectionEnabled(rimEnabled)
+  }, [rimEnabled])
 
   const yoloResizerConfig = useMemo(
     () => {

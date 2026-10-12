@@ -1237,7 +1237,23 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     console.log('[WorkoutSession] Pose toggle:', { from: poseEnabled, to: newValue })
                     setPoseEnabled(newValue)
                 }}
-                onToggleRim={() => setRimDetectionEnabled(!rimDetectionEnabled)}
+                onToggleRim={() => {
+                    const newValue = !rimDetectionEnabled
+                    setRimDetectionEnabled(newValue)
+                    if (!newValue) {
+                        // Reset rimFromDetection to use calibration coordinates
+                        setRimFromDetection(null)
+                        // Update tracking engine to use calibration hoop
+                        if (calibration?.hoopCenter) {
+                            tracking.setHoopFromCalibration(
+                                calibration.hoopCenter.x,
+                                calibration.hoopCenter.y,
+                                0.05,
+                                0.05
+                            )
+                        }
+                    }
+                }}
                 onToggleDebug={() => setDebugMode(!debugMode)}
                 onToggleDiagnostic={() => {
                     const newValue = !diagnosticMode
