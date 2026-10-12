@@ -900,6 +900,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     hoopCenter:       calibrationParam.hoopCenter,
                     cameraResolution: calibrationParam.cameraResolution,
                     courtCorners:     calibrationParam.courtCorners,
+                    courtWidth:       calibrationParam.courtWidth,
+                    courtHeight:      calibrationParam.courtHeight,
                     // Vision parameters for session resume
                     yoloModelId:      yoloModelId,
                     moveNetModelId:   moveNetModelId,
@@ -912,28 +914,56 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             } else {
                 // Try loading from backend (already in YOLO space with mirror)
                 try {
-                    const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+                    // Load calibration data (geometric: homographyMatrix, courtCorners, courtWidth/Height)
+                    const calR = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                     console.log('[WorkoutSession] Raw calibration from backend:', {
-                        hoopCenterX: r.data.hoopCenterX,
-                        hoopCenterY: r.data.hoopCenterY,
-                        yoloModelId: r.data.yoloModelId,
-                        fps: r.data.fps,
+                        hoopCenterX: calR.data.hoopCenterX,
+                        hoopCenterY: calR.data.hoopCenterY,
+                        homographyMatrix: calR.data.homographyMatrix,
+                        courtCorners: calR.data.courtCorners,
+                        courtWidth: calR.data.courtWidth,
+                        courtHeight: calR.data.courtHeight,
                     })
+
+                    // Load session data (vision parameters: fps, yoloModelId, etc.)
+                    const sessionR = await getWorkoutSession(sessionId, user.id)
+                    console.log('[WorkoutSession] Session data from backend:', {
+                        fps: sessionR.fps,
+                        yoloModelId: sessionR.yoloModelId,
+                        cameraResolutionWidth: sessionR.cameraResolutionWidth,
+                        cameraResolutionHeight: sessionR.cameraResolutionHeight,
+                    })
+
                     // No inverse mirror needed - coordinates are already in YOLO space
                     cal = {
-                        homographyMatrix: r.data.homographyMatrix ?? [],
-                        hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
-                        cameraResolution: r.data.cameraResolutionWidth && r.data.cameraResolutionHeight
-                            ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
+                        homographyMatrix: calR.data.homographyMatrix ?? [],
+                        hoopCenter:       { x: calR.data.hoopCenterX ?? 0.5, y: calR.data.hoopCenterY ?? 0.3 },
+                        cameraResolution: sessionR.cameraResolutionWidth && sessionR.cameraResolutionHeight
+                            ? { width: sessionR.cameraResolutionWidth, height: sessionR.cameraResolutionHeight }
                             : undefined,
-                        courtCorners:     r.data.courtCorners,
-                        // Vision parameters for session resume
-                        yoloModelId:      r.data.yoloModelId,
-                        moveNetModelId:   r.data.moveNetModelId,
-                        fps:              r.data.fps,
-                        poseResolution:   r.data.poseResolution,
-                        yoloDelegate:    r.data.yoloDelegate,
-                        poseDelegate:     r.data.poseDelegate,
+                        courtCorners:     calR.data.courtCorners ?? (
+                            // Reconstruct courtCorners from flat fields if not directly provided
+                            calR.data.threePointLineTopX && calR.data.threePointLineTopY &&
+                            calR.data.threePointLineRightX && calR.data.threePointLineRightY &&
+                            calR.data.sidelineRightX && calR.data.sidelineRightY &&
+                            calR.data.sidelineLeftX && calR.data.sidelineLeftY
+                                ? {
+                                    topLeft: { x: calR.data.threePointLineTopX, y: calR.data.threePointLineTopY },
+                                    topRight: { x: calR.data.threePointLineRightX, y: calR.data.threePointLineRightY },
+                                    bottomRight: { x: calR.data.sidelineRightX, y: calR.data.sidelineRightY },
+                                    bottomLeft: { x: calR.data.sidelineLeftX, y: calR.data.sidelineLeftY },
+                                }
+                                : undefined
+                        ),
+                        courtWidth:       calR.data.courtWidth,
+                        courtHeight:      calR.data.courtHeight,
+                        // Vision parameters from session (not calibration)
+                        yoloModelId:      sessionR.yoloModelId,
+                        moveNetModelId:   sessionR.moveNetModelId,
+                        fps:              sessionR.fps,
+                        poseResolution:   sessionR.poseResolution,
+                        yoloDelegate:    sessionR.yoloDelegate,
+                        poseDelegate:     sessionR.poseDelegate,
                     }
                     console.log('[WorkoutSession] Calibration loaded from backend (no conversion):', cal.hoopCenter)
                 } catch (e) {
@@ -1115,33 +1145,48 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
                 // Reload calibration when resuming (fix for resumed workouts not detecting rim)
                 try {
-                    const r = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+                    // Load calibration data (geometric: homographyMatrix, courtCorners, courtWidth/Height)
+                    const calR = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
                     console.log('[WorkoutSession] Reloaded calibration on resume:', {
-                        hoopCenterX: r.data.hoopCenterX,
-                        hoopCenterY: r.data.hoopCenterY,
-                        yoloModelId: r.data.yoloModelId,
-                        fps: r.data.fps,
+                        hoopCenterX: calR.data.hoopCenterX,
+                        hoopCenterY: calR.data.hoopCenterY,
+                        homographyMatrix: calR.data.homographyMatrix,
+                        courtCorners: calR.data.courtCorners,
+                        courtWidth: calR.data.courtWidth,
+                        courtHeight: calR.data.courtHeight,
                     })
+
+                    // Load session data (vision parameters: fps, yoloModelId, etc.)
+                    const sessionR = await getWorkoutSession(sessionId, user.id)
+                    console.log('[WorkoutSession] Reloaded session on resume:', {
+                        fps: sessionR.fps,
+                        yoloModelId: sessionR.yoloModelId,
+                        cameraResolutionWidth: sessionR.cameraResolutionWidth,
+                        cameraResolutionHeight: sessionR.cameraResolutionHeight,
+                    })
+
                     const cal: CalibrationData = {
-                        homographyMatrix: r.data.homographyMatrix ?? [],
-                        hoopCenter: { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
-                        cameraResolution: r.data.cameraResolutionWidth && r.data.cameraResolutionHeight
-                            ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
+                        homographyMatrix: calR.data.homographyMatrix ?? [],
+                        hoopCenter: { x: calR.data.hoopCenterX ?? 0.5, y: calR.data.hoopCenterY ?? 0.3 },
+                        cameraResolution: sessionR.cameraResolutionWidth && sessionR.cameraResolutionHeight
+                            ? { width: sessionR.cameraResolutionWidth, height: sessionR.cameraResolutionHeight }
                             : undefined,
-                        courtCorners: r.data.courtCorners,
-                        // Vision parameters for session resume
-                        yoloModelId:      r.data.yoloModelId,
-                        moveNetModelId:   r.data.moveNetModelId,
-                        fps:              r.data.fps,
-                        poseResolution:   r.data.poseResolution,
-                        yoloDelegate:    r.data.yoloDelegate,
-                        poseDelegate:     r.data.poseDelegate,
+                        courtCorners: calR.data.courtCorners,
+                        courtWidth: calR.data.courtWidth,
+                        courtHeight: calR.data.courtHeight,
+                        // Vision parameters from session (not calibration)
+                        yoloModelId:      sessionR.yoloModelId,
+                        moveNetModelId:   sessionR.moveNetModelId,
+                        fps:              sessionR.fps,
+                        poseResolution:   sessionR.poseResolution,
+                        yoloDelegate:    sessionR.yoloDelegate,
+                        poseDelegate:     sessionR.poseDelegate,
                     }
                     setCalibration(cal)
                     tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
                     runtime.setCalibration(cal)
 
-                    // Apply vision parameters from calibration (for session resume)
+                    // Apply vision parameters from session (for session resume)
                     if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
                     if (cal.fps) setEffectiveFps(cal.fps)
                     if (cal.cameraResolution) {

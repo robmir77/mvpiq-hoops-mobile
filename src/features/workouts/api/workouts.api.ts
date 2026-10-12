@@ -166,6 +166,10 @@ export const saveCourtCalibration = async (
         body.sidelineLeftY         = bottomLeft.y
     }
 
+    // Court dimensions for accurate shot position calculation
+    if (data.courtWidth) body.courtWidth = data.courtWidth
+    if (data.courtHeight) body.courtHeight = data.courtHeight
+
     // Vision parameters for session resume
     if (data.yoloModelId) body.yoloModelId = data.yoloModelId
     if (data.moveNetModelId) body.moveNetModelId = data.moveNetModelId

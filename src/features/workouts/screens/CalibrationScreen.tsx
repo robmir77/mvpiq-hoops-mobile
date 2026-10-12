@@ -964,6 +964,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 hoopCenter: normHoop,
                 cameraResolution: selectedResolution ?? undefined,
                 courtCorners,
+                courtWidth: COURT_CONFIG.WIDTH_M,
+                courtHeight: courtType === 'FULL_COURT' ? COURT_CONFIG.FULL_HEIGHT_M : COURT_CONFIG.HALF_HEIGHT_M,
             }
 
             // Save calibration locally - will be sent to backend after session creation

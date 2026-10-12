@@ -108,20 +108,24 @@ export class ShotEventBuilder {
       return null // Position unavailable - do not use 0,0 as valid position
     }
 
+    // Usa dimensioni reali del campo dalla calibrazione, fallback a valori standard NBA/FIBA
+    const courtWidth = config.calibration?.courtWidth ?? 15.24 // NBA full court width
+    const courtHeight = config.calibration?.courtHeight ?? 14.32 // NBA half-court height
+
     // Placeholder: usa coordinate normalizzate come approssimazione
     // In futuro: usare homographyMatrix per proiezione accurata
     if (config.calibration?.homographyMatrix && config.calibration.homographyMatrix.length > 0) {
       // TODO: Implementare proiezione omografia
       return {
-        courtX: ballPosition.x * 15.24, // Approssimazione: width campo
-        courtY: ballPosition.y * 14.32, // Approssimazione: half-court height
+        courtX: ballPosition.x * courtWidth,
+        courtY: ballPosition.y * courtHeight,
         quality: 'APPROXIMATE',
       }
     }
 
     return {
-      courtX: ballPosition.x * 15.24,
-      courtY: ballPosition.y * 14.32,
+      courtX: ballPosition.x * courtWidth,
+      courtY: ballPosition.y * courtHeight,
       quality: 'UNAVAILABLE',
     }
   }

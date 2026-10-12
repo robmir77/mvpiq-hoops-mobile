@@ -24,6 +24,18 @@ export interface WorkoutSession {
     notes?: string
     averageShotDistance?: number
     workoutScore?: number
+    // Calibration data (from backend)
+    hoopCenterX?: number
+    hoopCenterY?: number
+    homographyMatrix?: number[]
+    courtCorners?: {
+        topLeft: { x: number; y: number }
+        topRight: { x: number; y: number }
+        bottomLeft: { x: number; y: number }
+        bottomRight: { x: number; y: number }
+    }
+    courtWidth?: number
+    courtHeight?: number
     // Vision configuration for session resume
     fps?: number
     cameraResolutionWidth?: number
@@ -127,6 +139,9 @@ export interface CalibrationData {
         bottomRight: { x: number; y: number }
     }
     courtLines?: Array<{ start: { x: number; y: number }; end: { x: number; y: number } }>
+    // Court dimensions in meters (for accurate shot position calculation)
+    courtWidth?: number
+    courtHeight?: number
     // Vision parameters for session resume
     yoloModelId?: string
     moveNetModelId?: string
