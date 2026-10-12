@@ -34,6 +34,7 @@ import {
 import {
     getWorkoutSession,
     endWorkoutSession, pauseWorkoutSession, resumeWorkoutSession,
+    saveCourtCalibration,
 } from '../api/workouts.api'
 import { createWorkoutQueue, type FrameDataPayload, type CriticalPayload } from '../services/workoutAsyncQueue'
 import { TelemetrySampler } from '../services/telemetrySampler'
@@ -916,6 +917,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 // mapNormalizedToCameraView will apply mirror X+Y for display
                 tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
                 runtime.setCalibration(cal)
+
+                // Save calibration to backend when creating new session (from param)
+                // This ensures calibration is available when resuming the session
+                if (calibrationParam) {
+                    try {
+                        await saveCourtCalibration(sessionId, user.id, cal)
+                        console.log('[WorkoutSession] Calibration saved to backend for new session')
+                    } catch (e) {
+                        console.log('[WorkoutSession] Failed to save calibration to backend', e)
+                    }
+                }
             }
 
             // Activate camera ONLY after queue, telemetry, and calibration are ready
@@ -1055,6 +1067,30 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 await runtime.resume()
                 await resumeWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'ACTIVE' })
+
+                // Reload calibration when resuming (fix for resumed workouts not detecting rim)
+                try {
+                    const r = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+                    console.log('[WorkoutSession] Reloaded calibration on resume:', {
+                        hoopCenterX: r.data.hoopCenterX,
+                        hoopCenterY: r.data.hoopCenterY
+                    })
+                    const cal: CalibrationData = {
+                        homographyMatrix: r.data.homographyMatrix ?? [],
+                        hoopCenter: { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
+                        cameraResolution: r.data.cameraResolutionWidth && r.data.cameraResolutionHeight
+                            ? { width: r.data.cameraResolutionWidth, height: r.data.cameraResolutionHeight }
+                            : undefined,
+                        courtCorners: r.data.courtCorners,
+                    }
+                    setCalibration(cal)
+                    tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
+                    runtime.setCalibration(cal)
+                    console.log('[WorkoutSession] Calibration reloaded and applied on resume')
+                } catch (e) {
+                    console.log('[WorkoutSession] Calibration not reloaded on resume', e)
+                }
+
                 setIsActive(true)
                 console.log('[WorkoutSession] Session resumed via Runtime')
             }
