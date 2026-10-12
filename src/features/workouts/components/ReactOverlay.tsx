@@ -459,8 +459,8 @@ const ReactOverlay = React.memo(({
 
     return (
         <>
-            {/* Court calibration debug overlay */}
-            {showDebug && calibration?.courtCorners && (
+            {/* Court calibration overlay - always visible when calibration has corners */}
+            {calibration?.courtCorners && (
                 <Svg style={StyleSheet.absoluteFill} width={SCREEN_W} height={CAMERA_H} pointerEvents="none">
                     {/* Convert normalized corners to screen coordinates */}
                     {(() => {
