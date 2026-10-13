@@ -9,7 +9,7 @@ Questa cartella deve contenere i modelli TFLite per il tracking AI on-device.
 | File | Input Size | Precision | Epochs | Expected FPS | Actual FPS | Note |
 |------|------------|-----------|--------|--------------|------------|------|
 | best_320_float16.tflite | 320x320 | FP16 | 50 | 10-37 | 2-7 | Measured at 640x360 resolution |
-| best_384_float16.tflite | 384x384 | FP16 | 100 | 20-21 | 3-6 | Updated to 100 epochs, actual FPS lower due to device bottleneck |
+| best_384_float16.tflite | 384x384 | FP16 | 150 | 20-21 | 3-6 | Updated to 150 epochs, actual FPS lower due to device bottleneck |
 | best_448_float16.tflite | 448x448 | FP16 | 5 | 12-21 | TBD | Early training |
 | best_512_float16.tflite | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16.tflite | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
