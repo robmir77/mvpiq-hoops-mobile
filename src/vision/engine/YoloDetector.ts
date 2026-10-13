@@ -396,23 +396,16 @@ export class YoloDetector {
 
         if (humanProb >= this.adaptivePlayerThreshold) {
           confidencePassed++
-          if (cameraW > YOLO_CONFIG.PLAYER_MIN_WIDTH && cameraH > YOLO_CONFIG.PLAYER_MIN_HEIGHT) {
-            sizePassed++
-            const detection = {
-              x: cameraCx,
-              y: cameraCy,
-              width: cameraW,
-              height: cameraH,
-              confidence: humanProb,
-            }
-            if (!bestPlayer || detection.confidence > bestPlayer.confidence) {
-              bestPlayer = detection
-            }
-          } else {
-            // Rejected by size - track best rejected confidence
-            if (humanProb > rejectedConfidence) {
-              rejectedConfidence = humanProb
-            }
+          sizePassed++
+          const detection = {
+            x: cameraCx,
+            y: cameraCy,
+            width: cameraW,
+            height: cameraH,
+            confidence: humanProb,
+          }
+          if (!bestPlayer || detection.confidence > bestPlayer.confidence) {
+            bestPlayer = detection
           }
         } else {
           // Rejected by confidence - track best rejected confidence

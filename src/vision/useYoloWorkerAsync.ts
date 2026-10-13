@@ -329,15 +329,12 @@ export const useYoloWorkerAsync = (
 
           const bboxSizeNormalized = ball.width * ball.height
 
-          const MIN_BBOX_SIZE_NORMALIZED = 0.0001
-          const MAX_BBOX_SIZE_NORMALIZED = 0.06
           const COURT_MARGIN = 0.1
 
-          const isValidSize = bboxSizeNormalized >= MIN_BBOX_SIZE_NORMALIZED && bboxSizeNormalized <= MAX_BBOX_SIZE_NORMALIZED
           const isInCourt = ball.x >= COURT_MARGIN && ball.x <= 1 - COURT_MARGIN &&
                           ball.y >= COURT_MARGIN && ball.y <= 1 - COURT_MARGIN
 
-          if (isValidSize && isInCourt) {
+          if (isInCourt) {
             validBall = ball
             // Record ball detection telemetry
             telemetryLogger.recordBallDetection(validBall.confidence)
@@ -352,9 +349,6 @@ export const useYoloWorkerAsync = (
             }
           } else {
             // Track rejection reasons
-            if (!isValidSize && ballRejectedSize) {
-              ballRejectedSize.value += 1
-            }
             if (!isInCourt && ballRejectedCourt) {
               ballRejectedCourt.value += 1
             }

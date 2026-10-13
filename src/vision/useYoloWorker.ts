@@ -102,7 +102,7 @@ export const useYoloWorker = (
       telemetryLogger.recordBbox(ball.x, ball.y, ball.width, ball.height)
 
       const bboxSizeNormalized = ball.width * ball.height
-      const MIN_BBOX_SIZE_NORMALIZED = 0.0001
+      const MIN_BBOX_SIZE_NORMALIZED = 0.00002 // Reduced from 0.0001 to detect smaller/distant balls
       const MAX_BBOX_SIZE_NORMALIZED = 0.06
 
       if (bboxSizeNormalized < MIN_BBOX_SIZE_NORMALIZED) {
@@ -264,22 +264,12 @@ export const useYoloWorker = (
 
       let validBall = null
       if (ball) {
-        const bboxSizeNormalized = ball.width * ball.height
-        const frameW = frameWidth || 1280
-        const frameH = frameHeight || 720
-        const frameArea = frameW * frameH
-        const bboxSizePixels = bboxSizeNormalized * frameArea
-
-        // Calculate thresholds based on actual frame resolution
-        const MIN_BBOX_SIZE_NORMALIZED = 0.0001
-        const MAX_BBOX_SIZE_NORMALIZED = 0.06
         const COURT_MARGIN = 0.1
 
-        const isValidSize = bboxSizeNormalized >= MIN_BBOX_SIZE_NORMALIZED && bboxSizeNormalized <= MAX_BBOX_SIZE_NORMALIZED
         const isInCourt = ball.x >= COURT_MARGIN && ball.x <= 1 - COURT_MARGIN &&
                         ball.y >= COURT_MARGIN && ball.y <= 1 - COURT_MARGIN
 
-        if (isValidSize && isInCourt) {
+        if (isInCourt) {
           validBall = ball
         }
       }
