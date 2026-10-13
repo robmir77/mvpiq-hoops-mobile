@@ -97,6 +97,9 @@ const CourtSVG = ({
             {filtered.map((shot, i) => {
                 // I punti nel BE sono in coordinate campo (m) con y dal canestro
                 // courtX ∈ [0, 15.24], courtY ∈ distanza baseline
+                if (shot.x === null || shot.y === null) {
+                    return null
+                }
                 const dotX = mx(shot.x)
                 const dotY = my(shot.y)
 
@@ -115,7 +118,7 @@ const CourtSVG = ({
                             strokeWidth={2}
                         />
                         {/* Mostra angolo di rilascio sopra il pallino se disponibile */}
-                        {releaseAngle !== undefined && (
+                        {releaseAngle !== undefined && releaseAngle !== null && (
                             <SvgText
                                 x={dotX - 8}
                                 y={dotY - 18}
@@ -192,15 +195,14 @@ export default function ShotChartScreen({ navigation, route }: any) {
             let totalPoseFrames = 0
             let shotsWithAngle = 0
             shotsData.forEach(shot => {
-                if (shot.courtX !== null && shot.courtY !== null) {
-                    const key = `${shot.courtX.toFixed(2)}_${shot.courtY.toFixed(2)}_${shot.shotResult}`
+                if (shot.courtX !== null && shot.courtY !== null && shot.shotResult) {
+                    const key = `${shot.courtX.toFixed(2)}_${shot.courtY.toFixed(2)}_${shot.shotResult === 'MADE'}`
                     
                     // Calcola punteggio pose
                     if (shot.rawPoseFrames && shot.rawPoseFrames.length > 0) {
                         shotsWithPose++
                         totalPoseFrames += shot.rawPoseFrames.length
                         const score = calculatePoseScore(shot.rawPoseFrames)
-                        console.log('[ShotChart] Pose score for shot', shot.shotId, 'key:', key, 'score:', score)
                         scoresMap.set(key, score)
                     }
                     
@@ -210,14 +212,6 @@ export default function ShotChartScreen({ navigation, route }: any) {
                         anglesMap.set(key, shot.releaseAngle)
                     }
                 }
-            })
-            console.log('[ShotChart] Data calculated:', {
-                totalShots: shotsData.length,
-                shotsWithPose,
-                totalPoseFrames,
-                shotsWithAngle,
-                poseScoresCount: scoresMap.size,
-                releaseAnglesCount: anglesMap.size
             })
             setPoseScores(scoresMap)
             setReleaseAngles(anglesMap)
