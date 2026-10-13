@@ -35,7 +35,7 @@ export const YOLO_CONFIG = {
 // Camera Configuration
 export const CAMERA_CONFIG = {
   DEFAULT_RESOLUTION: { width: 640, height: 360 }, // Default camera resolution (360p for better FPS)
-  DEFAULT_FPS: 30, // Default camera frame rate
+  DEFAULT_FPS: 40, // Default camera frame rate (increased to 90 for even better ball tracking)
   DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
   DEFAULT_ZOOM: 1, // Default camera zoom level (1 = 100% = no zoom)
   MIN_RESOLUTION: { width: 640, height: 360 }, // Minimum acceptable resolution for workout sessions (allows 360p for smaller YOLO models)
@@ -44,7 +44,7 @@ export const CAMERA_CONFIG = {
 // Vision Pipeline Configuration - Deterministic FPS targets
 // Camera FPS is independent from vision model FPS
 export const VISION_CONFIG = {
-  CAMERA_FPS: 30, // Camera frame rate (hardware/configured)
+  CAMERA_FPS: 40, // Camera frame rate (hardware/configured)
 
   YOLO: {
     ENABLED: true,

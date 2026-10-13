@@ -234,7 +234,7 @@ export class BallTrackingEngine {
   }
 
   // Kalman predict (from useTrackingEngine lines 169-189)
-  predict(frameTs: number): BallPosition | null {
+  predict(frameTs: number, inFlight: boolean = false): BallPosition | null {
     const k = this.kalman
     const dt = Math.max(
       0.001,
@@ -242,7 +242,9 @@ export class BallTrackingEngine {
     )
 
     const ageMs = frameTs - this.ballLastSeenAt
-    if (ageMs > BALL_TRACK_TTL_MS) {
+    // Extend TTL during inFlight to maintain tracking through brief YOLO dropouts
+    const effectiveTtl = inFlight ? BALL_TRACK_TTL_MS * 3 : BALL_TRACK_TTL_MS
+    if (ageMs > effectiveTtl) {
       this.ballTrackingValid = false
       if (this.lastBallWasDetected) {
         this.callbacks?.onBallTrackingExpired?.()

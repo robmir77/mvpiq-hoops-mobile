@@ -181,11 +181,17 @@ export class TrackingEngine implements ITrackingEngine {
       }
     } else if (this.state.ballPosition && this.lastFrameTs > 0) {
       // Prediction when no detection
-      const enginePrediction = this.ballTrackingEngine.predict(frameTs)
+      const enginePrediction = this.ballTrackingEngine.predict(frameTs, this.inFlight)
       const engineState = this.ballTrackingEngine.getState()
 
       if (enginePrediction === null) {
         // TTL expired - invalidate tracking
+        console.log('[TRACKING_DEBUG] Ball tracking expired, TTL=150ms exceeded', {
+          frameTs,
+          inFlight: this.inFlight,
+          ballPosition: this.state.ballPosition,
+          ballPositionRaw: this.state.ballPositionRaw,
+        })
         this.state.ballPosition = null
         this.state.ballVelocity = null
         this.state.ballPositionRaw = null

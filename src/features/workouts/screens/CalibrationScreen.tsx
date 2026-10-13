@@ -17,6 +17,8 @@ import Svg, {
 import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from 'react-native-vision-camera'
 import { Picker } from '@react-native-picker/picker'
 import { useIsFocused } from '@react-navigation/native'
+import { GestureDetector, Gesture } from 'react-native-gesture-handler'
+import { runOnJS } from 'react-native-reanimated'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData, CourtType, CreateWorkoutSessionPayload } from '../types/workouts.types'
 import { createWorkoutSession } from '../api/workouts.api'
@@ -41,14 +43,16 @@ const DEFAULT_FPS = CAMERA_CONFIG.DEFAULT_FPS
 const DEFAULT_POSE_RESOLUTION = CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION
 
 interface Point { x: number; y: number }
-type CalibStep = 'hoop' | 'corners' | 'done'
+interface DraggablePoint extends Point {
+    id: 'hoop' | 'corner1' | 'corner2' | 'corner3' | 'corner4'
+    label: string
+}
 
 // 45° overlay: diagonal perspective, hoop top-right, court extends left/down
-const Overlay45 = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
+const Overlay45 = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
     const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.70, y: H * 0.28 }
+    const hoopCenter = points.find(p => p.id === 'hoop') || null
+    const corners = points.filter(p => p.id.startsWith('corner'))
 
     // Court points in 45° perspective
     const courtPts = {
@@ -154,32 +158,17 @@ const Overlay45 = ({ hoopCenter, corners, step }: {
             <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle"
                 fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
 
-            {/* Ghost hoop quando non ancora toccato */}
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
+            <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // 45° Full Court overlay
-const Overlay45Full = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
+const Overlay45Full = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+    const hoopCenter = points.find(p => p.id === 'hoop') || null
+    const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.70, y: H * 0.28 }
 
     const courtPts = {
         bl: { x: W * 0.04, y: H * 0.87 },
@@ -255,26 +244,17 @@ const Overlay45Full = ({ hoopCenter, corners, step }: {
             <SvgText x={W * 0.46} y={H * 0.67} textAnchor="middle" fill="rgba(255,255,255,0.35)" fontSize={9}>Paint</SvgText>
             <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle" fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.50} y={H * 0.14} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32} fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)" strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18} fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)" strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle" fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
+            <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Lateral Full Court overlay
-const OverlayLateralFull = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
+const OverlayLateralFull = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+    const hoopCenter = points.find(p => p.id === 'hoop') || null
+    const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.76, y: H * 0.34 }
     const F = H * 0.88
     const poleX = W * 0.76
     const poleTop = H * 0.10
@@ -314,26 +294,17 @@ const OverlayLateralFull = ({ hoopCenter, corners, step }: {
             <SvgText x={W * 0.06} y={H * 0.72} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle" fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32} fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)" strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18} fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)" strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle" fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
+            <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Frontal Full Court overlay
-const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
+const OverlayFrontalFull = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+    const hoopCenter = points.find(p => p.id === 'hoop') || null
+    const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.50, y: H * 0.30 }
 
     const line = (x1: number, y1: number, x2: number, y2: number, color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
         <Line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={w} strokeDasharray={dash} />
@@ -376,26 +347,17 @@ const OverlayFrontalFull = ({ hoopCenter, corners, step }: {
             <SvgText x={W * 0.10} y={H * 0.60} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={36} fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)" strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={20} fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)" strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 44} textAnchor="middle" fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
+            <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Lateral overlay: side view, vertical pole, backboard, trajectory arc
-const OverlayLateral = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
+const OverlayLateral = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+    const hoopCenter = points.find(p => p.id === 'hoop') || null
+    const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.76, y: H * 0.34 }
 
     const F = H * 0.88  // pavimento
     const poleX = W * 0.76
@@ -484,32 +446,17 @@ const OverlayLateral = ({ hoopCenter, corners, step }: {
                 fill="rgba(255,255,255,0.28)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
                 fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
-
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={32}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={18}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 40} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
+            <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Frontal overlay: front view from baseline, symmetric paint, centered backboard
-const OverlayFrontal = ({ hoopCenter, corners, step }: {
-    hoopCenter: Point | null, corners: Point[], step: CalibStep
-}) => {
+const OverlayFrontal = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+    const hoopCenter = points.find(p => p.id === 'hoop') || null
+    const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
-    const ghostHoop = { x: W * 0.50, y: H * 0.30 }
 
     const line = (x1: number, y1: number, x2: number, y2: number,
         color = 'rgba(255,255,255,0.28)', w = 1.5, dash?: string) => (
@@ -599,22 +546,8 @@ const OverlayFrontal = ({ hoopCenter, corners, step }: {
                 fill="rgba(255,255,255,0.28)" fontSize={9}>← 3PT</SvgText>
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
                 fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
-
-            {!hoopCenter && (
-                <G>
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={36}
-                        fill="rgba(255,140,0,0.06)" stroke="rgba(255,140,0,0.30)"
-                        strokeWidth={1.5} strokeDasharray="5,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={20}
-                        fill="rgba(255,140,0,0.10)" stroke="rgba(255,140,0,0.55)"
-                        strokeWidth={2} strokeDasharray="4,3" />
-                    <Circle cx={ghostHoop.x} cy={ghostHoop.y} r={4} fill="rgba(255,140,0,0.60)" />
-                    <SvgText x={ghostHoop.x} y={ghostHoop.y - 44} textAnchor="middle"
-                        fill="rgba(255,140,0,0.90)" fontSize={11} fontWeight="800">👆 tocca qui</SvgText>
-                </G>
-            )}
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
-            <CornersOverlay corners={corners} step={step} />
+            <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
@@ -635,14 +568,8 @@ const HoopConfirmed = ({ p }: { p: Point }) => (
     </G>
 )
 
-const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }) => {
+const CornersOverlay = ({ corners }: { corners: Point[] }) => {
     const W = SW, H = CAM_H
-    const ghostPositions = [
-        { x: W * 0.08, y: H * 0.10 },
-        { x: W * 0.92, y: H * 0.10 },
-        { x: W * 0.92, y: H * 0.90 },
-        { x: W * 0.08, y: H * 0.90 },
-    ]
     return (
         <G>
             {/* Angoli confermati */}
@@ -669,21 +596,68 @@ const CornersOverlay = ({ corners, step }: { corners: Point[], step: CalibStep }
                     x2={corners[0].x} y2={corners[0].y}
                     stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
             )}
-            {/* Ghost angolo successivo */}
-            {step === 'corners' && corners.length < 4 && (() => {
-                const gc = ghostPositions[corners.length]
+        </G>
+    )
+}
+
+// Draggable calibration points overlay
+const DraggablePointsOverlay = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+    const W = SW, H = CAM_H
+
+    return (
+        <G pointerEvents="none">
+            {/* Linee perimetro tra angoli */}
+            {points.filter(p => p.id.startsWith('corner')).map((c, i) => {
+                if (i === 0) return null
+                const prev = points.filter(p => p.id.startsWith('corner'))[i - 1]
+                return <Line key={i}
+                    x1={prev.x} y1={prev.y} x2={c.x} y2={c.y}
+                    stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
+            })}
+            {points.filter(p => p.id.startsWith('corner')).length === 4 && (
+                <Line
+                    x1={points[4].x} y1={points[4].y}
+                    x2={points[1].x} y2={points[1].y}
+                    stroke="#4ade80" strokeWidth={1.5} strokeOpacity={0.55} />
+            )}
+
+            {/* Punti trascinabili */}
+            {points.map((p) => {
+                const isActive = p.id === activePoint
+                const isHoop = p.id === 'hoop'
+                const baseColor = isHoop ? '#ff8c00' : '#4ade80'
+                const fillColor = isHoop ? 'rgba(255,140,0,0.15)' : 'rgba(74,222,128,0.15)'
+                const activeFillColor = isHoop ? 'rgba(255,140,0,0.35)' : 'rgba(74,222,128,0.35)'
+                const radius = isActive ? 32 : 24
+                const strokeWidth = isActive ? 4 : 2.5
+                const innerRadius = isActive ? 8 : 6
+
                 return (
-                    <G>
-                        <Circle cx={gc.x} cy={gc.y} r={18}
-                            fill="rgba(74,222,128,0.07)" stroke="rgba(74,222,128,0.38)"
-                            strokeWidth={1.5} strokeDasharray="4,3" />
-                        <SvgText x={gc.x} y={gc.y - 26} textAnchor="middle"
-                            fill="rgba(74,222,128,0.65)" fontSize={10} fontWeight="600">
-                            👆 angolo {corners.length + 1}
+                    <G key={p.id}>
+                        {/* Glow effect for active point */}
+                        {isActive && (
+                            <Circle cx={p.x} cy={p.y} r={40}
+                                fill={isHoop ? "rgba(255,140,0,0.15)" : "rgba(74,222,128,0.15)"}
+                                stroke={baseColor} strokeWidth={1} strokeOpacity={0.3} />
+                        )}
+                        <Circle cx={p.x} cy={p.y} r={radius}
+                            fill={isActive ? activeFillColor : fillColor}
+                            stroke={baseColor} strokeWidth={strokeWidth} />
+                        <Circle cx={p.x} cy={p.y} r={innerRadius}
+                            fill={baseColor} />
+                        <SvgText x={p.x} y={p.y - (isActive ? 40 : 32)} textAnchor="middle"
+                            fill={baseColor}
+                            fontSize={isActive ? 14 : 12} fontWeight="700">
+                            {p.label}
+                        </SvgText>
+                        <SvgText x={p.x} y={p.y + (isActive ? 46 : 38)} textAnchor="middle"
+                            fill={isActive ? "rgba(255,255,255,0.90)" : "rgba(255,255,255,0.60)"} 
+                            fontSize={isActive ? 10 : 9}>
+                            ↕ trascina
                         </SvgText>
                     </G>
                 )
-            })()}
+            })}
         </G>
     )
 }
@@ -856,13 +830,24 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }, [selectedYoloModelId, availableResolutions])
 
-    const [step, setStep] = useState<CalibStep>('hoop')
-    const [hoopCenter, setHoopCenter] = useState<Point | null>(null)
-    const [corners, setCorners] = useState<Point[]>([])
+    // Pre-positioned calibration points (hoop + 4 corners) - raised positions
+    const [points, setPoints] = useState<DraggablePoint[]>([
+        { id: 'hoop', x: SW * 0.30, y: CAM_H * 0.20, label: 'Canestro' },
+        { id: 'corner1', x: SW * 0.25, y: CAM_H * 0.35, label: '1' },
+        { id: 'corner2', x: SW * 0.75, y: CAM_H * 0.35, label: '2' },
+        { id: 'corner3', x: SW * 0.92, y: CAM_H * 0.85, label: '3' },
+        { id: 'corner4', x: SW * 0.08, y: CAM_H * 0.85, label: '4' },
+    ])
     const [isSaving, setIsSaving] = useState(false)
     const [savedCalibration, setSavedCalibration] = useState<CalibrationData | null>(null)
     const [isNavigating, setIsNavigating] = useState(false)
+    const [activePoint, setActivePoint] = useState<DraggablePoint['id'] | null>(null)
     const { alert, showError, showSuccess, showWarning } = useCustomAlert()
+
+    // Helper to update point position
+    const updatePoint = (id: DraggablePoint['id'], x: number, y: number) => {
+        setPoints(prev => prev.map(p => p.id === id ? { ...p, x, y } : p))
+    }
 
     const meta = MODE_META[cameraMode]
 
@@ -918,28 +903,39 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
-        if (step === 'hoop') {
-            setHoopCenter({ x: locationX, y: locationY })
-        } else if (step === 'corners' && corners.length < 4) {
-            const updated = [...corners, { x: locationX, y: locationY }]
-            setCorners(updated)
-            if (updated.length === 4) setStep('done')
+        // Find closest point to touch with larger tolerance
+        let closestId: DraggablePoint['id'] | null = null
+        let minDist = Infinity
+        points.forEach(p => {
+            const dist = Math.sqrt((p.x - locationX) ** 2 + (p.y - locationY) ** 2)
+            if (dist < minDist && dist < 120) { // 120px touch radius (very generous for easy touch)
+                minDist = dist
+                closestId = p.id
+            }
+        })
+        if (closestId) {
+            setActivePoint(closestId)
+            updatePoint(closestId, locationX, locationY)
+        } else {
+            setActivePoint(null)
         }
     }
 
     const handleSave = async () => {
-        if (!hoopCenter || !user?.id) {
+        const hoopPoint = points.find(p => p.id === 'hoop')
+        const cornerPoints = points.filter(p => p.id.startsWith('corner'))
+        if (!hoopPoint || !user?.id) {
             showError('Errore', 'Seleziona prima il centro del canestro')
             return
         }
         setIsSaving(true)
         try {
-            const normHoop = normalizePoint(hoopCenter.x, hoopCenter.y)
+            const normHoop = normalizePoint(hoopPoint.x, hoopPoint.y)
             let courtCorners
             let homographyMatrix: number[] = []
 
-            if (corners.length === 4) {
-                const nc = corners.map(c => normalizePoint(c.x, c.y))
+            if (cornerPoints.length === 4) {
+                const nc = cornerPoints.map(c => normalizePoint(c.x, c.y))
                 courtCorners = {
                     topLeft: nc[0], topRight: nc[1],
                     bottomRight: nc[2], bottomLeft: nc[3],
@@ -1090,15 +1086,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const resetAll = () => {
-        setCorners([]); setStep('hoop'); setHoopCenter(null); setSavedCalibration(null)
+        setPoints([
+            { id: 'hoop', x: SW * 0.30, y: CAM_H * 0.20, label: 'Canestro' },
+            { id: 'corner1', x: SW * 0.25, y: CAM_H * 0.35, label: '1' },
+            { id: 'corner2', x: SW * 0.75, y: CAM_H * 0.35, label: '2' },
+            { id: 'corner3', x: SW * 0.92, y: CAM_H * 0.85, label: '3' },
+            { id: 'corner4', x: SW * 0.08, y: CAM_H * 0.85, label: '4' },
+        ])
+        setSavedCalibration(null)
     }
-
-    const CORNER_LABELS = ['Ang. SX alto', 'Ang. DX alto', 'Ang. DX basso', 'Ang. SX basso']
-    const stepInfo = {
-        hoop:    { label: '1/2 — Canestro', hint: 'Tocca il centro del ferro', color: '#ff8c00' },
-        corners: { label: '2/2 — Angoli', hint: `${CORNER_LABELS[corners.length] ?? '✓'}`, color: '#4ade80' },
-        done:    { label: '✓ Completo', hint: 'Tutti i punti definiti', color: '#4ade80' },
-    }[step]
 
     const OverlayComponent =
         cameraMode === 'LATERAL' && courtType === 'FULL_COURT' ? OverlayLateralFull :
@@ -1120,7 +1116,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         <Text style={styles.modeTagIcon}>{meta.icon}</Text>
                         <Text style={styles.modeTagText}>{meta.title}</Text>
                     </View>
-                    <Text style={[styles.stepLabel, { color: stepInfo.color }]}>{stepInfo.label}</Text>
+                    <Text style={[styles.stepLabel, { color: '#4ade80' }]}>Trascina i punti per calibrare</Text>
                 </View>
                 <TouchableOpacity onPress={resetAll}>
                     <Text style={styles.resetText}>↺</Text>
@@ -1142,22 +1138,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         console.warn('[Calibration] Camera error:', error)
                     }}
                 />
-                <OverlayComponent
-                    hoopCenter={hoopCenter}
-                    corners={corners}
-                    step={step}
-                />
+                <OverlayComponent points={points} activePoint={activePoint} />
                 {/* Crosshair sottile */}
                 <View style={styles.guideH} pointerEvents="none" />
                 <View style={styles.guideV} pointerEvents="none" />
                 {/* Hint testo */}
                 <View style={styles.tapHintWrap} pointerEvents="none">
                     <Text style={styles.tapHintText}>
-                        {step === 'hoop'
-                            ? hoopCenter ? '✅ Canestro — tocca di nuovo per spostare' : '👆 Tocca il centro del canestro'
-                            : step === 'corners'
-                                ? `👆 ${CORNER_LABELS[corners.length] ?? 'Completo'}`
-                                : '✅ Tutti i punti definiti'}
+                        👆 Tocca vicino a un punto per spostarlo
                     </Text>
                 </View>
                 
@@ -1345,46 +1333,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     </View>
                 </View>
 
-                {/* Step buttons */}
-                <View style={styles.stepsRow}>
-                    <TouchableOpacity
-                        style={[styles.stepBtn, step === 'hoop' && styles.stepBtnActive]}
-                        onPress={() => setStep('hoop')}
-                    >
-                        <Text style={[styles.stepBtnNum, { color: hoopCenter ? '#4ade80' : '#ff8c00' }]}>
-                            {hoopCenter ? '✓' : '1'}
-                        </Text>
-                        <Text style={styles.stepBtnLabel}>Canestro</Text>
-                    </TouchableOpacity>
-                    <View style={styles.stepConnector} />
-                    <TouchableOpacity
-                        style={[styles.stepBtn, (step === 'corners' || step === 'done') && styles.stepBtnActive]}
-                        onPress={() => hoopCenter && setStep('corners')}
-                        disabled={!hoopCenter}
-                    >
-                        <Text style={[styles.stepBtnNum, { color: corners.length === 4 ? '#4ade80' : '#888' }]}>
-                            {corners.length === 4 ? '✓' : '2'}
-                        </Text>
-                        <Text style={styles.stepBtnLabel}>
-                            Angoli {corners.length > 0 ? `${corners.length}/4` : '(opz.)'}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-
-                {step === 'hoop' && hoopCenter && (
-                    <TouchableOpacity style={styles.secondaryBtn} onPress={() => setStep('corners')}>
-                        <Text style={styles.secondaryBtnText}>+ Aggiungi angoli campo →</Text>
-                    </TouchableOpacity>
-                )}
-
                 {!savedCalibration ? (
                     <TouchableOpacity
-                        style={[styles.primaryBtn, (!hoopCenter || isSaving) && styles.primaryBtnDisabled]}
+                        style={[styles.primaryBtn, isSaving && styles.primaryBtnDisabled]}
                         onPress={handleSave}
-                        disabled={!hoopCenter || isSaving}
+                        disabled={isSaving}
                     >
                         <Text style={styles.primaryBtnText}>
-                            {isSaving ? 'Salvataggio...' : 'Salva calibrazione'}
+                            {isSaving ? 'Salvataggio...' : 'Conferma calibrazione'}
                         </Text>
                     </TouchableOpacity>
                 ) : (
@@ -1440,7 +1396,7 @@ const styles = StyleSheet.create({
         position: 'absolute',
         left: 16,
         top: '50%',
-        marginTop: -22,
+        marginTop: -150,
         width: 44,
         height: 44,
         borderRadius: 22,
