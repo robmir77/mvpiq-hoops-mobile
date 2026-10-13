@@ -26,7 +26,7 @@ export class BallDetectionProcessor {
   constructor(
     baseThreshold: number = 0.005,
     minBallSize: number = 0.01,
-    maxBallSize: number = 0.40
+    maxBallSize: number = 0.30
   ) {
     this.baseThreshold = baseThreshold
     this.minBallSize = minBallSize
@@ -94,16 +94,6 @@ export class BallDetectionProcessor {
     resolutionScale: number = 1.0
   ): BallDetectionResult {
     const avgSize = (detection.width + detection.height) / 2
-
-    // Check minimum size
-    if (avgSize < this.minBallSize * resolutionScale) {
-      return {
-        detection: null,
-        sizeCategory: null,
-        adaptiveThreshold: this.baseThreshold,
-        rejectionReason: 'too_small',
-      }
-    }
 
     // Validate geometry
     const geometryCheck = this.isValidBallGeometry(detection.width, detection.height)

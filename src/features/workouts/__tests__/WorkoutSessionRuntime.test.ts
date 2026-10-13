@@ -95,8 +95,9 @@ describe('WorkoutSessionRuntime', () => {
       await expect(runtime.resume()).rejects.toThrow('Cannot resume session from state: IDLE')
     })
 
-    it('should throw when stopping from IDLE state', async () => {
-      await expect(runtime.stop()).rejects.toThrow('Cannot stop session from state: IDLE')
+    it('should allow stopping from IDLE state (user cancels before starting)', async () => {
+      await expect(runtime.stop()).resolves.not.toThrow()
+      expect(runtime.getState()).toBe('COMPLETED')
     })
 
     it('should throw when pausing from COMPLETED state', async () => {
@@ -224,14 +225,21 @@ describe('WorkoutSessionRuntime', () => {
   })
 
   describe('subsystem connections', () => {
-    it('should set vision pipeline', () => {
-      const mockVisionPipeline = {
+    it('should set vision engine', () => {
+      const mockVisionEngine = {
         start: jest.fn(),
         stop: jest.fn(),
+        processFrame: jest.fn(),
+        getCurrentResults: jest.fn(),
+        setBallDetectionEnabled: jest.fn(),
+        setPlayerDetectionEnabled: jest.fn(),
+        setRimDetectionEnabled: jest.fn(),
+        setPoseDetectionEnabled: jest.fn(),
+        isReady: jest.fn(),
       }
 
-      runtime.setVisionPipeline(mockVisionPipeline)
-      expect(runtime.getVisionPipeline()).toBe(mockVisionPipeline)
+      runtime.setVisionEngine(mockVisionEngine)
+      // No getter for vision engine, but it should be stored
     })
 
     it('should set tracking engine', () => {
@@ -241,6 +249,7 @@ describe('WorkoutSessionRuntime', () => {
         resetAll: jest.fn(),
         getState: jest.fn(),
         getComparisonStats: jest.fn(),
+        getCurrentPlayerPosition: jest.fn(),
       }
 
       runtime.setTrackingEngine(mockTrackingEngine)
@@ -267,7 +276,7 @@ describe('WorkoutSessionRuntime', () => {
       }
 
       runtime.setTelemetrySampler(mockSampler)
-      // No getter, but it should be stored
+      // No getter for telemetry sampler, but it should be stored
     })
 
     it('should set workout queue', () => {
@@ -278,52 +287,55 @@ describe('WorkoutSessionRuntime', () => {
       }
 
       runtime.setWorkoutQueue(mockQueue)
-      // No getter, but it should be stored
+      // No getter for workout queue, but it should be stored
     })
   })
 
-  describe('vision pipeline lifecycle', () => {
-    it('should call vision pipeline start on resume', async () => {
-      const mockVisionPipeline = {
-        start: jest.fn(),
-        stop: jest.fn(),
-      }
+  describe('vision engine lifecycle', () => {
+    const createMockVisionEngine = () => ({
+      start: jest.fn(),
+      stop: jest.fn(),
+      processFrame: jest.fn(),
+      getCurrentResults: jest.fn(),
+      setBallDetectionEnabled: jest.fn(),
+      setPlayerDetectionEnabled: jest.fn(),
+      setRimDetectionEnabled: jest.fn(),
+      setPoseDetectionEnabled: jest.fn(),
+      isReady: jest.fn(),
+    })
 
-      runtime.setVisionPipeline(mockVisionPipeline)
+    it('should call vision engine start on resume', async () => {
+      const mockVisionEngine = createMockVisionEngine()
+
+      runtime.setVisionEngine(mockVisionEngine)
       await runtime.start()
       await runtime.pause()
       await runtime.resume()
 
-      expect(mockVisionPipeline.start).toHaveBeenCalled()
+      expect(mockVisionEngine.start).toHaveBeenCalled()
     })
 
-    it('should call vision pipeline stop on pause', async () => {
-      const mockVisionPipeline = {
-        start: jest.fn(),
-        stop: jest.fn(),
-      }
+    it('should call vision engine stop on pause', async () => {
+      const mockVisionEngine = createMockVisionEngine()
 
-      runtime.setVisionPipeline(mockVisionPipeline)
+      runtime.setVisionEngine(mockVisionEngine)
       await runtime.start()
       await runtime.pause()
 
-      expect(mockVisionPipeline.stop).toHaveBeenCalled()
+      expect(mockVisionEngine.stop).toHaveBeenCalled()
     })
 
-    it('should call vision pipeline stop on stop', async () => {
-      const mockVisionPipeline = {
-        start: jest.fn(),
-        stop: jest.fn(),
-      }
+    it('should call vision engine stop on stop', async () => {
+      const mockVisionEngine = createMockVisionEngine()
 
-      runtime.setVisionPipeline(mockVisionPipeline)
+      runtime.setVisionEngine(mockVisionEngine)
       await runtime.start()
       await runtime.stop()
 
-      expect(mockVisionPipeline.stop).toHaveBeenCalled()
+      expect(mockVisionEngine.stop).toHaveBeenCalled()
     })
 
-    it('should not crash when vision pipeline is not set', async () => {
+    it('should not crash when vision engine is not set', async () => {
       await runtime.start()
       await runtime.pause()
       await runtime.resume()

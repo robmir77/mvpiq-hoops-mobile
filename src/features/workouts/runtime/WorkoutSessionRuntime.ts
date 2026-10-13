@@ -63,7 +63,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
   private shotDetectionEngine: IShotDetectionEngine | null = null
   private telemetrySampler: ITelemetrySampler | null = null
   private workoutQueue: IWorkoutQueue | null = null
-  private shotEventBuilder: ShotEventBuilder = new ShotEventBuilder()
+  private shotEventBuilder: ShotEventBuilder = new ShotEventBuilder(50, 2000) // Increased: 50 frames, 2s window
   private processedShotIds: Set<string> = new Set() // Track successfully saved shots for idempotency
   private pendingShotIds: Set<string> = new Set() // Track shots being saved (not yet confirmed)
   private isProcessingFrame: boolean = false // Guard against concurrent processFrame() calls
@@ -71,7 +71,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
   // State machine guards
   private stateTransitions: Record<SessionState, SessionState[]> = {
-    'IDLE': ['STARTING'],
+    'IDLE': ['STARTING', 'STOPPING'], // Allow stopping from IDLE (user cancels before starting)
     'STARTING': ['ACTIVE', 'ERROR'],
     'ACTIVE': ['PAUSED', 'STOPPING', 'ERROR'],
     'PAUSED': ['ACTIVE', 'STOPPING', 'ERROR'],
@@ -267,6 +267,15 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       visionResult.player,
       visionResult.observationTimestamps
     )
+
+    // Capture pose frames in TrackingState when shot is detected (for retry recovery)
+    if (trackingState?.shotDetected && !trackingState.rawPoseFrames) {
+      const rawPoseFrames = this.shotEventBuilder.getPoseFrames()
+      if (rawPoseFrames.length > 0) {
+        // Clone the array to avoid reference issues
+        trackingState.rawPoseFrames = JSON.parse(JSON.stringify(rawPoseFrames))
+      }
+    }
 
     // Collect diagnostic events if mode is enabled
     if (this.diagnosticMode) {

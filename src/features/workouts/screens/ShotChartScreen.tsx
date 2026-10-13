@@ -2,7 +2,7 @@
 
 import React, { useState, useContext, useEffect } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Platform } from 'react-native'
-import Svg, { Circle, Line, Rect, Path, RNSVGText } from 'react-native-svg'
+import Svg, { Circle, Line, Rect, Path, Text as SvgText } from 'react-native-svg'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { ShotChartResponse, CourtZone, ShotEvent } from '../types/workouts.types'
 import { getShotChart, getSessionShots } from '../api/workouts.api'
@@ -109,34 +109,44 @@ const CourtSVG = ({
                     <React.Fragment key={i}>
                         <Circle
                             cx={dotX} cy={dotY}
-                            r={6}
+                            r={12}
                             fill={shot.made ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'}
                             stroke={shot.made ? '#22c55e' : '#ef4444'}
-                            strokeWidth={1.5}
+                            strokeWidth={2}
                         />
                         {/* Mostra angolo di rilascio sopra il pallino se disponibile */}
                         {releaseAngle !== undefined && (
-                            <RNSVGText
-                                x={dotX - 5}
-                                y={dotY - 12}
-                                fontSize={7}
+                            <SvgText
+                                x={dotX - 8}
+                                y={dotY - 18}
+                                fontSize={9}
                                 fill="#fff"
                                 fontWeight="600"
                             >
                                 {releaseAngle.toFixed(0)}°
-                            </RNSVGText>
+                            </SvgText>
                         )}
-                        {/* Mostra punteggio pose se disponibile */}
-                        {poseScore !== undefined && (
-                            <RNSVGText
-                                x={dotX + 8}
-                                y={dotY - 8}
-                                fontSize={8}
+                        {/* Mostra punteggio pose se disponibile, altrimenti mostra "-" */}
+                        {poseScore !== undefined ? (
+                            <SvgText
+                                x={dotX + 14}
+                                y={dotY - 12}
+                                fontSize={18}
                                 fill="#fff"
-                                fontWeight="600"
+                                fontWeight="700"
                             >
                                 {poseScore}
-                            </RNSVGText>
+                            </SvgText>
+                        ) : (
+                            <SvgText
+                                x={dotX + 14}
+                                y={dotY - 12}
+                                fontSize={18}
+                                fill="#888"
+                                fontWeight="700"
+                            >
+                                -
+                            </SvgText>
                         )}
                     </React.Fragment>
                 )
@@ -190,6 +200,7 @@ export default function ShotChartScreen({ navigation, route }: any) {
                         shotsWithPose++
                         totalPoseFrames += shot.rawPoseFrames.length
                         const score = calculatePoseScore(shot.rawPoseFrames)
+                        console.log('[ShotChart] Pose score for shot', shot.shotId, 'key:', key, 'score:', score)
                         scoresMap.set(key, score)
                     }
                     

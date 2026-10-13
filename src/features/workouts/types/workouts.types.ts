@@ -74,10 +74,18 @@ export interface ShotPoint {
   confidence?: number
 }
 
+// Keypoint nel formato del backend (usato anche nel frontend dopo conversione)
+export interface BackendPoseKeypoint {
+  name: string
+  x: number
+  y: number
+  confidence: number
+}
+
 // Frame di posa grezza per ShotEvent
 export interface RawPoseFrame {
   timestampMs: number
-  keypoints: PoseKeypoints
+  keypoints: BackendPoseKeypoint[]  // Array di keypoints nel formato backend
   coordinateSpace: 'IMAGE_NORMALIZED' | 'IMAGE_PIXELS'
 }
 
@@ -122,7 +130,7 @@ export interface AddShotEventPayload {
     // Nuovi campi per completamento gestione tiri
     courtPositionQuality?: CourtPositionQuality
     trajectory?: ShotPoint[]
-    rawPoseFrames?: RawPoseFrame[]
+    rawPoseFrames?: BackendRawPoseFrame[]  // Backend format (converted from RawPoseFrame[])
     schemaVersion?: number
 }
 
@@ -186,6 +194,8 @@ export interface TrackingState {
         timestampMs: number
         isValid: boolean
     }
+    // Pose frames captured at shot detection (for retry recovery)
+    rawPoseFrames?: RawPoseFrame[]
 }
 
 export interface PoseKeypoints {
@@ -201,6 +211,21 @@ export interface PoseKeypoints {
     rightKnee?: { x: number; y: number; score: number }
     leftAnkle?: { x: number; y: number; score: number }
     rightAnkle?: { x: number; y: number; score: number }
+}
+
+// Backend-compatible format for pose keypoints
+export interface BackendPoseKeypoint {
+    name: string
+    x: number
+    y: number
+    confidence: number
+}
+
+// Backend-compatible format for raw pose frame
+export interface BackendRawPoseFrame {
+    timestampMs: number
+    keypoints: BackendPoseKeypoint[]
+    coordinateSpace: 'IMAGE_NORMALIZED' | 'IMAGE_PIXELS'
 }
 
 export interface JointAngles {

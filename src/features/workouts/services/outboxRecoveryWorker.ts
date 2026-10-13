@@ -164,9 +164,10 @@ export class OutboxRecoveryWorker {
    * - shouldRetry: false if item exceeded retry limit or should not be retried automatically
    */
   private async retryItem(item: OutboxItem): Promise<{ success: boolean; shouldRetry: boolean }> {
-    // Check retry limit
+    // Check retry limit - remove item if exceeded
     if (item.retryCount >= MAX_RETRY_ATTEMPTS) {
-      console.warn(`[RecoveryWorker] Item ${item.id} exceeded retry limit (${item.retryCount}), keeping for manual recovery`)
+      console.warn(`[RecoveryWorker] Item ${item.id} exceeded retry limit (${item.retryCount}), removing from outbox`)
+      await this.removeItem(item.id)
       return { success: false, shouldRetry: false }
     }
 
@@ -207,6 +208,14 @@ export class OutboxRecoveryWorker {
       // This happens when a session was deleted from backend but item remains in local storage
       if (e?.response?.status === 404 || e?.response?.data?.error?.includes('not found')) {
         console.warn(`[RecoveryWorker] Session ${item.sessionId} not found (404), removing item ${item.id} from outbox`)
+        await this.removeItem(item.id)
+        return { success: true, shouldRetry: false } // Item was handled (removed)
+      }
+
+      // If backend cannot deserialize data (500 with "Not able to deserialize"), remove the item
+      // This happens when payload format is incompatible with backend schema
+      if (e?.response?.status === 500 && e?.response?.data?.data?.includes('deserialize')) {
+        console.warn(`[RecoveryWorker] Backend cannot deserialize payload for ${item.id}, removing from outbox`)
         await this.removeItem(item.id)
         return { success: true, shouldRetry: false } // Item was handled (removed)
       }

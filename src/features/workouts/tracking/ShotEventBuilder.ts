@@ -12,10 +12,70 @@ import type {
   TrackingState,
   PoseKeypoints,
   CalibrationData,
+  BackendPoseKeypoint,
+  BackendRawPoseFrame,
 } from '../types/workouts.types'
 
 // Schema version per evoluzione del formato
 const SHOT_EVENT_SCHEMA_VERSION = 1
+
+// Convert PoseKeypoints (frontend format) to BackendPoseKeypoint[] (backend format)
+function convertPoseKeypointsToBackend(keypoints: PoseKeypoints): BackendPoseKeypoint[] {
+  const result: BackendPoseKeypoint[] = []
+
+  // Check if keypoints is in array format (MoveNet output)
+  // MoveNet returns: { keypoints: [{x, y, confidence}, ...], confidence: number }
+  if (keypoints && 'keypoints' in keypoints && Array.isArray((keypoints as any).keypoints)) {
+    const keypointArray = (keypoints as any).keypoints as Array<{ x: number; y: number; confidence: number }>
+    return keypointArray.map((kp, index) => ({
+      name: `keypoint_${index}`,
+      x: kp.x,
+      y: kp.y,
+      confidence: kp.confidence,
+    }))
+  }
+
+  // Original format: named keypoints (leftShoulder, rightElbow, etc.)
+  const keyMapping: { [key in keyof PoseKeypoints]: string } = {
+    leftShoulder: 'left_shoulder',
+    rightShoulder: 'right_shoulder',
+    leftElbow: 'left_elbow',
+    rightElbow: 'right_elbow',
+    leftWrist: 'left_wrist',
+    rightWrist: 'right_wrist',
+    leftHip: 'left_hip',
+    rightHip: 'right_hip',
+    leftKnee: 'left_knee',
+    rightKnee: 'right_knee',
+    leftAnkle: 'left_ankle',
+    rightAnkle: 'right_ankle',
+  }
+
+  for (const [key, value] of Object.entries(keypoints)) {
+    if (value && typeof value === 'object') {
+      const backendName = keyMapping[key as keyof PoseKeypoints]
+      if (backendName) {
+        result.push({
+          name: backendName,
+          x: value.x,
+          y: value.y,
+          confidence: value.score,
+        })
+      }
+    }
+  }
+
+  return result
+}
+
+// Convert RawPoseFrame[] (frontend format) to BackendRawPoseFrame[] (backend format)
+function convertRawPoseFramesToBackend(frames: RawPoseFrame[]): BackendRawPoseFrame[] {
+  return frames.map(frame => ({
+    timestampMs: frame.timestampMs,
+    keypoints: convertPoseKeypointsToBackend(frame.keypoints),
+    coordinateSpace: frame.coordinateSpace,
+  }))
+}
 
 // Genera UUID v4 semplice (compatibile React Native)
 // Fallback a crypto.randomUUID() se disponibile, altrimenti implementazione manuale
@@ -77,6 +137,20 @@ export class ShotEventBuilder {
   // Pulisce il buffer posa
   clearPoseBuffer(): void {
     this.poseBuffer = []
+  }
+
+  // Restituisce la lunghezza attuale del buffer posa (per debugging)
+  getPoseBufferLength(): number {
+    return this.poseBuffer.length
+  }
+
+  // Restituisce i pose frames attuali nel buffer (per cattura al tiro)
+  getPoseFrames(): RawPoseFrame[] {
+    return this.poseBuffer.map((entry) => ({
+      timestampMs: entry.timestampMs,
+      keypoints: entry.keypoints,
+      coordinateSpace: entry.coordinateSpace,
+    }))
   }
 
   // Converte trajectory da TrackingState a ShotPoint[]
@@ -176,12 +250,14 @@ export class ShotEventBuilder {
       trackingState.releasePoint ? timestampMs : undefined
     )
 
-    // Estrae posa grezza dal buffer
-    const rawPoseFrames: RawPoseFrame[] = this.poseBuffer.map((entry) => ({
-      timestampMs: entry.timestampMs,
-      keypoints: entry.keypoints,
-      coordinateSpace: entry.coordinateSpace,
-    }))
+    // Estrae posa grezza dal buffer o dal TrackingState (per retry recovery)
+    const rawPoseFrames: RawPoseFrame[] = trackingState.rawPoseFrames
+      ? trackingState.rawPoseFrames // Use captured frames from TrackingState (retry recovery)
+      : this.poseBuffer.map((entry) => ({ // Use buffer (first attempt)
+          timestampMs: entry.timestampMs,
+          keypoints: entry.keypoints,
+          coordinateSpace: entry.coordinateSpace,
+        }))
 
     // Costruisce ShotEvent
     const shotEvent: ShotEvent = {
@@ -218,7 +294,8 @@ export class ShotEventBuilder {
   ): AddShotEventPayload {
     const shotEvent = this.buildShotEvent(trackingState, sessionId, config)
 
-    return {
+    // Build base payload without rawPoseFrames (to avoid JSONB type error)
+    const payload: AddShotEventPayload = {
       shotId: shotEvent.shotId,
       timestampMs: shotEvent.timestampMs,
       shotResult: shotEvent.shotResult,
@@ -231,9 +308,15 @@ export class ShotEventBuilder {
       trackingData: shotEvent.trackingData,
       courtPositionQuality: shotEvent.courtPositionQuality,
       trajectory: shotEvent.trajectory,
-      rawPoseFrames: shotEvent.rawPoseFrames,
       schemaVersion: shotEvent.schemaVersion,
     }
+
+    // Only add rawPoseFrames if we have valid data (not undefined/null)
+    if (shotEvent.rawPoseFrames && shotEvent.rawPoseFrames.length > 0) {
+      payload.rawPoseFrames = convertRawPoseFramesToBackend(shotEvent.rawPoseFrames)
+    }
+
+    return payload
   }
 
   // Converte AIRBLOCK/AIRBALL a UNCERTAIN per contratto pubblico

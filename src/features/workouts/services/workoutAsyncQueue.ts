@@ -263,10 +263,14 @@ class WorkoutAsyncQueue {
         // Update retry count before attempt
         await this.criticalOutbox.updateRetryCount(itemId, attempt)
 
+        // Log payload for debugging 500 errors
+        console.log('[WorkoutQueue] Sending shot payload:', JSON.stringify(payload, null, 2))
+
         await addShotEvent(sessionId, userId, payload)
         return { success: true, shouldRetry: false }
       } catch (e: any) {
         console.error(`[WorkoutQueue] Shot event failed (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS}):`, e)
+        console.error('[WorkoutQueue] Error response:', e?.response?.data)
 
         // For 401 authentication errors, suspend automatic retries
         if (e?.response?.status === 401) {
