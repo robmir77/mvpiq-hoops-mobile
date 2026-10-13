@@ -12,6 +12,111 @@
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
 
+## Decision 37: Sistema Adattivo Confidence YOLO + Rimozione Filtri Bbox
+
+**Contesto:** Il sistema YOLO usava threshold di confidence statici per ball, player e rim. Questo non si adattava alle condizioni di rilevamento variabili (distanza, illuminazione, angolazione). Inoltre, filtri hardcoded sulla dimensione del bbox scartavano rilevamenti validi di oggetti piccoli/lontani.
+
+**Problemi identificati:**
+1. Threshold statici non si adattano alle condizioni reali (palle troppo piccole non rilevate)
+2. Filtri MIN_BBOX_SIZE_NORMALIZED e MAX_BBOX_SIZE_NORMALIZED scartano rilevamenti validi
+3. PLAYER_MIN_WIDTH e PLAYER_MIN_HEIGHT in YoloDetector limitano rilevamento giocatore
+4. Confidence fissa non bilancia sensibilità vs false positives in modo dinamico
+
+**Decisione:**
+- Implementare sistema adattivo confidence basato su sliding window di rilevamenti recenti
+- Rimuovere filtri dimensione bbox per fidarsi del modello YOLO
+- Configurare parametri adattivi in appConfig.ts
+- Integrare adattamento in YoloDetector.parseOutput()
+- Aggiungere reset dello stato adattivo per nuove sessioni
+
+**Parametri adattivi (appConfig.ts):**
+```typescript
+ADAPTIVE_CONF: {
+  ENABLED: true,              // Abilita sistema adattivo
+  WINDOW_SIZE: 30,           // Frame considerati per adattamento
+  MIN_THRESHOLD: 0.001,      // Minimo 0.1%
+  MAX_THRESHOLD: 0.50,       // Massimo 50%
+  ADJUSTMENT_FACTOR: 0.1,    // Velocità adattamento (10% per frame)
+  HIGH_CONF_THRESHOLD: 0.7,  // Confidence considerata alta
+  LOW_CONF_THRESHOLD: 0.2,   // Confidence considerata bassa
+}
+```
+
+**Logica adattamento:**
+- Sliding window di 30 frame per tracciare rilevamenti e confidence di ball, player, rim
+- Detection rate > 70% + confidence alta → alza threshold (riduce false positives)
+- Detection rate < 30% → abbassa threshold (aumenta sensibilità)
+- Confidence alta ma detection rate moderato → leggero aumento
+- Confidence bassa → leggero decrease
+- Threshold clamped tra MIN_THRESHOLD e MAX_THRESHOLD
+
+**Filtri rimossi:**
+- `MIN_BBOX_SIZE_NORMALIZED` e `MAX_BBOX_SIZE_NORMALIZED` in useYoloWorkerAsync.ts
+- `MIN_BBOX_SIZE_NORMALIZED` e `MAX_BBOX_SIZE_NORMALIZED` in useYoloWorker.ts (legacy)
+- `PLAYER_MIN_WIDTH` e `PLAYER_MIN_HEIGHT` check in YoloDetector.ts
+- Mantenuto solo filtro spaziale COURT_MARGIN (0.1) per escludere rilevamenti fuori campo
+
+**Modifiche implementate:**
+
+1. **appConfig.ts (righe 22-31):**
+   - Aggiunto ADAPTIVE_CONF con parametri configurabili
+   - ENABLED per abilitare/disabilitare sistema adattivo
+
+2. **YoloDetector.ts (righe 46-89, 99-182):**
+   - Aggiunto stato adattivo: detection history e confidence history per ball, player, rim
+   - Implementato updateAdaptiveThreshold() con logica sliding window
+   - Integrato threshold adattivi in parseOutput() per tutti e tre gli oggetti
+   - Aggiunto resetAdaptiveState() per pulire stato tra sessioni
+   - Aggiunto getAdaptiveThresholds() per debugging
+   - Aggiunto reset() completo che chiama resetAdaptiveState()
+   - Log adattivo throttled (ogni 10 frame, solo se threshold cambia significativamente)
+
+3. **useYoloWorkerAsync.ts (righe 330-335, 564-566):**
+   - Rimosso MIN_BBOX_SIZE_NORMALIZED e MAX_BBOX_SIZE_NORMALIZED
+   - Mantenuto solo COURT_MARGIN per filtro spaziale
+   - Aggiunto yoloDetectorRef.current.reset() in reset()
+
+4. **useYoloWorker.ts (righe 105-106, 274-275, 426-428):**
+   - Rimosso MIN_BBOX_SIZE_NORMALIZED e MAX_BBOX_SIZE_NORMALIZED (2 punti)
+   - Aggiunto yoloDetectorRef.current.reset() in reset()
+   - Rimosso check PLAYER_MIN_WIDTH e PLAYER_MIN_HEIGHT in YoloDetector
+
+5. **YoloDetector.ts setRimDetectionEnabled() (righe 91-101):**
+   - Reset stato adattivo rim quando disabilitato da UI
+   - Pulisce rimDetectionHistory, rimConfidenceHistory
+   - Ripristina adaptiveRimThreshold al default
+
+**Rationale:**
+- Sistema adattivo bilancia automaticamente sensibilità vs false positives
+- Fidarsi del modello YOLO per dimensione oggetti invece di filtri hardcoded
+- Adattamento rapido (WINDOW_SIZE=30, ADJUSTMENT_FACTOR=0.1)
+- Reset stato tra sessioni per evitare contaminazione
+- Log throttled per debugging senza spam
+
+**Conseguenze:**
+- Palle piccole/lontane ora rilevate (rimozione filtri bbox)
+- Threshold si adattano automaticamente alle condizioni di rilevamento
+- Sessioni diverse hanno threshold indipendenti (reset tra sessioni)
+- Rim detection può essere disabilitato da UI con reset stato adattivo
+- Log adattivo visibile quando threshold cambia significativamente
+
+**Stato:**
+- ✅ Sistema adattivo implementato in YoloDetector
+- ✅ Filtri bbox rimossi da useYoloWorkerAsync e useYoloWorker
+- ✅ Filtri player dimensione rimossi da YoloDetector
+- ✅ Reset stato adattivo in useYoloWorkerAsync e useYoloWorker
+- ✅ Reset stato adattivo quando rim disabilitato
+- ✅ Configurazione centralizzata in appConfig.ts
+- ✅ Log adattivo throttled per debugging
+
+**Next steps:**
+- Testare rilevamento palle piccole/lontane
+- Verificare adattamento threshold in diverse condizioni
+- Monitorare log adattivo per conferma funzionamento
+- Valutare se regolare parametri ADAPTIVE_CONF in base ai test
+
+---
+
 ## Decision 36: Vision Configuration Persistence
 
 **Contesto:** L'obiettivo è garantire che ogni sessione conservi i parametri vision realmente utilizzati (fps, risoluzione camera, risoluzione pose, modelli YOLO/MoveNet, delegate), così che quando viene recuperata il frontend possa ripristinare la stessa configurazione. Senza questa persistenza, le sessioni salvate non potevano ripristinare la configurazione vision originale.

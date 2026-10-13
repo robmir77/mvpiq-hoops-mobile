@@ -164,6 +164,8 @@ WorkoutSessionRuntime
 - Reentrancy guard per prevenire elaborazioni concorrenti
 - YOLO detection (ball, player, rim)
 - Ball/Player/Rim detection parsing e filtering
+- **Sistema adattivo confidence:** Threshold dinamici per ball, player, rim basati su sliding window - Decision 37
+- **Rimozione filtri bbox:** Fiducia nel modello YOLO per dimensione oggetti, solo filtro spaziale COURT_MARGIN - Decision 37
 - Player crop management (TTL 750ms, EMA smoothing, jump threshold)
 - **MoveNet bbox corrente:** MoveNet esegue solo con bbox corrente (non persistente) - Decision 31
 - Kalman prediction base per ball tracking
@@ -590,13 +592,20 @@ Tutti i threshold e valori di default sono centralizzati in `appConfig.ts`:
 
 ```typescript
 export const YOLO_CONFIG = {
-  BALL_CONF_THRESHOLD: 0.005,           // 0.5%
-  PLAYER_CONF_THRESHOLD: 0.03,         // 3% - lowered for better detection rate
+  BALL_CONF_THRESHOLD: 0.005,           // 0.5% - default, adaptive system adjusts dynamically
+  PLAYER_CONF_THRESHOLD: 0.03,         // 3% - default, adaptive system adjusts dynamically
   PLAYER_CROP_MIN_CONFIDENCE: 0.05,   // 5%
-  RIM_CONF_THRESHOLD: 0.1,            // 10%
+  RIM_CONF_THRESHOLD: 0.30,           // 30% - default, adaptive system adjusts dynamically
   NMS_IOU_THRESHOLD: 0.4,
-  PLAYER_MIN_WIDTH: 0.05,              // 5% del frame
-  PLAYER_MIN_HEIGHT: 0.1,              // 10% del frame
+  ADAPTIVE_CONF: {
+    ENABLED: true,                      // Enable adaptive confidence threshold
+    WINDOW_SIZE: 30,                    // Number of frames to consider for adaptation
+    MIN_THRESHOLD: 0.001,              // Minimum adaptive threshold (0.1%)
+    MAX_THRESHOLD: 0.50,                // Maximum adaptive threshold (50%)
+    ADJUSTMENT_FACTOR: 0.1,             // How much to adjust threshold per frame (10% of difference)
+    HIGH_CONF_THRESHOLD: 0.7,           // Confidence considered "high" for raising threshold
+    LOW_CONF_THRESHOLD: 0.2,            // Confidence considered "low" for lowering threshold
+  },
 } as const
 
 export const CAMERA_CONFIG = {
