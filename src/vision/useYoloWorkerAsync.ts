@@ -561,6 +561,9 @@ export const useYoloWorkerAsync = (
     yoloRequestedCount.value = 0
     yoloExecutedCount.value = 0
     yoloSkippedCount.value = 0
+
+    // Reset adaptive confidence state
+    yoloDetectorRef.current.reset()
   }, [latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, lastInferenceAt, isProcessing, lastSubmitTimestamp, hasPendingFrame, yoloRequestedCount, yoloExecutedCount, yoloSkippedCount])
 
   return {

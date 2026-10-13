@@ -18,6 +18,17 @@ export const YOLO_CONFIG = {
   // Size constraints
   PLAYER_MIN_WIDTH: 0.05, // Minimum normalized width for player detection
   PLAYER_MIN_HEIGHT: 0.1, // Minimum normalized height for player detection
+
+  // Adaptive confidence threshold configuration
+  ADAPTIVE_CONF: {
+    ENABLED: true, // Enable adaptive confidence threshold
+    WINDOW_SIZE: 30, // Number of frames to consider for adaptation
+    MIN_THRESHOLD: 0.001, // Minimum adaptive threshold (0.1%)
+    MAX_THRESHOLD: 0.50, // Maximum adaptive threshold (50%)
+    ADJUSTMENT_FACTOR: 0.1, // How much to adjust threshold per frame (10% of difference)
+    HIGH_CONF_THRESHOLD: 0.7, // Confidence considered "high" for raising threshold
+    LOW_CONF_THRESHOLD: 0.2, // Confidence considered "low" for lowering threshold
+  },
 } as const;
 
 // Camera Configuration

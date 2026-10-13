@@ -37,10 +37,33 @@ export interface YoloResult {
 export class YoloDetector {
   private ballConfThreshold: number
   private rimConfThreshold: number
+  private playerConfThreshold: number
   private rimDetectionEnabled: boolean = true
 
   // Persistent rim detection state (for confidence-based replacement)
   private persistentRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
+
+  // Adaptive confidence state
+  private adaptiveEnabled: boolean
+  private windowSize: number
+  private minThreshold: number
+  private maxThreshold: number
+  private adjustmentFactor: number
+  private highConfThreshold: number
+  private lowConfThreshold: number
+
+  // Detection history for adaptive threshold (sliding window)
+  private ballDetectionHistory: boolean[] = [] // true = detected, false = not detected
+  private playerDetectionHistory: boolean[] = []
+  private rimDetectionHistory: boolean[] = []
+  private ballConfidenceHistory: number[] = [] // confidence values for detected frames
+  private playerConfidenceHistory: number[] = []
+  private rimConfidenceHistory: number[] = []
+
+  // Current adaptive thresholds
+  private adaptiveBallThreshold: number
+  private adaptivePlayerThreshold: number
+  private adaptiveRimThreshold: number
 
   constructor(
     ballConfThreshold: number = YOLO_CONFIG.BALL_CONF_THRESHOLD,
@@ -48,6 +71,21 @@ export class YoloDetector {
   ) {
     this.ballConfThreshold = ballConfThreshold
     this.rimConfThreshold = rimConfThreshold
+    this.playerConfThreshold = YOLO_CONFIG.PLAYER_CONF_THRESHOLD
+
+    // Adaptive configuration
+    this.adaptiveEnabled = YOLO_CONFIG.ADAPTIVE_CONF.ENABLED
+    this.windowSize = YOLO_CONFIG.ADAPTIVE_CONF.WINDOW_SIZE
+    this.minThreshold = YOLO_CONFIG.ADAPTIVE_CONF.MIN_THRESHOLD
+    this.maxThreshold = YOLO_CONFIG.ADAPTIVE_CONF.MAX_THRESHOLD
+    this.adjustmentFactor = YOLO_CONFIG.ADAPTIVE_CONF.ADJUSTMENT_FACTOR
+    this.highConfThreshold = YOLO_CONFIG.ADAPTIVE_CONF.HIGH_CONF_THRESHOLD
+    this.lowConfThreshold = YOLO_CONFIG.ADAPTIVE_CONF.LOW_CONF_THRESHOLD
+
+    // Initialize adaptive thresholds with defaults
+    this.adaptiveBallThreshold = ballConfThreshold
+    this.adaptivePlayerThreshold = this.playerConfThreshold
+    this.adaptiveRimThreshold = rimConfThreshold
   }
 
   setRimDetectionEnabled(enabled: boolean): void {
@@ -55,6 +93,106 @@ export class YoloDetector {
     if (!enabled) {
       // Clear persistent rim when disabled
       this.persistentRim = null
+      // Reset adaptive rim state when disabled
+      this.rimDetectionHistory = []
+      this.rimConfidenceHistory = []
+      this.adaptiveRimThreshold = this.rimConfThreshold
+    }
+  }
+
+  // Update detection history and adjust adaptive thresholds
+  private updateAdaptiveThreshold(
+    detected: boolean,
+    confidence: number | null,
+    history: boolean[],
+    confidenceHistory: number[],
+    currentThreshold: number,
+    baseThreshold: number
+  ): number {
+    if (!this.adaptiveEnabled) {
+      return baseThreshold
+    }
+
+    // Add to history
+    history.push(detected)
+    if (detected && confidence !== null) {
+      confidenceHistory.push(confidence)
+    }
+
+    // Maintain window size
+    if (history.length > this.windowSize) {
+      history.shift()
+      if (confidenceHistory.length > this.windowSize) {
+        confidenceHistory.shift()
+      }
+    }
+
+    // Calculate detection rate in window
+    const detectionRate = history.filter(d => d).length / history.length
+
+    // Calculate average confidence of detections
+    let avgConfidence = 0
+    if (confidenceHistory.length > 0) {
+      avgConfidence = confidenceHistory.reduce((sum, c) => sum + c, 0) / confidenceHistory.length
+    }
+
+    // Adaptive logic:
+    // - High detection rate + high confidence → raise threshold (reduce false positives)
+    // - Low detection rate → lower threshold (increase sensitivity)
+    let newThreshold = currentThreshold
+
+    if (detectionRate > 0.7 && avgConfidence > this.highConfThreshold) {
+      // High confidence detections → raise threshold
+      const targetThreshold = Math.min(baseThreshold * 2, this.maxThreshold)
+      newThreshold = currentThreshold + (targetThreshold - currentThreshold) * this.adjustmentFactor
+    } else if (detectionRate < 0.3) {
+      // Low detection rate → lower threshold
+      const targetThreshold = Math.max(baseThreshold * 0.5, this.minThreshold)
+      newThreshold = currentThreshold + (targetThreshold - currentThreshold) * this.adjustmentFactor
+    } else if (avgConfidence > this.highConfThreshold && confidenceHistory.length > 5) {
+      // High confidence but moderate detection rate → slight raise
+      newThreshold = currentThreshold + (baseThreshold - currentThreshold) * this.adjustmentFactor * 0.5
+    } else if (avgConfidence < this.lowConfThreshold && confidenceHistory.length > 5) {
+      // Low confidence → slight lower
+      newThreshold = currentThreshold + (baseThreshold * 0.5 - currentThreshold) * this.adjustmentFactor * 0.5
+    }
+
+    // Clamp to bounds
+    newThreshold = Math.max(this.minThreshold, Math.min(this.maxThreshold, newThreshold))
+
+    // Log adaptive threshold changes (gated to avoid spam - every 10 frames for now)
+    if (Math.abs(newThreshold - currentThreshold) > 0.0001 && history.length % 10 === 0) {
+      console.log('[YoloDetector] Adaptive threshold update', {
+        detectionRate: detectionRate.toFixed(2),
+        avgConfidence: avgConfidence.toFixed(3),
+        oldThreshold: currentThreshold.toFixed(4),
+        newThreshold: newThreshold.toFixed(4),
+        baseThreshold: baseThreshold.toFixed(4),
+      })
+    }
+
+    return newThreshold
+  }
+
+  // Reset adaptive state (call when starting new session)
+  resetAdaptiveState(): void {
+    this.ballDetectionHistory = []
+    this.playerDetectionHistory = []
+    this.rimDetectionHistory = []
+    this.ballConfidenceHistory = []
+    this.playerConfidenceHistory = []
+    this.rimConfidenceHistory = []
+    this.adaptiveBallThreshold = this.ballConfThreshold
+    this.adaptivePlayerThreshold = this.playerConfThreshold
+    this.adaptiveRimThreshold = this.rimConfThreshold
+  }
+
+  // Get current adaptive thresholds (for debugging)
+  getAdaptiveThresholds(): { ball: number; player: number; rim: number } {
+    return {
+      ball: this.adaptiveBallThreshold,
+      player: this.adaptivePlayerThreshold,
+      rim: this.adaptiveRimThreshold,
     }
   }
 
@@ -211,7 +349,7 @@ export class YoloDetector {
         if (cameraW <= 0.01 || cameraH <= 0.01) continue
 
         const geometryCheck = this.isValidBallGeometry(cameraW, cameraH)
-        const ballAdaptiveThreshold = this.getAdaptiveThreshold(cameraW, cameraH, this.ballConfThreshold, resolutionScale)
+        const ballAdaptiveThreshold = this.getAdaptiveThreshold(cameraW, cameraH, this.adaptiveBallThreshold, resolutionScale)
 
         if (geometryCheck.valid && ballProb >= ballAdaptiveThreshold) {
           const detection = {
@@ -228,7 +366,7 @@ export class YoloDetector {
 
         // Rim detection pipeline (skip if disabled)
         if (this.rimDetectionEnabled) {
-          const effectiveRimThreshold = this.rimConfThreshold
+          const effectiveRimThreshold = this.adaptiveRimThreshold
           if (rimProb >= effectiveRimThreshold) {
             const detection = {
               x: cameraCx,
@@ -256,7 +394,7 @@ export class YoloDetector {
           }
         }
 
-        if (humanProb >= YOLO_CONFIG.PLAYER_CONF_THRESHOLD) {
+        if (humanProb >= this.adaptivePlayerThreshold) {
           confidencePassed++
           if (cameraW > YOLO_CONFIG.PLAYER_MIN_WIDTH && cameraH > YOLO_CONFIG.PLAYER_MIN_HEIGHT) {
             sizePassed++
@@ -286,7 +424,7 @@ export class YoloDetector {
 
       const avgSize = bestBall ? (bestBall.width + bestBall.height) / 2 : 0
       const ballSizeCategory = this.getBallSizeCategory(avgSize)
-      const adaptiveThreshold = bestBall ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, this.ballConfThreshold, resolutionScale) : undefined
+      const adaptiveThreshold = bestBall ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, this.adaptiveBallThreshold, resolutionScale) : undefined
 
       const playerDebug: YoloPlayerDebug = {
         rawCandidates,
@@ -296,6 +434,34 @@ export class YoloDetector {
         bestConfidence,
         rejectedConfidence,
       }
+
+      // Update adaptive thresholds based on detection results
+      this.adaptiveBallThreshold = this.updateAdaptiveThreshold(
+        bestBall !== null,
+        bestBall?.confidence || null,
+        this.ballDetectionHistory,
+        this.ballConfidenceHistory,
+        this.adaptiveBallThreshold,
+        this.ballConfThreshold
+      )
+
+      this.adaptivePlayerThreshold = this.updateAdaptiveThreshold(
+        bestPlayer !== null,
+        bestPlayer?.confidence || null,
+        this.playerDetectionHistory,
+        this.playerConfidenceHistory,
+        this.adaptivePlayerThreshold,
+        this.playerConfThreshold
+      )
+
+      this.adaptiveRimThreshold = this.updateAdaptiveThreshold(
+        bestRim !== null,
+        bestRim?.confidence || null,
+        this.rimDetectionHistory,
+        this.rimConfidenceHistory,
+        this.adaptiveRimThreshold,
+        this.rimConfThreshold
+      )
 
       // Update persistent rim if we found a better one
       if (bestRim) {
@@ -329,5 +495,11 @@ export class YoloDetector {
   // Reset persistent rim (call when starting new session or recalibrating)
   resetPersistentRim(): void {
     this.persistentRim = null
+  }
+
+  // Reset all state (call when starting new session)
+  reset(): void {
+    this.resetPersistentRim()
+    this.resetAdaptiveState()
   }
 }

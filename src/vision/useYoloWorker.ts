@@ -422,6 +422,9 @@ export const useYoloWorker = (
     latestResultTimestamp.value = 0
     lastInferenceAt.value = 0
     isProcessing.value = false
+
+    // Reset adaptive confidence state
+    yoloDetectorRef.current.reset()
   }, [latestResultBall, latestResultPlayer, latestResultRim, latestResultTimestamp, lastInferenceAt, isProcessing])
 
   return {
