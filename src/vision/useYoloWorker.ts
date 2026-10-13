@@ -265,11 +265,14 @@ export const useYoloWorker = (
       let validBall = null
       if (ball) {
         const COURT_MARGIN = 0.1
+        const MAX_BBOX_SIZE = YOLO_CONFIG.BALL_MAX_BBOX_SIZE
 
+        const bboxSizeNormalized = ball.width * ball.height
         const isInCourt = ball.x >= COURT_MARGIN && ball.x <= 1 - COURT_MARGIN &&
                         ball.y >= COURT_MARGIN && ball.y <= 1 - COURT_MARGIN
+        const isNotTooLarge = bboxSizeNormalized <= MAX_BBOX_SIZE
 
-        if (isInCourt) {
+        if (isInCourt && isNotTooLarge) {
           validBall = ball
         }
       }

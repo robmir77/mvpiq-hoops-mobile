@@ -228,7 +228,7 @@ const RealtimeBallOverlay = React.memo(({
             bottomRight.x - topLeft.x,
             bottomRight.y - topLeft.y
         )
-        return Skia.Path.Make().addRect(rect)
+        return Skia.PathBuilder.Make().addRect(rect).build()
     })
 
     const playerBboxOpacity = useDerivedValue(() => {
@@ -293,7 +293,7 @@ const RealtimeBallOverlay = React.memo(({
     const createLimbPath = (connections: Array<[string, string]>) => {
         return useDerivedValue(() => {
             if (!poseKeypoints) return Skia.Path.Make()
-            const path = Skia.Path.Make()
+            const builder = Skia.PathBuilder.Make()
 
             connections.forEach(([kp1Name, kp2Name]) => {
                 const kp1 = poseKeypoints[kp1Name as keyof PoseKeypoints]
@@ -302,12 +302,12 @@ const RealtimeBallOverlay = React.memo(({
                 if (kp1 && kp2 && kp1.score > 0.15 && kp2.score > 0.15) {
                     const p1 = mapNormalizedToCameraView(kp1.x, kp1.y, effectiveResolution.width, effectiveResolution.height)
                     const p2 = mapNormalizedToCameraView(kp2.x, kp2.y, effectiveResolution.width, effectiveResolution.height)
-                    path.moveTo(p1.x, p1.y)
-                    path.lineTo(p2.x, p2.y)
+                    builder.moveTo(p1.x, p1.y)
+                    builder.lineTo(p2.x, p2.y)
                 }
             })
 
-            return path
+            return builder.build()
         })
     }
 
@@ -354,12 +354,12 @@ const RealtimeBallOverlay = React.memo(({
         }
 
         const p0 = transformPoint(points[0].x, points[0].y)
-        const p = Skia.Path.Make()
-        p.moveTo(p0.x, p0.y)
+        const builder = Skia.PathBuilder.Make()
+        builder.moveTo(p0.x, p0.y)
 
         if (points.length === 2) {
             const p1 = transformPoint(points[1].x, points[1].y)
-            p.lineTo(p1.x, p1.y)
+            builder.lineTo(p1.x, p1.y)
         } else {
             for (let i = 0; i < points.length - 1; i++) {
                 const pt0 = points[Math.max(0, i - 1)]
@@ -376,9 +376,11 @@ const RealtimeBallOverlay = React.memo(({
                 const cp1y = t1.y + (t2.y - t0.y) / 6
                 const cp2x = t2.x - (t3.x - t1.x) / 6
                 const cp2y = t2.y - (t3.y - t1.y) / 6
-                p.cubicTo(cp1x, cp1y, cp2x, cp2y, t2.x, t2.y)
+                builder.cubicTo(cp1x, cp1y, cp2x, cp2y, t2.x, t2.y)
             }
         }
+
+        const p = builder.build()
 
         shotTrailPathRef.current = p
         return p
@@ -386,7 +388,7 @@ const RealtimeBallOverlay = React.memo(({
 
     return (
         <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
-            <Group clip={Skia.Path.Make().addRect(Skia.XYWHRect(0, 0, SCREEN_W, CAMERA_H))}>
+            <Group clip={Skia.PathBuilder.Make().addRect(Skia.XYWHRect(0, 0, SCREEN_W, CAMERA_H)).build()}>
                 <Group>
                     <SkiaPath
                         path={shotTrailPath as any}

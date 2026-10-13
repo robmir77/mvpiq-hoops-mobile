@@ -3,7 +3,7 @@ export const API_BASE_URL = 'https://mvpiq-hoops-backend-1.onrender.com';
 // YOLO Detection Confidence Thresholds
 export const YOLO_CONFIG = {
   // Ball detection thresholds
-  BALL_CONF_THRESHOLD: 0.005, // Minimum confidence for ball detection (0.5%)
+  BALL_CONF_THRESHOLD: 0.001, // Minimum confidence for ball detection (0.1%) - lowered for small/distant balls
 
   // Player detection thresholds
   PLAYER_CONF_THRESHOLD: 0.03, // Minimum confidence for player detection in YOLO parser (3%) - lowered for better detection rate
@@ -18,14 +18,15 @@ export const YOLO_CONFIG = {
   // Size constraints
   PLAYER_MIN_WIDTH: 0.05, // Minimum normalized width for player detection
   PLAYER_MIN_HEIGHT: 0.1, // Minimum normalized height for player detection
+  BALL_MAX_BBOX_SIZE: 0.15, // Maximum normalized bbox size for ball detection (15% of frame) - filter false positives too close to camera
 
   // Adaptive confidence threshold configuration
   ADAPTIVE_CONF: {
     ENABLED: true, // Enable adaptive confidence threshold
-    WINDOW_SIZE: 30, // Number of frames to consider for adaptation
-    MIN_THRESHOLD: 0.001, // Minimum adaptive threshold (0.1%)
+    WINDOW_SIZE: 15, // Number of frames to consider for adaptation (reduced for faster adaptation)
+    MIN_THRESHOLD: 0.0005, // Minimum adaptive threshold (0.05%) - lowered for small balls
     MAX_THRESHOLD: 0.50, // Maximum adaptive threshold (50%)
-    ADJUSTMENT_FACTOR: 0.1, // How much to adjust threshold per frame (10% of difference)
+    ADJUSTMENT_FACTOR: 0.2, // How much to adjust threshold per frame (20% of difference) - faster adaptation
     HIGH_CONF_THRESHOLD: 0.7, // Confidence considered "high" for raising threshold
     LOW_CONF_THRESHOLD: 0.2, // Confidence considered "low" for lowering threshold
   },
