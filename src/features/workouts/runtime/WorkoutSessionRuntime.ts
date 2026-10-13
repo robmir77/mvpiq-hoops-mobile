@@ -227,6 +227,16 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
 
     // Get raw results for diagnostics (includes all detections, not just updated ones)
     const rawVisionResults = this.visionEngine.getCurrentResults()
+    
+    // Log diagnostic mode status periodically
+    if (this.diagnosticMode && this.processFrameCount % 100 === 0) {
+      console.log('[DIAGNOSTIC] Raw results:', {
+        hasBall: !!rawVisionResults.ball,
+        hasPlayer: !!rawVisionResults.player,
+        hasRim: !!rawVisionResults.rim,
+        hasPose: !!rawVisionResults.pose,
+      })
+    }
 
     const visionResult = this.visionEngine.processFrame(frame)
 
@@ -293,6 +303,11 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
             confidence: trackingState.confidence,
           },
         })
+      }
+      
+      // Log every 100 events to avoid spam
+      if (this.diagnosticEvents.length % 100 === 0) {
+        console.log('[DIAGNOSTIC] Events collected:', this.diagnosticEvents.length)
       }
     }
 
@@ -536,7 +551,7 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
       this.diagnosticEvents = [] // Clear previous events when starting new diagnostic session
       console.log('[WorkoutSessionRuntime] Diagnostic mode ENABLED')
     } else {
-      console.log('[WorkoutSessionRuntime] Diagnostic mode DISABLED')
+      console.log('[WorkoutSessionRuntime] Diagnostic mode DISABLED, final stats:', this.getDiagnosticStats())
     }
   }
 

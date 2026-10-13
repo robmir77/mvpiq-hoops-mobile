@@ -162,6 +162,21 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
       shotConfirmed: 0,
       playerDetected: 0,
     })
+    
+    // Update diagnostic stats in real-time when mode is active
+    useEffect(() => {
+        if (!diagnosticMode) return
+        
+        const interval = setInterval(() => {
+            const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+            if (runtimeForManual) {
+                setDiagnosticStats(runtimeForManual.getDiagnosticStats())
+            }
+        }, 500) // Update every 500ms
+        
+        return () => clearInterval(interval)
+    }, [diagnosticMode])
+    
     const [usageMinutes, setUsageMinutes] = useState(0)
     const [usageSeconds, setUsageSeconds] = useState(0)
     const sessionStartTimeRef = useRef<number | null>(null)
