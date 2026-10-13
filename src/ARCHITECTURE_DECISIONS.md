@@ -12,6 +12,98 @@
 | best_512_float16 | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
 | best_640_float16 | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
 
+## Decision 38: Modalità Diagnostica Real-Time e Visualizzazione Shot Chart
+
+**Contesto:** La modalità diagnostica per test rilevamento tiri non aggiornava le statistiche in tempo reale, mostrando sempre valori a zero. Inoltre, lo shot chart non visualizzava l'angolo della parabola e il punteggio pose calcolato dai rawPoseFrames.
+
+**Problemi identificati:**
+1. Le statistiche diagnostiche (ballDetected, shotDetected, shotConfirmed, playerDetected) venivano aggiornate solo quando la modalità veniva disabilitata, non durante la sessione attiva
+2. L'angolo della parabola (releaseAngle) non veniva visualizzato nello shot chart
+3. Il punteggio pose calcolato dai rawPoseFrames non veniva visualizzato nello shot chart
+4. I rawPoseFrames venivano raccolti e inviati al backend, ma non restituiti dall'API getSessionShots
+
+**Decisione:**
+- Implementare polling 500ms per aggiornamento real-time delle statistiche diagnostiche in WorkoutSessionScreen
+- Aggiungere visualizzazione releaseAngle nello shot chart (calcolato dal backend)
+- Aggiungere calcolo e visualizzazione poseScore nello shot chart (dai rawPoseFrames)
+- Richiedere al backend di restituire rawPoseFrames nell'endpoint GET /api/workouts/sessions/{sessionId}/shots
+
+**Modifiche implementate (Frontend):**
+
+1. **WorkoutSessionScreen.tsx (righe 157-178):**
+   - Aggiunto useEffect per polling diagnostic stats ogni 500ms quando diagnosticMode è attivo
+   - Chiamata a runtimeRef.current.getDiagnosticStats() per ottenere statistiche aggiornate
+
+2. **ShotChartScreen.tsx (righe 154-156, 175-209, 302-309, 103-137):**
+   - Aggiunto stato releaseAngles per memorizzare angoli di rilascio
+   - Aggiunto calcolo releaseAngles dai dati dettagliati dei tiri
+   - Aggiunto rendering dell'angolo sopra il pallino se disponibile
+   - Aggiunto rendering del punteggio pose a destra del pallino se disponibile
+   - Aggiunto log diagnostico per shotsWithPose e shotsWithAngle
+
+3. **ShotChartScreen.tsx (CourtSVG component):**
+   - Aggiunto prop releaseAngles al componente CourtSVG
+   - Aggiunto rendering testo per angolo e punteggio pose
+
+4. **WorkoutSessionRuntime.ts (righe 249-257):**
+   - Modificato addPoseFrame per usare rawVisionResults.pose invece di visionResult.pose
+   - Questo garantisce che tutti i pose frames vengono raccolti, anche se considerati "stale" da VisionEngineAdapter
+
+5. **ShotEventBuilder.ts (righe 179-184):**
+   - Estrazione rawPoseFrames dal buffer pose durante costruzione ShotEvent
+   - I rawPoseFrames vengono inclusi nel payload inviato al backend
+
+**Modifiche implementate (Backend):**
+
+1. **RawPoseFrame.java (nuovo DTO):**
+   - timestampMs: Long
+   - keypoints: List<PoseKeypoint> (ogni keypoint ha name, x, y, confidence)
+   - coordinateSpace: String
+
+2. **ShotEventRequest.java:**
+   - Aggiunto campo rawPoseFrames per ricevere i dati dal client
+
+3. **ShotEventResponse.java:**
+   - Aggiunto campo rawPoseFrames nella risposta
+   - Aggiornato metodo from() per mappare il campo dall'entità
+
+4. **ShotEvent.java (entità):**
+   - Aggiunto campo rawPoseFrames come JSONB
+
+5. **V20261013__raw_pose_frames.sql (migration):**
+   - Aggiunge colonna raw_pose_frames (jsonb) alla tabella shot_events
+
+6. **WorkoutService.java:**
+   - Metodo addShotEvent ora salva rawPoseFrames dalla request
+   - Endpoint GET /api/workouts/sessions/{sessionId}/shots restituisce rawPoseFrames
+
+**Rationale:**
+- Polling 500ms fornisce aggiornamenti real-time senza overhead eccessivo
+- Visualizzazione releaseAngle e poseScore arricchisce l'analisi del tiro
+- Backend deve restituire rawPoseFrames per permettere calcolo punteggio pose lato client
+- Uso di rawVisionResults.pose garantisce raccolta completa dei pose frames
+
+**Conseguenze:**
+- Statistiche diagnostiche aggiornate in tempo reale durante sessione attiva
+- Angolo parabola visualizzato sopra ogni pallino nello shot chart
+- Punteggio pose visualizzato accanto a ogni pallino (dopo aggiornamento backend)
+- rawPoseFrames salvati nel database e restituiti dall'API
+
+**Stato:**
+- ✅ Polling real-time statistiche diagnostiche implementato
+- ✅ Visualizzazione releaseAngle nello shot chart implementata
+- ✅ Calcolo poseScore implementato (in attesa backend)
+- ✅ rawPoseFrames estratti e inviati al backend
+- ✅ Backend aggiornato per salvare e restituire rawPoseFrames
+- ⏳ Test su dispositivo per conferma visualizzazione punteggio pose
+
+**Next steps:**
+- Testare nuova sessione e verificare visualizzazione punteggio pose nello shot chart
+- Verificare log [ShotChart] Data calculated per conferma shotsWithPose > 0
+- Verificare che angolo parabola sia visualizzato correttamente
+
+---
+
 ## Decision 37: Sistema Adattivo Confidence YOLO + Rimozione Filtri Bbox
 
 **Contesto:** Il sistema YOLO usava threshold di confidence statici per ball, player e rim. Questo non si adattava alle condizioni di rilevamento variabili (distanza, illuminazione, angolazione). Inoltre, filtri hardcoded sulla dimensione del bbox scartavano rilevamenti validi di oggetti piccoli/lontani.

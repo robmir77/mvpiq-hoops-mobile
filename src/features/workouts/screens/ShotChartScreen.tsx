@@ -26,12 +26,14 @@ const CourtSVG = ({
     courtW,
     courtH,
     poseScores,
+    releaseAngles,
 }: {
     shots: ShotChartResponse['shots']
     selectedZone: CourtZone | 'ALL'
     courtW: number
     courtH: number
     poseScores: Map<string, number>
+    releaseAngles: Map<string, number>
 }) => {
     const mx = (v: number) => (v / COURT_W_M) * courtW
     const my = (v: number) => courtH - (v / COURT_H_M) * courtH  // y=0 = baseline
@@ -98,9 +100,10 @@ const CourtSVG = ({
                 const dotX = mx(shot.x)
                 const dotY = my(shot.y)
 
-                // Cerca punteggio pose matchingando coordinate e risultato
+                // Cerca punteggio pose e angolo di rilascio matchingando coordinate e risultato
                 const shotKey = `${shot.x.toFixed(2)}_${shot.y.toFixed(2)}_${shot.made}`
                 const poseScore = poseScores.get(shotKey)
+                const releaseAngle = releaseAngles.get(shotKey)
 
                 return (
                     <React.Fragment key={i}>
@@ -111,6 +114,18 @@ const CourtSVG = ({
                             stroke={shot.made ? '#22c55e' : '#ef4444'}
                             strokeWidth={1.5}
                         />
+                        {/* Mostra angolo di rilascio sopra il pallino se disponibile */}
+                        {releaseAngle !== undefined && (
+                            <RNSVGText
+                                x={dotX - 5}
+                                y={dotY - 12}
+                                fontSize={7}
+                                fill="#fff"
+                                fontWeight="600"
+                            >
+                                {releaseAngle.toFixed(0)}°
+                            </RNSVGText>
+                        )}
                         {/* Mostra punteggio pose se disponibile */}
                         {poseScore !== undefined && (
                             <RNSVGText
@@ -139,6 +154,7 @@ export default function ShotChartScreen({ navigation, route }: any) {
     const [shotChart, setShotChart] = useState<ShotChartResponse | null>(null)
     const [shots, setShots] = useState<ShotEvent[]>([])
     const [poseScores, setPoseScores] = useState<Map<string, number>>(new Map())
+    const [releaseAngles, setReleaseAngles] = useState<Map<string, number>>(new Map())
     const [isLoading, setIsLoading] = useState(true)
     const [selectedZone, setSelectedZone] = useState<CourtZone | 'ALL'>('ALL')
     const { alert, showError } = useCustomAlert()
@@ -159,17 +175,41 @@ export default function ShotChartScreen({ navigation, route }: any) {
             setShotChart(chartData)
             setShots(shotsData)
 
-            // Calcola punteggi pose per ogni tiro e crea mappa per matching
+            // Calcola punteggi pose e angoli di rilascio per ogni tiro e crea mappe per matching
             const scoresMap = new Map<string, number>()
+            const anglesMap = new Map<string, number>()
+            let shotsWithPose = 0
+            let totalPoseFrames = 0
+            let shotsWithAngle = 0
             shotsData.forEach(shot => {
-                if (shot.rawPoseFrames && shot.rawPoseFrames.length > 0 && shot.courtX !== null && shot.courtY !== null) {
-                    const score = calculatePoseScore(shot.rawPoseFrames)
-                    // Usa coordinate come chiave per matching con ShotChart
+                if (shot.courtX !== null && shot.courtY !== null) {
                     const key = `${shot.courtX.toFixed(2)}_${shot.courtY.toFixed(2)}_${shot.shotResult}`
-                    scoresMap.set(key, score)
+                    
+                    // Calcola punteggio pose
+                    if (shot.rawPoseFrames && shot.rawPoseFrames.length > 0) {
+                        shotsWithPose++
+                        totalPoseFrames += shot.rawPoseFrames.length
+                        const score = calculatePoseScore(shot.rawPoseFrames)
+                        scoresMap.set(key, score)
+                    }
+                    
+                    // Calcola angolo di rilascio
+                    if (shot.releaseAngle !== undefined) {
+                        shotsWithAngle++
+                        anglesMap.set(key, shot.releaseAngle)
+                    }
                 }
             })
+            console.log('[ShotChart] Data calculated:', {
+                totalShots: shotsData.length,
+                shotsWithPose,
+                totalPoseFrames,
+                shotsWithAngle,
+                poseScoresCount: scoresMap.size,
+                releaseAnglesCount: anglesMap.size
+            })
             setPoseScores(scoresMap)
+            setReleaseAngles(anglesMap)
         } catch (e: any) {
             showError('Errore', e.message || 'Impossibile caricare lo shot chart')
         } finally {
@@ -264,6 +304,7 @@ export default function ShotChartScreen({ navigation, route }: any) {
                             courtW={courtW}
                             courtH={courtH}
                             poseScores={poseScores}
+                            releaseAngles={releaseAngles}
                         />
                     ) : (
                         <View style={styles.loadingBox}>

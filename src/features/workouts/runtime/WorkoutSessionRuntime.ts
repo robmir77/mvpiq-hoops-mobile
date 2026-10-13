@@ -247,10 +247,11 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     }
 
     // Feed pose data to ShotEventBuilder for rawPoseFrames
-    if (visionResult.pose) {
+    // Use rawVisionResults to capture ALL pose detections, not just fresh ones
+    if (rawVisionResults.pose) {
       this.shotEventBuilder.addPoseFrame(
-        visionResult.pose,
-        visionResult.observationTimestamps?.pose ?? frame.timestamp,
+        rawVisionResults.pose,
+        rawVisionResults.poseTimestamp ?? frame.timestamp,
         'IMAGE_NORMALIZED'
       )
     }

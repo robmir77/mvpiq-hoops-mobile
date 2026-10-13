@@ -156,6 +156,9 @@ WorkoutSessionRuntime
 - ✅ Posa grezza: ShotEventBuilder.addPoseFrame() alimentato da MoveNet in Runtime.processFrame()
 - ✅ UNCERTAIN: callback supporta UNCERTAIN, ShotEventBuilder normalizza AIRBALL/BLOCKED
 - ✅ Percorso unico: tiri automatici e manuali usano ShotEventBuilder
+- ✅ Modalità diagnostica: real-time update delle statistiche via polling 500ms in WorkoutSessionScreen
+- ✅ Angolo parabola: visualizzazione nello shot chart (calcolato da releaseAngle nel backend)
+- ⏳ Punteggio pose: in attesa del backend per restituire rawPoseFrames nell'API getSessionShots
 
 ### Vision Pipeline Layer (useShotTracker)
 
@@ -464,6 +467,8 @@ La pipeline di vision deve garantire che ogni livello conservi il significato de
 
 5. **Overlay, persistenza e report**
    - Scia corretta, conteggi coerenti, shot chart affidabile
+   - Angolo parabola visualizzato (releaseAngle)
+   - Punteggio pose calcolato da rawPoseFrames (in attesa backend)
 
 ### 2. Primi difetti confermati nel codice
 
