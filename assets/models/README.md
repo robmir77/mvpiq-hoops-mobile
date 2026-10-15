@@ -1,59 +1,39 @@
-# Modelli AI per MVPiQ Hoops
+# Modelli AI on-device
 
-Questa cartella deve contenere i modelli TFLite per il tracking AI on-device.
+Questa directory contiene i modelli TensorFlow Lite usati dal percorso vision mobile. L'inventario sotto riflette i file presenti nel branch `Validation-1.0`; la presenza del file non certifica da sola che il modello venga selezionato dalla configurazione runtime o che produca una specifica accuratezza/FPS.
 
-## Modelli richiesti
+## File presenti nel repository
 
-### YOLO Models (Ball/Player/Rim Detection)
+| File | Input dichiarato dal nome/configurazione | Formato |
+|---|---:|---|
+| `best_320_float16.tflite` | 320×320 | TFLite |
+| `best_384_float16.tflite` | 384×384 | TFLite |
+| `best_448_float16.tflite` | 448×448 | TFLite |
+| `best_512_float16.tflite` | 512×512 | TFLite |
+| `best_640_float16.tflite` | 640×640 | TFLite |
+| `movenet_lightning_192_int8.tflite` | 192×192 | TFLite |
 
-| File | Input Size | Precision | Epochs | Expected FPS | Actual FPS | Note |
-|------|------------|-----------|--------|--------------|------------|------|
-| best_320_float16.tflite | 320x320 | FP16 | 50 | 10-37 | 2-7 | Measured at 640x360 resolution |
-| best_384_float16.tflite | 384x384 | FP16 | 150 | 20-21 | 3-6 | Updated to 150 epochs, actual FPS lower due to device bottleneck |
-| best_448_float16.tflite | 448x448 | FP16 | 5 | 12-21 | TBD | Early training |
-| best_512_float16.tflite | 512x512 | FP16 | 40 | 8-10 | TBD | Balanced performance |
-| best_640_float16.tflite | 640x640 | FP16 | 30 | 5-7 | TBD | High resolution |
+## YOLO
 
-**YOLO Model Details:**
-- **Tipo**: YOLO11n fine-tuned su basketball
-- **Input**: [1, 3, N, N] float16 normalizzato [0,1] (dove N = input size)
-- **Output**: [1, M, 6] (cx, cy, w, h, confidence, class)
-- **Classi**: 0=basketball, 1=hoop, 2=player
+I modelli `best_N_float16.tflite` sono varianti YOLO esportate per input quadrato di dimensione N. Il parser e la configurazione effettivi vanno verificati in `src/vision/yoloModels.ts` e `src/vision/engine/YoloDetector.ts`; non assumere shape, ordine dei campi, classi o normalizzazione soltanto dal nome del file. Il codice worker gestisce preprocessamento, esecuzione e parsing.
 
-### MoveNet Model (Pose Detection)
+Il repository include anche `compare_models.py`, `inspect_model.py`, `convert_model.py` e `convert_ballrim_model.py` per attività di analisi/conversione. Prima di cambiare modello, verificare la compatibilità del tensore input/output con il parser corrente.
 
-| File | Input Size | Precision | Note |
-|------|------------|-----------|------|
-| movenet_lightning_192_int8.tflite | 192x192 | INT8 | Lightning model |
+## MoveNet
 
-**MoveNet Model Details:**
-- **Tipo**: MoveNet Lightning per pose detection
-- **Input**: [1, 192, 192, 3] int8 normalizzato [0,255]
-- **Output**: [1, 1, 17, 3] (y, x, score) normalizzati [0,1]
-- **Keypoints**: 17 keypoints COCO standard
+Il file `movenet_lightning_192_int8.tflite` è il modello pose presente. Il percorso di esecuzione e la conversione dell'output sono in `src/vision/useMoveNetWorker.ts` e `src/vision/engine/MoveNetPoseEstimator.ts`. Verificare dtype, shape e ordine dei keypoint con il codice prima di sostituirlo.
 
-## Come ottenere i modelli
+## Selezione e prestazioni
 
-### Opzione A: Modelli pre-addestrati pubblici
-1. Scarica YOLO11n da: https://github.com/ultralytics/ultralytics
-2. Scarica MoveNet Lightning da: https://tfhub.dev/google/lite-model/movenet/singlepose/lightning/tflite/float16/4
-3. Converti in ONNX se necessario
+- La selezione effettiva del modello è gestita dal codice di configurazione e dai worker, non da questo README.
+- Non trattare gli FPS storici come prestazioni garantite: dipendono da dispositivo, delegate, risoluzione camera, scheduler, preprocessing e carico UI.
+- Per confrontare modelli registrare commit, dispositivo, delegate, risoluzione, warm-up, durata, FPS e percentili di latenza.
+- Non sostituire un modello senza verificare che il nome configurato esista e che il parser supporti il suo output.
 
-### Opzione B: Fine-tuning su dataset basketball
-1. Dataset: https://universe.roboflow.com/search?q=basketball
-2. Export YOLO11 → ONNX: `yolo export model=yolo11n.pt format=onnx imgsz=320`
-3. Converti MoveNet TFLite → ONNX con `tf2onnx`
+## Test e diagnostica
 
-### Opzione C: Modelli placeholder per testing
-Per testing iniziale senza modelli reali, puoi creare file dummy:
-```bash
-# Crea file dummy (solo per testing, non funzionerà per detection reale)
-echo "placeholder" > ball_detection.onnx
-echo "placeholder" > movenet_lightning.onnx
-```
+I test del parser sono in `src/vision/__tests__/yoloParser.test.ts`; i test dell'adapter sono in `src/vision/__tests__/VisionEngineAdapter.test.ts`. Eseguire `npm test -- yoloParser.test.ts` e `npm test -- VisionEngineAdapter.test.ts` dopo modifiche a modello o parsing.
 
-## Note importanti
-- I modelli devono essere in formato ONNX
-- Assicurati che i nomi dei file corrispondano esattamente a quelli richiesti
-- I modelli devono essere ottimizzati per mobile (quantizzati se possibile)
-- Dimensioni consigliate: < 20MB per modello per performance ottimali
+## Nota di manutenzione
+
+Questa directory contiene modelli TFLite, non modelli ONNX. Qualsiasi istruzione di conversione o installazione deve essere aggiornata solo dopo aver verificato la toolchain effettivamente usata dal progetto mobile.
