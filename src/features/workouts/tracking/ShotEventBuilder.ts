@@ -1,0 +1,332 @@
+// ShotEventBuilder
+// Fase 1: Costruttore per ShotEvent completo con tutti i campi richiesti dalla specifica
+// Genera shotId idempotente, calcola posizione sul campo, converte traiettoria e posa grezza
+
+import type {
+  ShotEvent,
+  AddShotEventPayload,
+  ShotPoint,
+  RawPoseFrame,
+  CourtPositionQuality,
+  ShotResult,
+  TrackingState,
+  PoseKeypoints,
+  CalibrationData,
+  BackendPoseKeypoint,
+  BackendRawPoseFrame,
+} from '../types/workouts.types'
+
+// Schema version per evoluzione del formato
+const SHOT_EVENT_SCHEMA_VERSION = 1
+
+// Convert PoseKeypoints (frontend format) to BackendPoseKeypoint[] (backend format)
+function convertPoseKeypointsToBackend(keypoints: PoseKeypoints): BackendPoseKeypoint[] {
+  const result: BackendPoseKeypoint[] = []
+
+  // Check if keypoints is in array format (MoveNet output)
+  // MoveNet returns: { keypoints: [{x, y, confidence}, ...], confidence: number }
+  if (keypoints && 'keypoints' in keypoints && Array.isArray((keypoints as any).keypoints)) {
+    const keypointArray = (keypoints as any).keypoints as Array<{ x: number; y: number; confidence: number }>
+    return keypointArray.map((kp, index) => ({
+      name: `keypoint_${index}`,
+      x: kp.x,
+      y: kp.y,
+      confidence: kp.confidence,
+    }))
+  }
+
+  // Original format: named keypoints (leftShoulder, rightElbow, etc.)
+  const keyMapping: { [key in keyof PoseKeypoints]: string } = {
+    leftShoulder: 'left_shoulder',
+    rightShoulder: 'right_shoulder',
+    leftElbow: 'left_elbow',
+    rightElbow: 'right_elbow',
+    leftWrist: 'left_wrist',
+    rightWrist: 'right_wrist',
+    leftHip: 'left_hip',
+    rightHip: 'right_hip',
+    leftKnee: 'left_knee',
+    rightKnee: 'right_knee',
+    leftAnkle: 'left_ankle',
+    rightAnkle: 'right_ankle',
+  }
+
+  for (const [key, value] of Object.entries(keypoints)) {
+    if (value && typeof value === 'object') {
+      const backendName = keyMapping[key as keyof PoseKeypoints]
+      if (backendName) {
+        result.push({
+          name: backendName,
+          x: value.x,
+          y: value.y,
+          confidence: value.score,
+        })
+      }
+    }
+  }
+
+  return result
+}
+
+// Convert RawPoseFrame[] (frontend format) to BackendRawPoseFrame[] (backend format)
+function convertRawPoseFramesToBackend(frames: RawPoseFrame[]): BackendRawPoseFrame[] {
+  return frames.map(frame => ({
+    timestampMs: frame.timestampMs,
+    keypoints: convertPoseKeypointsToBackend(frame.keypoints),
+    coordinateSpace: frame.coordinateSpace,
+  }))
+}
+
+// Genera UUID v4 semplice (compatibile React Native)
+// Fallback a crypto.randomUUID() se disponibile, altrimenti implementazione manuale
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+
+  // Implementazione UUID v4 manuale
+  const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+  return template.replace(/[xy]/g, (c: string) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+// Configurazione per calcolo posizione sul campo
+interface CourtProjectionConfig {
+  calibration?: CalibrationData | null
+  cameraResolution?: { width: number; height: number }
+}
+
+// Buffer per posa grezza associata al tiro
+interface PoseBufferEntry {
+  timestampMs: number
+  keypoints: PoseKeypoints
+  coordinateSpace: 'IMAGE_NORMALIZED' | 'IMAGE_PIXELS'
+}
+
+export class ShotEventBuilder {
+  private poseBuffer: PoseBufferEntry[] = []
+  private readonly maxPoseFrames: number
+  private readonly poseWindowMs: number
+
+  constructor(maxPoseFrames: number = 30, poseWindowMs: number = 500) {
+    this.maxPoseFrames = maxPoseFrames
+    this.poseWindowMs = poseWindowMs
+  }
+
+  // Aggiunge frame di posa al buffer
+  addPoseFrame(
+    keypoints: PoseKeypoints,
+    timestampMs: number,
+    coordinateSpace: 'IMAGE_NORMALIZED' | 'IMAGE_PIXELS' = 'IMAGE_NORMALIZED'
+  ): void {
+    this.poseBuffer.push({ timestampMs, keypoints, coordinateSpace })
+
+    // Trim buffer per mantenere solo frame recenti
+    const cutoffTime = timestampMs - this.poseWindowMs
+    this.poseBuffer = this.poseBuffer.filter((entry) => entry.timestampMs >= cutoffTime)
+
+    // Limita numero massimo di frame
+    if (this.poseBuffer.length > this.maxPoseFrames) {
+      this.poseBuffer = this.poseBuffer.slice(-this.maxPoseFrames)
+    }
+  }
+
+  // Pulisce il buffer posa
+  clearPoseBuffer(): void {
+    this.poseBuffer = []
+  }
+
+  // Restituisce la lunghezza attuale del buffer posa (per debugging)
+  getPoseBufferLength(): number {
+    return this.poseBuffer.length
+  }
+
+  // Restituisce i pose frames attuali nel buffer (per cattura al tiro)
+  getPoseFrames(): RawPoseFrame[] {
+    return this.poseBuffer.map((entry) => ({
+      timestampMs: entry.timestampMs,
+      keypoints: entry.keypoints,
+      coordinateSpace: entry.coordinateSpace,
+    }))
+  }
+
+  // Converte trajectory da TrackingState a ShotPoint[]
+  private convertTrajectory(
+    trajectory: Array<{ x: number; y: number; t: number }>,
+    releaseTimestampMs?: number
+  ): ShotPoint[] {
+    if (!trajectory || trajectory.length === 0) return []
+
+    // Sort trajectory by timestamp to ensure correct order
+    const sortedTrajectory = [...trajectory].sort((a, b) => a.t - b.t)
+
+    return sortedTrajectory.map((point) => ({
+      x: point.x,
+      y: point.y,
+      timestampMs: point.t,
+      source: 'DETECTION', // Per ora tutti i punti sono detection, predizioni da aggiungere in futuro
+      confidence: undefined, // TrackingState non include confidence per punto
+    }))
+  }
+
+  // Calcola posizione sul campo da calibrazione (placeholder per ora)
+  // TODO: Implementare proiezione omografia da coordinate immagine a coordinate campo
+  private calculateCourtPosition(
+    ballPosition: { x: number; y: number } | null,
+    config: CourtProjectionConfig
+  ): { courtX: number; courtY: number; quality: CourtPositionQuality } | null {
+    if (!ballPosition) {
+      return null // Position unavailable - do not use 0,0 as valid position
+    }
+
+    // Usa dimensioni reali del campo dalla calibrazione, fallback a valori standard NBA/FIBA
+    const courtWidth = config.calibration?.courtWidth ?? 15.24 // NBA full court width
+    const courtHeight = config.calibration?.courtHeight ?? 14.32 // NBA half-court height
+
+    // Placeholder: usa coordinate normalizzate come approssimazione
+    // In futuro: usare homographyMatrix per proiezione accurata
+    if (config.calibration?.homographyMatrix && config.calibration.homographyMatrix.length > 0) {
+      // TODO: Implementare proiezione omografia
+      return {
+        courtX: ballPosition.x * courtWidth,
+        courtY: ballPosition.y * courtHeight,
+        quality: 'APPROXIMATE',
+      }
+    }
+
+    return {
+      courtX: ballPosition.x * courtWidth,
+      courtY: ballPosition.y * courtHeight,
+      quality: 'UNAVAILABLE',
+    }
+  }
+
+  // Calcola distanza dal canestro
+  private calculateDistanceFromHoop(courtX: number | null, courtY: number | null): number | null {
+    if (courtX === null || courtY === null) {
+      return null // Cannot calculate distance without valid position
+    }
+    // Canestro al centro del campo (7.62m da lato, 1.575m da baseline)
+    const hoopX = 7.62
+    const hoopY = 1.575
+    const dx = courtX - hoopX
+    const dy = courtY - hoopY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  // Costruisce ShotEvent completo da TrackingState
+  buildShotEvent(
+    trackingState: TrackingState,
+    sessionId: string,
+    config: CourtProjectionConfig = {}
+  ): ShotEvent {
+    // Use shotId from TrackingState (generated by TrackingEngine when shot is first detected)
+    const shotId = trackingState.shotId || generateUUID()
+    const timestampMs = Date.now()
+
+    // Use player position at release for court position (where player shot from)
+    // Fallback to ball position if player position unavailable
+    const positionForCourt = trackingState.playerPositionAtRelease
+      ? { x: trackingState.playerPositionAtRelease.x, y: trackingState.playerPositionAtRelease.y }
+      : trackingState.ballPosition
+
+    // Calcola posizione sul campo
+    const courtPosition = this.calculateCourtPosition(
+      positionForCourt,
+      config
+    )
+
+    // Calcola distanza dal canestro (solo se posizione disponibile)
+    const distanceFromHoop = courtPosition
+      ? this.calculateDistanceFromHoop(courtPosition.courtX, courtPosition.courtY)
+      : null
+
+    // Converte traiettoria
+    const trajectory = this.convertTrajectory(
+      trackingState.trajectory,
+      trackingState.releasePoint ? timestampMs : undefined
+    )
+
+    // Estrae posa grezza dal buffer o dal TrackingState (per retry recovery)
+    const rawPoseFrames: RawPoseFrame[] = trackingState.rawPoseFrames
+      ? trackingState.rawPoseFrames // Use captured frames from TrackingState (retry recovery)
+      : this.poseBuffer.map((entry) => ({ // Use buffer (first attempt)
+          timestampMs: entry.timestampMs,
+          keypoints: entry.keypoints,
+          coordinateSpace: entry.coordinateSpace,
+        }))
+
+    // Costruisce ShotEvent
+    const shotEvent: ShotEvent = {
+      id: shotId, // Placeholder: backend genererà id reale
+      shotId, // UUID idempotente client-side
+      sessionId,
+      timestampMs,
+      shotResult: trackingState.shotResult ?? 'UNCERTAIN',
+      courtX: courtPosition?.courtX ?? null,
+      courtY: courtPosition?.courtY ?? null,
+      courtPositionQuality: courtPosition?.quality ?? 'UNAVAILABLE',
+      distanceFromHoop,
+      releaseAngle: trackingState.releaseAngle,
+      releaseVelocity: undefined, // Non disponibile in TrackingState
+      detectionConfidence: trackingState.confidence,
+      trackingData: JSON.stringify(trackingState),
+      zone: undefined, // TODO: Calcolare da courtX/courtY
+      shotZone: undefined,
+      releaseTimeMs: trackingState.releasePoint ? timestampMs : undefined,
+      // Nuovi campi
+      trajectory,
+      rawPoseFrames,
+      schemaVersion: SHOT_EVENT_SCHEMA_VERSION,
+    }
+
+    return shotEvent
+  }
+
+  // Costruisce AddShotEventPayload per API
+  buildAddShotPayload(
+    trackingState: TrackingState,
+    sessionId: string,
+    config: CourtProjectionConfig = {}
+  ): AddShotEventPayload {
+    const shotEvent = this.buildShotEvent(trackingState, sessionId, config)
+
+    // Build base payload without rawPoseFrames (to avoid JSONB type error)
+    const payload: AddShotEventPayload = {
+      shotId: shotEvent.shotId,
+      timestampMs: shotEvent.timestampMs,
+      shotResult: shotEvent.shotResult,
+      courtX: shotEvent.courtX,
+      courtY: shotEvent.courtY,
+      distanceFromHoop: shotEvent.distanceFromHoop,
+      releaseAngle: shotEvent.releaseAngle,
+      releaseVelocity: shotEvent.releaseVelocity,
+      detectionConfidence: shotEvent.detectionConfidence,
+      trackingData: shotEvent.trackingData,
+      courtPositionQuality: shotEvent.courtPositionQuality,
+      trajectory: shotEvent.trajectory,
+      schemaVersion: shotEvent.schemaVersion,
+    }
+
+    // Only add rawPoseFrames if we have valid data (not undefined/null)
+    if (shotEvent.rawPoseFrames && shotEvent.rawPoseFrames.length > 0) {
+      payload.rawPoseFrames = convertRawPoseFramesToBackend(shotEvent.rawPoseFrames)
+    }
+
+    return payload
+  }
+
+  // Converte AIRBLOCK/AIRBALL a UNCERTAIN per contratto pubblico
+  normalizeShotResult(result: ShotResult): 'MADE' | 'MISS' | 'UNCERTAIN' {
+    if (result === 'AIRBALL' || result === 'BLOCKED') {
+      return 'UNCERTAIN'
+    }
+    if (result === 'MADE' || result === 'MISS') {
+      return result
+    }
+    return 'UNCERTAIN'
+  }
+}

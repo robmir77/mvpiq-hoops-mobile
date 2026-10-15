@@ -20,7 +20,7 @@
       "bundleIdentifier": "com.mvpiqhoopsmobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "MVPiQ Hoops richiede la camera per il tracking dei tiri"
+        "NSCameraUsageDescription": "MVPiQ Hoops richiede accesso alla fotocamera"
       }
     },
     "android": {
@@ -29,43 +29,36 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "predictiveBackGestureEnabled": false,
       "package": "com.mvpiqhoopsmobile",
-      "minSdkVersion": 26,
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "extra": {
-      "eas": {
-        "projectId": "9b9975c2-4a59-492c-9041-6f17b635d536"
-      }
-    },
     "plugins": [
       "expo-asset",
       "expo-font",
-      "expo-camera",
       "expo-image-picker",
+      "expo-build-properties",
       [
-        "react-native-vision-camera",
+        "react-native-fast-tflite",
         {
-          "cameraPermissionText": "MVPiQ Hoops richiede accesso alla fotocamera"
-        }
-      ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "minSdkVersion": 26
-          }
+          "enableAndroidGpuLibraries": true
         }
       ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9b9975c2-4a59-492c-9041-6f17b635d536"
+      }
+    }
   }
 }

@@ -2,9 +2,9 @@ import React, { useState, useContext } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
 import { globalStyles } from '@/shared/theme/globalStyles'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { CameraMode, CourtType, CreateWorkoutSessionPayload } from '../types/workouts.types'
-import { createWorkoutSession } from '../api/workouts.api'
+import { CameraMode, CourtType } from '../types/workouts.types'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { CAMERA_CONFIG } from '@/config/appConfig'
 
 export default function WorkoutSetupScreen({ navigation }: any) {
     const auth = useContext(AuthContext)
@@ -12,38 +12,25 @@ export default function WorkoutSetupScreen({ navigation }: any) {
 
     const [cameraMode, setCameraMode] = useState<CameraMode>('ANGLE_45')
     const [courtType, setCourtType] = useState<CourtType>('HALF_COURT')
-    const [isCreating, setIsCreating] = useState(false)
     const { alert, showError, showSuccess } = useCustomAlert()
 
-    const handleStartWorkout = async () => {
-        if (!user?.id) {
-            showError('Errore', 'Utente non autenticato')
-            return
+    const handleStartWorkout = () => {
+        // Naviga alla schermata di calibrazione con parametri di configurazione
+        // La sessione verrà creata dopo la calibrazione in CalibrationScreen
+        const calibrationParams = {
+            cameraMode,
+            courtType,
+            selectedResolution: { width: 640, height: 360 }, // Force 360p for better FPS (faster inference)
+            selectedFps: 30, // Force 30 FPS for workout (better tracking)
+            selectedPoseResolution: 192, // Default pose resolution
+            yoloDelegate: null, // Will use default
+            poseDelegate: null, // Will use default
+            yoloModelId: 'best_384_float16', // Use 384 YOLO model
+            moveNetModelId: null, // Will use default
         }
-
-        setIsCreating(true)
-        try {
-            const payload: CreateWorkoutSessionPayload = {
-                cameraMode,
-                courtType,
-            }
-
-            console.log('Creazione sessione con payload:', payload)
-            console.log('User ID:', user.id)
-
-            const session = await createWorkoutSession(user.id, payload)
-            showSuccess('Sessione creata', 'Allenamento avviato con successo')
-            
-            // Naviga alla schermata di calibrazione o direttamente alla sessione
-            navigation.navigate('Calibration', { sessionId: session.id })
-        } catch (error: any) {
-            console.error('Errore creazione sessione:', error)
-            console.error('Response data:', error?.response?.data)
-            console.error('Response status:', error?.response?.status)
-            showError('Errore', error?.response?.data?.message || error.message || 'Impossibile creare la sessione')
-        } finally {
-            setIsCreating(false)
-        }
+        console.log('[WorkoutSetup] Navigating to Calibration with params:', calibrationParams)
+        console.log('[WorkoutSetup] yoloModelId being passed:', calibrationParams.yoloModelId)
+        navigation.navigate('Calibration', calibrationParams)
     }
 
     const renderCameraModeOption = (mode: CameraMode, label: string, description: string) => (
@@ -160,11 +147,8 @@ export default function WorkoutSetupScreen({ navigation }: any) {
             <TouchableOpacity
                 style={[globalStyles.button, styles.startButton]}
                 onPress={handleStartWorkout}
-                disabled={isCreating}
             >
-                <Text style={globalStyles.buttonText}>
-                    {isCreating ? 'Creazione...' : 'Avvia Allenamento'}
-                </Text>
+                <Text style={globalStyles.buttonText}>Avvia Allenamento</Text>
             </TouchableOpacity>
 
             <CustomAlert {...alert} />

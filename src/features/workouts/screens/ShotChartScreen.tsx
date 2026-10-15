@@ -1,41 +1,42 @@
 // src/features/workouts/screens/ShotChartScreen.tsx
-//
-// FIX #6 — Navigazione coerente:
-//   - Se arriva da WorkoutSession (fromSession=true) mostra il pulsante "Vedi Statistiche →"
-//   - Navigation.replace verso Stats così non rimane nello stack intermedio
-//   - goBack() da Stats torna alla Home, non a ShotChart (che sarebbe già rimossa dallo stack)
 
 import React, { useState, useContext, useEffect } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Platform } from 'react-native'
-import Svg, { Circle, Line, Rect, Path } from 'react-native-svg'
+import Svg, { Circle, Line, Rect, Path, Text as SvgText } from 'react-native-svg'
 import { AuthContext } from '@/features/auth/context/AuthContext'
-import { ShotChartResponse, CourtZone } from '../types/workouts.types'
-import { getShotChart } from '../api/workouts.api'
+import { ShotChartResponse, CourtZone, ShotEvent } from '../types/workouts.types'
+import { getShotChart, getSessionShots } from '../api/workouts.api'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
+import { COURT_CONFIG } from '@/config/appConfig'
+import { calculatePoseScore } from '../utils/poseScoring'
 
 const { width: SW } = Dimensions.get('window')
 
-// ─── Campo da basket SVG (half-court) ────────────────────────────────────────
-// Coordinate normalizzate: x ∈ [0,15.24], y ∈ [0,14] (metà campo NBA)
-// Il rendering SVG mappa questi valori su courtW × courtH pixel
-const COURT_W_M  = 15.24
-const COURT_H_M  = 14.0
+// Basketball court SVG (half-court)
+// Normalized coordinates: x ∈ [0,15.24], y ∈ [0,14] (NBA half-court)
+// SVG rendering maps these to courtW × courtH pixels
+const COURT_W_M  = COURT_CONFIG.WIDTH_M
+const COURT_H_M  = 14.0 // Half-court height (full court is 28.65m)
 const HOOP_X_M   = COURT_W_M / 2
-const HOOP_Y_M   = 1.575
+const HOOP_Y_M   = COURT_CONFIG.HOOP_Y_M
 
 const CourtSVG = ({
     shots,
     selectedZone,
     courtW,
     courtH,
+    poseScores,
+    releaseAngles,
 }: {
     shots: ShotChartResponse['shots']
     selectedZone: CourtZone | 'ALL'
     courtW: number
     courtH: number
+    poseScores: Map<string, number>
+    releaseAngles: Map<string, number>
 }) => {
     const mx = (v: number) => (v / COURT_W_M) * courtW
-    const my = (v: number) => courtH - (v / COURT_H_M) * courtH  // y=0 = baseline (basso)
+    const my = (v: number) => courtH - (v / COURT_H_M) * courtH  // y=0 = baseline
 
     const hoopPx = mx(HOOP_X_M)
     const hoopPy = my(HOOP_Y_M)
@@ -96,17 +97,61 @@ const CourtSVG = ({
             {filtered.map((shot, i) => {
                 // I punti nel BE sono in coordinate campo (m) con y dal canestro
                 // courtX ∈ [0, 15.24], courtY ∈ distanza baseline
+                if (shot.x === null || shot.y === null) {
+                    return null
+                }
                 const dotX = mx(shot.x)
                 const dotY = my(shot.y)
+
+                // Cerca punteggio pose e angolo di rilascio matchingando coordinate e risultato
+                const shotKey = `${shot.x.toFixed(2)}_${shot.y.toFixed(2)}_${shot.made}`
+                const poseScore = poseScores.get(shotKey)
+                const releaseAngle = releaseAngles.get(shotKey)
+
                 return (
-                    <Circle
-                        key={i}
-                        cx={dotX} cy={dotY}
-                        r={6}
-                        fill={shot.made ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'}
-                        stroke={shot.made ? '#22c55e' : '#ef4444'}
-                        strokeWidth={1.5}
-                    />
+                    <React.Fragment key={i}>
+                        <Circle
+                            cx={dotX} cy={dotY}
+                            r={12}
+                            fill={shot.made ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'}
+                            stroke={shot.made ? '#22c55e' : '#ef4444'}
+                            strokeWidth={2}
+                        />
+                        {/* Mostra angolo di rilascio sopra il pallino se disponibile */}
+                        {releaseAngle !== undefined && releaseAngle !== null && (
+                            <SvgText
+                                x={dotX - 8}
+                                y={dotY - 18}
+                                fontSize={9}
+                                fill="#fff"
+                                fontWeight="600"
+                            >
+                                {releaseAngle.toFixed(0)}°
+                            </SvgText>
+                        )}
+                        {/* Mostra punteggio pose se disponibile, altrimenti mostra "-" */}
+                        {poseScore !== undefined ? (
+                            <SvgText
+                                x={dotX + 14}
+                                y={dotY - 12}
+                                fontSize={18}
+                                fill="#fff"
+                                fontWeight="700"
+                            >
+                                {poseScore}
+                            </SvgText>
+                        ) : (
+                            <SvgText
+                                x={dotX + 14}
+                                y={dotY - 12}
+                                fontSize={18}
+                                fill="#888"
+                                fontWeight="700"
+                            >
+                                -
+                            </SvgText>
+                        )}
+                    </React.Fragment>
                 )
             })}
         </Svg>
@@ -120,6 +165,9 @@ export default function ShotChartScreen({ navigation, route }: any) {
     const { user } = auth || {}
 
     const [shotChart, setShotChart] = useState<ShotChartResponse | null>(null)
+    const [shots, setShots] = useState<ShotEvent[]>([])
+    const [poseScores, setPoseScores] = useState<Map<string, number>>(new Map())
+    const [releaseAngles, setReleaseAngles] = useState<Map<string, number>>(new Map())
     const [isLoading, setIsLoading] = useState(true)
     const [selectedZone, setSelectedZone] = useState<CourtZone | 'ALL'>('ALL')
     const { alert, showError } = useCustomAlert()
@@ -133,8 +181,40 @@ export default function ShotChartScreen({ navigation, route }: any) {
         if (!user?.id || !sessionId) return
         setIsLoading(true)
         try {
-            const data = await getShotChart(sessionId, user.id)
-            setShotChart(data)
+            const [chartData, shotsData] = await Promise.all([
+                getShotChart(sessionId, user.id),
+                getSessionShots(sessionId, user.id)
+            ])
+            setShotChart(chartData)
+            setShots(shotsData)
+
+            // Calcola punteggi pose e angoli di rilascio per ogni tiro e crea mappe per matching
+            const scoresMap = new Map<string, number>()
+            const anglesMap = new Map<string, number>()
+            let shotsWithPose = 0
+            let totalPoseFrames = 0
+            let shotsWithAngle = 0
+            shotsData.forEach(shot => {
+                if (shot.courtX !== null && shot.courtY !== null && shot.shotResult) {
+                    const key = `${shot.courtX.toFixed(2)}_${shot.courtY.toFixed(2)}_${shot.shotResult === 'MADE'}`
+                    
+                    // Calcola punteggio pose
+                    if (shot.rawPoseFrames && shot.rawPoseFrames.length > 0) {
+                        shotsWithPose++
+                        totalPoseFrames += shot.rawPoseFrames.length
+                        const score = calculatePoseScore(shot.rawPoseFrames)
+                        scoresMap.set(key, score)
+                    }
+                    
+                    // Calcola angolo di rilascio
+                    if (shot.releaseAngle !== undefined) {
+                        shotsWithAngle++
+                        anglesMap.set(key, shot.releaseAngle)
+                    }
+                }
+            })
+            setPoseScores(scoresMap)
+            setReleaseAngles(anglesMap)
         } catch (e: any) {
             showError('Errore', e.message || 'Impossibile caricare lo shot chart')
         } finally {
@@ -158,7 +238,6 @@ export default function ShotChartScreen({ navigation, route }: any) {
                     <Text style={styles.headerBtnText}>←</Text>
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Shot Chart</Text>
-                {/* FIX #6 — Pulsante "Statistiche" visibile solo se arriva dalla sessione */}
                 {fromSession ? (
                     <TouchableOpacity
                         style={styles.statsBtn}
@@ -229,6 +308,8 @@ export default function ShotChartScreen({ navigation, route }: any) {
                             selectedZone={selectedZone}
                             courtW={courtW}
                             courtH={courtH}
+                            poseScores={poseScores}
+                            releaseAngles={releaseAngles}
                         />
                     ) : (
                         <View style={styles.loadingBox}>
@@ -280,7 +361,6 @@ export default function ShotChartScreen({ navigation, route }: any) {
                     </View>
                 )}
 
-                {/* FIX #6 — CTA finale verso Stats */}
                 {fromSession && (
                     <TouchableOpacity
                         style={styles.goStatsBtn}

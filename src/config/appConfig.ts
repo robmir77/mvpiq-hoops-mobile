@@ -1,1 +1,91 @@
 export const API_BASE_URL = 'https://mvpiq-hoops-backend-1.onrender.com';
+
+// YOLO Detection Confidence Thresholds
+export const YOLO_CONFIG = {
+  // Ball detection thresholds
+  BALL_CONF_THRESHOLD: 0.001, // Minimum confidence for ball detection (0.1%) - lowered for small/distant balls
+
+  // Player detection thresholds
+  PLAYER_CONF_THRESHOLD: 0.03, // Minimum confidence for player detection in YOLO parser (3%) - lowered for better detection rate
+  PLAYER_CROP_MIN_CONFIDENCE: 0.05, // Minimum confidence for player crop manager (5%)
+
+  // Rim detection thresholds
+  RIM_CONF_THRESHOLD: 0.30, // Minimum confidence for rim detection (30%) - increased for more reliable rim detection
+
+  // NMS threshold
+  NMS_IOU_THRESHOLD: 0.4, // IoU threshold for non-maximum suppression
+
+  // Size constraints
+  PLAYER_MIN_WIDTH: 0.05, // Minimum normalized width for player detection
+  PLAYER_MIN_HEIGHT: 0.1, // Minimum normalized height for player detection
+  BALL_MAX_BBOX_SIZE: 0.15, // Maximum normalized bbox size for ball detection (15% of frame) - filter false positives too close to camera
+
+  // Adaptive confidence threshold configuration
+  ADAPTIVE_CONF: {
+    ENABLED: true, // Enable adaptive confidence threshold
+    WINDOW_SIZE: 15, // Number of frames to consider for adaptation (reduced for faster adaptation)
+    MIN_THRESHOLD: 0.0005, // Minimum adaptive threshold (0.05%) - lowered for small balls
+    MAX_THRESHOLD: 0.50, // Maximum adaptive threshold (50%)
+    ADJUSTMENT_FACTOR: 0.2, // How much to adjust threshold per frame (20% of difference) - faster adaptation
+    HIGH_CONF_THRESHOLD: 0.7, // Confidence considered "high" for raising threshold
+    LOW_CONF_THRESHOLD: 0.2, // Confidence considered "low" for lowering threshold
+  },
+} as const;
+
+// Camera Configuration
+export const CAMERA_CONFIG = {
+  DEFAULT_RESOLUTION: { width: 640, height: 360 }, // Default camera resolution (360p for better FPS)
+  DEFAULT_FPS: 40, // Default camera frame rate (increased to 90 for even better ball tracking)
+  DEFAULT_POSE_RESOLUTION: 192, // MoveNet input resolution (only 192 is currently available)
+  DEFAULT_ZOOM: 1, // Default camera zoom level (1 = 100% = no zoom)
+  MIN_RESOLUTION: { width: 640, height: 360 }, // Minimum acceptable resolution for workout sessions (allows 360p for smaller YOLO models)
+} as const;
+
+// Vision Pipeline Configuration - Deterministic FPS targets
+// Camera FPS is independent from vision model FPS
+export const VISION_CONFIG = {
+  CAMERA_FPS: 40, // Camera frame rate (hardware/configured)
+
+  YOLO: {
+    ENABLED: true,
+    // TARGET_FPS follows CAMERA_FPS dynamically in useYoloWorker
+  },
+
+  MOVENET: {
+    ENABLED: true,
+    // MoveNet executes only when player bbox is above threshold (no FPS limit)
+  },
+} as const;
+
+// Model Configuration
+export const MODEL_CONFIG = {
+  DEFAULT_YOLO_MODEL_ID: 'best_384_float16', // Default YOLO model (384 offers best balance of stability and performance)
+  DEFAULT_MOVENET_MODEL_ID: 'movenet_lightning_192_int8', // Default MoveNet model
+} as const;
+
+// Court Dimensions (meters)
+export const COURT_CONFIG = {
+  WIDTH_M: 15.24, // Court width in meters (50 feet)
+  FULL_HEIGHT_M: 28.65, // Full court height in meters (94 feet)
+  HALF_HEIGHT_M: 14.32, // Half court height in meters (47 feet)
+  HOOP_Y_M: 1.575, // Hoop height in meters (10 feet / 3.05 meters)
+  HEIGHT_M: 28.65, // Alias for FULL_HEIGHT_M for backward compatibility
+} as const;
+
+// Test Configuration for Camera FPS Degradation Investigation
+// See ARCHITECTURE_CHANGE.md - Performance Analysis section for test plan
+export const TEST_CONFIG = {
+  // TEST B-v3: YOLO isolato con target 10 FPS (DEV)
+  // Obiettivo: Verificare se riducendo la frequenza YOLO a 10 FPS, l'architettura sincrona attuale riesce a mantenere la camera a 30 FPS
+  // Se sì: workaround temporaneo utilizzabile
+  // Se no: passare direttamente alla correzione architetturale (separazione producer/consumer)
+  ENABLE_YOLO: true,
+  ENABLE_MOVENET: true, // Re-enabled with 2 FPS throttling (500ms interval)
+  ENABLE_TELEMETRY_OVERLAY: true,
+  ENABLE_DEBUG_OVERLAY: false,
+  // POC: Async YOLO with latest-frame gate + adaptive FPS
+  // ENABLED: Testing adaptive FPS system that throttles frame submission based on YOLO inference time
+  ENABLE_ASYNC_YOLO_POC: true,
+  // Adaptive FPS throttling: regulates frame submission based on YOLO inference time
+  ENABLE_ADAPTIVE_FPS: false, // Disabled by default until tested
+} as const;

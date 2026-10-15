@@ -1,6 +1,5 @@
-// src/features/workouts/hooks/usePerformanceMonitor.ts
-//
-// Shared performance monitoring for all inference and rendering operations
+// Shared performance monitoring for inference and rendering
+import { ENABLE_PERFORMANCE_LOGGING } from '@/config/debugConfig'
 
 const perfMetrics = {
     yoloFps: 0,
@@ -11,7 +10,7 @@ const perfMetrics = {
     overlayRenderTime: 0,
 }
 
-let perfTimer: NodeJS.Timeout | null = null
+let perfTimer: number | null = null
 
 export function incrementYoloFps() {
     perfMetrics.yoloFps++
@@ -40,15 +39,8 @@ export function recordOverlayRenderTime(ms: number) {
 export function startPerfMonitor() {
     if (perfTimer) return
     perfTimer = setInterval(() => {
-        if (__DEV__) {
-            console.log('[PERF]')
-            console.log('YOLO.............', perfMetrics.yoloFps, 'fps')
-            console.log('MoveNet..........', perfMetrics.moveNetFps, 'fps')
-            console.log('Tracking Updates.', perfMetrics.trackingUpdates, '/sec')
-            console.log('Overlay Renders..', perfMetrics.overlayRenders, '/sec')
-            console.log('Path Build.......', perfMetrics.pathBuildTime.toFixed(2), 'ms')
-            console.log('Overlay Render...', perfMetrics.overlayRenderTime.toFixed(2), 'ms')
-            console.log('JS FPS...........', perfMetrics.overlayRenders)
+        if (ENABLE_PERFORMANCE_LOGGING) {
+            console.log(`[PERF] YOLO: ${perfMetrics.yoloFps}fps | Tracking: ${perfMetrics.trackingUpdates}/s | Overlay: ${perfMetrics.overlayRenders}/s (JS FPS)`)
         }
         // Reset counters
         perfMetrics.yoloFps = 0
@@ -62,5 +54,14 @@ export function stopPerfMonitor() {
     if (perfTimer) {
         clearInterval(perfTimer)
         perfTimer = null
+    }
+}
+
+export function getPerfMetrics() {
+    return {
+        yoloFps: 0,  // Deprecated: read from worker SharedValues
+        moveNetFps: 0,  // Deprecated: read from worker SharedValues
+        trackingUpdates: perfMetrics.trackingUpdates,
+        overlayRenders: perfMetrics.overlayRenders,
     }
 }

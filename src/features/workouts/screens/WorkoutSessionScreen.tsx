@@ -1,61 +1,67 @@
 // src/features/workouts/screens/WorkoutSessionScreen.tsx
 //
-// Integrazione completa Opzione A:
-//  - react-native-vision-camera v4 (rimpiazza expo-camera)
-//  - YOLO11 ball/hoop detection on-device (useBallDetection)
-//  - MoveNet pose detection on-device (usePoseDetection)
-//  - React Native Skia overlay GPU-accelerated (rimpiazza SVG)
-//  - useTrackingEngine Kalman + shot detection automatica
-//  - Bottoni manuali come fallback / correzione
-//
-// Overlay completo:
-//  - 🏀 Label "BALL XX%" sopra la palla rilevata
-//  - Scia della parabola (appare solo quando inFlight=true, con ritardo N punti)
-//  - Skeleton + punti pose del player (MoveNet keypoints)
+// Vision camera integration with YOLO ball/hoop detection, MoveNet pose detection,
+// Skia overlay, Kalman tracking, and automatic shot detection.
 
 import React, {
     useState, useContext, useEffect, useCallback, useRef,
 } from 'react'
-import { useSharedValue } from 'react-native-reanimated'
 import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, Animated, Easing, Platform,
 } from 'react-native'
+import { GestureHandlerRootView, PinchGestureHandler, State } from 'react-native-gesture-handler'
+import { captureRef } from 'react-native-view-shot'
+import * as MediaLibrary from 'expo-media-library/legacy'
 import {
     Canvas, Path as SkiaPath, Circle as SkiaCircle,
     Group, Line as SkiaLine, vec, Skia,
 } from '@shopify/react-native-skia'
-import { Camera } from 'react-native-vision-camera'
+import { useAnimatedReaction, useDerivedValue, useAnimatedStyle, useSharedValue, runOnJS } from 'react-native-reanimated'
+import { Camera, type CameraRef } from 'react-native-vision-camera'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket'
 import { useTrackingEngine } from '../hooks/useTrackingEngine'
-import { useCameraPipeline } from '@/vision'
-import type { Camera as CameraType } from 'react-native-vision-camera'
-import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, incrementOverlayRenders, recordOverlayRenderTime, recordPathBuildTime } from '../hooks/usePerformanceMonitor'
+import { useWorkoutVisionPipeline } from '../vision/useWorkoutVisionPipeline'
+import { VisionEngineAdapter } from '@/vision/VisionEngineAdapter'
+import { incrementTrackingUpdates, startPerfMonitor, stopPerfMonitor, recordPathBuildTime, getPerfMetrics } from '../hooks/usePerformanceMonitor'
+import { telemetryLogger } from '@/vision/telemetry'
 import {
-    WorkoutSession, ShotResult, AddShotEventPayload,
+    WorkoutSession, ShotResult,
     TrackingState, PoseKeypoints, CalibrationData, CameraMode,
 } from '../types/workouts.types'
 import {
-    getWorkoutSession, addShotEvent,
+    getWorkoutSession,
     endWorkoutSession, pauseWorkoutSession, resumeWorkoutSession,
-    saveFrameData, savePoseAnalysis,
+    saveCourtCalibration,
 } from '../api/workouts.api'
+import { createWorkoutQueue, type FrameDataPayload, type CriticalPayload } from '../services/workoutAsyncQueue'
+import { TelemetrySampler } from '../services/telemetrySampler'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
+import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
+import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG, TEST_CONFIG } from '@/config/appConfig'
+import RealtimeBallOverlay from '../components/RealtimeBallOverlay'
+import ReactOverlay from '../components/ReactOverlay'
+import { WorkoutControls } from '../components/WorkoutControls'
+import { WorkoutHeader } from '../components/WorkoutHeader'
+import { ShotFeedback } from '../components/ShotFeedback'
+// import { useScreenshotCapture } from '../hooks/useScreenshotCapture' // Screenshot capture disabled
+import { useVideoRecording } from '../hooks/useVideoRecording'
+import { useTrackingStatus } from '../hooks/useTrackingStatus'
+import { useVisionConfig } from '../hooks/useVisionConfig'
+import { WorkoutSessionRuntime } from '../runtime/WorkoutSessionRuntime'
+import { ENABLE_VISION_DIAGNOSTICS } from '@/config/debugConfig'
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 const CAMERA_H = SCREEN_H * 0.52
-const COURT_WIDTH_M  = 15.24
-const COURT_HEIGHT_M = 28.65
-const HOOP_Y_M       = 1.575
 
 function toCourtMeters(
     normX: number, normY: number, calibration: CalibrationData | null
 ): { courtX: number; courtY: number; distanceFromHoop: number } {
-    let courtX = normX * COURT_WIDTH_M
-    let courtY = (1 - normY) * COURT_HEIGHT_M
+    let courtX = normX * COURT_CONFIG.WIDTH_M
+    let courtY = (1 - normY) * COURT_CONFIG.HEIGHT_M
     if (calibration?.homographyMatrix?.length === 9) {
         const H = calibration.homographyMatrix
         const wx = H[0]*normX + H[1]*normY + H[2]
@@ -63,8 +69,8 @@ function toCourtMeters(
         const wz = H[6]*normX + H[7]*normY + H[8]
         if (Math.abs(wz) > 1e-6) { courtX = wx/wz; courtY = wy/wz }
     }
-    const dx = courtX - COURT_WIDTH_M/2
-    const dy = courtY - HOOP_Y_M
+    const dx = courtX - COURT_CONFIG.WIDTH_M/2
+    const dy = courtY - COURT_CONFIG.HOOP_Y_M
     return {
         courtX:  Math.round(courtX*100)/100,
         courtY:  Math.round(courtY*100)/100,
@@ -72,867 +78,471 @@ function toCourtMeters(
     }
 }
 
-// ─── Debug overlay calibrazione ───────────────────────────────────────────────
-const MODE_LABELS: Record<string, string> = {
-    ANGLE_45: '↗ 45°',
-    LATERAL:  '→ Lat.',
-    FRONTAL:  '↑ Front.',
-}
 
-const SessionCalibDebug = ({
-    calibration, cameraMode, hoopPosition,
-}: {
-    calibration: CalibrationData
-    cameraMode: CameraMode | undefined
-    hoopPosition: { x: number; y: number } | null
-}) => (
-    <View style={sdbg.panel} pointerEvents="none">
-        <Text style={sdbg.title}>
-            🔍 CALIBRAZIONE  {cameraMode ? MODE_LABELS[cameraMode] ?? cameraMode : '—'}
-        </Text>
-        <View style={sdbg.row}>
-            <Text style={sdbg.key}>Hoop salvato</Text>
-            <Text style={sdbg.val}>
-                ({calibration.hoopCenter.x.toFixed(3)}, {calibration.hoopCenter.y.toFixed(3)})
-            </Text>
-        </View>
-        {hoopPosition && (
-            <View style={sdbg.row}>
-                <Text style={sdbg.key}>Hoop YOLO</Text>
-                <Text style={[sdbg.val, { color: '#4ade80' }]}>
-                    ({hoopPosition.x.toFixed(3)}, {hoopPosition.y.toFixed(3)})
-                </Text>
-            </View>
-        )}
-        <View style={sdbg.row}>
-            <Text style={sdbg.key}>Homography</Text>
-            <Text style={sdbg.val}>
-                {calibration.homographyMatrix.length > 0
-                    ? `${calibration.homographyMatrix.length} coeff.`
-                    : 'identità'}
-            </Text>
-        </View>
-        {calibration.courtCorners && (
-            <View style={sdbg.row}>
-                <Text style={sdbg.key}>Campo</Text>
-                <Text style={sdbg.val}>4 angoli ✓</Text>
-            </View>
-        )}
-        {hoopPosition && (
-            <View style={sdbg.row}>
-                <Text style={sdbg.key}>Δ hoop</Text>
-                <Text style={[sdbg.val, {
-                    color: Math.abs(hoopPosition.x - calibration.hoopCenter.x) < 0.05
-                        && Math.abs(hoopPosition.y - calibration.hoopCenter.y) < 0.05
-                        ? '#4ade80' : '#fbbf24'
-                }]}>
-                    dx={Math.abs(hoopPosition.x - calibration.hoopCenter.x).toFixed(3)}
-                    {'  '}
-                    dy={Math.abs(hoopPosition.y - calibration.hoopCenter.y).toFixed(3)}
-                </Text>
-            </View>
-        )}
-    </View>
-)
-
-const sdbg = StyleSheet.create({
-    panel: {
-        position: 'absolute', top: 10, right: 10,
-        backgroundColor: 'rgba(0,0,0,0.78)',
-        borderRadius: 10, padding: 10,
-        borderWidth: 1, borderColor: 'rgba(255,140,0,0.45)',
-        minWidth: 180,
-    },
-    title: { fontSize: 9, fontWeight: '800', color: '#ff8c00',
-        letterSpacing: 0.8, marginBottom: 6 },
-    row: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 3, gap: 6 },
-    key: { fontSize: 9, color: '#888', fontWeight: '600', minWidth: 62 },
-    val: { fontSize: 9, color: '#fff', fontWeight: '500', flex: 1 },
-})
-
-// ─── Skia Overlay ─────────────────────────────────────────────────────────────
-const SKELETON_CONNECTIONS: Array<[keyof PoseKeypoints, keyof PoseKeypoints]> = [
-    ['leftShoulder','rightShoulder'],
-    ['leftShoulder','leftElbow'],   ['leftElbow','leftWrist'],
-    ['rightShoulder','rightElbow'], ['rightElbow','rightWrist'],
-    ['leftShoulder','leftHip'],     ['rightShoulder','rightHip'],
-    ['leftHip','rightHip'],
-    ['leftHip','leftKnee'],         ['leftKnee','leftAnkle'],
-    ['rightHip','rightKnee'],       ['rightKnee','rightAnkle'],
-]
-const KP_THRESH = 0.35
-
-// Color map per differenziare gli arti
-const KP_COLORS: Record<keyof PoseKeypoints, { main: string; glow: string; label: string }> = {
-    leftShoulder:  { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Spalla SX' },
-    rightShoulder: { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Spalla DX' },
-    leftElbow:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Gomito SX' },
-    rightElbow:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Gomito DX' },
-    leftWrist:     { main: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: 'Polso SX' },
-    rightWrist:    { main: '#3b82f6', glow: 'rgba(59,130,246,0.25)', label: 'Polso DX' },
-    leftHip:       { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca SX' },
-    rightHip:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Anca DX' },
-    leftKnee:      { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio SX' },
-    rightKnee:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Ginocchio DX' },
-    leftAnkle:     { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia SX' },
-    rightAnkle:    { main: '#22c55e', glow: 'rgba(34,197,94,0.25)', label: 'Caviglia DX' },
-}
-
-// Color map per le linee del skeleton
-const CONNECTION_COLORS: Record<string, string> = {
-    'leftShoulder-rightShoulder': '#a855f7',
-    'leftShoulder-leftElbow': '#ef4444',
-    'leftElbow-leftWrist': '#ef4444',
-    'rightShoulder-rightElbow': '#3b82f6',
-    'rightElbow-rightWrist': '#3b82f6',
-    'leftShoulder-leftHip': '#a855f7',
-    'rightShoulder-rightHip': '#a855f7',
-    'leftHip-rightHip': '#a855f7',
-    'leftHip-leftKnee': '#22c55e',
-    'leftKnee-leftAnkle': '#22c55e',
-    'rightHip-rightKnee': '#22c55e',
-    'rightKnee-rightAnkle': '#22c55e',
-}
-// Punti di ritardo scia: salta gli ultimi N punti della traiettoria
-// per creare l'effetto "cometa — la scia segue la palla con un ritardo visivo"
-const TRAIL_DELAY_POINTS = 5
-
-// Helper function for biomechanical angle coloring
-const getAngleColor = (angle: number): string => {
-    if (angle >= 80 && angle <= 110) return '#22c55e' // Green: optimal
-    if (angle >= 60 && angle <= 130) return '#f59e0b' // Yellow: acceptable
-    return '#ef4444' // Red: poor
-}
-
-// Helper function for release angle color coding
-const getReleaseColor = (angle: number): string => {
-    if (angle >= 45 && angle <= 55) return '#22c55e' // Green: optimal
-    if (angle >= 35 && angle <= 65) return '#f59e0b' // Yellow: acceptable
-    return '#ef4444' // Red: poor
-}
-
-const TrackingOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration,
-}: {
-    trackingState: TrackingState | null
-    poseKeypoints: any // SharedValue<PoseKeypoints | null>
-    jointAngles: any // SharedValue<Partial<JointAngles>>
-    releaseAngle?: number
-    arcHeight?: number
-    calibration: CalibrationData | null
-}) => {
-    incrementOverlayRenders()
-
-    // Read from shared values
-    const currentPoseKeypoints = poseKeypoints.value
-    const currentJointAngles = jointAngles.value
-
-    const px = (x: number) => x * SCREEN_W
-    const py = (y: number) => y * CAMERA_H
-
-    // Skeleton render time measurement
-    const renderStart = performance.now()
-
-    // Scia del tiro:
-    //  - durante inFlight: segue la palla con ritardo TRAIL_DELAY_POINTS
-    //  - dopo il tiro: mostra l'ultima traiettoria completa per 2.5s
-    //  - curva Bezier cubica per avere una parabola liscia invece di segmenti
-    const shotTrailPath = React.useMemo(() => {
-        const t0 = performance.now()
-        const ts = trackingState as any
-        if (!ts?.showShotTrail) return null
-        const traj   = (ts?.shotTrajectory ?? ts?.trajectory ?? []) as Array<{x:number;y:number}>
-        const points = ts?.inFlight
-            ? traj.slice(0, Math.max(0, traj.length - TRAIL_DELAY_POINTS))
-            : traj
-        if (points.length < 2) return null
-
-        const p = Skia.Path.Make()
-        p.moveTo(px(points[0].x), py(points[0].y))
-
-        if (points.length === 2) {
-            // Solo 2 punti: linea retta
-            p.lineTo(px(points[1].x), py(points[1].y))
-        } else {
-            // 3+ punti: curva smooth con cubic Bezier catmull-rom
-            for (let i = 0; i < points.length - 1; i++) {
-                const p0 = points[Math.max(0, i - 1)]
-                const p1 = points[i]
-                const p2 = points[i + 1]
-                const p3 = points[Math.min(points.length - 1, i + 2)]
-                // Tangenti Catmull-Rom → control points Bezier
-                const cp1x = px(p1.x) + (px(p2.x) - px(p0.x)) / 6
-                const cp1y = py(p1.y) + (py(p2.y) - py(p0.y)) / 6
-                const cp2x = px(p2.x) - (px(p3.x) - px(p1.x)) / 6
-                const cp2y = py(p2.y) - (py(p3.y) - py(p1.y)) / 6
-                p.cubicTo(cp1x, cp1y, cp2x, cp2y, px(p2.x), py(p2.y))
-            }
-        }
-        const t1 = performance.now()
-        recordPathBuildTime(t1 - t0)
-        return p
-    }, [(trackingState as any)?.showShotTrail, (trackingState as any)?.shotTrajectory?.length,
-        trackingState?.inFlight, trackingState?.trajectory?.length])
-
-    // Posizione palla in pixel schermo
-    const ballSX = trackingState?.ballPosition != null ? px(trackingState.ballPosition.x) : null
-    const ballSY = trackingState?.ballPosition != null ? py(trackingState.ballPosition.y) : null
-
-    return (
-        <>
-            {/* ── Canvas Skia: forme GPU (scia, cerchi, skeleton) ── */}
-            <Canvas style={[StyleSheet.absoluteFill, { width: SCREEN_W, height: CAMERA_H }]}>
-
-                {/* Scia parabola — durante il volo arancione, dopo il tiro verde/rosso */}
-                {shotTrailPath && (() => {
-                    const ts = trackingState as any
-                    const color = ts?.inFlight
-                        ? 'rgba(255,140,0,0.90)'
-                        : ts?.shotResult === 'MADE'
-                            ? 'rgba(34,197,94,0.90)'
-                            : ts?.shotResult
-                                ? 'rgba(239,68,68,0.90)'
-                                : 'rgba(255,140,0,0.70)'
-                    return (
-                        <SkiaPath
-                            path={shotTrailPath}
-                            color={color}
-                            style="stroke"
-                            strokeWidth={3.5}
-                            strokeJoin="round"
-                            strokeCap="round"
-                        />
-                    )
-                })()}
-
-                {/* Cerchio palla */}
-                {trackingState?.ballPosition && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(trackingState.ballPosition.x)}
-                            cy={py(trackingState.ballPosition.y)}
-                            r={16} color="rgba(255,140,0,0.22)"
-                        />
-                        <SkiaCircle
-                            cx={px(trackingState.ballPosition.x)}
-                            cy={py(trackingState.ballPosition.y)}
-                            r={16} color="#ff8c00" style="stroke" strokeWidth={2.5}
-                        />
-                    </Group>
-                )}
-
-                {/* Cerchio canestro */}
-                {trackingState?.hoopPosition && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(trackingState.hoopPosition.x)}
-                            cy={py(trackingState.hoopPosition.y)}
-                            r={20} color="rgba(74,222,128,0.18)"
-                        />
-                        <SkiaCircle
-                            cx={px(trackingState.hoopPosition.x)}
-                            cy={py(trackingState.hoopPosition.y)}
-                            r={20} color="#4ade80" style="stroke" strokeWidth={2.5}
-                        />
-                    </Group>
-                )}
-
-                {/* Rim calibrato */}
-                {calibration?.hoopCenter && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(calibration.hoopCenter.x)}
-                            cy={py(calibration.hoopCenter.y)}
-                            r={25} color="rgba(59,130,246,0.25)"
-                        />
-                        <SkiaCircle
-                            cx={px(calibration.hoopCenter.x)}
-                            cy={py(calibration.hoopCenter.y)}
-                            r={25} color="#3b82f6" style="stroke" strokeWidth={3}
-                        />
-                    </Group>
-                )}
-
-                {/* Righe del campo dalla calibrazione */}
-                {calibration?.courtLines && calibration.courtLines.length > 0 && (
-                    <Group>
-                        {calibration.courtLines.map((line: { start: { x: number; y: number }; end: { x: number; y: number } }, i: number) => {
-                            const start = line.start
-                            const end = line.end
-                            return (
-                                <SkiaLine
-                                    key={i}
-                                    p1={vec(px(start.x), py(start.y))}
-                                    p2={vec(px(end.x), py(end.y))}
-                                    color="rgba(255,255,255,0.4)"
-                                    strokeWidth={2}
-                                    strokeCap="round"
-                                />
-                            )
-                        })}
-                    </Group>
-                )}
-
-                {/* Release Point */}
-                {trackingState?.releasePoint && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(trackingState.releasePoint.x)}
-                            cy={py(trackingState.releasePoint.y)}
-                            r={14} color="rgba(250,204,21,0.22)"
-                        />
-                        <SkiaCircle
-                            cx={px(trackingState.releasePoint.x)}
-                            cy={py(trackingState.releasePoint.y)}
-                            r={14} color="#facc15" style="stroke" strokeWidth={2}
-                        />
-                    </Group>
-                )}
-
-                {/* Apex Point */}
-                {trackingState?.apexPoint && (
-                    <Group>
-                        <SkiaCircle
-                            cx={px(trackingState.apexPoint.x)}
-                            cy={py(trackingState.apexPoint.y)}
-                            r={10} color="#22c55e"
-                        />
-                    </Group>
-                )}
-
-                {/* Skeleton pose + punti keypoints */}
-                {currentPoseKeypoints && (
-                    <Group>
-                        {SKELETON_CONNECTIONS.map(([a, b], i) => {
-                            const kpA = currentPoseKeypoints[a]
-                            const kpB = currentPoseKeypoints[b]
-                            if (!kpA || !kpB || kpA.score < KP_THRESH || kpB.score < KP_THRESH) return null
-                            const connectionKey = `${a}-${b}`
-                            const lineColor = CONNECTION_COLORS[connectionKey] || 'rgba(96,165,250,0.80)'
-                            return (
-                                <SkiaLine
-                                    key={i}
-                                    p1={vec(px(kpA.x), py(kpA.y))}
-                                    p2={vec(px(kpB.x), py(kpB.y))}
-                                    color={lineColor}
-                                    strokeWidth={2.5}
-                                />
-                            )
-                        })}
-                        {(Object.entries(currentPoseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
-                            .filter(([_, kp]) => kp?.score >= KP_THRESH)
-                            .map(([key, kp]) => {
-                                const colors = KP_COLORS[key]
-                                if (!colors) return null
-                                return (
-                                    <Group key={key}>
-                                        <SkiaCircle
-                                            cx={px(kp.x)} cy={py(kp.y)}
-                                            r={7} color={colors.glow}
-                                        />
-                                        <SkiaCircle
-                                            cx={px(kp.x)} cy={py(kp.y)}
-                                            r={4.5} color={colors.main}
-                                        />
-                                        <SkiaCircle
-                                            cx={px(kp.x)} cy={py(kp.y)}
-                                            r={4.5} color="rgba(255,255,255,0.6)"
-                                            style="stroke" strokeWidth={1.2}
-                                        />
-                                    </Group>
-                                )
-                            })
-                        }
-                    </Group>
-                )}
-            </Canvas>
-
-            {/* ── Label BALL (React Native Text, sopra il canvas) ── */}
-            {trackingState?.ballPosition && ballSX !== null && ballSY !== null && (
-                <View
-                    pointerEvents="none"
-                    style={[ovStyles.ballLabelWrap, {
-                        left: ballSX - 32,
-                        top:  ballSY - 44,
-                    }]}
-                >
-                    <View style={ovStyles.ballLabelBox}>
-                        <Text style={ovStyles.ballLabelText}>
-                            🏀 {Math.round((trackingState.confidence ?? 0) * 100)}%
-                        </Text>
-                    </View>
-                </View>
-            )}
-
-            {/* ── Badge IN VOLO / TIRO RILEVATO ── */}
-            {((trackingState as any)?.showShotTrail) && (
-                <View pointerEvents="none" style={ovStyles.inFlightBadge}>
-                    <Text style={ovStyles.inFlightText}>
-                        {(trackingState as any)?.inFlight ? '✈ IN VOLO' : trackingState?.shotResult === 'MADE' ? '🟢 CANESTRO' : '🔴 MANCATO'}
-                    </Text>
-                </View>
-            )}
-
-            {/* ── BIOMECHANICS PANEL ── */}
-            {jointAngles && (
-                <View pointerEvents="none" style={ovStyles.bioPanel}>
-                    {releaseAngle != null && (
-                        <Text style={ovStyles.bioText}>
-                            🚀 Angolo {releaseAngle.toFixed(1)}°
-                        </Text>
-                    )}
-
-                    {arcHeight != null && (
-                        <Text style={ovStyles.bioText}>
-                            📈 Arco {arcHeight.toFixed(2)}m
-                        </Text>
-                    )}
-
-                    {jointAngles.elbowAngle != null && (
-                        <Text style={ovStyles.bioText}>
-                            📐 Gomito {jointAngles.elbowAngle.toFixed(0)}°
-                        </Text>
-                    )}
-
-                    {jointAngles.shoulderAngle != null && (
-                        <Text style={ovStyles.bioText}>
-                            💪 Spalla {jointAngles.shoulderAngle.toFixed(0)}°
-                        </Text>
-                    )}
-
-                    {jointAngles.kneeAngle != null && (
-                        <Text style={ovStyles.bioText}>
-                            🦵 Ginocchio {jointAngles.kneeAngle.toFixed(0)}°
-                        </Text>
-                    )}
-                </View>
-            )}
-
-            {/* ── Release Angle Badge ── */}
-            {trackingState?.releaseAngle != null && (
-                <View pointerEvents="none" style={ovStyles.releaseAngleBadge}>
-                    <Text style={{
-                        color: getReleaseColor(trackingState.releaseAngle),
-                        fontWeight: '900'
-                    }}>
-                        ↗ {Math.round(trackingState.releaseAngle)}°
-                    </Text>
-                </View>
-            )}
-
-            {/* ── Shot Quality Score ── */}
-            {trackingState?.shotQuality != null && (
-                <View pointerEvents="none" style={ovStyles.qualityBadge}>
-                    <Text style={ovStyles.qualityText}>
-                        🎯 {Math.round(trackingState.shotQuality)}
-                    </Text>
-                </View>
-            )}
-
-            {/* ── Shot Analytics Card ── */}
-            {trackingState?.shotResult && (
-                <View pointerEvents="none" style={ovStyles.analyticsCard}>
-                    <Text style={ovStyles.analyticsTitle}>🏀 SHOT ANALYSIS</Text>
-
-                    {releaseAngle != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Release Angle</Text>
-                            <Text style={ovStyles.analyticsValue}>{releaseAngle.toFixed(0)}°</Text>
-                        </View>
-                    )}
-
-                    {arcHeight != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Arc Height</Text>
-                            <Text style={ovStyles.analyticsValue}>{arcHeight.toFixed(2)}m</Text>
-                        </View>
-                    )}
-
-                    {jointAngles?.elbowAngle != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Elbow</Text>
-                            <Text style={ovStyles.analyticsValue}>{jointAngles.elbowAngle.toFixed(0)}°</Text>
-                        </View>
-                    )}
-
-                    {jointAngles?.kneeAngle != null && (
-                        <View style={ovStyles.analyticsRow}>
-                            <Text style={ovStyles.analyticsLabel}>Knee</Text>
-                            <Text style={ovStyles.analyticsValue}>{jointAngles.kneeAngle.toFixed(0)}°</Text>
-                        </View>
-                    )}
-
-                    {releaseAngle != null && releaseAngle >= 45 && releaseAngle <= 55 && (
-                        <Text style={ovStyles.analyticsFeedback}>✓ Ottimo rilascio</Text>
-                    )}
-                </View>
-            )}
-
-            {/* ── Label HOOP ── */}
-            {trackingState?.hoopPosition && (
-                <View
-                    pointerEvents="none"
-                    style={[ovStyles.hoopLabelWrap, {
-                        left: px(trackingState.hoopPosition.x) - 22,
-                        top:  py(trackingState.hoopPosition.y) + 24,
-                    }]}
-                >
-                    <Text style={ovStyles.hoopLabelText}>🏀 CANESTRO</Text>
-                </View>
-            )}
-
-            {/* ── Label RELEASE POINT ── */}
-            {trackingState?.releasePoint && (
-                <View
-                    pointerEvents="none"
-                    style={[
-                        ovStyles.markerLabel,
-                        {
-                            left: px(trackingState.releasePoint.x) + 16,
-                            top: py(trackingState.releasePoint.y) - 12,
-                        },
-                    ]}
-                >
-                    <Text style={ovStyles.releaseLabel}>🚀 RELEASE</Text>
-                </View>
-            )}
-
-            {/* ── Label APEX POINT ── */}
-            {trackingState?.apexPoint && (
-                <View
-                    pointerEvents="none"
-                    style={[
-                        ovStyles.markerLabel,
-                        {
-                            left: px(trackingState.apexPoint.x) + 16,
-                            top: py(trackingState.apexPoint.y) - 12,
-                        },
-                    ]}
-                >
-                    <Text style={ovStyles.apexLabel}>⬆ APEX</Text>
-                </View>
-            )}
-
-            {/* ── Elbow Angle Live ── */}
-            {(() => {
-                const elbow = currentPoseKeypoints?.rightElbow ?? currentPoseKeypoints?.leftElbow
-                if (elbow && currentJointAngles?.elbowAngle != null) {
-                    return (
-                        <View
-                            pointerEvents="none"
-                            style={{
-                                position: 'absolute',
-                                left: px(elbow.x) + 10,
-                                top: py(elbow.y) - 10,
-                            }}
-                        >
-                            <Text style={{
-                                color: getAngleColor(currentJointAngles.elbowAngle),
-                                fontWeight: '900',
-                                fontSize: 11,
-                            }}>
-                                {Math.round(currentJointAngles.elbowAngle)}°
-                            </Text>
-                        </View>
-                    )
-                }
-                return null
-            })()}
-
-            {/* ── Label POSE KEYPOINTS ── */}
-            {currentPoseKeypoints && (Object.entries(currentPoseKeypoints) as Array<[keyof PoseKeypoints, {x:number;y:number;score:number}]>)
-                .filter(([_, kp]) => kp?.score >= KP_THRESH)
-                .map(([key, kp]) => {
-                    const colors = KP_COLORS[key]
-                    if (!colors) return null
-                    return (
-                        <View
-                            key={key}
-                            pointerEvents="none"
-                            style={[ovStyles.kpLabelWrap, {
-                                left: px(kp.x) + 12,
-                                top:  py(kp.y) - 8,
-                            }]}
-                        >
-                            <Text style={[ovStyles.kpLabelText, { color: colors.main }]}>
-                                {colors.label}
-                            </Text>
-                        </View>
-                    )
-                })
-            }
-        </>
-    )
-})
-
-const ovStyles = StyleSheet.create({
-    // Label BALL
-    ballLabelWrap: {
-        position: 'absolute',
-        alignItems: 'center',
-        minWidth: 64,
-    },
-    ballLabelBox: {
-        backgroundColor: 'rgba(0,0,0,0.72)',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 10,
-        borderWidth: 1.5,
-        borderColor: '#ff8c00',
-    },
-    ballLabelText: {
-        color: '#ff8c00',
-        fontSize: 11,
-        fontWeight: '800',
-        letterSpacing: 0.3,
-    },
-    // Badge IN VOLO
-    inFlightBadge: {
-        position: 'absolute',
-        bottom: 14,
-        left: 14,
-        backgroundColor: 'rgba(255,140,0,0.12)',
-        paddingHorizontal: 12,
-        paddingVertical: 5,
-        borderRadius: 12,
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,140,0,0.70)',
-    },
-    inFlightText: {
-        color: '#ff8c00',
-        fontSize: 11,
-        fontWeight: '900',
-        letterSpacing: 1,
-    },
-    // Biomechanics Panel
-    bioPanel: {
-        position: 'absolute',
-        top: 14,
-        right: 14,
-        backgroundColor: 'rgba(0,0,0,0.72)',
-        borderRadius: 12,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.15)',
-    },
-    bioText: {
-        color: '#fff',
-        fontSize: 11,
-        fontWeight: '700',
-        marginVertical: 1,
-    },
-    // Release Angle Badge
-    releaseAngleBadge: {
-        position: 'absolute',
-        bottom: 14,
-        left: 14,
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 10,
-    },
-    // Shot Quality Badge
-    qualityBadge: {
-        position: 'absolute',
-        top: 14,
-        left: 14,
-        backgroundColor: 'rgba(0,0,0,0.80)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 10,
-    },
-    qualityText: {
-        color: '#22c55e',
-        fontSize: 13,
-        fontWeight: '800',
-    },
-    // Shot Analytics Card
-    analyticsCard: {
-        position: 'absolute',
-        top: 80,
-        left: 14,
-        backgroundColor: 'rgba(0,0,0,0.85)',
-        borderRadius: 16,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.15)',
-        minWidth: 180,
-    },
-    analyticsTitle: {
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: '800',
-        marginBottom: 8,
-    },
-    analyticsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginVertical: 2,
-    },
-    analyticsLabel: {
-        color: 'rgba(255,255,255,0.7)',
-        fontSize: 10,
-        fontWeight: '600',
-    },
-    analyticsValue: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: '700',
-    },
-    analyticsFeedback: {
-        color: '#22c55e',
-        fontSize: 10,
-        fontWeight: '700',
-        marginTop: 6,
-    },
-    // Label HOOP
-    hoopLabelWrap: {
-        position: 'absolute',
-    },
-    hoopLabelText: {
-        color: '#4ade80',
-        fontSize: 9,
-        fontWeight: '700',
-        letterSpacing: 0.4,
-        backgroundColor: 'rgba(0,0,0,0.55)',
-        paddingHorizontal: 5,
-        paddingVertical: 2,
-        borderRadius: 6,
-    },
-    // Marker Label
-    markerLabel: {
-        position: 'absolute',
-    },
-    // Label RELEASE POINT
-    releaseLabel: {
-        color: '#facc15',
-        fontSize: 10,
-        fontWeight: '900',
-    },
-    // Label APEX POINT
-    apexLabel: {
-        color: '#22c55e',
-        fontSize: 10,
-        fontWeight: '900',
-    },
-    // Label POSE KEYPOINTS
-    kpLabelWrap: {
-        position: 'absolute',
-    },
-    kpLabelText: {
-        fontSize: 8,
-        fontWeight: '700',
-        letterSpacing: 0.2,
-        backgroundColor: 'rgba(0,0,0,0.65)',
-        paddingHorizontal: 4,
-        paddingVertical: 2,
-        borderRadius: 4,
-    },
-})
-
-// ─── StatBox ──────────────────────────────────────────────────────────────────
-const StatBox = ({ label, value, highlight }: { label: string; value: any; highlight?: boolean }) => (
-    <View style={styles.statBox}>
-        <Text style={[styles.statValue, highlight && styles.statValueHL]}>{value}</Text>
-        <Text style={styles.statLabel}>{label}</Text>
-    </View>
-)
-
-// ─── Schermata ────────────────────────────────────────────────────────────────
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode } = route.params || {}
+    const { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId, calibration: calibrationParam } = route.params || {}
+    // TEMP: Commented to reduce log noise during performance investigation
+    // console.log('[WorkoutSession] Received params from route.params:', {
+    //     sessionId,
+    //     cameraMode,
+    //     selectedResolution,
+    //     selectedFps,
+    //     selectedPoseResolution,
+    //     yoloDelegate,
+    //     poseDelegate,
+    //     yoloModelId,
+    //     moveNetModelId,
+    // })
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
-    const [isEnding, setIsEnding]           = useState(false)
-    const [isRecording, setIsRecording]     = useState(false)
+
+    // Stabilize effectiveResolution to prevent remount when calibration loads
+    const effectiveResolutionRef = useRef<{ width: number; height: number }>(
+        selectedResolution ?? (calibration?.cameraResolution ?? CAMERA_CONFIG.DEFAULT_RESOLUTION)
+    )
+    const effectiveResolution = effectiveResolutionRef.current
+    const [effectiveFps, setEffectiveFps] = useState(selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS)
+    const effectivePoseResolution = (selectedPoseResolution ?? CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION) as number
+    const [effectiveYoloModelId, setEffectiveYoloModelId] = useState(yoloModelId ?? DEFAULT_YOLO_MODEL_ID)
+
+    // Log received yoloModelId for debugging
+    useEffect(() => {
+        console.log('[WorkoutSession] Received yoloModelId from route.params:', yoloModelId)
+        console.log('[WorkoutSession] effectiveYoloModelId:', effectiveYoloModelId)
+    }, [yoloModelId, effectiveYoloModelId])
+    const effectiveMoveNetModelId = moveNetModelId ?? DEFAULT_MOVENET_MODEL_ID
+
+    const constraints = React.useMemo(
+        () => [{ fps: effectiveFps }],
+        [effectiveFps]
+    )
+
+    // Log constraints to verify FPS is being set
+    useEffect(() => {
+        console.log('[WorkoutSession] Camera constraints:', constraints)
+    }, [constraints])
+
+    const [isEnding, setIsEnding] = useState(false)
+    const [isRecording, setIsRecording] = useState(false)
     const isRecordingRef = useRef(false)
+    const cameraViewRef = useRef<View>(null)
+
+    // Video recording hook
+    const {
+        isVideoRecording,
+        videoDuration,
+        isVideoRecordingRef,
+        toggleRecording: toggleSessionVideoRecording,
+        formatVideoDuration,
+    } = useVideoRecording()
+
+    // Screenshot capture hook (disabled)
+    // const { captureShotScreenshot, saveScreenshotWithResult } = useScreenshotCapture(cameraViewRef)
     const [shotCount, setShotCount]         = useState({ total: 0, made: 0 })
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
     const [jointAngles, setJointAngles]     = useState<Partial<JointAngles>>({})
-    
-    // Shared values for pose to persist between detections
-    const poseKeypointsShared = useSharedValue<PoseKeypoints | null>(null)
-    const jointAnglesShared = useSharedValue<Partial<JointAngles>>({})
-    const jointCountShared = useSharedValue(0)
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
-    const [showCalibDebug, setShowCalibDebug] = useState(false)
+    const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
+    const [poseEnabled, setPoseEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_MOVENET)
+    const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
+    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
+    const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
+    const [cameraFps, setCameraFps] = useState(0)
+    const [showTelemetry, setShowTelemetry] = useState<boolean>(TEST_CONFIG.ENABLE_TELEMETRY_OVERLAY)
+    const [debugMode, setDebugMode] = useState<boolean>(TEST_CONFIG.ENABLE_DEBUG_OVERLAY)
+    const [diagnosticMode, setDiagnosticMode] = useState<boolean>(false)
+    const [diagnosticStats, setDiagnosticStats] = useState({
+      totalEvents: 0,
+      ballDetected: 0,
+      shotDetected: 0,
+      shotConfirmed: 0,
+      playerDetected: 0,
+    })
+    
+    // Update diagnostic stats in real-time when mode is active
+    useEffect(() => {
+        if (!diagnosticMode) return
+        
+        const interval = setInterval(() => {
+            const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+            if (runtimeForManual) {
+                setDiagnosticStats(runtimeForManual.getDiagnosticStats())
+            }
+        }, 500) // Update every 500ms
+        
+        return () => clearInterval(interval)
+    }, [diagnosticMode])
+    
+    const [usageMinutes, setUsageMinutes] = useState(0)
+    const [usageSeconds, setUsageSeconds] = useState(0)
+    const sessionStartTimeRef = useRef<number | null>(null)
+    const sessionStartTimeGlobal = useRef<number | null>(null)
 
-    const { alert, showError, showWarning } = useCustomAlert()
+    // Zoom state for pinch-to-zoom
+    const [zoom, setZoom] = useState(1)
+    const [baseZoom, setBaseZoom] = useState(1)
+    const [isZooming, setIsZooming] = useState(false)
+
+    const onPinchGestureEvent = (event: any) => {
+        if (event.nativeEvent.scale !== undefined) {
+            const minZoom = device?.minZoom ?? 1
+            const maxZoom = device?.maxZoom ?? 5
+            const newZoom = Math.max(minZoom, Math.min(maxZoom, baseZoom * event.nativeEvent.scale))
+            setZoom(newZoom)
+        }
+    }
+
+    const onPinchHandlerStateChange = (event: any) => {
+        if (event.nativeEvent.state === State.BEGAN) {
+            setBaseZoom(zoom)
+            setIsZooming(true)
+        } else if (event.nativeEvent.state === State.END) {
+            setBaseZoom(zoom)
+            setIsZooming(false)
+        }
+    }
+
+
+    // Lifecycle diagnostic: if ShotTracker reports UNMOUNT during an active
+    // session, this tells us whether the whole WorkoutSessionScreen also
+    // unmounted. A real screen unmount should always produce both logs.
+    const screenInstanceIdRef = useRef(Math.random().toString(36).slice(2, 8))
+    useEffect(() => {
+        console.log('[WorkoutSession][INSTANCE] MOUNT', screenInstanceIdRef.current)
+        return () => {
+            console.log('[WorkoutSession][INSTANCE] UNMOUNT', screenInstanceIdRef.current)
+        }
+    }, [])
+
+    const shotCounter = useRef(0)
+    const pendingScreenshotUri = useRef<string | null>(null)
+
+    const { alert, showError, showWarning, showSuccess } = useCustomAlert()
     const { stats: wsStats, status: wsStatus } = useWorkoutWebSocket(sessionId ?? null, user?.id ?? null)
-    const tracking = useTrackingEngine()
+    const tracking = useTrackingEngine({
+        onBallDetected: () => telemetryLogger.recordBallDetected(),
+        onBallPrediction: (ageMs: number) => telemetryLogger.recordBallPrediction(ageMs),
+        onBallTrackingExpired: () => telemetryLogger.recordBallTrackingExpired(),
+        // Player detection telemetry is now recorded in useShotTracker (YOLO callback scope)
+        // onPlayerDetected: () => telemetryLogger.recordPlayerYoloDetection(),
+    })
+    const { sharedValues } = tracking
     const feedbackOpacity = useRef(new Animated.Value(0)).current
     const isActiveRef     = useRef(true)
-    const loopStartedRef  = useRef(false)
+    const resetShotTrackingRef = useRef<(() => void) | null>(null)
+
+    // Initialize WorkoutSessionRuntime (Phase 4.4.2)
+    const runtimeRef = useRef<WorkoutSessionRuntime | null>(null)
+    const visionEngineAdapterRef = useRef<VisionEngineAdapter | null>(null)
+    const [trackingConnected, setTrackingConnected] = useState(false)
+    const trackingConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
+    const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
+    const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
+
+    // Coordinator for runtime.processFrame() calls from YOLO and MoveNet callbacks
+    // Ensures single processing at a time and schedules re-processing if updates arrive during processing
+    const isProcessingFrameRef = useRef(false) // True if a processFrame() call is in progress
+    const hasPendingUpdatesRef = useRef(false) // True if updates arrived during processing
+
+    // Coordinator function: schedules processFrame() if not already processing
+    // If updates arrive during processing, sets pending flag and schedules re-processing after completion
+    const scheduleRuntimeProcessFrame = useCallback(() => {
+        const runtime = runtimeRef.current
+        if (!runtime || runtime.getState() !== 'ACTIVE' || !useRuntimeProcessingRef.current) {
+            return
+        }
+
+        if (isProcessingFrameRef.current) {
+            // Already processing - mark that we have pending updates
+            hasPendingUpdatesRef.current = true
+            return
+        }
+
+        // Start processing
+        isProcessingFrameRef.current = true
+        hasPendingUpdatesRef.current = false
+
+        const resolution = effectiveResolutionRef.current
+        const now = Date.now()
+
+        void runtime.processFrame({
+            width: resolution.width,
+            height: resolution.height,
+            timestamp: now,
+        }).then(() => {
+            // Processing complete
+            isProcessingFrameRef.current = false
+
+            // If updates arrived during processing, schedule another pass
+            if (hasPendingUpdatesRef.current) {
+                hasPendingUpdatesRef.current = false
+                // Small delay to allow event loop to process other tasks
+                setTimeout(() => scheduleRuntimeProcessFrame(), 0)
+            }
+        }).catch((error) => {
+            console.error('[RUNTIME COORDINATOR] processFrame error:', error)
+            isProcessingFrameRef.current = false
+
+            // Still schedule re-processing if updates arrived, even on error
+            if (hasPendingUpdatesRef.current) {
+                hasPendingUpdatesRef.current = false
+                setTimeout(() => scheduleRuntimeProcessFrame(), 0)
+            }
+        })
+    }, [])
+    const selectedYoloModel = getYoloModel(effectiveYoloModelId)
+    const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
+
+    // Tracking status hook
+    const {
+        trackingBadgeText,
+        trackingDotActive,
+        trackingDotColor,
+        autoStatusText,
+        autoDotActive,
+    } = useTrackingStatus({
+        sharedValues,
+        modelsReady,
+        yoloModelName,
+    })
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
-    const rafRef          = useRef<number | null>(null)
-    const frameBatch      = useRef<any[]>([])
-    const batchTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
-    const cameraRef       = useRef<CameraType>(null)
+    const cameraRef       = useRef<CameraRef>(null)
+    const lastBackendFrameTimestamp = useRef<number>(0)
+    const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
+    const telemetrySamplerRef = useRef<TelemetrySampler | null>(null)
 
-    // Performance monitoring - tracking state updates
+    // Performance monitoring (YOLO/MoveNet FPS from worker SharedValues)
     useEffect(() => {
         startPerfMonitor()
         return () => stopPerfMonitor()
     }, [])
 
-    // ── Pose callback (new architecture) ─────────────────────────────────────
+    // Pose callback
     const handlePoseResult = useCallback((result: PoseResult) => {
-        console.log('[WorkoutSession] Pose keypoints:', Object.keys(result.keypoints).length, 'joints')
+        const tStart = performance.now()
+
+        // Single pass optimization: calculate validKeypoints, keypointsArray, and avgConfidence
+        let validKeypoints = 0
+        let confidenceSum = 0
+        const keypointsArray = Object.values(result.keypoints).map(kp => {
+            if (kp && kp.score > 0) {
+                validKeypoints++
+                confidenceSum += kp.score
+            }
+            return {
+                x: kp.x,
+                y: kp.y,
+                confidence: kp.score,
+            }
+        })
+        const avgConfidence = validKeypoints > 0 ? confidenceSum / validKeypoints : 0
+
+        // TEMP: Commented to reduce log noise during performance investigation
+        // console.log('[POSE RESULT] keypoints=', Object.keys(result.keypoints).length, 'valid=', validKeypoints)
         setPoseKeypoints(result.keypoints)
         setJointAngles(result.angles)
-        poseKeypointsShared.value = result.keypoints
-        jointAnglesShared.value = result.angles
-        jointCountShared.value = Object.keys(result.keypoints).length
-    }, [poseKeypointsShared, jointAnglesShared, jointCountShared])
 
-    // ── Ball detection callback (new architecture) ────────────────────────
-    const handleBallDetection = useCallback((detection: BallDetection) => {
-        const ball = detection.ball
-        if (ball) {
-            console.log('[BallDetection] Ball detected - confidence:', ball.confidence, 'x:', ball.x, 'y:', ball.y)
+        // Update VisionEngineAdapter with parsed pose result (Phase 3)
+        // Convert from vision/types to VisionEngine.types format
+        // Phase 1 Temporal Sync: Use original timestamp from MoveNet worker instead of Date.now()
+
+        visionEngineAdapterRef.current?.updateParsedResults(
+            undefined, // ball
+            undefined, // player
+            undefined, // rim
+            {
+                keypoints: keypointsArray,
+                confidence: avgConfidence,
+            }, // pose (VisionEngine.types format)
+            result.timestamp // Use original timestamp from MoveNet worker
+        )
+
+        // Phase 4: Notify coordinator to schedule Runtime.processFrame()
+        scheduleRuntimeProcessFrame()
+
+        const tEnd = performance.now()
+        const duration = tEnd - tStart
+        if (ENABLE_VISION_DIAGNOSTICS && duration > 10) {
+            console.log('[POSE CALLBACK] slow:', duration.toFixed(1) + 'ms')
         }
-        // Rim comes from calibration, not YOLO
-        const rimFromCalibration = calibration?.hoopCenter ? {
-            x: calibration.hoopCenter.x, // Already normalized 0-1
-            y: calibration.hoopCenter.y, // Already normalized 0-1
-            width: 0.08, // ~50px / 640
-            height: 0.08,
+        // console.log('[POSE STATE] setPoseKeypoints called')
+    }, [])
+
+    // Rim detection callback (replaces calibrated rim if confidence high)
+    const lastRimDetectionLogRef = useRef(0)
+    const handleRimDetection = useCallback((rim: { x: number; y: number; width: number; height: number; confidence: number }) => {
+        const now = Date.now()
+        // Log only once per session to reduce noise (already throttled to 1s, but still noisy)
+        if (lastRimDetectionLogRef.current === 0) {
+            console.log('[WorkoutSession] Rim detected with high confidence - replacing calibrated rim')
+            lastRimDetectionLogRef.current = now
+        }
+        setRimFromDetection(rim)
+        // Update tracking engine to update overlay shared values
+        tracking.setHoopFromCalibration(rim.x, rim.y, rim.width, rim.height)
+
+        // Update VisionEngineAdapter with parsed rim result (Phase 3)
+        // Phase 1 Temporal Sync: Use original timestamp from YOLO worker instead of Date.now()
+        visionEngineAdapterRef.current?.updateParsedResults(
+            undefined, // ball
+            undefined, // player
+            rim, // rim
+            undefined, // pose
+            now // Use callback timestamp (rim detection callback uses Date.now() as reference)
+        )
+    }, [tracking])
+
+    // Player detection callback (for VisionEngine integration)
+    const handlePlayerDetection = useCallback((player: { x: number; y: number; width: number; height: number; confidence: number }, timestamp: number) => {
+        // Update VisionEngineAdapter with parsed player result
+        // Phase 1 Temporal Sync: Use original timestamp from YOLO worker
+        visionEngineAdapterRef.current?.updateParsedResults(
+            undefined, // ball
+            player, // player
+            undefined, // rim
+            undefined, // pose
+            timestamp // Use original timestamp from YOLO worker
+        )
+    }, [])
+
+    // Ball detection callback (trackingState for events only, visual data via SharedValue/Skia)
+    const lastTrackingProcessAt = useRef<number>(0)
+    const TRACKING_THROTTLE_MS = 100  // Process tracking at most every 100ms
+
+    const handleBallDetection = useCallback((detection: BallDetection) => {
+        const tStart = performance.now()
+        const ball = detection.ball
+        const rim = detection.rim
+        const now = Date.now()
+
+        // PASS 5J-A: Ball callback profiling
+        const tAdapterStart = performance.now()
+        // Update VisionEngineAdapter with parsed ball/rim results (Phase 3)
+        // Convert from vision/types to VisionEngine.types format
+        // Phase 1 Temporal Sync: Use original timestamp from YOLO worker instead of Date.now()
+        visionEngineAdapterRef.current?.updateParsedResults(
+            ball || undefined, // BallDetection (flat) - pass undefined if no ball
+            undefined, // player (not in BallDetection type)
+            rim || undefined, // RimDetection - pass undefined if no rim
+            undefined, // pose (updated separately)
+            detection.timestamp // Use original timestamp from YOLO worker
+        )
+        const tAdapterEnd = performance.now()
+
+        // Phase 4: Notify coordinator to schedule Runtime.processFrame()
+        const runtime = runtimeRef.current
+        if (runtime && runtime.getState() === 'ACTIVE' && useRuntimeProcessingRef.current) {
+            scheduleRuntimeProcessFrame()
+
+            // Skip legacy tracking path when Runtime.processFrame() is active
+            // Runtime.processFrame() already calls TrackingEngine internally
+            const tEnd = performance.now()
+            const duration = tEnd - tStart
+            if (ENABLE_VISION_DIAGNOSTICS && duration > 10) {
+                console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms', {
+                    adapter: (tAdapterEnd - tAdapterStart).toFixed(2) + 'ms',
+                })
+            }
+            return
+        }
+
+        const rimForTracking = rimFromDetection ? {
+            x: rimFromDetection.x,
+            y: rimFromDetection.y,
+            width: rimFromDetection.width,
+            height: rimFromDetection.height,
+            confidence: rimFromDetection.confidence,
+        } : calibration?.hoopCenter ? {
+            x: calibration.hoopCenter.x,
+            y: calibration.hoopCenter.y,
+            width: 0.05,
+            height: 0.05,
             confidence: 1.0,
         } : null
-        
-        const newState = tracking.processFrame(
-            ball ? { x: ball.x + ball.width/2, y: ball.y + ball.height/2, confidence: ball.confidence } : null,
-            rimFromCalibration ? { x: rimFromCalibration.x, y: rimFromCalibration.y, confidence: rimFromCalibration.confidence } : null,
-            detection.timestamp
-        )
-        // Aggiorna l'overlay direttamente — non aspettare il RAF loop
-        incrementTrackingUpdates()
-        setTrackingState({ ...newState })
-        if (ball || rimFromCalibration) {
-            frameBatch.current.push({
-                frameTimestamp:   detection.timestamp,
-                ballX:            ball ? ball.x + ball.width/2 : undefined,
-                ballY:            ball ? ball.y + ball.height/2 : undefined,
-                ballConfidence:   ball?.confidence,
-                hoopX:            rimFromCalibration ? rimFromCalibration.x : undefined,
-                hoopY:            rimFromCalibration ? rimFromCalibration.y : undefined,
-                hoopConfidence:   rimFromCalibration?.confidence,
-                ballVelocityX:    newState.ballVelocity?.vx,
-                ballVelocityY:    newState.ballVelocity?.vy,
-                shotDetected:     newState.shotDetected,
-                trajectoryData:   { points: newState.trajectory.slice(-10) },
+
+        const shouldProcess = now - lastTrackingProcessAt.current >= TRACKING_THROTTLE_MS
+
+        let tTrackingMs = 0
+        let tStateUpdateMs = 0
+        let tTelemetryMs = 0
+
+        if (shouldProcess) {
+            lastTrackingProcessAt.current = now
+            const oldState = tracking.getState()
+            const tTrackingStart = performance.now()
+            const newState: TrackingState = tracking.processFrame(
+                ball ? { x: ball.x, y: ball.y, width: ball.width, height: ball.height, confidence: ball.confidence } : null,
+                rimForTracking ? { x: rimForTracking.x, y: rimForTracking.y, width: rimForTracking.width, height: rimForTracking.height, confidence: rimForTracking.confidence } : null,
+                now,  // Use Date.now() for consistent timestamp domain with ballLastSeenAt
+                poseKeypoints,
+                detection.ballSizeCategory,
+                detection.adaptiveThreshold
+            )
+            tTrackingMs = performance.now() - tTrackingStart
+            incrementTrackingUpdates()
+
+            // Update trackingState ONLY when analytics/event data changes (not visual data)
+            // This eliminates ~15 React renders/sec during tracking
+            if (
+                oldState.shotDetected !== newState.shotDetected ||
+                oldState.shotResult !== newState.shotResult ||
+                oldState.releasePoint !== newState.releasePoint ||
+                oldState.apexPoint !== newState.apexPoint ||
+                oldState.shotQuality !== newState.shotQuality ||
+                oldState.releaseAngle !== newState.releaseAngle
+            ) {
+                const tStateStart = performance.now()
+                setTrackingState({ ...newState })
+                tStateUpdateMs = performance.now() - tStateStart
+            }
+
+            // Backend sampling: 2 Hz (max 2 POST-worthy samples/sec)
+            if (ball || rimForTracking) {
+                const sampler = telemetrySamplerRef.current
+                const runtimeForTelemetry = runtimeRef.current as WorkoutSessionRuntime | null
+                const runtimeState = runtimeForTelemetry?.getState()
+                // Only send telemetry if session is ACTIVE
+                if (sampler && sampler.shouldSample(now) && runtimeForTelemetry && runtimeState === 'ACTIVE') {
+                    const tTelemetryStart = performance.now()
+                    runtimeForTelemetry.enqueueTelemetry({
+                        frameTimestamp:   now,
+                        ballX:            ball ? ball.x : undefined,
+                        ballY:            ball ? ball.y : undefined,
+                        ballWidth:        ball ? ball.width : undefined,
+                        ballHeight:       ball ? ball.height : undefined,
+                        ballConfidence:   ball?.confidence,
+                        hoopX:            rimForTracking ? rimForTracking.x : undefined,
+                        hoopY:            rimForTracking ? rimForTracking.y : undefined,
+                        hoopConfidence:   rimForTracking?.confidence,
+                        ballVelocityX:    newState.ballVelocity?.vx,
+                        ballVelocityY:    newState.ballVelocity?.vy,
+                        shotDetected:     newState.shotDetected,
+                        trajectoryData:   { points: newState.trajectory.slice(-10) },
+                    } as FrameDataPayload)
+                    tTelemetryMs = performance.now() - tTelemetryStart
+                }
+            }
+        }
+
+        const tEnd = performance.now()
+        const duration = tEnd - tStart
+        if (ENABLE_VISION_DIAGNOSTICS && duration > 10) {
+            console.log('[BALL CALLBACK] slow:', duration.toFixed(1) + 'ms', {
+                adapter: (tAdapterEnd - tAdapterStart).toFixed(2) + 'ms',
+                tracking: tTrackingMs.toFixed(2) + 'ms',
+                stateUpdate: tStateUpdateMs.toFixed(2) + 'ms',
+                telemetry: tTelemetryMs.toFixed(2) + 'ms',
+                other: (duration - (tAdapterEnd - tAdapterStart) - tTrackingMs - tStateUpdateMs - tTelemetryMs).toFixed(2) + 'ms'
             })
         }
-    }, [tracking, calibration])
+    }, [tracking, calibration, rimFromDetection, poseKeypoints])
 
-    // ── Auto shot detection handler (must be defined before handleShotEvent) ─────
+    // Auto shot detection handler
     const handleAutoShotDetected = useCallback(async (result: ShotResult) => {
         if (!user?.id || !sessionId || isRecordingRef.current) return
         isRecordingRef.current = true
@@ -945,25 +555,31 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 state.ballPosition?.y ?? 0.5,
                 calibration
             )
-            const shot = await addShotEvent(sessionId, user.id, {
-                timestampMs: Date.now(), shotResult: result, ...coords,
-                releaseAngle:        metrics.releaseAngle,
-                detectionConfidence: state.confidence,
-                trackingData: JSON.stringify({
-                    autoDetected: true,
-                    arcHeight:    metrics.arcHeight,
-                    smoothness:   metrics.smoothness,
-                }),
+
+            // Enqueue to critical queue via Runtime - non-blocking with error logging
+            const runtimeForAutoShot = runtimeRef.current as WorkoutSessionRuntime | null
+            if (!runtimeForAutoShot) return
+
+            runtimeForAutoShot.enqueueCritical({
+                type: 'SHOT',
+                sessionId,
+                userId: user.id,
+                payload: {
+                    timestampMs: Date.now(), shotResult: result, ...coords,
+                    releaseAngle:        metrics.releaseAngle,
+                    detectionConfidence: state.confidence,
+                    trackingData: JSON.stringify({
+                        autoDetected: true,
+                        arcHeight:    metrics.arcHeight,
+                        smoothness:   metrics.smoothness,
+                    }),
+                }
+            } as CriticalPayload).catch((error) => {
+                console.error('[Auto Shot] Failed to persist shot event:', error)
+                // UI already updated, but data may be lost
             })
-            if (Object.keys(jointAngles).length > 0) {
-                await savePoseAnalysis(sessionId, user.id, {
-                    shotEventId:   shot.id,
-                    ...jointAngles,
-                    releaseAngle:  metrics.releaseAngle,
-                    releaseHeight: metrics.arcHeight,
-                    shotSmoothness: metrics.smoothness,
-                })
-            }
+            
+            // Update UI immediately
             setLastShotResult(result)
             setShotCount(prev => ({
                 total: prev.total + 1,
@@ -975,27 +591,30 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 easing: Easing.out(Easing.ease), useNativeDriver: true,
             }).start()
             tracking.resetShot()
+            resetShotTrackingRef.current?.()
         } catch (e: any) { showError('Errore tiro', e.message) }
         finally { isRecordingRef.current = false; setIsRecording(false) }
     }, [user?.id, sessionId, tracking, calibration, jointAngles])
 
-    // ── Shot event callback (new architecture) ───────────────────────────
-    const handleShotEvent = useCallback((event: ShotEvent) => {
-        console.log('[WorkoutSession] Shot event:', event)
-        if (event.shotMade) {
-            handleAutoShotDetected('MADE')
-        } else if (event.shotReleased) {
-            // Shot released but not yet determined if made
-            // Could trigger intermediate UI feedback
-        }
-    }, [handleAutoShotDetected])
 
-    // ── New architecture: useCameraPipeline integrates everything ─────────
-    const rimFromCalibration = React.useMemo(() =>
-        calibration?.hoopCenter
-            ? { x: calibration.hoopCenter.x, y: calibration.hoopCenter.y, width: 0.08, height: 0.08 }
-            : null
-    , [calibration?.hoopCenter?.x, calibration?.hoopCenter?.y])
+    // Shot event callback removed - shot detection now handled by Runtime → TrackingEngine → ShotDetectionEngine → onShotDetected callback
+
+    // Vision configuration hook
+    const { visionConfig, effectiveRim } = useVisionConfig({
+        poseEnabled,
+        ballEnabled,
+        rimDetectionEnabled,
+        yoloDelegate,
+        poseDelegate,
+        effectiveYoloModelId,
+        effectiveMoveNetModelId,
+        effectiveResolution,
+        effectiveFps,
+        effectivePoseResolution,
+        calibration,
+        rimFromDetection,
+        trackingState,
+    })
 
     const {
         device,
@@ -1003,81 +622,407 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isActive,
         requestPermission,
         setIsActive,
-        frameProcessor,
+        frameOutput,
         isModelReady,
         resetShotTracking,
-    } = useCameraPipeline(
-        handleBallDetection, 
-        handlePoseResult, 
-        handleShotEvent, 
-        rimFromCalibration,
-        true
+        fpsMetrics: pipelineFpsMetrics,
+        sharedValues: pipelineSharedValues,
+    } = useWorkoutVisionPipeline(
+        visionConfig,
+        handleBallDetection,
+        handlePoseResult,
+        rimDetectionEnabled ? handleRimDetection : undefined,
+        handlePlayerDetection,
+        false // runtimeActive: Decision 29 reverted - not used in frame processor
     )
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────
+    // Create VisionEngineAdapter for Runtime (Phase 3)
     useEffect(() => {
-        loadSession()
-        batchTimer.current = setInterval(flushFrameBatch, 2000)
-        
-        const rafLoop = () => {
-            if (!isActiveRef.current) return
-            const s = tracking.getState()
-            setTrackingState(prev => {
-                if (!prev) return s
-                // Aggiorna solo se qualcosa è cambiato (evita re-render inutili)
-                if (
-                    prev.shotDetected !== s.shotDetected ||
-                    prev.inFlight     !== s.inFlight     ||
-                    prev.ballPosition?.x !== s.ballPosition?.x ||
-                    prev.confidence      !== s.confidence ||
-                    prev.trajectory.length !== s.trajectory.length
-                ) return s
-                return prev
-            })
-            rafRef.current = requestAnimationFrame(rafLoop)
+        const visionEngineAdapter = new VisionEngineAdapter(
+            YOLO_CONFIG.BALL_CONF_THRESHOLD,
+            YOLO_CONFIG.RIM_CONF_THRESHOLD,
+            0.03 // pose score threshold
+        )
+        visionEngineAdapterRef.current = visionEngineAdapter
+
+        return () => {
+            visionEngineAdapterRef.current = null
         }
-        rafRef.current = requestAnimationFrame(rafLoop)
+    }, [])
+
+    // Store resetShotTracking in ref for use in callbacks defined before useCameraPipeline
+    resetShotTrackingRef.current = resetShotTracking
+
+    // Update player bbox from pipeline shared values (throttled to reduce overhead)
+    const lastUpdateRef = useRef(0)
+    useEffect(() => {
+        if (pipelineSharedValues) {
+            const now = Date.now()
+            // Throttle to max 30 updates per second
+            if (now - lastUpdateRef.current > 33) {
+                lastUpdateRef.current = now
+                tracking.updatePlayerFromPipeline(pipelineSharedValues)
+            }
+        }
+    }, [pipelineSharedValues, tracking])
+
+    // Update FPS metrics from pipeline using useAnimatedReaction
+    const lastFpsUpdate = React.useRef(0)
+    const updateFpsMetrics = React.useCallback((yoloFps: number, moveNetFps: number, cameraFps: number) => {
+        const now = Date.now()
+        if (now - lastFpsUpdate.current > 1000) {
+            lastFpsUpdate.current = now
+            // Removed duplicate log - FPS metrics are already in [PERF 1s] telemetry
+            // if (__DEV__) {
+            //     console.log('[WorkoutSession] FPS update:', { yoloFps, moveNetFps })
+            // }
+            setFpsMetrics({
+                yoloFps: Math.round(yoloFps),
+                moveNetFps: Math.round(moveNetFps),
+            })
+            setCameraFps(Math.round(cameraFps))
+        }
+    }, [])
+
+    useAnimatedReaction(
+        () => ({
+            yoloFps: pipelineFpsMetrics.yoloFps?.value ?? 0,
+            moveNetFps: pipelineFpsMetrics.moveNetFps?.value ?? 0,
+            cameraFps: pipelineFpsMetrics.actualCameraFps?.value ?? 0,
+        }),
+        (current) => {
+            'worklet'
+            runOnJS(updateFpsMetrics)(current.yoloFps, current.moveNetFps, current.cameraFps)
+        }
+    )
+
+    // Request media library permissions for screenshots
+    useEffect(() => {
+        void (async () => {
+            const { status } = await MediaLibrary.requestPermissionsAsync()
+            if (status !== 'granted') {
+                console.warn('[WorkoutSession] Media library permission not granted')
+            }
+        })()
+    }, [])
+
+    // Track usage minutes when session is active
+    useEffect(() => {
+        // Removed log - noise during normal operation
+        if (isActive && isModelReady) {
+            if (!sessionStartTimeGlobal.current) {
+                sessionStartTimeGlobal.current = Date.now()
+                console.log('[WorkoutSession] Set session start time:', sessionStartTimeGlobal.current)
+            }
+            const interval = setInterval(() => {
+                if (sessionStartTimeGlobal.current) {
+                    const elapsedMs = Date.now() - sessionStartTimeGlobal.current
+                    const minutes = Math.floor(elapsedMs / 60000)
+                    const seconds = Math.floor((elapsedMs % 60000) / 1000)
+                    // Removed hot-path log to reduce JS thread contention
+                    // console.log('[WorkoutSession] Usage update:', { elapsedMs, minutes, seconds })
+                    setUsageMinutes(minutes)
+                    setUsageSeconds(seconds)
+                }
+            }, 1000) // Update every second
+            return () => clearInterval(interval)
+        }
+    }, [isActive, isModelReady])
+
+    // Lifecycle
+    useEffect(() => {
+        void loadSession()
 
         return () => {
             isActiveRef.current = false
             setIsActive(false)
-            if (batchTimer.current) clearInterval(batchTimer.current)
-            if (rafRef.current)     cancelAnimationFrame(rafRef.current)
+            // Cleanup on unmount: stop runtime if active
+            if (runtimeRef.current && runtimeRef.current.getState() === 'ACTIVE') {
+                runtimeRef.current.stop().catch((error) => {
+                    console.error('[WorkoutSession] Error stopping runtime on unmount:', error)
+                })
+            }
+            runtimeRef.current = null
         }
     }, [])
 
     // Avvio: quando il modello è pronto
     useEffect(() => {
-        console.log('[WorkoutSession] isModelReady:', isModelReady)
+        // Removed log - noise during startup/debug
         setModelsReady(isModelReady)
     }, [isModelReady])
 
+    // Phase 4.5: Connect TrackingEngine to Runtime after both are initialized
     useEffect(() => {
-        if (trackingState?.shotDetected && trackingState.shotResult)
-            handleAutoShotDetected(trackingState.shotResult)
-    }, [trackingState?.shotDetected])
+        if (trackingConnectedRef.current) return // Already connected
+
+        const trackingEngine = tracking.getTrackingEngine()
+        if (trackingEngine && runtimeRef.current) {
+            runtimeRef.current.setTrackingEngine(trackingEngine)
+            console.log('[WorkoutSession] TrackingEngine connected to runtime')
+
+            // Connect internal ShotDetectionEngine to avoid double ownership
+            const shotDetectionEngine = trackingEngine.getShotDetectionEngine()
+            if (shotDetectionEngine) {
+                runtimeRef.current.setShotDetectionEngine(shotDetectionEngine)
+                console.log('[WorkoutSession] ShotDetectionEngine connected to runtime')
+            }
+
+            trackingConnectedRef.current = true
+            setTrackingConnected(true)
+        }
+    }, [tracking])
+
+    // Phase 3: Connect VisionEngineAdapter to Runtime (VisionEngine integration)
+    useEffect(() => {
+        if (visionEngineConnectedRef.current) return // Already connected
+
+        if (visionEngineAdapterRef.current && runtimeRef.current) {
+            runtimeRef.current.setVisionEngine(visionEngineAdapterRef.current)
+            console.log('[WorkoutSession] VisionEngineAdapter connected to runtime')
+            visionEngineAdapterRef.current.start()
+            visionEngineConnectedRef.current = true
+            // Phase 4: Enable Runtime.processFrame() path
+            useRuntimeProcessingRef.current = true
+            console.log('[WorkoutSession] Runtime.processFrame() path ENABLED')
+        }
+    }, [visionEngineAdapterRef.current, runtimeRef.current])
+
+    // Phase 4.5: Start runtime after both TrackingEngine and VisionEngineAdapter are connected
+    useEffect(() => {
+        if (trackingConnected && visionEngineConnectedRef.current && runtimeRef.current) {
+            const runtime = runtimeRef.current
+            // Only start if still in IDLE state (not already started)
+            if (runtime.getState() === 'IDLE') {
+                runtime.start().then(() => {
+                    console.log('[WorkoutSession] Runtime session started')
+                }).catch((error) => {
+                    console.error('[WorkoutSession] Failed to start runtime:', error)
+                })
+            }
+        }
+    }, [trackingConnected])
 
     const loadSession = async () => {
         if (!user?.id || !sessionId) return
         try {
             const s = await getWorkoutSession(sessionId, user.id)
             setSession(s)
-            setIsActive(true) // Activate camera when session loads
             setShotCount({ total: s.totalShots, made: s.madeShots })
-            try {
-                const r   = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
-                const cal: CalibrationData = {
-                    homographyMatrix: r.data.homographyMatrix ?? [],
-                    hoopCenter:       { x: r.data.hoopCenterX ?? 0.5, y: r.data.hoopCenterY ?? 0.3 },
-                    courtCorners:     r.data.courtCorners,
-                }
-                console.log('[WorkoutSession] Calibration loaded', cal.hoopCenter)
-                setCalibration(cal)
-                tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y)
-            } catch (e) {
-                console.log('[WorkoutSession] Calibration not loaded', e)
-                /* calibrazione opzionale */
+
+            // Apply vision configuration from session (for session resume)
+            // Only if not already provided via route.params (new session)
+            if (!selectedResolution && s.cameraResolutionWidth && s.cameraResolutionHeight) {
+                effectiveResolutionRef.current = { width: s.cameraResolutionWidth, height: s.cameraResolutionHeight }
             }
+            if (!selectedFps && s.fps) {
+                setEffectiveFps(s.fps)
+            }
+            if (!yoloModelId && s.yoloModelId) {
+                setEffectiveYoloModelId(s.yoloModelId)
+            }
+            console.log('[WorkoutSession] Vision configuration from session:', {
+                resolution: s.cameraResolutionWidth && s.cameraResolutionHeight ? { width: s.cameraResolutionWidth, height: s.cameraResolutionHeight } : null,
+                fps: s.fps,
+                yoloModelId: s.yoloModelId,
+            })
+
+            // Create session-scoped queue FIRST (async initialization with global recovery)
+            workoutQueueRef.current = await createWorkoutQueue({ sessionId, userId: user.id })
+            console.log('[WorkoutSession] Queue initialized')
+
+            // Create telemetry sampler (2 Hz = 500ms)
+            telemetrySamplerRef.current = new TelemetrySampler({ sampleIntervalMs: 500 })
+            console.log('[WorkoutSession] Telemetry sampler initialized')
+
+            // Initialize WorkoutSessionRuntime (Phase 4.4.2)
+            const runtime = new WorkoutSessionRuntime(
+                {
+                    sessionId,
+                    userId: user.id,
+                },
+                {
+                    onSessionStateChanged: (newState) => {
+                        console.log('[WorkoutSession] Runtime state changed:', newState)
+                    },
+                    onShotDetected: async (result) => {
+                        setLastShotResult(result)
+                        setShotCount(prev => ({
+                            total: prev.total + 1,
+                            made: result === 'MADE' ? prev.made + 1 : prev.made,
+                        }))
+                        feedbackOpacity.setValue(1)
+                        Animated.timing(feedbackOpacity, {
+                            toValue: 0, duration: 1400,
+                            easing: Easing.out(Easing.ease), useNativeDriver: true,
+                        }).start()
+
+                        // Screenshot capture disabled
+                        // Handle screenshot capture and persistence (moved from legacy handleShotEvent)
+                        // shotCounter.current += 1
+                        // const screenshotData = await captureShotScreenshot(shotCounter.current)
+                        // if (screenshotData) {
+                        //     pendingScreenshotUri.current = JSON.stringify(screenshotData)
+                        // }
+
+                        // Save screenshot with result
+                        // if (pendingScreenshotUri.current) {
+                        //     const data = JSON.parse(pendingScreenshotUri.current)
+                        //     void saveScreenshotWithResult(data, result)
+                        //     pendingScreenshotUri.current = null
+                        // }
+                    },
+                    onTelemetryUpdate: (metrics) => {
+                        // Disabled - FPS metrics are already available via fpsMetrics from useShotTracker
+                        // console.log('[WorkoutSession] Telemetry update:', metrics)
+                    },
+                    onError: (error) => {
+                        showError('Errore Runtime', error.message)
+                    },
+                    onTrackingStateUpdate: (trackingState) => {
+                        // Phase 4: Update tracking state from Runtime.processFrame()
+                        setTrackingState(trackingState)
+                        // Update SharedValues for Skia overlay
+                        tracking.updateSharedValuesFromState(trackingState)
+                    },
+                }
+            )
+            runtimeRef.current = runtime
+            console.log('[WorkoutSession] Runtime initialized')
+
+            // Connect subsystems to runtime (Phase 4.5)
+            if (telemetrySamplerRef.current) {
+                runtime.setTelemetrySampler(telemetrySamplerRef.current)
+                console.log('[WorkoutSession] Telemetry sampler connected to runtime')
+            }
+
+            if (workoutQueueRef.current) {
+                runtime.setWorkoutQueue(workoutQueueRef.current)
+                console.log('[WorkoutSession] WorkoutQueue connected to runtime')
+            }
+
+            // Note: TrackingEngine and VisionPipelineAdapter will be connected via useEffect
+            // after the component renders. Runtime.start() will be called after both are connected.
+
+            // Load calibration - try param first, then backend
+            let cal: CalibrationData | null = null
+            if (calibrationParam) {
+                // Calibration passed from CalibrationScreen (already in YOLO space with mirror)
+                console.log('[WorkoutSession] Using calibration from param (raw):', calibrationParam.hoopCenter)
+                // No inverse mirror needed - coordinates are already in YOLO space
+                cal = {
+                    homographyMatrix: calibrationParam.homographyMatrix ?? [],
+                    hoopCenter:       calibrationParam.hoopCenter,
+                    cameraResolution: calibrationParam.cameraResolution,
+                    courtCorners:     calibrationParam.courtCorners,
+                    courtWidth:       calibrationParam.courtWidth,
+                    courtHeight:      calibrationParam.courtHeight,
+                    // Vision parameters for session resume
+                    yoloModelId:      yoloModelId,
+                    moveNetModelId:   moveNetModelId,
+                    fps:              selectedFps,
+                    poseResolution:   selectedPoseResolution,
+                    yoloDelegate:     yoloDelegate,
+                    poseDelegate:     poseDelegate,
+                }
+                console.log('[WorkoutSession] Calibration from param (no conversion):', cal.hoopCenter)
+            } else {
+                // Try loading from backend (already in YOLO space with mirror)
+                try {
+                    // Load calibration data (geometric: homographyMatrix, courtCorners, courtWidth/Height)
+                    const calR = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+                    console.log('[WorkoutSession] Raw calibration from backend:', {
+                        hoopCenterX: calR.data.hoopCenterX,
+                        hoopCenterY: calR.data.hoopCenterY,
+                        homographyMatrix: calR.data.homographyMatrix,
+                        courtCorners: calR.data.courtCorners,
+                        courtWidth: calR.data.courtWidth,
+                        courtHeight: calR.data.courtHeight,
+                    })
+
+                    // Load session data (vision parameters: fps, yoloModelId, etc.)
+                    const sessionR = await getWorkoutSession(sessionId, user.id)
+                    console.log('[WorkoutSession] Session data from backend:', {
+                        fps: sessionR.fps,
+                        yoloModelId: sessionR.yoloModelId,
+                        cameraResolutionWidth: sessionR.cameraResolutionWidth,
+                        cameraResolutionHeight: sessionR.cameraResolutionHeight,
+                    })
+
+                    // No inverse mirror needed - coordinates are already in YOLO space
+                    cal = {
+                        homographyMatrix: calR.data.homographyMatrix ?? [],
+                        hoopCenter:       { x: calR.data.hoopCenterX ?? 0.5, y: calR.data.hoopCenterY ?? 0.3 },
+                        cameraResolution: sessionR.cameraResolutionWidth && sessionR.cameraResolutionHeight
+                            ? { width: sessionR.cameraResolutionWidth, height: sessionR.cameraResolutionHeight }
+                            : undefined,
+                        courtCorners:     calR.data.courtCorners ?? (
+                            // Reconstruct courtCorners from flat fields if not directly provided
+                            calR.data.threePointLineTopX && calR.data.threePointLineTopY &&
+                            calR.data.threePointLineRightX && calR.data.threePointLineRightY &&
+                            calR.data.sidelineRightX && calR.data.sidelineRightY &&
+                            calR.data.sidelineLeftX && calR.data.sidelineLeftY
+                                ? {
+                                    topLeft: { x: calR.data.threePointLineTopX, y: calR.data.threePointLineTopY },
+                                    topRight: { x: calR.data.threePointLineRightX, y: calR.data.threePointLineRightY },
+                                    bottomRight: { x: calR.data.sidelineRightX, y: calR.data.sidelineRightY },
+                                    bottomLeft: { x: calR.data.sidelineLeftX, y: calR.data.sidelineLeftY },
+                                }
+                                : undefined
+                        ),
+                        courtWidth:       calR.data.courtWidth,
+                        courtHeight:      calR.data.courtHeight,
+                        // Vision parameters from session (not calibration)
+                        yoloModelId:      sessionR.yoloModelId,
+                        moveNetModelId:   sessionR.moveNetModelId,
+                        fps:              sessionR.fps,
+                        poseResolution:   sessionR.poseResolution,
+                        yoloDelegate:    sessionR.yoloDelegate,
+                        poseDelegate:     sessionR.poseDelegate,
+                    }
+                    console.log('[WorkoutSession] Calibration loaded from backend (no conversion):', cal.hoopCenter)
+                } catch (e) {
+                    console.log('[WorkoutSession] Calibration not loaded from backend', e)
+                    /* calibrazione opzionale */
+                }
+            }
+
+            if (cal) {
+                setCalibration(cal)
+                // Pass coordinates in YOLO space (with X+Y mirror) to setHoopFromCalibration
+                // Calibration coordinates are converted from touch to YOLO space with mirror X+Y in CalibrationScreen
+                // No inverse mirror applied here - coordinates are already in correct YOLO space
+                // mapNormalizedToCameraView will apply mirror X+Y for display
+                tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
+                runtime.setCalibration(cal)
+
+                // Apply vision parameters from calibration (for session resume)
+                if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
+                if (cal.fps) setEffectiveFps(cal.fps)
+                if (cal.cameraResolution) {
+                    effectiveResolutionRef.current = cal.cameraResolution
+                }
+                console.log('[WorkoutSession] Vision parameters applied from calibration:', {
+                    yoloModelId: cal.yoloModelId,
+                    fps: cal.fps,
+                    resolution: cal.cameraResolution,
+                })
+
+                // Save calibration to backend when creating new session (from param)
+                // This ensures calibration is available when resuming the session
+                if (calibrationParam) {
+                    try {
+                        await saveCourtCalibration(sessionId, user.id, cal)
+                        console.log('[WorkoutSession] Calibration saved to backend for new session')
+                    } catch (e) {
+                        console.log('[WorkoutSession] Failed to save calibration to backend', e)
+                    }
+                }
+            }
+
+            // Activate camera ONLY after queue, telemetry, and calibration are ready
+            setIsActive(true)
+            console.log('[WorkoutSession] Camera activated - runtime ready')
         } catch (e: any) { showError('Errore', e.message) }
     }
 
@@ -1087,41 +1032,62 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => { sessionIdRef.current = sessionId }, [sessionId])
     useEffect(() => { userIdRef.current    = user?.id  }, [user?.id])
 
-    const flushFrameBatch = useCallback(async () => {
-        const sid = sessionIdRef.current
-        const uid = userIdRef.current
-        if (!uid || !sid || frameBatch.current.length === 0) return
-        const last = frameBatch.current[frameBatch.current.length - 1]
-        frameBatch.current = []
-        try { await saveFrameData(sid, uid, last) } catch (_) {}
-    }, [])
 
     const handleManualShot = async (result: ShotResult) => {
         if (!user?.id || !sessionId || isRecording) return
         setIsRecording(true)
         try {
-            const state  = tracking.getState()
-            const coords = toCourtMeters(
-                state.ballPosition?.x ?? 0.5,
-                state.ballPosition?.y ?? 0.5,
-                calibration
-            )
-            await addShotEvent(sessionId, user.id, {
-                timestampMs: Date.now(), shotResult: result, ...coords,
-                detectionConfidence: 1.0,
-                trackingData: JSON.stringify({ manualEntry: true }),
-            })
-            setLastShotResult(result)
-            setShotCount(prev => ({
-                total: prev.total + 1,
-                made:  result === 'MADE' ? prev.made + 1 : prev.made,
-            }))
-            feedbackOpacity.setValue(1)
-            Animated.timing(feedbackOpacity, {
-                toValue: 0, duration: 1400,
-                easing: Easing.out(Easing.ease), useNativeDriver: true,
-            }).start()
-        } catch (e: any) { showError('Errore', e.message) }
+            // Use runtime to register manual shot (Phase 4.4.2)
+            // Note: Runtime only accepts "MADE" | "MISS", convert AIRBALL to MISS
+            const runtimeResult = result === 'AIRBALL' ? 'MISS' : result
+            const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+            if (runtimeForManual) {
+                await runtimeForManual.registerManualShot(runtimeResult as 'MADE' | 'MISS')
+            } else {
+                // Fallback to direct queue if runtime not available
+                const state = tracking.getState()
+                const coords = toCourtMeters(
+                    state.ballPosition?.x ?? 0.5,
+                    state.ballPosition?.y ?? 0.5,
+                    calibration
+                )
+                const payload = {
+                    timestampMs: Date.now(),
+                    shotResult: result,
+                    ...coords,
+                    detectionConfidence: 1.0,
+                    trackingData: JSON.stringify({ manualEntry: true }),
+                }
+
+                const runtimeFallback = runtimeRef.current as WorkoutSessionRuntime | null
+                if (runtimeFallback) {
+                    await runtimeFallback.enqueueCritical({
+                        type: 'SHOT',
+                        sessionId,
+                        userId: user.id,
+                        payload
+                    })
+                }
+
+                // Update UI immediately
+                setLastShotResult(result)
+                setShotCount(prev => ({
+                    total: prev.total + 1,
+                    made: result === 'MADE' ? prev.made + 1 : prev.made,
+                }))
+                feedbackOpacity.setValue(1)
+                Animated.timing(feedbackOpacity, {
+                    toValue: 0, duration: 1400,
+                    easing: Easing.out(Easing.ease), useNativeDriver: true,
+                }).start()
+            }
+
+            tracking.resetShot()
+            resetShotTrackingRef.current?.()
+        } catch (e: any) {
+            console.error('[Manual Shot] Error:', e)
+            showError('Errore', e.response?.data?.message || e.message || 'Errore sconosciuto')
+        }
         finally { setIsRecording(false) }
     }
 
@@ -1129,8 +1095,41 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         showWarning('Termina Sessione', 'Sei sicuro di voler terminare?', async () => {
             setIsEnding(true)
             try {
-                await flushFrameBatch()
-                await endWorkoutSession(sessionId, user!.id)
+                // Stop video recording if active before ending session
+                if (isVideoRecordingRef.current) {
+                    // Video recording not yet migrated to v5 API
+                    // Note: setIsVideoRecording is not available from hook, recording state managed internally
+                    isVideoRecordingRef.current = false
+                }
+
+                // Enqueue SESSION_END as critical event before shutdown via Runtime
+                const runtimeForEnd = runtimeRef.current as WorkoutSessionRuntime | null
+                if (runtimeForEnd) {
+                    const persisted = await runtimeForEnd.enqueueCritical({
+                        type: 'SESSION_END',
+                        sessionId,
+                        userId: user!.id,
+                    })
+                    if (persisted === false) {
+                        throw new Error('Unable to persist SESSION_END')
+                    }
+                    console.log('[WorkoutSession] SESSION_END enqueued to critical queue via Runtime')
+                }
+
+                // Log telemetry summary before ending session
+                telemetryLogger.logTestSummary(pipelineFpsMetrics.yoloFps?.value ?? 0, pipelineFpsMetrics.moveNetFps?.value ?? 0)
+
+                // Export telemetry summary for saving with session
+                const telemetrySummary = telemetryLogger.exportTestSummary(pipelineFpsMetrics.yoloFps?.value ?? 0, pipelineFpsMetrics.moveNetFps?.value ?? 0)
+
+                // Stop runtime session (includes queue shutdown via Runtime.stop())
+                if (runtimeForEnd) {
+                    await runtimeForEnd.stop()
+                    console.log('[WorkoutSession] Runtime stopped')
+                }
+
+                workoutQueueRef.current = null
+                telemetrySamplerRef.current = null
                 navigation.replace('ShotChart', { sessionId, fromSession: true })
             } catch (e: any) { showError('Errore', e.message) }
             finally { setIsEnding(false) }
@@ -1139,15 +1138,87 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     const handlePauseResume = async () => {
         if (!user?.id || !sessionId || !session) return
+        const runtime = runtimeRef.current
+        if (!runtime) {
+            showError('Errore', 'Runtime non disponibile')
+            return
+        }
+
         try {
             if (session.status === 'ACTIVE') {
+                // Pause via Runtime
+                await runtime.pause()
                 await pauseWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'PAUSED' })
                 setIsActive(false)
+                console.log('[WorkoutSession] Session paused via Runtime')
             } else {
+                // Resume via Runtime
+                await runtime.resume()
                 await resumeWorkoutSession(sessionId, user.id)
                 setSession({ ...session, status: 'ACTIVE' })
+
+                // Reload calibration when resuming (fix for resumed workouts not detecting rim)
+                try {
+                    // Load calibration data (geometric: homographyMatrix, courtCorners, courtWidth/Height)
+                    const calR = await apiClient.get(`/workouts/sessions/${sessionId}/calibration?userId=${user.id}`)
+                    console.log('[WorkoutSession] Reloaded calibration on resume:', {
+                        hoopCenterX: calR.data.hoopCenterX,
+                        hoopCenterY: calR.data.hoopCenterY,
+                        homographyMatrix: calR.data.homographyMatrix,
+                        courtCorners: calR.data.courtCorners,
+                        courtWidth: calR.data.courtWidth,
+                        courtHeight: calR.data.courtHeight,
+                    })
+
+                    // Load session data (vision parameters: fps, yoloModelId, etc.)
+                    const sessionR = await getWorkoutSession(sessionId, user.id)
+                    console.log('[WorkoutSession] Reloaded session on resume:', {
+                        fps: sessionR.fps,
+                        yoloModelId: sessionR.yoloModelId,
+                        cameraResolutionWidth: sessionR.cameraResolutionWidth,
+                        cameraResolutionHeight: sessionR.cameraResolutionHeight,
+                    })
+
+                    const cal: CalibrationData = {
+                        homographyMatrix: calR.data.homographyMatrix ?? [],
+                        hoopCenter: { x: calR.data.hoopCenterX ?? 0.5, y: calR.data.hoopCenterY ?? 0.3 },
+                        cameraResolution: sessionR.cameraResolutionWidth && sessionR.cameraResolutionHeight
+                            ? { width: sessionR.cameraResolutionWidth, height: sessionR.cameraResolutionHeight }
+                            : undefined,
+                        courtCorners: calR.data.courtCorners,
+                        courtWidth: calR.data.courtWidth,
+                        courtHeight: calR.data.courtHeight,
+                        // Vision parameters from session (not calibration)
+                        yoloModelId:      sessionR.yoloModelId,
+                        moveNetModelId:   sessionR.moveNetModelId,
+                        fps:              sessionR.fps,
+                        poseResolution:   sessionR.poseResolution,
+                        yoloDelegate:    sessionR.yoloDelegate,
+                        poseDelegate:     sessionR.poseDelegate,
+                    }
+                    setCalibration(cal)
+                    tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
+                    runtime.setCalibration(cal)
+
+                    // Apply vision parameters from session (for session resume)
+                    if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
+                    if (cal.fps) setEffectiveFps(cal.fps)
+                    if (cal.cameraResolution) {
+                        effectiveResolutionRef.current = cal.cameraResolution
+                    }
+                    console.log('[WorkoutSession] Vision parameters applied on resume:', {
+                        yoloModelId: cal.yoloModelId,
+                        fps: cal.fps,
+                        resolution: cal.cameraResolution,
+                    })
+                    console.log('[WorkoutSession] Calibration reloaded and applied on resume')
+                } catch (e) {
+                    console.log('[WorkoutSession] Calibration not reloaded on resume', e)
+                }
+
                 setIsActive(true)
+                console.log('[WorkoutSession] Session resumed via Runtime')
             }
         } catch (e: any) { showError('Errore', e.message) }
     }
@@ -1168,220 +1239,368 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         </View>
     )
 
-    const isPaused    = session?.status === 'PAUSED'
-    const fgPct       = shotCount.total > 0 ? ((shotCount.made/shotCount.total)*100).toFixed(0) : '0'
-    const streak      = wsStats?.shotStreak ?? 0
-    const elbowAngle  = jointAngles.elbowAngle != null ? `${jointAngles.elbowAngle.toFixed(0)}°` : '—'
+    const isPaused = session?.status === 'PAUSED'
 
     return (
-        <View style={styles.container}>
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-                        <Text style={styles.headerBtnText}>←</Text>
-                    </TouchableOpacity>
-                    <View style={styles.headerCenter}>
-                        <View style={[styles.statusDot, isPaused && styles.statusDotPaused]} />
-                        <Text style={styles.headerTitle}>{isPaused ? 'In Pausa' : 'Sessione Attiva'}</Text>
-                        {!modelsReady && <Text style={styles.loadingBadge}>⏳ AI...</Text>}
+        <GestureHandlerRootView style={styles.container}>
+            <WorkoutHeader
+                session={session}
+                shotCount={shotCount}
+                wsStatus={wsStatus}
+                wsStats={wsStats}
+                jointAngles={jointAngles}
+                modelsReady={modelsReady}
+                showTelemetry={showTelemetry}
+                isVideoRecording={isVideoRecording}
+                videoDuration={videoDuration}
+                isPaused={isPaused}
+                isEnding={isEnding}
+                onGoBack={() => navigation.goBack()}
+                onPauseResume={handlePauseResume}
+                onToggleVideoRecording={toggleSessionVideoRecording}
+                onToggleTelemetry={() => setShowTelemetry(v => !v)}
+            />
+
+            <View style={{ height: CAMERA_H, position: 'relative' }} ref={cameraViewRef} collapsable={false}>
+                <PinchGestureHandler
+                    onGestureEvent={onPinchGestureEvent}
+                    onHandlerStateChange={onPinchHandlerStateChange}
+                >
+                    <View style={{ flex: 1 }}>
+                        <Camera
+                            ref={cameraRef}
+                            style={StyleSheet.absoluteFill}
+                            device={device}
+                            isActive={isActive && !isPaused}
+                            outputs={[frameOutput]}
+                            zoom={isActive && !isPaused ? zoom : undefined}
+                            resizeMode="cover"
+                            constraints={constraints}
+                            onError={(error: any) => {
+                                if (error.code === 'session/invalid-output-configuration') {
+                                    console.log('[WorkoutSession] Camera session error - remounting')
+                                    setIsActive(false)
+                                    setTimeout(() => setIsActive(true), 500)
+                                }
+                            }}
+                        />
+
+                        {/* Visual indicator for active video session recording */}
+                        {isVideoRecording && (
+                            <View style={styles.recBanner} pointerEvents="none">
+                                <View style={styles.recDotPulsing} />
+                                <Text style={styles.recBannerText}>🔴 REC {formatVideoDuration(videoDuration)}</Text>
+                            </View>
+                        )}
+
+                        {/* Realtime Ball Overlay (pure Skia, 30/60 FPS) */}
+                        <RealtimeBallOverlay
+                            sharedValues={sharedValues}
+                            effectiveResolution={effectiveResolution}
+                            poseKeypoints={poseKeypoints}
+                        />
+
+                        {/* React Overlay (badges, debug, 2-5 Hz) */}
+                        <ReactOverlay
+                            trackingState={trackingState}
+                            poseKeypoints={poseKeypoints}
+                            jointAngles={jointAngles}
+                            releaseAngle={trackingState?.releaseAngle}
+                            arcHeight={trackingState?.releasePoint && trackingState?.apexPoint
+                                ? trackingState.releasePoint.y - trackingState.apexPoint.y
+                                : undefined}
+                            calibration={calibration}
+                            sharedValues={sharedValues}
+                            fpsMetrics={fpsMetrics}
+                            effectiveResolution={effectiveResolution}
+                            showDebug={debugMode}
+                            rimFromDetection={rimFromDetection}
+                            cameraMode={cameraMode}
+                        />
+
+                        {/* Adaptive FPS overlay - hidden when telemetry is visible */}
+                        {fpsMetrics && !showTelemetry && (
+                            <View pointerEvents="none" style={{
+                                position: 'absolute',
+                                top: 10,
+                                right: 10,
+                                backgroundColor: 'rgba(0,0,0,0.7)',
+                                padding: 8,
+                                borderRadius: 8,
+                            }}>
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>📊 FPS</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>Camera: {cameraFps}</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>YOLO: {fpsMetrics?.yoloFps ?? 0}</Text>
+                                <Text style={{ color: '#fff', fontSize: 10 }}>MoveNet: {fpsMetrics?.moveNetFps ?? 0}</Text>
+                            </View>
+                        )}
+
+                        {/* Telemetry overlay - re-enabled for PASS 5C test */}
+                        <TelemetryOverlay
+                            visible={showTelemetry}
+                            onClose={() => setShowTelemetry(false)}
+                            yoloFps={fpsMetrics.yoloFps}
+                            moveNetFps={fpsMetrics.moveNetFps}
+                            actualCameraFps={cameraFps}
+                            debugMode={debugMode}
+                            cameraConfig={{
+                                resolution: effectiveResolution,
+                                fps: effectiveFps,
+                            }}
+                            modelConfig={{
+                                yoloModel: effectiveYoloModelId,
+                                moveNetModel: effectiveMoveNetModelId,
+                                moveNetResolution: effectivePoseResolution,
+                                fpsMin: getYoloModel(effectiveYoloModelId)?.fpsMin,
+                                fpsMax: getYoloModel(effectiveYoloModelId)?.fpsMax,
+                                epochs: getYoloModel(effectiveYoloModelId)?.epochs,
+                                usageMinutes: usageMinutes,
+                                usageSeconds: usageSeconds,
+                            }}
+                        />
+
+                        <View style={styles.guideH} pointerEvents="none" />
+                        <View style={styles.guideV} pointerEvents="none" />
+
+                        {/* Zoom indicator overlay */}
+                        {isZooming && (
+                            <View style={styles.zoomIndicator} pointerEvents="none">
+                                <Text style={styles.zoomIndicatorText}>{Math.round(zoom * 100)}%</Text>
+                            </View>
+                        )}
                     </View>
-                    <TouchableOpacity onPress={handlePauseResume} style={styles.headerBtn}>
-                        <Text style={styles.headerBtnText}>{isPaused ? '▶' : '⏸'}</Text>
-                    </TouchableOpacity>
-                </View>
-                <View style={styles.statsRow}>
-                    <StatBox label="Tiri"    value={shotCount.total} />
-                    <StatBox label="Segnati" value={shotCount.made} highlight />
-                    <StatBox label="FG%"     value={`${fgPct}%`} highlight />
-                    <StatBox label="Streak"  value={streak > 0 ? `${streak}🔥` : streak} />
-                    <StatBox label="Gomito"  value={elbowAngle} />
-                </View>
-                <View style={styles.wsRow}>
-                    <View style={[styles.wsDot, wsStatus==='connected' ? styles.wsDotOn : styles.wsDotOff]} />
-                    <Text style={styles.wsText}>{wsStatus==='connected' ? 'Live' : 'Offline'}</Text>
-                    {calibration && (
-                        <TouchableOpacity
-                            onPress={() => setShowCalibDebug(v => !v)}
-                            style={[styles.calDebugBtn, showCalibDebug && styles.calDebugBtnOn]}
-                        >
-                            <Text style={[styles.calBadge, showCalibDebug && { color: '#fff' }]}>
-                                🔍 Cal {showCalibDebug ? 'ON' : 'OFF'}
-                            </Text>
-                        </TouchableOpacity>
-                    )}
-                    <View style={[styles.wsDot, modelsReady ? styles.wsDotOn : styles.wsDotOff, {marginLeft:8}]} />
-                    <Text style={styles.wsText}>{modelsReady ? 'AI On' : 'AI Off'}</Text>
-                </View>
+                </PinchGestureHandler>
+
+                <ShotFeedback
+                    lastShotResult={lastShotResult}
+                    feedbackOpacity={feedbackOpacity}
+                    trackingBadgeText={trackingBadgeText}
+                    trackingDotActive={trackingDotActive}
+                    trackingDotColor={trackingDotColor}
+                />
             </View>
 
-            <View style={{ height: CAMERA_H }}>
-                <Camera
-                    ref={cameraRef}
-                    style={StyleSheet.absoluteFill}
-                    device={device}
-                    isActive={isActive && !isPaused}
-                    frameProcessor={frameProcessor}
-                    onError={(error) => {
-                        if (error.code === 'session/invalid-output-configuration') {
-                            console.log('[WorkoutSession] Camera session error - remounting')
-                            setIsActive(false)
-                            setTimeout(() => setIsActive(true), 500)
+            <WorkoutControls
+                isPaused={isPaused}
+                isEnding={isEnding}
+                isRecording={isRecording}
+                isVideoRecording={isVideoRecording}
+                videoDuration={videoDuration}
+                ballEnabled={ballEnabled}
+                poseEnabled={poseEnabled}
+                rimDetectionEnabled={rimDetectionEnabled}
+                debugMode={debugMode}
+                diagnosticMode={diagnosticMode}
+                autoStatusText={autoStatusText}
+                autoDotActive={autoDotActive}
+                onToggleBall={() => setBallEnabled(!ballEnabled)}
+                onTogglePose={() => {
+                    const newValue = !poseEnabled
+                    console.log('[WorkoutSession] Pose toggle:', { from: poseEnabled, to: newValue })
+                    setPoseEnabled(newValue)
+                }}
+                onToggleRim={() => {
+                    const newValue = !rimDetectionEnabled
+                    setRimDetectionEnabled(newValue)
+                    if (!newValue) {
+                        // Reset rimFromDetection to use calibration coordinates
+                        setRimFromDetection(null)
+                        // Update tracking engine to use calibration hoop
+                        if (calibration?.hoopCenter) {
+                            tracking.setHoopFromCalibration(
+                                calibration.hoopCenter.x,
+                                calibration.hoopCenter.y,
+                                0.05,
+                                0.05
+                            )
                         }
-                    }}
-                />
+                    }
+                }}
+                onToggleDebug={() => setDebugMode(!debugMode)}
+                onToggleDiagnostic={() => {
+                    const newValue = !diagnosticMode
+                    setDiagnosticMode(newValue)
+                    const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+                    if (runtimeForManual) {
+                        runtimeForManual.setDiagnosticMode(newValue)
+                        if (!newValue) {
+                            // Update stats when disabling
+                            setDiagnosticStats(runtimeForManual.getDiagnosticStats())
+                        }
+                    }
+                }}
+                onManualShot={handleManualShot}
+                onToggleVideoRecording={toggleSessionVideoRecording}
+                onEndSession={handleEndSession}
+            />
 
-                {/* Overlay completo: scia + palla + canestro + pose */}
-                <TrackingOverlay
-                    trackingState={trackingState}
-                    poseKeypoints={poseKeypointsShared}
-                    jointAngles={jointAnglesShared}
-                    releaseAngle={trackingState?.releaseAngle}
-                    arcHeight={trackingState?.releasePoint && trackingState?.apexPoint
-                        ? trackingState.releasePoint.y - trackingState.apexPoint.y
-                        : undefined}
-                    calibration={calibration}
-                />
-
-                {/* Debug overlay calibrazione */}
-                {showCalibDebug && calibration && (
-                    <SessionCalibDebug
-                        calibration={calibration}
-                        cameraMode={cameraMode}
-                        hoopPosition={trackingState?.hoopPosition ?? null}
-                    />
-                )}
-
-                <View style={styles.guideH} pointerEvents="none" />
-                <View style={styles.guideV} pointerEvents="none" />
-
-                <View style={styles.trackingBadge} pointerEvents="none">
-                    <View style={[styles.trackingDot, trackingState?.ballPosition && styles.trackingDotActive]} />
-                    <Text style={styles.trackingText}>
-                        {trackingState?.ballPosition
-                            ? `🏀 ${Math.round((trackingState.confidence??0)*100)}%`
-                            : modelsReady ? 'Cerca palla...' : 'Caricamento AI...'}
-                    </Text>
-                    {jointCountShared.value > 0 && (
-                        <Text style={styles.trackingText}>
-                            {' '}👤 {jointCountShared.value}
-                        </Text>
-                    )}
-                </View>
-
-                {lastShotResult && (
-                    <Animated.View style={[styles.shotFeedback, {opacity: feedbackOpacity}]} pointerEvents="none">
-                        <Text style={[styles.shotFeedbackText, lastShotResult==='MADE' ? styles.shotMadeText : styles.shotMissText]}>
-                            {lastShotResult==='MADE' ? '🏀 CANESTRO!' : '❌ MANCATO'}
-                        </Text>
-                    </Animated.View>
-                )}
-            </View>
-
-            <View style={styles.controls}>
-                {isPaused && <Text style={styles.pausedLabel}>⏸ Sessione in pausa</Text>}
-                <View style={styles.autoRow}>
-                    <View style={styles.autoStatus}>
-                        <View style={[styles.autoDot, trackingState?.ballPosition ? styles.autoDotActive : styles.autoDotIdle]} />
-                        <Text style={styles.autoLabel}>
-                            {!modelsReady             ? 'Caricamento modelli AI...' :
-                             trackingState?.inFlight  ? '✈ Tiro rilevato — scia attiva' :
-                             trackingState?.ballPosition ? 'Rilevamento automatico attivo' : 'In attesa della palla…'}
-                        </Text>
+            {/* Diagnostic Panel */}
+            {diagnosticMode && (
+                <View style={styles.diagnosticPanel}>
+                    <Text style={styles.diagnosticTitle}>DIAGNOSTICA TIRO</Text>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Rilevamenti candidati:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.ballDetected}</Text>
+                    </View>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Rilasci rilevati:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.shotDetected}</Text>
+                    </View>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Tiri confermati:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.shotConfirmed}</Text>
+                    </View>
+                    <View style={styles.diagnosticRow}>
+                        <Text style={styles.diagnosticLabel}>Giocatore rilevato:</Text>
+                        <Text style={styles.diagnosticValue}>{diagnosticStats.playerDetected}</Text>
                     </View>
                     <TouchableOpacity
-                        style={[styles.endBtn, isEnding && styles.endBtnDisabled]}
-                        onPress={handleEndSession}
-                        disabled={isEnding}
+                        style={styles.diagnosticExportBtn}
+                        onPress={() => {
+                            const runtimeForManual = runtimeRef.current as WorkoutSessionRuntime | null
+                            if (runtimeForManual) {
+                                const diagnostics = runtimeForManual.exportDiagnostics()
+                                console.log('[DIAGNOSTICS] Export:', diagnostics)
+                                showSuccess('Esportazione completata', 'Log diagnostici esportati in console')
+                            }
+                        }}
                     >
-                        <Text style={styles.endBtnText}>{isEnding ? '...' : '⏹ Fine'}</Text>
+                        <Text style={styles.diagnosticExportBtnText}>Esporta Log</Text>
                     </TouchableOpacity>
                 </View>
-                <View style={styles.manualRow}>
-                    <Text style={styles.manualLabel}>Correzione:</Text>
-                    <TouchableOpacity
-                        style={[styles.manualMadeBtn, (isRecording||isPaused) && styles.btnDisabled]}
-                        onPress={() => handleManualShot('MADE')}
-                        disabled={isRecording||isPaused}
-                    >
-                        <Text style={styles.manualMadeBtnText}>🏀 Canestro</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.manualMissBtn, (isRecording||isPaused) && styles.btnDisabled]}
-                        onPress={() => handleManualShot('MISS')}
-                        disabled={isRecording||isPaused}
-                    >
-                        <Text style={styles.manualMissBtnText}>❌ Mancato</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+            )}
             <CustomAlert {...alert} />
-        </View>
+        </GestureHandlerRootView>
     )
 }
 
 const styles = StyleSheet.create({
-    container:         { flex: 1, backgroundColor: '#0b0f1a' },
-    center:            { justifyContent: 'center', alignItems: 'center', padding: 24 },
-    header:            { backgroundColor: '#121826', borderBottomWidth: 1, borderBottomColor: '#2a2a2a',
-                         paddingHorizontal: 14, paddingTop: Platform.OS==='ios' ? 44 : 12, paddingBottom: 10 },
-    headerTop:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    headerBtn:         { width: 36, height: 36, justifyContent: 'center' },
-    headerBtnText:     { fontSize: 20, color: '#fff', fontWeight: 'bold' },
-    headerCenter:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    headerTitle:       { fontSize: 14, fontWeight: '700', color: '#fff' },
-    loadingBadge:      { fontSize: 10, color: '#fbbf24', marginLeft: 6 },
-    statusDot:         { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
-    statusDotPaused:   { backgroundColor: '#fbbf24' },
-    statsRow:          { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 6 },
-    statBox:           { alignItems: 'center' },
-    statValue:         { fontSize: 20, fontWeight: '800', color: '#fff' },
-    statValueHL:       { color: '#ff8c00' },
-    statLabel:         { fontSize: 10, color: '#888', marginTop: 1 },
-    wsRow:             { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end' },
-    wsDot:             { width: 6, height: 6, borderRadius: 3 },
-    wsDotOn:           { backgroundColor: '#4ade80' },
-    wsDotOff:          { backgroundColor: '#555' },
-    wsText:            { fontSize: 10, color: '#555' },
-    calBadge:          { fontSize: 10, color: '#ff8c00', fontWeight: '700' },
-    calDebugBtn:       { marginLeft: 6, borderWidth: 1, borderColor: 'rgba(255,140,0,0.4)',
-                         borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: 'transparent' },
-    calDebugBtnOn:     { backgroundColor: '#ff8c00' },
-    guideH:            { position: 'absolute', left: 0, right: 0, top: '50%', height: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
-    guideV:            { position: 'absolute', top: 0, bottom: 0, left: '50%', width: 1, backgroundColor: 'rgba(255,140,0,0.12)' },
-    trackingBadge:     { position: 'absolute', top: 12, left: 12, flexDirection: 'row', alignItems: 'center',
-                         backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-    trackingDot:       { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#555', marginRight: 6 },
-    trackingDotActive: { backgroundColor: '#4ade80' },
-    trackingText:      { color: '#fff', fontSize: 11, fontWeight: '600' },
-    shotFeedback:      { position: 'absolute', top: '28%', left: 0, right: 0, alignItems: 'center' },
-    shotFeedbackText:  { fontSize: 32, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.8)',
-                         textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
-    shotMadeText:      { color: '#4ade80' },
-    shotMissText:      { color: '#f87171' },
-    controls:          { backgroundColor: '#121826', borderTopWidth: 1, borderTopColor: '#2a2a2a', padding: 14 },
-    pausedLabel:       { fontSize: 12, color: '#fbbf24', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
-    autoRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    autoStatus:        { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
-    autoDot:           { width: 9, height: 9, borderRadius: 4.5 },
-    autoDotActive:     { backgroundColor: '#4ade80' },
-    autoDotIdle:       { backgroundColor: '#555' },
-    autoLabel:         { fontSize: 12, color: '#aaa', fontWeight: '500' },
-    manualRow:         { flexDirection: 'row', alignItems: 'center', gap: 8,
-                         borderTopWidth: 1, borderTopColor: '#1e2433', paddingTop: 10 },
-    manualLabel:       { fontSize: 11, color: '#555', fontWeight: '600' },
-    manualMadeBtn:     { flex: 1, paddingVertical: 9, borderRadius: 10,
-                         backgroundColor: '#14301a', borderWidth: 1, borderColor: '#22c55e', alignItems: 'center' },
-    manualMadeBtnText: { color: '#22c55e', fontWeight: '700', fontSize: 12 },
-    manualMissBtn:     { flex: 1, paddingVertical: 9, borderRadius: 10,
-                         backgroundColor: '#2a1414', borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' },
-    manualMissBtnText: { color: '#ef4444', fontWeight: '700', fontSize: 12 },
-    btnDisabled:       { opacity: 0.4 },
-    endBtn:            { backgroundColor: '#1e2433', borderWidth: 1, borderColor: '#555',
-                         borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, alignItems: 'center' },
-    endBtnDisabled:    { opacity: 0.5 },
-    endBtnText:        { color: '#888', fontWeight: '600', fontSize: 13 },
-    permTitle:         { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 12 },
-    permDesc:          { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
-    permBtn:           { backgroundColor: '#ff8c00', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
-    permBtnText:       { color: '#fff', fontWeight: '700', fontSize: 16 },
+    container: { flex: 1, backgroundColor: '#0b0f1a' },
+    center: { justifyContent: 'center', alignItems: 'center', padding: 24 },
+    recBanner: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 20,
+        borderWidth: 1.5,
+        borderColor: '#ef4444',
+    },
+    recDotPulsing: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#ef4444',
+        marginRight: 6,
+    },
+    recBannerText: {
+        color: '#ef4444',
+        fontSize: 11,
+        fontWeight: '900',
+        letterSpacing: 0.5,
+    },
+    guideH: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: '50%',
+        height: 1,
+        backgroundColor: 'rgba(255,140,0,0.12)',
+    },
+    guideV: {
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: '50%',
+        width: 1,
+        backgroundColor: 'rgba(255,140,0,0.12)',
+    },
+    zoomIndicator: {
+        position: 'absolute',
+        top: 20,
+        left: 20,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.3)',
+    },
+    zoomIndicatorText: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    permTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#fff',
+        marginBottom: 12,
+    },
+    permDesc: {
+        fontSize: 14,
+        color: '#888',
+        textAlign: 'center',
+        marginBottom: 24,
+        lineHeight: 20,
+    },
+    permBtn: {
+        backgroundColor: '#ff8c00',
+        paddingHorizontal: 28,
+        paddingVertical: 14,
+        borderRadius: 12,
+    },
+    permBtnText: {
+        color: '#fff',
+        fontWeight: '700',
+        fontSize: 16,
+    },
+    diagnosticPanel: {
+        position: 'absolute',
+        top: 60,
+        left: 12,
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        padding: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#ff8c00',
+        minWidth: 200,
+    },
+    diagnosticTitle: {
+        color: '#ff8c00',
+        fontSize: 13,
+        fontWeight: '800',
+        marginBottom: 8,
+    },
+    diagnosticRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 6,
+    },
+    diagnosticLabel: {
+        color: '#aaa',
+        fontSize: 11,
+        fontWeight: '500',
+    },
+    diagnosticValue: {
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    diagnosticExportBtn: {
+        marginTop: 8,
+        backgroundColor: '#ff8c00',
+        paddingVertical: 8,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    diagnosticExportBtnText: {
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: '700',
+    },
 })

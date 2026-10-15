@@ -18,6 +18,22 @@ export interface BallDetection {
     height: number
     confidence: number
   }
+  rejectedBall?: {
+    x: number
+    y: number
+    width: number
+    height: number
+    confidence: number
+  }
+  rim?: {
+    x: number
+    y: number
+    width: number
+    height: number
+    confidence: number
+  }
+  ballSizeCategory?: 'small' | 'medium' | 'large'
+  adaptiveThreshold?: number
   timestamp: number
 }
 
@@ -66,6 +82,7 @@ export interface ShotEvent {
   shotStarted: boolean
   shotReleased: boolean
   shotMade: boolean
+  shotMiss?: boolean
   releasePoint?: { x: number; y: number }
   releaseAngle?: number
   timestamp: number

@@ -1,8 +1,4 @@
 // src/features/workouts/screens/StatsScreen.tsx
-//
-// FIX #6 — Navigazione: se arriva da ShotChart (replace), goBack non esiste più come
-//   percorso sensato → il pulsante ← naviga a WorkoutHome (navigate, non goBack).
-//   Il pulsante 📊 ShotChart fa navigate normale così c'è lo stack di ritorno.
 
 import React, { useState, useContext, useEffect } from 'react'
 import {
@@ -54,13 +50,11 @@ export default function StatsScreen({ navigation, route }: any) {
         }
     }
 
-    // FIX #6 — Torna alla home invece di goBack() per non finire su ShotChart
     const handleBack = () => {
         navigation.navigate('WorkoutHome')
     }
 
-    // ── Render helpers ────────────────────────────────────────────────────────
-
+    // Render helpers
     const renderSessionStats = () => {
         if (!sessionStats) return null
         const pct = sessionStats.shootingPercentage?.toFixed(0) ?? 0
@@ -180,7 +174,6 @@ export default function StatsScreen({ navigation, route }: any) {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                {/* FIX #6 — back porta a WorkoutHome */}
                 <TouchableOpacity onPress={handleBack} style={styles.headerBtn}>
                     <Text style={styles.headerBtnText}>←</Text>
                 </TouchableOpacity>
@@ -218,7 +211,7 @@ export default function StatsScreen({ navigation, route }: any) {
     )
 }
 
-// ─── Micro-componenti ─────────────────────────────────────────────────────────
+// Micro-components
 const StatItem = ({ label, value, color }: { label: string; value: any; color?: string }) => (
     <View style={styles.statItem}>
         <Text style={[styles.statValue, color ? { color } : {}]}>{value}</Text>
@@ -243,7 +236,7 @@ function formatZoneName(zone: string): string {
         .replace(/\b\w/g, c => c.toUpperCase())
 }
 
-// ─── Stili ────────────────────────────────────────────────────────────────────
+// Styles
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#0b0f1a' },
     header: {

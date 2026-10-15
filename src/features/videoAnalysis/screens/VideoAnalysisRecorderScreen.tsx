@@ -1,7 +1,8 @@
 import React, { useRef, useState, useEffect } from "react"
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native"
 
-import { CameraView, useCameraPermissions } from "expo-camera"
+import { Camera, useCameraPermission } from "react-native-vision-camera"
+import type { CameraRef } from "react-native-vision-camera"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { uploadVideo } from "../api/videoUpload.api"
 import { RootStackParamList } from "@/app/navigation/types"
@@ -17,9 +18,9 @@ export default function VideoAnalysisRecorderScreen({
                                                         navigation,
                                                     }: Props) {
 
-    const cameraRef = useRef<any>(null)
+    const cameraRef = useRef<CameraRef>(null)
 
-    const [permission, requestPermission] = useCameraPermissions()
+    const { hasPermission, requestPermission } = useCameraPermission()
     const [recording, setRecording] = useState(false)
 
     const { type } = route.params
@@ -37,44 +38,15 @@ export default function VideoAnalysisRecorderScreen({
     }
 
     useEffect(() => {
-        if (!permission) return
-        if (!permission.granted) {
+        if (!hasPermission) {
             requestPermission()
         }
-    }, [permission])
+    }, [hasPermission, requestPermission])
 
+    // NOTE: Video recording API changed in v5 - needs migration
     const recordVideo = async () => {
-
-        if (!cameraRef.current) return
-
-        try {
-
-            setRecording(true)
-
-            const video = await cameraRef.current.recordAsync({
-                maxDuration: type?.maxVideoSeconds || 10,
-            })
-
-            setRecording(false)
-
-            console.log("Video URI:", video.uri)
-
-            const userId = user.id
-
-            // upload su supabase
-            const videoUrl = await uploadVideo(video.uri, userId)
-
-            console.log("Uploaded video URL:", videoUrl)
-
-            navigation.navigate("VideoProcessing", {
-                videoUrl,
-                type,
-            })
-
-        } catch (err) {
-            console.error(err)
-            setRecording(false)
-        }
+        console.warn('[VideoAnalysisRecorder] Video recording not yet migrated to v5 API')
+        alert('Video recording requires migration to react-native-vision-camera v5 API')
     }
 
     const pickVideoFromGallery = async () => {
@@ -120,27 +92,22 @@ export default function VideoAnalysisRecorderScreen({
     }
 
     const stopRecording = () => {
-        if (cameraRef.current) {
-            cameraRef.current.stopRecording()
-        }
+        console.warn('[VideoAnalysisRecorder] Video recording not yet migrated to v5 API')
+        setRecording(false)
     }
 
-    if (!permission) {
-        return <Text>Loading camera...</Text>
-    }
-
-    if (!permission.granted) {
-        return <Text>No camera permission</Text>
+    if (!hasPermission) {
+        return <Text>Requesting camera permission...</Text>
     }
 
     return (
         <View style={styles.container}>
 
-            <CameraView
+            <Camera
                 ref={cameraRef}
                 style={styles.camera}
-                facing="back"
-                mode="video"
+                device={"back"}
+                isActive={true}
             />
 
             <TouchableOpacity
