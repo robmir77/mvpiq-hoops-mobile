@@ -1,36 +1,33 @@
-# Vision Model Tests
+# Test della pipeline Vision
 
-Questa directory contiene i test unitari e di integrazione per i modelli AI di rilevamento palla e tiro.
+## Test presenti
 
-## Struttura dei Test
+- `yoloParser.test.ts`: casi di parsing e interpretazione dei risultati YOLO.
+- `VisionEngineAdapter.test.ts`: comportamento dell'adapter vision.
 
-### 1. `yoloParser.test.ts`
-Test unitari per il parser YOLO:
-- Rilevamento palla con alta/bassa confidence
-- Rilevamento canestro
-- Filtraggio rilevamenti multipli
-- Gestione casi edge
+Il codice di produzione correlato è in `src/vision/`, in particolare `VisionEngineAdapter.ts`, `engine/YoloDetector.ts`, `engine/VisionEngine.ts`, `useShotTracker.ts` e i worker YOLO/MoveNet.
 
-## Esecuzione dei Test
+## Esecuzione
 
 ```bash
-# Esegui tutti i test
+npm test -- yoloParser.test.ts
+npm test -- VisionEngineAdapter.test.ts
 npm test
-
-# Esegui test in modalità watch
-npm run test:watch
-
-# Esegui test con coverage
 npm run test:coverage
 ```
 
-## Troubleshooting
+Gli script sono quelli definiti nel `package.json` alla radice. Controllare l'output Jest per confermare il numero di test eseguiti e l'esito.
 
-**Test falliscono con errori di dipendenze:**
-```bash
-npm install --legacy-peer-deps
-```
+## Limiti
 
-**Test troppo lenti:**
-- Riduci il numero di frame nei test di integrazione
-- Usa `jest.setTimeout()` per aumentare il timeout
+- I test unitari non eseguono necessariamente inferenza nativa sul dispositivo.
+- Il parsing corretto non prova che il worker riceva frame o che le callback raggiungano il runtime.
+- La freshness dell'osservazione, la fluidità dell'overlay e gli FPS richiedono misure end-to-end.
+- Non sono dichiarate percentuali di coverage senza un report generato da un run corrente.
+
+## Dopo modifiche a modelli o worker
+
+- [ ] Verificare input/output shape, dtype e coordinate del modello.
+- [ ] Eseguire i test del parser e dell'adapter.
+- [ ] Verificare le callback con risultati validi, null e canale non aggiornato.
+- [ ] Validare su dispositivo inferenza, timestamp, adapter, runtime e overlay.
