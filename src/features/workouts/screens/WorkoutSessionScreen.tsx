@@ -873,8 +873,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         // }
                     },
                     onTelemetryUpdate: (metrics) => {
-                        // Disabled - FPS metrics are already available via fpsMetrics from useShotTracker
-                        // console.log('[WorkoutSession] Telemetry update:', metrics)
+                        // Runtime metrics track shot counts and session duration
+                        // FPS metrics come from useShotTracker SharedValues (camera frame pipeline)
+                        console.log('[WorkoutSession] Runtime telemetry update:', {
+                            totalShots: metrics.totalShots,
+                            madeShots: metrics.madeShots,
+                            sessionDuration: metrics.sessionDuration,
+                        })
                     },
                     onError: (error) => {
                         showError('Errore Runtime', error.message)
