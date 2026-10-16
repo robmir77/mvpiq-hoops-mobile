@@ -158,13 +158,14 @@ describe('ShotDetectionEngine', () => {
         )
       }
 
-      // Descend far from hoop
+      // Descend far from hoop - need faster rawVy to exceed SHOT_LAUNCH_THRESHOLD * 2 (3.0)
+      // rawVy = (0.5 - 0.2) / 96 * 1000 = 3.125 > 3.0
       const result = engine.processFrame(
         { x: 0.8, y: 0.5 },
         { vx: 0, vy: 4.0 },  // Fast descending
         { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
         frameTs + 96,
-        { x: 0.8, y: 0.5, width: 0.03, height: 0.03 }
+        { x: 0.8, y: 0.2, width: 0.03, height: 0.03 }  // Lower y to increase rawVy
       )
 
       expect(result.shotDetected).toBe(true)
