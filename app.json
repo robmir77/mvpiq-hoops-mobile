@@ -30,6 +30,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.mvpiqhoopsmobile",
+      "minSdkVersion": 26,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -44,7 +45,14 @@
       "expo-asset",
       "expo-font",
       "expo-image-picker",
-      "expo-build-properties",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
       [
         "react-native-fast-tflite",
         {
