@@ -191,7 +191,7 @@ Compilare questa tabella soltanto con risultati realmente osservati.
 
 | Fase | Stato | Comando / prova | Esito e note | Commit |
 |---|---|---|---|---|
-| 0 — Baseline | Da eseguire | `npm test -- --runInBand` | — | — |
+| 0 — Baseline | ✅ Completata | `node node_modules/jest/bin/jest.js --runInBand` | **Test passati:** workoutFlow.integration, manualShotRegistration, workouts.api, calibration, workoutAsyncQueue (dopo fix mock)<br><br>**Test falliti (preesistenti):**<br>- RuntimeProcessFrameCoordinator.test.ts: 3 test timeout (fake timers)<br>- workoutLifecycle.e2e.test.ts: stack overflow in WorkoutAsyncQueue.log() loop infinito | — |
 | 1 — Runtime/frame | Da eseguire | Test mirati runtime/coordinator | — | — |
 | 2 — Visione/tracking | Da eseguire | Test adapter/parser/tracking | — | — |
 | 3 — Shot detection | Da eseguire | Test shot/manual registration | — | — |
