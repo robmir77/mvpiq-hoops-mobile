@@ -5,6 +5,28 @@
 
 import { YoloDetector } from '../engine/YoloDetector'
 
+jest.mock('@/config/appConfig', () => ({
+  YOLO_CONFIG: {
+    BALL_CONF_THRESHOLD: 0.001,
+    RIM_CONF_THRESHOLD: 0.30,
+    PLAYER_CONF_THRESHOLD: 0.03,
+    PLAYER_CROP_MIN_CONFIDENCE: 0.05,
+    NMS_IOU_THRESHOLD: 0.4,
+    PLAYER_MIN_WIDTH: 0.05,
+    PLAYER_MIN_HEIGHT: 0.1,
+    BALL_MAX_BBOX_SIZE: 0.15,
+    ADAPTIVE_CONF: {
+      ENABLED: true,
+      WINDOW_SIZE: 15,
+      MIN_THRESHOLD: 0.0005,
+      MAX_THRESHOLD: 0.50,
+      ADJUSTMENT_FACTOR: 0.2,
+      HIGH_CONF_THRESHOLD: 0.7,
+      LOW_CONF_THRESHOLD: 0.2,
+    },
+  },
+}))
+
 describe('YoloDetector', () => {
   const N_ANCHORS = 3549
   const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
@@ -24,11 +46,11 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS * 5 + anchorIdx] = 0.1 // human score
       mockOutput[N_ANCHORS * 6 + anchorIdx] = 0.1 // rim score
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.ball).toBeDefined()
-      expect(result.ball?.confidence).toBeGreaterThan(0.5)
+      expect(result.ball?.confidence).toBeGreaterThan(0.001)
     })
 
     it('should filter low confidence detections', () => {
@@ -38,13 +60,14 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS + anchorIdx] = 0.5
       mockOutput[N_ANCHORS * 2 + anchorIdx] = 0.1
       mockOutput[N_ANCHORS * 3 + anchorIdx] = 0.1
-      mockOutput[N_ANCHORS * 4 + anchorIdx] = 0.3 // Low confidence
+      mockOutput[N_ANCHORS * 4 + anchorIdx] = 0.0001 // Very low confidence (below 0.001 threshold)
       mockOutput[N_ANCHORS * 5 + anchorIdx] = 0.1
       mockOutput[N_ANCHORS * 6 + anchorIdx] = 0.1
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
+      // Confidence 0.0001 is below threshold 0.001, should be filtered
       expect(result.ball).toBeNull()
     })
 
@@ -55,11 +78,11 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS + anchorIdx] = 0.5
       mockOutput[N_ANCHORS * 2 + anchorIdx] = 0.1
       mockOutput[N_ANCHORS * 3 + anchorIdx] = 0.1
-      mockOutput[N_ANCHORS * 4 + anchorIdx] = 0.3 // Below threshold
+      mockOutput[N_ANCHORS * 4 + anchorIdx] = 0.0001 // Below threshold
       mockOutput[N_ANCHORS * 5 + anchorIdx] = 0.1
       mockOutput[N_ANCHORS * 6 + anchorIdx] = 0.1
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.ball).toBeNull()
@@ -78,11 +101,11 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS * 5 + anchorIdx] = 0.1 // human score
       mockOutput[N_ANCHORS * 6 + anchorIdx] = 0.85 // rim score
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.rim).toBeDefined()
-      expect(result.rim?.confidence).toBeGreaterThan(0.5)
+      expect(result.rim?.confidence).toBeGreaterThan(0.30)
     })
 
     it('should filter low confidence rim detections', () => {
@@ -94,9 +117,9 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS * 3 + anchorIdx] = 0.15
       mockOutput[N_ANCHORS * 4 + anchorIdx] = 0.1
       mockOutput[N_ANCHORS * 5 + anchorIdx] = 0.1
-      mockOutput[N_ANCHORS * 6 + anchorIdx] = 0.4 // Low confidence
+      mockOutput[N_ANCHORS * 6 + anchorIdx] = 0.2 // Low confidence (below 0.30 threshold)
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.rim).toBeNull()
@@ -127,13 +150,13 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS * 5 + rimIdx] = 0.1
       mockOutput[N_ANCHORS * 6 + rimIdx] = 0.85
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.ball).toBeDefined()
       expect(result.rim).toBeDefined()
-      expect(result.ball?.confidence).toBeGreaterThan(0.5)
-      expect(result.rim?.confidence).toBeGreaterThan(0.5)
+      expect(result.ball?.confidence).toBeGreaterThan(0.001)
+      expect(result.rim?.confidence).toBeGreaterThan(0.30)
     })
 
     it('should select best ball detection when multiple present', () => {
@@ -159,7 +182,7 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS * 5 + ballIdx2] = 0.1
       mockOutput[N_ANCHORS * 6 + ballIdx2] = 0.1
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.ball).toBeDefined()
@@ -182,12 +205,12 @@ describe('YoloDetector', () => {
       const noiseIdx1 = 100
       const noiseIdx2 = 200
 
-      // Very low confidence detections
+      // Very low confidence detections (below 0.001 threshold)
       mockOutput[noiseIdx1] = 0.1
       mockOutput[N_ANCHORS + noiseIdx1] = 0.1
       mockOutput[N_ANCHORS * 2 + noiseIdx1] = 0.05
       mockOutput[N_ANCHORS * 3 + noiseIdx1] = 0.05
-      mockOutput[N_ANCHORS * 4 + noiseIdx1] = 0.1
+      mockOutput[N_ANCHORS * 4 + noiseIdx1] = 0.0001 // Below ball threshold
       mockOutput[N_ANCHORS * 5 + noiseIdx1] = 0.1
       mockOutput[N_ANCHORS * 6 + noiseIdx1] = 0.1
 
@@ -195,11 +218,11 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS + noiseIdx2] = 0.9
       mockOutput[N_ANCHORS * 2 + noiseIdx2] = 0.05
       mockOutput[N_ANCHORS * 3 + noiseIdx2] = 0.05
-      mockOutput[N_ANCHORS * 4 + noiseIdx2] = 0.1
+      mockOutput[N_ANCHORS * 4 + noiseIdx2] = 0.0001 // Below ball threshold
       mockOutput[N_ANCHORS * 5 + noiseIdx2] = 0.1
-      mockOutput[N_ANCHORS * 6 + noiseIdx2] = 0.2
+      mockOutput[N_ANCHORS * 6 + noiseIdx2] = 0.1 // Below rim threshold
 
-      const detector = new YoloDetector(0.5, 0.5)
+      const detector = new YoloDetector(0.001, 0.30)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.ball).toBeNull()

@@ -2,8 +2,23 @@ import { VisionEngineAdapter } from '../VisionEngineAdapter'
 
 jest.mock('@/config/appConfig', () => ({
   YOLO_CONFIG: {
-    BALL_CONF_THRESHOLD: 0.005,
-    RIM_CONF_THRESHOLD: 0.1,
+    BALL_CONF_THRESHOLD: 0.001,
+    RIM_CONF_THRESHOLD: 0.30,
+    PLAYER_CONF_THRESHOLD: 0.03,
+    PLAYER_CROP_MIN_CONFIDENCE: 0.05,
+    NMS_IOU_THRESHOLD: 0.4,
+    PLAYER_MIN_WIDTH: 0.05,
+    PLAYER_MIN_HEIGHT: 0.1,
+    BALL_MAX_BBOX_SIZE: 0.15,
+    ADAPTIVE_CONF: {
+      ENABLED: true,
+      WINDOW_SIZE: 15,
+      MIN_THRESHOLD: 0.0005,
+      MAX_THRESHOLD: 0.50,
+      ADJUSTMENT_FACTOR: 0.2,
+      HIGH_CONF_THRESHOLD: 0.7,
+      LOW_CONF_THRESHOLD: 0.2,
+    },
   },
 }))
 

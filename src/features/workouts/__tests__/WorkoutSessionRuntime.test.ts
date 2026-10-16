@@ -1,5 +1,24 @@
 import { WorkoutSessionRuntime } from '../runtime/WorkoutSessionRuntime'
 
+// Mock the queue to avoid async operations in tests
+jest.mock('../services/workoutAsyncQueue', () => ({
+  createWorkoutQueue: jest.fn().mockResolvedValue({
+    enqueueCritical: jest.fn().mockResolvedValue(true),
+    enqueueTelemetry: jest.fn(),
+    flushCriticalOnly: jest.fn(),
+    flushTelemetryOnly: jest.fn(),
+    shutdown: jest.fn(),
+    criticalSize: 0,
+    telemetrySize: 0,
+    telemetryDropped: 0,
+    criticalOverflow: 0,
+    getQueueMetrics: jest.fn().mockReturnValue({
+      telemetry: { pending: 0, dropped: 0 },
+      critical: { pending: 0, overflow: 0 },
+    }),
+  }),
+}))
+
 describe('WorkoutSessionRuntime', () => {
   let runtime: WorkoutSessionRuntime
   const mockSessionId = 'test-session-123'
@@ -7,6 +26,7 @@ describe('WorkoutSessionRuntime', () => {
 
   beforeEach(() => {
     jest.useFakeTimers()
+    jest.clearAllMocks()
     runtime = new WorkoutSessionRuntime(
       { sessionId: mockSessionId, userId: mockUserId },
       {
@@ -109,6 +129,24 @@ describe('WorkoutSessionRuntime', () => {
 
   describe('manual shot registration', () => {
     it('should register MADE shot and update metrics', async () => {
+      // Set up mock queue
+      const mockQueue = {
+        enqueueCritical: jest.fn().mockResolvedValue(true),
+        enqueueTelemetry: jest.fn(),
+        flushCriticalOnly: jest.fn(),
+        flushTelemetryOnly: jest.fn(),
+        shutdown: jest.fn(),
+        criticalSize: 0,
+        telemetrySize: 0,
+        telemetryDropped: 0,
+        criticalOverflow: 0,
+        getQueueMetrics: jest.fn().mockReturnValue({
+          telemetry: { pending: 0, dropped: 0 },
+          critical: { pending: 0, overflow: 0 },
+        }),
+      }
+      runtime.setWorkoutQueue(mockQueue)
+
       await runtime.start()
       await runtime.registerManualShot('MADE')
 
@@ -118,6 +156,24 @@ describe('WorkoutSessionRuntime', () => {
     })
 
     it('should register MISS shot and update metrics', async () => {
+      // Set up mock queue
+      const mockQueue = {
+        enqueueCritical: jest.fn().mockResolvedValue(true),
+        enqueueTelemetry: jest.fn(),
+        flushCriticalOnly: jest.fn(),
+        flushTelemetryOnly: jest.fn(),
+        shutdown: jest.fn(),
+        criticalSize: 0,
+        telemetrySize: 0,
+        telemetryDropped: 0,
+        criticalOverflow: 0,
+        getQueueMetrics: jest.fn().mockReturnValue({
+          telemetry: { pending: 0, dropped: 0 },
+          critical: { pending: 0, overflow: 0 },
+        }),
+      }
+      runtime.setWorkoutQueue(mockQueue)
+
       await runtime.start()
       await runtime.registerManualShot('MISS')
 
@@ -132,6 +188,24 @@ describe('WorkoutSessionRuntime', () => {
         { sessionId: mockSessionId, userId: mockUserId },
         { onShotDetected: callback }
       )
+
+      // Set up mock queue
+      const mockQueue = {
+        enqueueCritical: jest.fn().mockResolvedValue(true),
+        enqueueTelemetry: jest.fn(),
+        flushCriticalOnly: jest.fn(),
+        flushTelemetryOnly: jest.fn(),
+        shutdown: jest.fn(),
+        criticalSize: 0,
+        telemetrySize: 0,
+        telemetryDropped: 0,
+        criticalOverflow: 0,
+        getQueueMetrics: jest.fn().mockReturnValue({
+          telemetry: { pending: 0, dropped: 0 },
+          critical: { pending: 0, overflow: 0 },
+        }),
+      }
+      runtimeWithCallback.setWorkoutQueue(mockQueue)
 
       await runtimeWithCallback.start()
       await runtimeWithCallback.registerManualShot('MADE')
@@ -304,35 +378,18 @@ describe('WorkoutSessionRuntime', () => {
       isReady: jest.fn(),
     })
 
-    it('should call vision engine start on resume', async () => {
+    it('should not call vision engine start/stop (architectural change - vision runs independently)', async () => {
       const mockVisionEngine = createMockVisionEngine()
 
       runtime.setVisionEngine(mockVisionEngine)
       await runtime.start()
       await runtime.pause()
       await runtime.resume()
-
-      expect(mockVisionEngine.start).toHaveBeenCalled()
-    })
-
-    it('should call vision engine stop on pause', async () => {
-      const mockVisionEngine = createMockVisionEngine()
-
-      runtime.setVisionEngine(mockVisionEngine)
-      await runtime.start()
-      await runtime.pause()
-
-      expect(mockVisionEngine.stop).toHaveBeenCalled()
-    })
-
-    it('should call vision engine stop on stop', async () => {
-      const mockVisionEngine = createMockVisionEngine()
-
-      runtime.setVisionEngine(mockVisionEngine)
-      await runtime.start()
       await runtime.stop()
 
-      expect(mockVisionEngine.stop).toHaveBeenCalled()
+      // Vision engine lifecycle is managed externally (useShotTracker), not by Runtime
+      expect(mockVisionEngine.start).not.toHaveBeenCalled()
+      expect(mockVisionEngine.stop).not.toHaveBeenCalled()
     })
 
     it('should not crash when vision engine is not set', async () => {

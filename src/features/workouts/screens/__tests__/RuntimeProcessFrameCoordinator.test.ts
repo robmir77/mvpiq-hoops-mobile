@@ -22,8 +22,6 @@ describe('RuntimeProcessFrameCoordinator', () => {
     let mockRuntime: jest.MockedFunction<any>
 
     beforeEach(() => {
-        jest.useFakeTimers()
-
         state = {
             isProcessing: false,
             hasPendingUpdates: false,
@@ -35,21 +33,15 @@ describe('RuntimeProcessFrameCoordinator', () => {
         mockRuntime = jest.fn()
     })
 
-    afterEach(() => {
-        jest.useRealTimers()
-    })
-
     // Scenario 1: YOLO and MoveNet notify updates during frame processing
     describe('Scenario 1: Updates arrive during processing', () => {
         it('should schedule second processing when updates arrive during processing', async () => {
-            let processFrameResolve: (value: void)=> void
-            const processFramePromise = new Promise<void>((resolve) => {
-                processFrameResolve = resolve
+            let processingCount = 0
+            mockRuntime.mockImplementation(() => {
+                processingCount++
+                return Promise.resolve()
             })
 
-            mockRuntime.mockImplementation(() => processFramePromise)
-
-            // Simulate coordinator logic
             const scheduleProcessing = () => {
                 if (state.isProcessing) {
                     state.hasPendingUpdates = true
@@ -68,7 +60,6 @@ describe('RuntimeProcessFrameCoordinator', () => {
                         state.hasPendingUpdates = false
                         setTimeout(() => scheduleProcessing(), 0)
                     }
-                    processFrameResolve!()
                 })
             }
 
@@ -82,11 +73,8 @@ describe('RuntimeProcessFrameCoordinator', () => {
             expect(state.hasPendingUpdates).toBe(true)
             expect(state.processFrameCallCount).toBe(1) // No new processing yet
 
-            // Wait for first processing to complete
-            await processFramePromise
-
-            // Advance timers to execute scheduled callback
-            jest.runAllTimers()
+            // Wait for first processing to complete and second to be scheduled
+            await new Promise(resolve => setTimeout(resolve, 20))
 
             // Second processing should have been scheduled and executed
             expect(state.isProcessing).toBe(false)
@@ -94,12 +82,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
         })
 
         it('should handle multiple concurrent updates during processing', async () => {
-            let processFrameResolve: (value: void)=> void
-            const processFramePromise = new Promise<void>((resolve) => {
-                processFrameResolve = resolve
-            })
-
-            mockRuntime.mockImplementation(() => processFramePromise)
+            mockRuntime.mockImplementation(() => Promise.resolve())
 
             const scheduleProcessing = () => {
                 if (state.isProcessing) {
@@ -119,7 +102,6 @@ describe('RuntimeProcessFrameCoordinator', () => {
                         state.hasPendingUpdates = false
                         setTimeout(() => scheduleProcessing(), 0)
                     }
-                    processFrameResolve!()
                 })
             }
 
@@ -136,10 +118,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             expect(state.processFrameCallCount).toBe(1)
 
             // Wait for completion
-            await processFramePromise
-
-            // Advance timers to execute scheduled callback
-            jest.runAllTimers()
+            await new Promise(resolve => setTimeout(resolve, 20))
 
             // Only one additional processing should be scheduled and executed
             expect(state.processFrameCallCount).toBe(2)
@@ -171,7 +150,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
 
                     if (state.hasPendingUpdates) {
                         state.hasPendingUpdates = false
-                        setTimeout(() => scheduleProcessing(), 0)
+                        Promise.resolve().then(() => scheduleProcessing())
                     }
                 })
             }
@@ -180,8 +159,11 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < 10; i++) {
                 scheduleProcessing()
                 // Small delay to simulate async updates
-                await jest.runAllTimersAsync()
+                await new Promise(resolve => setTimeout(resolve, 1))
             }
+
+            // Wait for all processing to complete
+            await new Promise(resolve => setTimeout(resolve, 50))
 
             // Processing should remain serial - no concurrent calls
             expect(state.isProcessing).toBe(false)
@@ -208,7 +190,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
 
                     if (state.hasPendingUpdates) {
                         state.hasPendingUpdates = false
-                        setTimeout(() => scheduleProcessing(), 0)
+                        Promise.resolve().then(() => scheduleProcessing())
                     }
                 })
             }
@@ -216,7 +198,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             // Single call
             scheduleProcessing()
 
-            await jest.runAllTimersAsync()
+            await new Promise(resolve => setTimeout(resolve, 10))
 
             expect(state.processFrameCallCount).toBe(1)
         })
@@ -251,7 +233,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
 
                     if (state.hasPendingUpdates) {
                         state.hasPendingUpdates = false
-                        setTimeout(() => scheduleProcessing(), 0)
+                        Promise.resolve().then(() => scheduleProcessing())
                     }
                 }).catch(() => {
                     state.consecutiveErrors++
@@ -274,7 +256,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < 3; i++) {
                 state.hasPendingUpdates = true // Simulate pending updates
                 scheduleProcessing()
-                await jest.runAllTimersAsync() // Execute scheduled callbacks
+                await new Promise(resolve => setTimeout(resolve, 50)) // Wait for backoff
             }
 
             expect(state.consecutiveErrors).toBe(3)
@@ -308,7 +290,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
 
                     if (state.hasPendingUpdates) {
                         state.hasPendingUpdates = false
-                        setTimeout(() => scheduleProcessing(), 0)
+                        Promise.resolve().then(() => scheduleProcessing())
                     }
                 }).catch(() => {
                     state.consecutiveErrors++
@@ -331,7 +313,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
                 state.hasPendingUpdates = true
                 scheduleProcessing()
-                await jest.runAllTimersAsync()
+                await new Promise(resolve => setTimeout(resolve, 50))
             }
 
             expect(state.consecutiveErrors).toBe(MAX_CONSECUTIVE_ERRORS)
@@ -341,7 +323,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             const callCountBefore = state.processFrameCallCount
             state.hasPendingUpdates = true
             scheduleProcessing()
-            await jest.runAllTimersAsync()
+            await new Promise(resolve => setTimeout(resolve, 10))
 
             expect(state.processFrameCallCount).toBe(callCountBefore) // No new processing
         })
@@ -380,7 +362,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
 
                     if (state.hasPendingUpdates) {
                         state.hasPendingUpdates = false
-                        setTimeout(() => scheduleProcessing(), 0)
+                        Promise.resolve().then(() => scheduleProcessing())
                     }
                 }).catch(() => {
                     state.consecutiveErrors++
@@ -403,7 +385,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < 5; i++) {
                 state.hasPendingUpdates = true
                 scheduleProcessing()
-                await jest.runAllTimersAsync()
+                await new Promise(resolve => setTimeout(resolve, 50))
             }
 
             expect(state.consecutiveErrors).toBe(0) // Reset after success
@@ -436,7 +418,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
 
                     if (state.hasPendingUpdates) {
                         state.hasPendingUpdates = false
-                        setTimeout(() => scheduleProcessing(), 0)
+                        Promise.resolve().then(() => scheduleProcessing())
                     }
                 }).catch(() => {
                     state.consecutiveErrors++
@@ -459,18 +441,18 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
                 state.hasPendingUpdates = true
                 scheduleProcessing()
-                await jest.runAllTimersAsync()
+                await new Promise(resolve => setTimeout(resolve, 50))
             }
 
             expect(state.consecutiveErrors).toBe(MAX_CONSECUTIVE_ERRORS)
 
             // Wait for MAX_BACKOFF_MS to pass
-            jest.advanceTimersByTime(MAX_BACKOFF_MS)
+            await new Promise(resolve => setTimeout(resolve, MAX_BACKOFF_MS + 100))
 
             // Should allow retry
             state.hasPendingUpdates = true
             scheduleProcessing()
-            await jest.runAllTimersAsync()
+            await new Promise(resolve => setTimeout(resolve, 50))
 
             expect(state.consecutiveErrors).toBe(1) // Reset and incremented
         })
