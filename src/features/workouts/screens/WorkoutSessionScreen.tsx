@@ -658,8 +658,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         if (pipelineSharedValues) {
             const now = Date.now()
-            // Throttle to max 30 updates per second
-            if (now - lastUpdateRef.current > 33) {
+            const interval = CAMERA_CONFIG.OVERLAY_REFRESH_INTERVAL_MS
+            // Throttle based on config (0 = update on every frame)
+            if (interval === 0 || now - lastUpdateRef.current > interval) {
                 lastUpdateRef.current = now
                 tracking.updatePlayerFromPipeline(pipelineSharedValues)
             }
