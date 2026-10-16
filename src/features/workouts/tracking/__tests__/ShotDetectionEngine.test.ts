@@ -15,67 +15,69 @@ describe('ShotDetectionEngine', () => {
     it('should detect rising frames correctly', () => {
       const frameTs = 1000
       const MIN_RISING_FRAMES = 3
-      
-      // Add trajectory points
+      const MIN_TRAJECTORY_FRAMES = 4
+
+      // Process frames with rising velocity to build trajectory and count rising frames
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },  // Rising (vy < -1.5)
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }  // Raw position for descending check
+        )
       }
-      
-      // Process frame with rising velocity
-      const result = engine.processFrame(
-        { x: 0.5, y: 0.35 },
-        { vx: 0, vy: -2.0 },  // Rising (vy < -1.5)
-        null,
-        frameTs + 80
-      )
-      
-      // Should be in flight after MIN_RISING_FRAMES
-      expect(result.inFlight).toBe(true)
-      expect(result.releasePoint).not.toBeNull()
+
+      // Should be in flight after MIN_RISING_FRAMES + enough arc + enough trajectory frames
+      expect(engine.isInFlight()).toBe(true)
+      const state = engine.getState()
+      expect(state.releasePoint).not.toBeNull()
     })
 
     it('should not trigger inFlight without enough arc height', () => {
       const frameTs = 1000
       const MIN_ARC_HEIGHT = 0.08
-      
-      // Add trajectory points with small arc
+
+      // Process frames with small arc
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.01, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.01 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.01, width: 0.03, height: 0.03 }  // Raw position for descending check
+        )
       }
-      
-      const result = engine.processFrame(
-        { x: 0.5, y: 0.46 },
-        { vx: 0, vy: -2.0 },
-        null,
-        frameTs + 80
-      )
-      
+
       // Arc height = 0.04 < 0.08, should not be in flight
-      expect(result.inFlight).toBe(false)
+      expect(engine.isInFlight()).toBe(false)
     })
 
     it('should reset rising frames when not rising', () => {
       const frameTs = 1000
-      
+
       engine.addTrajectoryPoint(0.5, 0.5, frameTs)
+      engine.processFrame({ x: 0.5, y: 0.5 }, { vx: 0, vy: -2.0 }, null, frameTs, { x: 0.5, y: 0.5, width: 0.03, height: 0.03 })
+
       engine.addTrajectoryPoint(0.5, 0.47, frameTs + 16)
-      
+      engine.processFrame({ x: 0.5, y: 0.47 }, { vx: 0, vy: -2.0 }, null, frameTs + 16, { x: 0.5, y: 0.47, width: 0.03, height: 0.03 })
+
       // Rising
-      engine.processFrame(
-        { x: 0.5, y: 0.44 },
-        { vx: 0, vy: -2.0 },
-        null,
-        frameTs + 32
-      )
-      
+      engine.addTrajectoryPoint(0.5, 0.44, frameTs + 32)
+      const risingResult = engine.processFrame({ x: 0.5, y: 0.44 }, { vx: 0, vy: -2.0 }, null, frameTs + 32, { x: 0.5, y: 0.44, width: 0.03, height: 0.03 })
+
       // Not rising anymore
+      engine.addTrajectoryPoint(0.5, 0.44, frameTs + 48)
       const result = engine.processFrame(
         { x: 0.5, y: 0.44 },
         { vx: 0, vy: 0.5 },  // Descending
         null,
-        frameTs + 48
+        frameTs + 48,
+        { x: 0.5, y: 0.44, width: 0.03, height: 0.03 }
       )
-      
+
       expect(result.inFlight).toBe(false)
     })
   })
@@ -83,28 +85,28 @@ describe('ShotDetectionEngine', () => {
   describe('Shot Detection - MADE', () => {
     it('should detect MADE when ball descends through hoop', () => {
       const frameTs = 1000
-      
+
       // Build trajectory to trigger inFlight
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }
+        )
       }
-      
-      // Trigger inFlight
-      engine.processFrame(
-        { x: 0.5, y: 0.35 },
-        { vx: 0, vy: -2.0 },
-        null,
-        frameTs + 80
-      )
-      
-      // Descend through hoop
+
+      // Descend through hoop with raw position for hoop verification
       const result = engine.processFrame(
         { x: 0.5, y: 0.5 },  // Back down
         { vx: 0, vy: 1.0 },  // Descending
         { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
-        frameTs + 96
+        frameTs + 96,
+        { x: 0.5, y: 0.5, width: 0.03, height: 0.03 }  // Raw position for descending check
       )
-      
+
       expect(result.shotDetected).toBe(true)
       expect(result.shotResult).toBe('MADE')
     })
@@ -113,28 +115,28 @@ describe('ShotDetectionEngine', () => {
   describe('Shot Detection - MISS', () => {
     it('should detect MISS when ball descends past hoop but not through', () => {
       const frameTs = 1000
-      
+
       // Build trajectory
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }
+        )
       }
-      
-      // Trigger inFlight
-      engine.processFrame(
-        { x: 0.5, y: 0.35 },
-        { vx: 0, vy: -2.0 },
-        null,
-        frameTs + 80
-      )
-      
+
       // Descend past hoop
       const result = engine.processFrame(
         { x: 0.7, y: 0.5 },  // Off-center
         { vx: 0, vy: 1.0 },
         { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
-        frameTs + 96
+        frameTs + 96,
+        { x: 0.7, y: 0.5, width: 0.03, height: 0.03 }
       )
-      
+
       expect(result.shotDetected).toBe(true)
       expect(result.shotResult).toBe('MISS')
     })
@@ -143,28 +145,28 @@ describe('ShotDetectionEngine', () => {
   describe('Shot Detection - AIRBALL', () => {
     it('should detect AIRBALL when ball descends far from hoop', () => {
       const frameTs = 1000
-      
+
       // Build trajectory
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }
+        )
       }
-      
-      // Trigger inFlight
-      engine.processFrame(
-        { x: 0.5, y: 0.35 },
-        { vx: 0, vy: -2.0 },
-        null,
-        frameTs + 80
-      )
-      
+
       // Descend far from hoop
       const result = engine.processFrame(
         { x: 0.8, y: 0.5 },
         { vx: 0, vy: 4.0 },  // Fast descending
         { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
-        frameTs + 96
+        frameTs + 96,
+        { x: 0.8, y: 0.5, width: 0.03, height: 0.03 }
       )
-      
+
       expect(result.shotDetected).toBe(true)
       expect(result.shotResult).toBe('AIRBALL')
     })
@@ -174,24 +176,48 @@ describe('ShotDetectionEngine', () => {
     it('should respect cooldown between shots', () => {
       const frameTs = 1000
       const SHOT_COOLDOWN_MS = 600
-      
+
       // First shot
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }
+        )
       }
-      engine.processFrame({ x: 0.5, y: 0.35 }, { vx: 0, vy: -2.0 }, null, frameTs + 80)
-      engine.processFrame({ x: 0.5, y: 0.5 }, { vx: 0, vy: 1.0 }, { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 }, frameTs + 96)
-      
+      engine.processFrame(
+        { x: 0.5, y: 0.5 },
+        { vx: 0, vy: 1.0 },
+        { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
+        frameTs + 96,
+        { x: 0.5, y: 0.5, width: 0.03, height: 0.03 }
+      )
+
       // Reset for second shot
       engine.resetShot()
-      
+
       // Second shot within cooldown
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + 100 + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + 100 + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }
+        )
       }
-      engine.processFrame({ x: 0.5, y: 0.35 }, { vx: 0, vy: -2.0 }, null, frameTs + 180)
-      const result = engine.processFrame({ x: 0.5, y: 0.5 }, { vx: 0, vy: 1.0 }, { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 }, frameTs + 196)
-      
+      const result = engine.processFrame(
+        { x: 0.5, y: 0.5 },
+        { vx: 0, vy: 1.0 },
+        { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
+        frameTs + 196,
+        { x: 0.5, y: 0.5, width: 0.03, height: 0.03 }
+      )
+
       // Should not detect shot due to cooldown
       expect(result.shotDetected).toBe(false)
     })
@@ -215,14 +241,14 @@ describe('ShotDetectionEngine', () => {
 
     it('should track apex point correctly', () => {
       const frameTs = 1000
-      
+
       engine.addTrajectoryPoint(0.5, 0.5, frameTs)
       engine.addTrajectoryPoint(0.5, 0.4, frameTs + 16)
       engine.addTrajectoryPoint(0.5, 0.35, frameTs + 32)  // Apex (lowest y)
       engine.addTrajectoryPoint(0.5, 0.4, frameTs + 48)
-      
-      const result = engine.processFrame({ x: 0.5, y: 0.4 }, { vx: 0, vy: 1.0 }, null, frameTs + 64)
-      
+
+      const result = engine.processFrame({ x: 0.5, y: 0.4 }, { vx: 0, vy: 1.0 }, null, frameTs + 64, { x: 0.5, y: 0.4, width: 0.03, height: 0.03 })
+
       expect(result.apexPoint).not.toBeNull()
       expect(result.apexPoint!.y).toBeCloseTo(0.35, 6)
     })
@@ -231,18 +257,30 @@ describe('ShotDetectionEngine', () => {
   describe('State Management', () => {
     it('should reset shot correctly', () => {
       const frameTs = 1000
-      
+
       // Build trajectory and detect shot
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }
+        )
       }
-      engine.processFrame({ x: 0.5, y: 0.35 }, { vx: 0, vy: -2.0 }, null, frameTs + 80)
-      engine.processFrame({ x: 0.5, y: 0.5 }, { vx: 0, vy: 1.0 }, { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 }, frameTs + 96)
-      
+      engine.processFrame(
+        { x: 0.5, y: 0.5 },
+        { vx: 0, vy: 1.0 },
+        { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
+        frameTs + 96,
+        { x: 0.5, y: 0.5, width: 0.03, height: 0.03 }
+      )
+
       engine.resetShot()
-      
-      const result = engine.processFrame({ x: 0.5, y: 0.5 }, { vx: 0, vy: 0 }, null, frameTs + 112)
-      
+
+      const result = engine.processFrame({ x: 0.5, y: 0.5 }, { vx: 0, vy: 0 }, null, frameTs + 112, { x: 0.5, y: 0.5, width: 0.03, height: 0.03 })
+
       expect(result.shotDetected).toBe(false)
       expect(result.shotResult).toBeNull()
       expect(result.inFlight).toBe(false)
@@ -250,13 +288,13 @@ describe('ShotDetectionEngine', () => {
 
     it('should reset all correctly', () => {
       const frameTs = 1000
-      
+
       for (let i = 0; i < 10; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.01, frameTs + i * 16)
       }
-      
+
       engine.resetAll()
-      
+
       const trajectory = engine.getTrajectoryPoints()
       expect(trajectory.length).toBe(0)
     })
@@ -268,15 +306,15 @@ describe('ShotDetectionEngine', () => {
       const frameTs = 1000
       const MIN_RISING_FRAMES = 3
       const MIN_ARC_HEIGHT = 0.08
-      
+
       // Simulate legacy behavior
       let risingFrames = 0
       let flightStartY = 1.0
-      
+
       for (let i = 0; i < 5; i++) {
         const y = 0.5 - i * 0.03
         const vy = -2.0
-        
+
         if (vy < -1.5) {
           risingFrames++
           if (risingFrames === 1) flightStartY = y
@@ -284,17 +322,23 @@ describe('ShotDetectionEngine', () => {
           risingFrames = 0
         }
       }
-      
+
       const arcSoFar = flightStartY - 0.35
       const legacyInFlight = risingFrames >= MIN_RISING_FRAMES && arcSoFar >= MIN_ARC_HEIGHT
-      
-      // Engine behavior
+
+      // Engine behavior - process frames to count rising frames
       for (let i = 0; i < 5; i++) {
         engine.addTrajectoryPoint(0.5, 0.5 - i * 0.03, frameTs + i * 16)
+        engine.processFrame(
+          { x: 0.5, y: 0.5 - i * 0.03 },
+          { vx: 0, vy: -2.0 },
+          null,
+          frameTs + i * 16,
+          { x: 0.5, y: 0.5 - i * 0.03, width: 0.03, height: 0.03 }
+        )
       }
-      const result = engine.processFrame({ x: 0.5, y: 0.35 }, { vx: 0, vy: -2.0 }, null, frameTs + 80)
-      
-      expect(result.inFlight).toBe(legacyInFlight)
+
+      expect(engine.isInFlight()).toBe(legacyInFlight)
     })
   })
 })

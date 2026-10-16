@@ -221,16 +221,18 @@ export class VisionEngineAdapter implements IVisionEngine {
       pose: poseForFrame,
     })
 
-    // Preserve acquisition timestamps only for observations actually forwarded on this pass.
+    // Preserve acquisition timestamps only for NEW observations (updated this frame).
+    // Cached observations (fresh but not updated) are passed for hoop verification
+    // but should not be treated as new measurements for tracking velocity calculation.
     // The reference timestamp is for orchestration/freshness; it must never replace a
     // measurement timestamp used by tracking to calculate deltas.
     const resultWithObservationTimestamps = {
       ...result,
       observationTimestamps: {
-        ball: ballForFrame ? this.lastBallTimestamp : null,
-        player: playerForFrame ? this.lastPlayerTimestamp : null,
-        rim: rimForFrame ? this.lastRimTimestamp : null,
-        pose: poseForFrame ? this.lastPoseTimestamp : null,
+        ball: ballUpdated && ballForFrame ? this.lastBallTimestamp : null,
+        player: playerUpdated && playerForFrame ? this.lastPlayerTimestamp : null,
+        rim: rimUpdated && rimForFrame ? this.lastRimTimestamp : null,
+        pose: poseUpdated && poseForFrame ? this.lastPoseTimestamp : null,
       },
     }
 

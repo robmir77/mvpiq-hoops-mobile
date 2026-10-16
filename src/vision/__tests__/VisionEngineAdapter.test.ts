@@ -55,10 +55,14 @@ describe('VisionEngineAdapter temporal synchronization', () => {
     const first = adapter.processFrame(frame(observedAt))
     const second = adapter.processFrame(frame(observedAt + 20))
 
+    // First frame: ball is present and has observation timestamp (new measurement)
     expect(first.ball).not.toBeNull()
     expect(first.observationTimestamps?.ball).toBe(observedAt)
-    expect(second.ball).toBeNull()
-    expect(second.observationTimestamps?.ball).toBeNull()
+
+    // Second frame: ball may still be present for hoop verification (cached),
+    // but observationTimestamps.ball is null (not a new measurement for tracking)
+    expect(second.ball).not.toBeNull() // Cached detection for hoop verification
+    expect(second.observationTimestamps?.ball).toBeNull() // Not a new measurement
   })
 
   it('forwards each channel only when that channel has a new observation', () => {
@@ -83,8 +87,10 @@ describe('VisionEngineAdapter temporal synchronization', () => {
     )
 
     const result = adapter.processFrame(frame(playerTimestamp))
-    expect(result.ball).toBeNull()
-    expect(result.observationTimestamps?.ball).toBeNull()
+    // Ball is cached for hoop verification but not a new measurement
+    expect(result.ball).not.toBeNull() // Cached detection for hoop verification
+    expect(result.observationTimestamps?.ball).toBeNull() // Not a new measurement
+    // Player is a new observation
     expect(result.player).not.toBeNull()
     expect(result.observationTimestamps?.player).toBe(playerTimestamp)
   })
