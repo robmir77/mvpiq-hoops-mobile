@@ -180,11 +180,8 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < 10; i++) {
                 scheduleProcessing()
                 // Small delay to simulate async updates
-                await new Promise(resolve => jest.advanceTimersByTime(1))
+                await jest.runAllTimersAsync()
             }
-
-            // Advance all timers to complete processing
-            jest.runAllTimers()
 
             // Processing should remain serial - no concurrent calls
             expect(state.isProcessing).toBe(false)
@@ -219,7 +216,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             // Single call
             scheduleProcessing()
 
-            await new Promise(resolve => jest.advanceTimersByTime(50))
+            await jest.runAllTimersAsync()
 
             expect(state.processFrameCallCount).toBe(1)
         })
@@ -277,8 +274,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < 3; i++) {
                 state.hasPendingUpdates = true // Simulate pending updates
                 scheduleProcessing()
-                await new Promise(resolve => jest.advanceTimersByTime(10))
-                jest.runAllTimers() // Execute scheduled callbacks
+                await jest.runAllTimersAsync() // Execute scheduled callbacks
             }
 
             expect(state.consecutiveErrors).toBe(3)
@@ -335,8 +331,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
                 state.hasPendingUpdates = true
                 scheduleProcessing()
-                await new Promise(resolve => jest.advanceTimersByTime(10))
-                jest.runAllTimers()
+                await jest.runAllTimersAsync()
             }
 
             expect(state.consecutiveErrors).toBe(MAX_CONSECUTIVE_ERRORS)
@@ -346,7 +341,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             const callCountBefore = state.processFrameCallCount
             state.hasPendingUpdates = true
             scheduleProcessing()
-            await new Promise(resolve => jest.advanceTimersByTime(50))
+            await jest.runAllTimersAsync()
 
             expect(state.processFrameCallCount).toBe(callCountBefore) // No new processing
         })
@@ -408,8 +403,7 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < 5; i++) {
                 state.hasPendingUpdates = true
                 scheduleProcessing()
-                await new Promise(resolve => jest.advanceTimersByTime(10))
-                jest.runAllTimers()
+                await jest.runAllTimersAsync()
             }
 
             expect(state.consecutiveErrors).toBe(0) // Reset after success
@@ -465,20 +459,18 @@ describe('RuntimeProcessFrameCoordinator', () => {
             for (let i = 0; i < MAX_CONSECUTIVE_ERRORS; i++) {
                 state.hasPendingUpdates = true
                 scheduleProcessing()
-                await new Promise(resolve => jest.advanceTimersByTime(10))
-                jest.runAllTimers()
+                await jest.runAllTimersAsync()
             }
 
             expect(state.consecutiveErrors).toBe(MAX_CONSECUTIVE_ERRORS)
 
             // Wait for MAX_BACKOFF_MS to pass
-            await new Promise(resolve => jest.advanceTimersByTime(MAX_BACKOFF_MS))
+            jest.advanceTimersByTime(MAX_BACKOFF_MS)
 
             // Should allow retry
             state.hasPendingUpdates = true
             scheduleProcessing()
-            await new Promise(resolve => jest.advanceTimersByTime(50))
-            jest.runAllTimers()
+            await jest.runAllTimersAsync()
 
             expect(state.consecutiveErrors).toBe(1) // Reset and incremented
         })

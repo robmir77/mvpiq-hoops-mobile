@@ -14,28 +14,6 @@ describe('WorkoutAsyncQueue', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
-    
-    // Default mock with all required methods
-    const defaultMockOutbox = {
-      loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
-      loadPending: jest.fn().mockResolvedValue(undefined),
-      add: jest.fn().mockResolvedValue(true),
-      peek: jest.fn().mockReturnValue(null),
-      remove: jest.fn().mockResolvedValue(undefined),
-      updateRetryCount: jest.fn().mockResolvedValue(undefined),
-      setSuspended: jest.fn().mockResolvedValue(undefined),
-      isSuspended: jest.fn().mockReturnValue(false),
-      getSuspendedCount: jest.fn().mockReturnValue(0),
-      getRetryableCount: jest.fn().mockReturnValue(0),
-      size: 0,
-      sessionId,
-      userId,
-      getAll: jest.fn().mockReturnValue([]),
-      clear: jest.fn().mockResolvedValue(undefined),
-      clearSession: jest.fn().mockResolvedValue(undefined),
-    } as any
-    
-    ;(PersistentOutbox as jest.Mock).mockImplementation(() => defaultMockOutbox)
   })
 
   afterEach(() => {
@@ -44,16 +22,36 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('create', () => {
     it('should initialize queue with global recovery', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue(undefined),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
+
       const createdQueue = await createWorkoutQueue({ sessionId, userId })
 
       expect(createdQueue).toBeInstanceOf(WorkoutAsyncQueue)
-      expect(PersistentOutbox).toHaveBeenCalled()
+      expect(mockOutbox.loadAllPendingAndMerge).toHaveBeenCalled()
     })
 
     it('should load pending items from storage on initialization', async () => {
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue(undefined),
+        loadPending: jest.fn().mockResolvedValue(undefined),
         size: 1,
+        getRetryableCount: jest.fn().mockReturnValue(1),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
 
@@ -64,11 +62,17 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should recover items from previous sessions on app restart', async () => {
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
         loadAllPendingAndMerge: jest.fn().mockImplementation(async () => {
           mockOutbox.size = 2
         }),
+        loadPending: jest.fn().mockResolvedValue(undefined),
         size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
 
@@ -80,6 +84,18 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('enqueueTelemetry', () => {
     it('should enqueue telemetry items', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
 
       queue.enqueueTelemetry({
@@ -92,6 +108,18 @@ describe('WorkoutAsyncQueue', () => {
     })
 
     it('should reject telemetry if queue not initialized', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
 
       // Force uninitialized state
@@ -111,6 +139,18 @@ describe('WorkoutAsyncQueue', () => {
     })
 
     it('should drop oldest telemetry when queue is full', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
 
       // Add 150 items (queue max is 100)
@@ -129,6 +169,19 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('enqueueCritical', () => {
     it('should enqueue critical events', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
 
       const result = await queue.enqueueCritical({
@@ -143,8 +196,16 @@ describe('WorkoutAsyncQueue', () => {
 
     it('should return false if persistence fails', async () => {
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
         add: jest.fn().mockResolvedValue(false),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
@@ -160,6 +221,19 @@ describe('WorkoutAsyncQueue', () => {
     })
 
     it('should reject critical events if queue not initialized', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
 
       // Force uninitialized state
@@ -183,8 +257,11 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('flushCriticalOnly', () => {
     it('should process only critical events', async () => {
+      let retryableCount = 1
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 1,
         peek: jest.fn().mockReturnValue({
           id: 'test-1',
@@ -194,6 +271,17 @@ describe('WorkoutAsyncQueue', () => {
           payload: { shotData: 'test' },
           retryCount: 0,
         }),
+        remove: jest.fn().mockImplementation(async () => {
+          retryableCount = 0
+          mockOutbox.size = 0
+        }),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn(() => retryableCount),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(addShotEvent as jest.Mock).mockResolvedValue({ id: 'shot-1' })
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
@@ -206,8 +294,11 @@ describe('WorkoutAsyncQueue', () => {
     })
 
     it('should stop after maxAttempts when backend is offline', async () => {
+      let retryableCount = 1
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 1,
         peek: jest.fn().mockReturnValue({
           id: 'test-1',
@@ -217,6 +308,14 @@ describe('WorkoutAsyncQueue', () => {
           payload: { shotData: 'test' },
           retryCount: 0,
         }),
+        remove: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn(() => retryableCount),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(addShotEvent as jest.Mock).mockRejectedValue(new Error('Network error'))
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
@@ -233,8 +332,11 @@ describe('WorkoutAsyncQueue', () => {
     })
 
     it('should use default maxAttempts of 50', async () => {
+      let retryableCount = 1
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 1,
         peek: jest.fn().mockReturnValue({
           id: 'test-1',
@@ -244,6 +346,14 @@ describe('WorkoutAsyncQueue', () => {
           payload: { shotData: 'test' },
           retryCount: 0,
         }),
+        remove: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn(() => retryableCount),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(addShotEvent as jest.Mock).mockRejectedValue(new Error('Network error'))
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
@@ -261,6 +371,18 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('flushTelemetryOnly', () => {
     it('should process only telemetry events', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        size: 0,
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       ;(saveFrameDataBatch as jest.Mock).mockResolvedValue(undefined)
       queue = await createWorkoutQueue({ sessionId, userId })
 
@@ -279,19 +401,43 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('shutdown', () => {
     it('should clear session if all critical events are delivered', async () => {
+      const mockOutbox = {
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
+        size: 0,
+        clearSession: jest.fn().mockResolvedValue(undefined),
+        clear: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn().mockReturnValue(0),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
+      } as any
+      ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
 
       await queue.shutdown()
 
-      const mockOutbox = (PersistentOutbox as jest.Mock).mock.results[0].value
       expect(mockOutbox.clearSession).toHaveBeenCalled()
       expect(mockOutbox.clear).not.toHaveBeenCalled()
     })
 
     it('should keep pending critical events in storage on shutdown', async () => {
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 5, // Pending items
+        clearSession: jest.fn().mockResolvedValue(undefined),
+        clear: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn().mockReturnValue(5),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
@@ -311,8 +457,11 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('retry behavior', () => {
     it('should update retry count on each attempt', async () => {
+      let retryableCount = 1
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 1,
         peek: jest.fn().mockReturnValue({
           id: 'test-1',
@@ -322,6 +471,17 @@ describe('WorkoutAsyncQueue', () => {
           payload: { shotData: 'test' },
           retryCount: 0,
         }),
+        remove: jest.fn().mockImplementation(async () => {
+          retryableCount = 0
+          mockOutbox.size = 0
+        }),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn(() => retryableCount),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(addShotEvent as jest.Mock)
         .mockRejectedValueOnce(new Error('Network error'))
@@ -335,8 +495,11 @@ describe('WorkoutAsyncQueue', () => {
     })
 
     it('should keep item in outbox after retry exhaustion', async () => {
+      let retryableCount = 1
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 1,
         peek: jest.fn().mockReturnValue({
           id: 'test-1',
@@ -346,6 +509,14 @@ describe('WorkoutAsyncQueue', () => {
           payload: { shotData: 'test' },
           retryCount: 0,
         }),
+        remove: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn(() => retryableCount),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(addShotEvent as jest.Mock).mockRejectedValue(new Error('Network error'))
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
@@ -365,8 +536,11 @@ describe('WorkoutAsyncQueue', () => {
 
   describe('SESSION_END and CALIBRATION events', () => {
     it('should call real SESSION_END API', async () => {
+      let retryableCount = 1
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 1,
         peek: jest.fn().mockReturnValue({
           id: 'test-1',
@@ -376,6 +550,17 @@ describe('WorkoutAsyncQueue', () => {
           payload: {},
           retryCount: 0,
         }),
+        remove: jest.fn().mockImplementation(async () => {
+          retryableCount = 0
+          mockOutbox.size = 0
+        }),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn(() => retryableCount),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(endWorkoutSession as jest.Mock).mockResolvedValue({ id: sessionId })
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
@@ -388,8 +573,11 @@ describe('WorkoutAsyncQueue', () => {
     })
 
     it('should call real CALIBRATION API', async () => {
+      let retryableCount = 1
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 1,
         peek: jest.fn().mockReturnValue({
           id: 'test-1',
@@ -399,6 +587,17 @@ describe('WorkoutAsyncQueue', () => {
           payload: { hoopCenter: { x: 0.5, y: 0.3 } },
           retryCount: 0,
         }),
+        remove: jest.fn().mockImplementation(async () => {
+          retryableCount = 0
+          mockOutbox.size = 0
+        }),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
+        getRetryableCount: jest.fn(() => retryableCount),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(saveCourtCalibration as jest.Mock).mockResolvedValue(undefined)
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
@@ -418,8 +617,16 @@ describe('WorkoutAsyncQueue', () => {
   describe('getQueueMetrics', () => {
     it('should return queue metrics', async () => {
       const mockOutbox = {
-        ...new PersistentOutbox(sessionId, userId),
+        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+        loadPending: jest.fn().mockResolvedValue(undefined),
+        add: jest.fn().mockResolvedValue(true),
         size: 5,
+        getRetryableCount: jest.fn().mockReturnValue(5),
+        getSuspendedCount: jest.fn().mockReturnValue(0),
+        isSuspended: jest.fn().mockReturnValue(false),
+        setSuspended: jest.fn().mockResolvedValue(undefined),
+        sessionId,
+        userId,
       } as any
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })

@@ -17,6 +17,28 @@ describe('Workout Lifecycle End-to-End Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
+    
+    // Default mock with all required methods
+    const defaultMockOutbox = {
+      loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
+      loadPending: jest.fn().mockResolvedValue(undefined),
+      add: jest.fn().mockResolvedValue(true),
+      peek: jest.fn().mockReturnValue(null),
+      remove: jest.fn().mockResolvedValue(undefined),
+      updateRetryCount: jest.fn().mockResolvedValue(undefined),
+      setSuspended: jest.fn().mockResolvedValue(undefined),
+      isSuspended: jest.fn().mockReturnValue(false),
+      getSuspendedCount: jest.fn().mockReturnValue(0),
+      getRetryableCount: jest.fn().mockReturnValue(0),
+      size: 0,
+      sessionId,
+      userId,
+      getAll: jest.fn().mockReturnValue([]),
+      clear: jest.fn().mockResolvedValue(undefined),
+      clearSession: jest.fn().mockResolvedValue(undefined),
+    } as any
+    
+    ;(PersistentOutbox as jest.Mock).mockImplementation(() => defaultMockOutbox)
   })
 
   afterEach(() => {
@@ -26,17 +48,10 @@ describe('Workout Lifecycle End-to-End Tests', () => {
   describe('Test A - Calibration offline', () => {
     it('should persist calibration when API fails and recover when online', async () => {
       const mockOutbox = {
-        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
-        loadPending: jest.fn().mockResolvedValue(undefined),
-        add: jest.fn().mockResolvedValue(true),
+        ...new PersistentOutbox(sessionId, userId),
         size: 0,
         peek: jest.fn().mockReturnValue(null),
-        remove: jest.fn().mockResolvedValue(undefined),
-        updateRetryCount: jest.fn().mockResolvedValue(undefined),
-        sessionId,
-        userId,
       } as any
-
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       ;(saveCourtCalibration as jest.Mock)
         .mockRejectedValueOnce(new Error('Network error'))
@@ -89,19 +104,10 @@ describe('Workout Lifecycle End-to-End Tests', () => {
   describe('Test B - SESSION_END offline', () => {
     it('should persist SESSION_END when offline, allow navigation, and recover later', async () => {
       const mockOutbox = {
-        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
-        loadPending: jest.fn().mockResolvedValue(undefined),
-        add: jest.fn().mockResolvedValue(true),
+        ...new PersistentOutbox(sessionId, userId),
         size: 0,
         peek: jest.fn().mockReturnValue(null),
-        remove: jest.fn().mockResolvedValue(undefined),
-        updateRetryCount: jest.fn().mockResolvedValue(undefined),
-        clearSession: jest.fn().mockResolvedValue(undefined),
-        clear: jest.fn().mockResolvedValue(undefined),
-        sessionId,
-        userId,
       } as any
-
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       ;(endWorkoutSession as jest.Mock)
         .mockRejectedValueOnce(new Error('Network error'))
@@ -151,14 +157,9 @@ describe('Workout Lifecycle End-to-End Tests', () => {
   describe('Test C - Queue readiness', () => {
     it('should ensure camera starts only after queue is ready', async () => {
       const mockOutbox = {
-        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
-        loadPending: jest.fn().mockResolvedValue(undefined),
-        add: jest.fn().mockResolvedValue(true),
+        ...new PersistentOutbox(sessionId, userId),
         size: 0,
-        sessionId,
-        userId,
       } as any
-
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
 
       // Simulate the sequence in WorkoutSessionScreen
@@ -183,14 +184,9 @@ describe('Workout Lifecycle End-to-End Tests', () => {
   describe('Test D - Recovery startup', () => {
     it('should start recovery worker on app mount and process pending items', async () => {
       const mockOutbox = {
-        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
-        loadPending: jest.fn().mockResolvedValue(undefined),
-        add: jest.fn().mockResolvedValue(true),
+        ...new PersistentOutbox(sessionId, userId),
         size: 0,
-        sessionId,
-        userId,
       } as any
-
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       ;(AsyncStorage.getAllKeys as jest.Mock).mockResolvedValue(['workout_outbox_item-1'])
       ;(AsyncStorage.multiGet as jest.Mock).mockResolvedValue([
@@ -229,14 +225,9 @@ describe('Workout Lifecycle End-to-End Tests', () => {
   describe('Test E - Telemetry batching', () => {
     it('should batch telemetry with 250ms delay or 5 samples', async () => {
       const mockOutbox = {
-        loadAllPendingAndMerge: jest.fn().mockResolvedValue([]),
-        loadPending: jest.fn().mockResolvedValue(undefined),
-        add: jest.fn().mockResolvedValue(true),
+        ...new PersistentOutbox(sessionId, userId),
         size: 0,
-        sessionId,
-        userId,
       } as any
-
       ;(PersistentOutbox as jest.Mock).mockImplementation(() => mockOutbox)
       queue = await createWorkoutQueue({ sessionId, userId })
 
