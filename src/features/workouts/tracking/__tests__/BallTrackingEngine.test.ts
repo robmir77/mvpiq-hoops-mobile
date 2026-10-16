@@ -50,18 +50,18 @@ describe('BallTrackingEngine - Kalman v2', () => {
     it('should apply moderate smoothing for noisy detections', () => {
       const frameTs = 1000
 
-      // Establish position and velocity with very small steps (to avoid outlier rejection)
+      // Establish position and velocity with steps below outlier threshold (0.025)
       engine.update(0.5, 0.4, frameTs)
-      engine.update(0.505, 0.395, frameTs + 16)
-      engine.update(0.51, 0.39, frameTs + 32)
-      engine.update(0.515, 0.385, frameTs + 48)
+      engine.update(0.52, 0.38, frameTs + 16)
+      engine.update(0.54, 0.36, frameTs + 32)
+      engine.update(0.56, 0.34, frameTs + 48)
 
-      // Noisy detection (moderate distance from prediction, now acceptable with established velocity)
-      const result = engine.update(0.52, 0.38, frameTs + 64)
+      // Noisy detection (moderate distance from prediction, acceptable with established velocity)
+      const result = engine.update(0.58, 0.32, frameTs + 64)
 
       // Should smooth but still follow direction
-      expect(result.x).toBeGreaterThan(0.515)
-      expect(result.x).toBeLessThan(0.52)
+      expect(result.x).toBeGreaterThan(0.56)
+      expect(result.x).toBeLessThan(0.58)
 
       const state = engine.getState()
       expect(state.trackState).toBe('DETECTED')
@@ -102,16 +102,16 @@ describe('BallTrackingEngine - Kalman v2', () => {
     it('should allow rapid movement during shot with velocity-based tolerance', () => {
       const frameTs = 1000
 
-      // Simulate fast upward shot with smaller steps to build velocity first
+      // Simulate fast upward shot with steps below outlier threshold (0.025) to build velocity
       engine.update(0.5, 0.4, frameTs)
-      engine.update(0.5, 0.39, frameTs + 16)
-      engine.update(0.5, 0.38, frameTs + 32)
-      engine.update(0.5, 0.37, frameTs + 48)
+      engine.update(0.5, 0.38, frameTs + 16)
+      engine.update(0.5, 0.36, frameTs + 32)
+      engine.update(0.5, 0.34, frameTs + 48)
 
       // Fast movement should be accepted due to velocity-based tolerance
-      const result = engine.update(0.5, 0.36, frameTs + 64)
+      const result = engine.update(0.5, 0.32, frameTs + 64)
 
-      expect(result.y).toBeLessThan(0.37)
+      expect(result.y).toBeLessThan(0.34)
       const state = engine.getState()
       expect(state.trackState).toBe('DETECTED')
     })
@@ -189,7 +189,7 @@ describe('BallTrackingEngine - Kalman v2', () => {
     it('should calculate velocity correctly from consecutive detections', () => {
       const frameTs = 1000
 
-      // Use moderate steps to build realistic velocity
+      // Use steps below outlier threshold (0.025) to build velocity
       engine.update(0.5, 0.4, frameTs)
       engine.update(0.52, 0.38, frameTs + 16)
 
@@ -298,16 +298,16 @@ describe('BallTrackingEngine - Kalman v2', () => {
     it('should use good gain for moderately close detections', () => {
       const frameTs = 1000
 
-      // Use very small steps to build velocity, then moderate step for good gain
+      // Use steps below outlier threshold (0.025) to build velocity, then moderate step for good gain
       engine.update(0.5, 0.4, frameTs)
-      engine.update(0.505, 0.395, frameTs + 16)
-      engine.update(0.51, 0.39, frameTs + 32)
-      engine.update(0.515, 0.385, frameTs + 48)
+      engine.update(0.52, 0.38, frameTs + 16)
+      engine.update(0.54, 0.36, frameTs + 32)
+      engine.update(0.56, 0.34, frameTs + 48)
 
       // Moderate distance, should use good gain (0.85)
-      const result = engine.update(0.52, 0.38, frameTs + 64)
-      expect(result.x).toBeGreaterThan(0.515)
-      expect(result.x).toBeLessThan(0.52)
+      const result = engine.update(0.58, 0.32, frameTs + 64)
+      expect(result.x).toBeGreaterThan(0.56)
+      expect(result.x).toBeLessThan(0.58)
     })
   })
 })

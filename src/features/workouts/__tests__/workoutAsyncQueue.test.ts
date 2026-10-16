@@ -29,6 +29,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -49,6 +50,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -70,6 +72,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -91,6 +94,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -115,6 +119,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -146,6 +151,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -176,6 +182,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -228,6 +235,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -377,6 +385,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -410,6 +419,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -442,6 +452,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any
@@ -632,6 +643,7 @@ describe('WorkoutAsyncQueue', () => {
         getSuspendedCount: jest.fn().mockReturnValue(0),
         isSuspended: jest.fn().mockReturnValue(false),
         setSuspended: jest.fn().mockResolvedValue(undefined),
+        updateRetryCount: jest.fn().mockResolvedValue(undefined),
         sessionId,
         userId,
       } as any

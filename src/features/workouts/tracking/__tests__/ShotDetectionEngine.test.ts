@@ -159,13 +159,14 @@ describe('ShotDetectionEngine', () => {
       }
 
       // Descend far from hoop - need faster rawVy to exceed SHOT_LAUNCH_THRESHOLD * 2 (3.0)
-      // rawVy = (0.5 - 0.2) / 96 * 1000 = 3.125 > 3.0
+      // Last raw y from loop: 0.5 - 4*0.03 = 0.38
+      // rawVy = (0.7 - 0.38) / 96 * 1000 = 3.33 > 3.0
       const result = engine.processFrame(
-        { x: 0.8, y: 0.5 },
+        { x: 0.8, y: 0.7 },
         { vx: 0, vy: 4.0 },  // Fast descending
         { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
         frameTs + 96,
-        { x: 0.8, y: 0.2, width: 0.03, height: 0.03 }  // Lower y to increase rawVy
+        { x: 0.8, y: 0.7, width: 0.03, height: 0.03 }  // Higher y (descending in screen coords)
       )
 
       expect(result.shotDetected).toBe(true)
