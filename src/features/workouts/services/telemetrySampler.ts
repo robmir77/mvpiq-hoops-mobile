@@ -16,6 +16,13 @@ class TelemetrySampler {
    * @returns true if should sample, false otherwise
    */
   shouldSample(timestamp: number): boolean {
+    // Handle non-monotonic timestamps (went backwards) - reset to new timestamp
+    if (timestamp < this.lastSampleTime) {
+      this.lastSampleTime = timestamp
+      return true
+    }
+    // Normal case: check if enough time has elapsed
+    // When lastSampleTime is 0, this will be true for any timestamp >= sampleIntervalMs
     if (timestamp - this.lastSampleTime >= this.sampleIntervalMs) {
       this.lastSampleTime = timestamp
       return true

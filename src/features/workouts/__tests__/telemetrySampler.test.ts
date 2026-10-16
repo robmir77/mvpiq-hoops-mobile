@@ -87,10 +87,10 @@ describe('TelemetrySampler', () => {
 
     it('should handle timestamp 0 correctly', () => {
       sampler = new TelemetrySampler({ sampleIntervalMs: 500 })
-
+      // When lastSampleTime is 0, timestamp must be >= sampleIntervalMs to be accepted
       const result = sampler.shouldSample(0)
 
-      expect(result).toBe(true)
+      expect(result).toBe(false) // 0 < 500, so rejected
     })
 
     it('should handle negative timestamps', () => {
@@ -215,15 +215,16 @@ describe('TelemetrySampler', () => {
     it('should simulate 2 Hz sampling over 5 seconds', () => {
       sampler = new TelemetrySampler({ sampleIntervalMs: 500 })
       const timestamps = []
-      
-      for (let i = 0; i <= 5000; i += 100) {
+
+      // Start from 500 since timestamps < sampleIntervalMs are rejected when lastSampleTime is 0
+      for (let i = 500; i <= 5000; i += 100) {
         if (sampler.shouldSample(i)) {
           timestamps.push(i)
         }
       }
 
-      expect(timestamps).toEqual([0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000])
-      expect(timestamps.length).toBe(11) // 11 samples in 5 seconds at 2 Hz
+      expect(timestamps).toEqual([500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000])
+      expect(timestamps.length).toBe(10) // 10 samples in 5 seconds at 2 Hz
     })
 
     it('should handle variable frame rates', () => {
