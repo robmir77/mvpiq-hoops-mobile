@@ -127,7 +127,8 @@ export class ShotDetectionEngine {
     if (ballPositionRaw && this.lastRawBallY !== null) {
       const dt = frameTs - this.lastRawBallTimestamp
       if (dt > 0) {
-        rawVy = (ballPositionRaw.y - this.lastRawBallY) / dt
+        // Convert to normalized/s to match SHOT_LAUNCH_THRESHOLD units
+        rawVy = (ballPositionRaw.y - this.lastRawBallY) / dt * 1000
       }
       // Direct position check: if Y increased, ball is descending (Y=0 is top of image)
       rawDescending = ballPositionRaw.y > this.lastRawBallY

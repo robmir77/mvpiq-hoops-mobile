@@ -128,13 +128,13 @@ describe('ShotDetectionEngine', () => {
         )
       }
 
-      // Descend past hoop
+      // Descend past hoop - near but not through (dist ~0.09, between 0.06 and 0.12)
       const result = engine.processFrame(
-        { x: 0.7, y: 0.5 },  // Off-center
+        { x: 0.59, y: 0.5 },  // Off-center but near hoop
         { vx: 0, vy: 1.0 },
         { x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.9 },
         frameTs + 96,
-        { x: 0.7, y: 0.5, width: 0.03, height: 0.03 }
+        { x: 0.59, y: 0.5, width: 0.03, height: 0.03 }
       )
 
       expect(result.shotDetected).toBe(true)
