@@ -20,7 +20,7 @@ export default function WorkoutSetupScreen({ navigation }: any) {
         const calibrationParams = {
             cameraMode,
             courtType,
-            selectedResolution: { width: 640, height: 360 }, // Force 360p for better FPS (faster inference)
+            selectedResolution: null, // Use max resolution from device (sorted descending in CalibrationScreen)
             selectedFps: 30, // Force 30 FPS for workout (better tracking)
             selectedPoseResolution: 192, // Default pose resolution
             yoloDelegate: null, // Will use default

@@ -744,7 +744,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         totalPixels >= minPixels &&
                         Math.abs(aspect - 16 / 9) < 0.08
                 })
-                .sort((a: any, b: any) => a.width * a.height - b.width * b.height)
+                .sort((a: any, b: any) => b.width * b.height - a.width * a.height) // Sort descending: max resolution first
             console.log('[Calibration] Available workout resolutions:', filtered)
             return filtered.length ? filtered : [DEFAULT_CAPTURE]
         } catch (e) {
