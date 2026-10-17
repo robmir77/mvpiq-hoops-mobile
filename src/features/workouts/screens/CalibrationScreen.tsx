@@ -5,7 +5,7 @@
 //   - LATERAL:  vista laterale pura — palo + tabellone + traiettoria arco
 //   - FRONTAL:  vista frontale dal fondo — paint + tabellone centrato
 
-import React, { useState, useContext, useEffect, useRef } from 'react'
+import React, { useState, useContext, useEffect, useRef, useMemo } from 'react'
 import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, ScrollView, Platform,
@@ -14,7 +14,7 @@ import Svg, {
     Circle, Line, Polygon, Rect, Path, Defs,
     LinearGradient, Stop, G, Text as SvgText, Ellipse,
 } from 'react-native-svg'
-import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from 'react-native-vision-camera'
+import { Camera, useCameraDevice, useCameraPermission, type CameraRef, useFrameOutput, type Frame } from 'react-native-vision-camera'
 import { Picker } from '@react-native-picker/picker'
 import { useIsFocused } from '@react-navigation/native'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -35,6 +35,9 @@ import {
 } from '@/vision/delegates'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, MOVENET_MODELS, YOLO_MODELS } from '@/vision/yoloModels'
 import { CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
+import { useRimCalibration, type RoiRegion } from '@/vision/useRimCalibration'
+import { useResizer } from 'react-native-vision-camera-resizer'
+import * as FileSystem from 'expo-file-system'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
@@ -49,7 +52,7 @@ interface DraggablePoint extends Point {
 }
 
 // 45° overlay: diagonal perspective, hoop top-right, court extends left/down
-const Overlay45 = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const Overlay45 = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const W = SW, H = CAM_H
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
@@ -159,13 +162,14 @@ const Overlay45 = ({ points, activePoint }: { points: DraggablePoint[]; activePo
                 fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
 
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // 45° Full Court overlay
-const Overlay45Full = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const Overlay45Full = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -245,13 +249,14 @@ const Overlay45Full = ({ points, activePoint }: { points: DraggablePoint[]; acti
             <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle" fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.50} y={H * 0.14} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Lateral Full Court overlay
-const OverlayLateralFull = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayLateralFull = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -295,13 +300,14 @@ const OverlayLateralFull = ({ points, activePoint }: { points: DraggablePoint[];
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle" fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Frontal Full Court overlay
-const OverlayFrontalFull = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayFrontalFull = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -348,13 +354,14 @@ const OverlayFrontalFull = ({ points, activePoint }: { points: DraggablePoint[];
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Lateral overlay: side view, vertical pole, backboard, trajectory arc
-const OverlayLateral = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayLateral = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -447,13 +454,14 @@ const OverlayLateral = ({ points, activePoint }: { points: DraggablePoint[]; act
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
                 fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Frontal overlay: front view from baseline, symmetric paint, centered backboard
-const OverlayFrontal = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayFrontal = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -547,6 +555,7 @@ const OverlayFrontal = ({ points, activePoint }: { points: DraggablePoint[]; act
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
                 fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
@@ -567,6 +576,34 @@ const HoopConfirmed = ({ p }: { p: Point }) => (
             fill="#ff8c00" fontSize={11} fontWeight="700">✓ Canestro</SvgText>
     </G>
 )
+
+// ROI overlay for YOLO rim calibration
+const RoiOverlay = ({ roi, status }: { roi: RoiRegion | null; status: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
+    if (!roi) return null
+
+    const W = SW, H = CAM_H
+    const strokeColor = status === 'detected' ? '#4ade80' : status === 'error' ? '#ef4444' : '#ff8c00'
+    const fillColor = status === 'detected' ? 'rgba(74,222,128,0.15)' : status === 'error' ? 'rgba(239,68,68,0.15)' : 'rgba(255,140,0,0.15)'
+
+    return (
+        <G pointerEvents="none">
+            <Rect
+                x={roi.x}
+                y={roi.y}
+                width={roi.width}
+                height={roi.height}
+                fill={fillColor}
+                stroke={strokeColor}
+                strokeWidth={2}
+                strokeDasharray="8,4"
+            />
+            <SvgText x={roi.x + roi.width / 2} y={roi.y - 8} textAnchor="middle"
+                fill={strokeColor} fontSize={10} fontWeight="700">
+                {status === 'processing' ? '⏳ Rilevamento...' : status === 'detected' ? '✓ Rilevato' : 'ROI YOLO'}
+            </SvgText>
+        </G>
+    )
+}
 
 const CornersOverlay = ({ corners }: { corners: Point[] }) => {
     const W = SW, H = CAM_H
@@ -828,10 +865,90 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [activePoint, setActivePoint] = useState<DraggablePoint['id'] | null>(null)
     const { alert, showError, showSuccess, showWarning } = useCustomAlert()
 
+    // Rim calibration state
+    const [rimRoi, setRimRoi] = useState<RoiRegion | null>(null)
+    const [rimCalibrationStatus, setRimCalibrationStatus] = useState<'idle' | 'processing' | 'detected' | 'notDetected' | 'error'>('idle')
+    const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
+    const [requestFrameCapture, setRequestFrameCapture] = useState(false)
+    const rimCalibrationFrameRef = useRef<Float32Array | null>(null) as React.MutableRefObject<Float32Array | null>
+
+    // Rim calibration hook
+    const { calculateRoi, calibrateRim, isModelReady } = useRimCalibration(
+        {},
+        selectedYoloModelId,
+        yoloDelegate
+    )
+
+    // Resizer for frame processing - resize to YOLO input size
+    const yoloModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
+    const yoloInputSize = yoloModel?.inputSize || 384
+
+    const resizerConfig = useMemo(() => {
+        if (!yoloInputSize) {
+            return null
+        }
+        return {
+            width: yoloInputSize,
+            height: yoloInputSize,
+            channelOrder: 'rgb' as const,
+            dataType: 'float32' as const,
+            pixelLayout: 'interleaved' as const,
+            scaleMode: 'contain' as const,
+        }
+    }, [yoloInputSize])
+
+    const { resizer } = useResizer(resizerConfig!)
+
+    // Frame output for rim calibration - captures single frame when requested
+    useFrameOutput({
+        pixelFormat: 'rgb',
+        targetResolution: { width: yoloInputSize, height: yoloInputSize },
+        onFrame: (frame: Frame) => {
+            'worklet'
+            if (!requestFrameCapture || !resizer) return
+
+            try {
+                // Resize frame using resizer (worklet-safe)
+                const resized = resizer.resize(frame)
+                if (resized) {
+                    // Extract pixel buffer from GPUFrame
+                    const pixelBuffer = resized.getPixelBuffer()
+                    if (pixelBuffer) {
+                        // Convert to Float32Array
+                        const float32Buffer = new Float32Array(pixelBuffer as ArrayBufferLike)
+                        if (float32Buffer.length > 0) {
+                            // Store the resized frame buffer
+                            runOnJS(() => {
+                                rimCalibrationFrameRef.current = float32Buffer
+                            })()
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('[Calibration] Frame processor error:', error)
+            }
+        },
+    })
+
     // Helper to update point position
     const updatePoint = (id: DraggablePoint['id'], x: number, y: number) => {
         setPoints(prev => prev.map(p => p.id === id ? { ...p, x, y } : p))
     }
+
+    // Update ROI when hoop point changes
+    useEffect(() => {
+        const hoopPoint = points.find(p => p.id === 'hoop')
+        if (hoopPoint && selectedResolution) {
+            const normHoop = normalizePoint(hoopPoint.x, hoopPoint.y)
+            const roi = calculateRoi(
+                normHoop.x,
+                normHoop.y,
+                selectedResolution.width,
+                selectedResolution.height
+            )
+            setRimRoi(roi)
+        }
+    }, [points, selectedResolution, calculateRoi])
 
     const meta = MODE_META[cameraMode]
 
@@ -942,6 +1059,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
             const cal: CalibrationData = {
                 homographyMatrix,
                 hoopCenter: normHoop,
+                hoopBbox: refinedRim ? {
+                    x: refinedRim.x,
+                    y: refinedRim.y,
+                    width: refinedRim.width,
+                    height: refinedRim.height,
+                } : undefined,
                 cameraResolution: selectedResolution ?? undefined,
                 courtCorners,
                 courtWidth: COURT_CONFIG.WIDTH_M,
@@ -955,6 +1078,78 @@ export default function CalibrationScreen({ navigation, route }: any) {
             showError('Errore', e.message || 'Impossibile salvare')
         } finally {
             setIsSaving(false)
+        }
+    }
+
+    const handleRimCalibration = async () => {
+        if (!isModelReady) {
+            showError('Errore', 'Modello YOLO non ancora caricato')
+            return
+        }
+
+        if (!selectedResolution) {
+            showError('Errore', 'Risoluzione camera non selezionata')
+            return
+        }
+
+        const hoopPoint = points.find(p => p.id === 'hoop')
+        if (!hoopPoint) {
+            showError('Errore', 'Seleziona prima il centro del canestro')
+            return
+        }
+
+        setRimCalibrationStatus('processing')
+
+        try {
+            // Enable frame capture for one frame
+            rimCalibrationFrameRef.current = null
+            setRequestFrameCapture(true)
+
+            // Wait for frame to be captured (give it 500ms)
+            await new Promise(resolve => setTimeout(resolve, 500))
+
+            // Disable frame capture
+            setRequestFrameCapture(false)
+
+            // Get the captured frame
+            const frameBuffer = rimCalibrationFrameRef.current
+            if (!frameBuffer) {
+                throw new Error('Impossibile catturare frame')
+            }
+
+            console.log('[Calibration] Frame captured for rim calibration, buffer size:', (frameBuffer as Float32Array).length)
+
+            // Get normalized hoop center
+            const normHoop = normalizePoint(hoopPoint.x, hoopPoint.y)
+
+            // Run rim calibration with the captured frame (already resized to YOLO input size)
+            const result = await calibrateRim(
+                frameBuffer,
+                yoloInputSize,
+                yoloInputSize,
+                normHoop.x,
+                normHoop.y
+            )
+
+            if (result.success && result.bbox) {
+                setRefinedRim({
+                    x: result.bbox.x,
+                    y: result.bbox.y,
+                    width: result.bbox.width,
+                    height: result.bbox.height,
+                    confidence: result.confidence,
+                })
+                setRimCalibrationStatus('detected')
+                showSuccess('Rilevamento completato', `Confidenza: ${(result.confidence * 100).toFixed(1)}%`)
+            } else {
+                setRimCalibrationStatus('notDetected')
+                showWarning('Rilevamento fallito', result.error || 'Nessun rilevamento valido - usa selezione manuale')
+            }
+        } catch (error) {
+            setRimCalibrationStatus('error')
+            showError('Errore', error instanceof Error ? error.message : 'Errore durante la calibrazione')
+        } finally {
+            setRequestFrameCapture(false)
         }
     }
 
@@ -1122,7 +1317,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         console.warn('[Calibration] Camera error:', error)
                     }}
                 />
-                <OverlayComponent points={points} activePoint={activePoint} />
+                <OverlayComponent 
+                    points={points} 
+                    activePoint={activePoint} 
+                    rimRoi={rimRoi} 
+                    rimCalibrationStatus={rimCalibrationStatus} 
+                />
                 {/* Crosshair sottile */}
                 <View style={styles.guideH} pointerEvents="none" />
                 <View style={styles.guideV} pointerEvents="none" />
@@ -1141,6 +1341,19 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 >
                     <Text style={styles.configBtnText}>⚙️</Text>
                 </TouchableOpacity>
+
+                {/* Rim calibration button */}
+                {isModelReady && rimRoi && (
+                    <TouchableOpacity
+                        style={[styles.rimCalibBtn, rimCalibrationStatus === 'processing' && styles.rimCalibBtnDisabled]}
+                        onPress={handleRimCalibration}
+                        disabled={rimCalibrationStatus === 'processing'}
+                    >
+                        <Text style={styles.rimCalibBtnText}>
+                            {rimCalibrationStatus === 'processing' ? '⏳...' : rimCalibrationStatus === 'detected' ? '✓' : '🎯 Rileva Rim'}
+                        </Text>
+                    </TouchableOpacity>
+                )}
 
                 {/* Camera config panel */}
                 {showConfigPanel && (
@@ -1491,6 +1704,26 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '600',
         color: '#fff',
+    },
+    rimCalibBtn: {
+        position: 'absolute',
+        top: 12,
+        right: 60,
+        backgroundColor: 'rgba(255,140,0,0.9)',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#ff8c00',
+    },
+    rimCalibBtnDisabled: {
+        backgroundColor: 'rgba(255,140,0,0.4)',
+        opacity: 0.6,
+    },
+    rimCalibBtnText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '700',
     },
     bottomPanel: { flex: 1, padding: 14 },
     modeCard: {

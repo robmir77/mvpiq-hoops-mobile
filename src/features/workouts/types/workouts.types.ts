@@ -138,6 +138,7 @@ export interface AddShotEventPayload {
 export interface CalibrationData {
     homographyMatrix: number[]
     hoopCenter: { x: number; y: number }
+    hoopBbox?: { x: number; y: number; width: number; height: number } // Rim bounding box from YOLO calibration
     cameraResolution?: { width: number; height: number }
     freeThrowLine?: { x: number; y: number }
     courtCorners?: {

@@ -62,6 +62,13 @@ export const VISION_CONFIG = {
   PLAYER_DETECTION_ENABLED: true, // Enable player detection by default
   RIM_DETECTION_ENABLED: false, // Disable rim detection by default
   POSE_DETECTION_ENABLED: true, // Enable pose detection by default
+
+  // Rim calibration ROI configuration
+  RIM_CALIBRATION: {
+    ROI_SIZE_PERCENT: 0.25, // ROI size as percentage of frame (25% = 1/4 of frame)
+    MIN_CONFIDENCE: 0.40, // Minimum confidence for rim detection during calibration
+    MAX_DISTANCE_FROM_CENTER: 0.15, // Maximum normalized distance from selected center to accept detection
+  },
 } as const;
 
 // Model Configuration
