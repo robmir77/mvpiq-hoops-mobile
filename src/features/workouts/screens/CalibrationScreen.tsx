@@ -18,7 +18,7 @@ import { Camera, useCameraDevice, useCameraPermission, type CameraRef, useFrameO
 import { Picker } from '@react-native-picker/picker'
 import { useIsFocused } from '@react-navigation/native'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
-import { runOnJS } from 'react-native-reanimated'
+import { runOnJS, useSharedValue } from 'react-native-reanimated'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData, CourtType, CreateWorkoutSessionPayload } from '../types/workouts.types'
 import { createWorkoutSession } from '../api/workouts.api'
@@ -36,7 +36,6 @@ import {
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, MOVENET_MODELS, YOLO_MODELS } from '@/vision/yoloModels'
 import { CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
 import { useRimCalibration, type RoiRegion } from '@/vision/useRimCalibration'
-import { useResizer } from 'react-native-vision-camera-resizer'
 import * as FileSystem from 'expo-file-system'
 
 const { width: SW, height: SH } = Dimensions.get('window')
@@ -870,7 +869,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [rimCalibrationStatus, setRimCalibrationStatus] = useState<'idle' | 'processing' | 'detected' | 'notDetected' | 'error'>('idle')
     const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const [requestFrameCapture, setRequestFrameCapture] = useState(false)
-    const rimCalibrationFrameRef = useRef<Float32Array | null>(null) as React.MutableRefObject<Float32Array | null>
+    const [capturedFrame, setCapturedFrame] = useState<Float32Array | null>(null)
+    const frameCaptured = useSharedValue(false) // Latch to prevent duplicate captures (worklet-safe)
 
     // Rim calibration hook
     const { calculateRoi, calibrateRim, isModelReady } = useRimCalibration(
@@ -879,49 +879,52 @@ export default function CalibrationScreen({ navigation, route }: any) {
         yoloDelegate
     )
 
-    // Resizer for frame processing - resize to YOLO input size
+    // YOLO input size for reference (used internally by useRimCalibration)
     const yoloModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
     const yoloInputSize = yoloModel?.inputSize || 384
 
-    const resizerConfig = useMemo(() => {
-        if (!yoloInputSize) {
-            return null
-        }
-        return {
-            width: yoloInputSize,
-            height: yoloInputSize,
-            channelOrder: 'rgb' as const,
-            dataType: 'float32' as const,
-            pixelLayout: 'interleaved' as const,
-            scaleMode: 'contain' as const,
-        }
-    }, [yoloInputSize])
-
-    const { resizer } = useResizer(resizerConfig!)
-
     // Frame output for rim calibration - captures single frame when requested
+    // Captures at original camera resolution, not YOLO input size
     useFrameOutput({
         pixelFormat: 'rgb',
-        targetResolution: { width: yoloInputSize, height: yoloInputSize },
+        targetResolution: selectedResolution ? { width: selectedResolution.width, height: selectedResolution.height } : undefined,
         onFrame: (frame: Frame) => {
             'worklet'
-            if (!requestFrameCapture || !resizer) return
+            if (!requestFrameCapture) return
+
+            // Check latch to prevent duplicate captures
+            if (frameCaptured.value) return
 
             try {
-                // Resize frame using resizer (worklet-safe)
-                const resized = resizer.resize(frame)
-                if (resized) {
-                    // Extract pixel buffer from GPUFrame
-                    const pixelBuffer = resized.getPixelBuffer()
-                    if (pixelBuffer) {
-                        // Convert to Float32Array
-                        const float32Buffer = new Float32Array(pixelBuffer as ArrayBufferLike)
-                        if (float32Buffer.length > 0) {
-                            // Store the resized frame buffer
-                            runOnJS(() => {
-                                rimCalibrationFrameRef.current = float32Buffer
-                            })()
-                        }
+                // Extract pixel buffer from GPUFrame at original resolution
+                const pixelBuffer = frame.getPixelBuffer()
+                if (pixelBuffer) {
+                    // Log buffer metadata for verification
+                    console.log('[Calibration] PixelBuffer type:', typeof pixelBuffer)
+                    console.log('[Calibration] PixelBuffer constructor:', pixelBuffer.constructor.name)
+                    console.log('[Calibration] PixelBuffer byteLength:', pixelBuffer.byteLength)
+
+                    // Convert to Float32Array
+                    const float32Buffer = new Float32Array(pixelBuffer as ArrayBufferLike)
+                    console.log('[Calibration] Float32Array length:', float32Buffer.length)
+                    if (selectedResolution) {
+                        console.log('[Calibration] Expected length (RGB interleaved):', selectedResolution.width * selectedResolution.height * 3)
+                    }
+
+                    // Log sample values for verification
+                    if (float32Buffer.length > 0) {
+                        console.log('[Calibration] Sample values [0-5]:', float32Buffer.slice(0, 5))
+                        console.log('[Calibration] Min value:', Math.min(...float32Buffer))
+                        console.log('[Calibration] Max value:', Math.max(...float32Buffer))
+                    }
+
+                    if (float32Buffer.length > 0) {
+                        // Set latch before storing to prevent race conditions
+                        frameCaptured.value = true
+                        // Store the frame buffer at original resolution via state setter
+                        runOnJS(() => {
+                            setCapturedFrame(float32Buffer)
+                        })()
                     }
                 }
             } catch (error) {
@@ -935,6 +938,46 @@ export default function CalibrationScreen({ navigation, route }: any) {
         setPoints(prev => prev.map(p => p.id === id ? { ...p, x, y } : p))
     }
 
+    const normalizePoint = (rawX: number, rawY: number): Point => {
+        // Apply mirror to match YOLO detection space
+        // Touch coordinates are relative to view, but YOLO detections are in mirrored camera space
+        // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
+        const mirroredX = SW - rawX;
+        const mirroredY = CAM_H - rawY;
+        return {
+            x: Math.max(0, Math.min(1, mirroredX / SW)),
+            y: Math.max(0, Math.min(1, mirroredY / CAM_H)),
+        };
+    }
+
+    // Convert ROI from camera frame space to preview SVG space
+    const convertRoiToPreview = (roi: RoiRegion | null): RoiRegion | null => {
+        if (!roi || !selectedResolution) return null
+
+        // Scale factors: camera resolution → preview dimensions
+        const scaleX = SW / selectedResolution.width
+        const scaleY = CAM_H / selectedResolution.height
+
+        // Apply scaling
+        const scaledX = roi.x * scaleX
+        const scaledY = roi.y * scaleY
+        const scaledWidth = roi.width * scaleX
+        const scaledHeight = roi.height * scaleY
+
+        // Reverse mirroring to match screen coordinates
+        // normalizePoint applies: mirroredX = SW - rawX, mirroredY = CAM_H - rawY
+        // So to reverse: rawX = SW - mirroredX, rawY = CAM_H - mirroredY
+        const previewX = SW - (scaledX + scaledWidth)
+        const previewY = CAM_H - (scaledY + scaledHeight)
+
+        return {
+            x: previewX,
+            y: previewY,
+            width: scaledWidth,
+            height: scaledHeight,
+        }
+    }
+
     // Update ROI when hoop point changes
     useEffect(() => {
         const hoopPoint = points.find(p => p.id === 'hoop')
@@ -946,7 +989,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 selectedResolution.width,
                 selectedResolution.height
             )
-            setRimRoi(roi)
+            // Convert ROI from camera space to preview SVG space for display
+            setRimRoi(convertRoiToPreview(roi))
         }
     }, [points, selectedResolution, calculateRoi])
 
@@ -988,18 +1032,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 <Text style={styles.permDesc}>Nessuna camera disponibile</Text>
             </View>
         )
-    }
-
-    const normalizePoint = (rawX: number, rawY: number): Point => {
-        // Apply mirror to match YOLO detection space
-        // Touch coordinates are relative to view, but YOLO detections are in mirrored camera space
-        // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
-        const mirroredX = SW - rawX;
-        const mirroredY = CAM_H - rawY;
-        return {
-            x: Math.max(0, Math.min(1, mirroredX / SW)),
-            y: Math.max(0, Math.min(1, mirroredY / CAM_H)),
-        };
     }
 
     const handleCameraTouch = (event: any) => {
@@ -1056,9 +1088,22 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 }
             }
 
+            // Use YOLO-detected center if available, otherwise fall back to manual selection
+            let finalHoopCenter = normHoop
+            if (refinedRim) {
+                // Calculate center from YOLO-detected bounding box
+                finalHoopCenter = {
+                    x: refinedRim.x + refinedRim.width / 2,
+                    y: refinedRim.y + refinedRim.height / 2,
+                }
+                console.log('[Calibration] Using YOLO-detected center:', finalHoopCenter)
+            } else {
+                console.log('[Calibration] Using manually selected center:', finalHoopCenter)
+            }
+
             const cal: CalibrationData = {
                 homographyMatrix,
-                hoopCenter: normHoop,
+                hoopCenter: finalHoopCenter,
                 hoopBbox: refinedRim ? {
                     x: refinedRim.x,
                     y: refinedRim.y,
@@ -1101,8 +1146,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
         setRimCalibrationStatus('processing')
 
         try {
-            // Enable frame capture for one frame
-            rimCalibrationFrameRef.current = null
+            // Reset latch and frame reference
+            frameCaptured.value = false
+            setCapturedFrame(null)
             setRequestFrameCapture(true)
 
             // Wait for frame to be captured (give it 500ms)
@@ -1112,21 +1158,22 @@ export default function CalibrationScreen({ navigation, route }: any) {
             setRequestFrameCapture(false)
 
             // Get the captured frame
-            const frameBuffer = rimCalibrationFrameRef.current
+            const frameBuffer = capturedFrame
             if (!frameBuffer) {
                 throw new Error('Impossibile catturare frame')
             }
 
-            console.log('[Calibration] Frame captured for rim calibration, buffer size:', (frameBuffer as Float32Array).length)
+            console.log('[Calibration] Frame captured for rim calibration, buffer size:', frameBuffer.length)
 
             // Get normalized hoop center
             const normHoop = normalizePoint(hoopPoint.x, hoopPoint.y)
 
-            // Run rim calibration with the captured frame (already resized to YOLO input size)
+            // Run rim calibration with the captured frame at original camera resolution
+            // calibrateRim will handle cropping and resizing internally
             const result = await calibrateRim(
                 frameBuffer,
-                yoloInputSize,
-                yoloInputSize,
+                selectedResolution.width,
+                selectedResolution.height,
                 normHoop.x,
                 normHoop.y
             )
@@ -1150,6 +1197,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
             showError('Errore', error instanceof Error ? error.message : 'Errore durante la calibrazione')
         } finally {
             setRequestFrameCapture(false)
+            frameCaptured.value = false // Reset latch for next capture
+            setCapturedFrame(null) // Clear frame buffer
         }
     }
 

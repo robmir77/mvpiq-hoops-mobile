@@ -109,6 +109,27 @@ export function convertCropToFrame(
 }
 
 /**
+ * Normalize detection to square aspect ratio
+ * @param detection - Detection to normalize
+ * @returns Detection with square aspect ratio (width = height)
+ */
+export function normalizeToSquare(detection: YoloDetection): YoloDetection {
+  const size = Math.max(detection.width, detection.height)
+  const center = {
+    x: detection.x + detection.width / 2,
+    y: detection.y + detection.height / 2,
+  }
+
+  return {
+    x: center.x - size / 2,
+    y: center.y - size / 2,
+    width: size,
+    height: size,
+    confidence: detection.confidence,
+  }
+}
+
+/**
  * Select best rim detection from candidates
  * @param detections - All rim detections from YOLO
  * @param centerX - Selected center X (normalized)
@@ -139,9 +160,12 @@ export function selectBestRimDetection(
   if (closeDetections.length === 0) return null
 
   // Select highest confidence among close detections
-  return closeDetections.reduce((best, current) =>
+  const best = closeDetections.reduce((best, current) =>
     current.confidence > best.confidence ? current : best
   )
+
+  // Normalize to square aspect ratio to match YOLO input resolution
+  return normalizeToSquare(best)
 }
 
 /**
@@ -174,6 +198,41 @@ export function cropFrameBuffer(
   }
 
   return cropped
+}
+
+/**
+ * Resize crop buffer to YOLO input size using nearest-neighbor scaling
+ * @param cropBuffer - Cropped frame buffer (Float32Array, RGB interleaved)
+ * @param cropWidth - Crop width in pixels
+ * @param cropHeight - Crop height in pixels
+ * @param targetSize - Target size (YOLO input size, e.g., 320 or 384)
+ * @returns Resized buffer (Float32Array, RGB interleaved)
+ */
+export function resizeCropToYoloInput(
+  cropBuffer: Float32Array,
+  cropWidth: number,
+  cropHeight: number,
+  targetSize: number
+): Float32Array {
+  const resizedSize = targetSize * targetSize * 3 // RGB interleaved
+  const resized = new Float32Array(resizedSize)
+
+  const scaleX = cropWidth / targetSize
+  const scaleY = cropHeight / targetSize
+
+  let resizedIndex = 0
+  for (let ty = 0; ty < targetSize; ty++) {
+    const sy = (ty * scaleY) | 0 // Nearest neighbor: truncate to integer
+    for (let tx = 0; tx < targetSize; tx++) {
+      const sx = (tx * scaleX) | 0 // Nearest neighbor: truncate to integer
+      const srcIndex = (sy * cropWidth + sx) * 3
+      resized[resizedIndex++] = cropBuffer[srcIndex]     // R
+      resized[resizedIndex++] = cropBuffer[srcIndex + 1] // G
+      resized[resizedIndex++] = cropBuffer[srcIndex + 2] // B
+    }
+  }
+
+  return resized
 }
 
 /**
@@ -267,9 +326,9 @@ export function useRimCalibration(
 
   /**
    * Perform rim calibration
-   * @param frameBuffer - Frame buffer (Float32Array, already resized to YOLO input size)
-   * @param frameWidth - Frame width (should equal yoloInputSize)
-   * @param frameHeight - Frame height (should equal yoloInputSize)
+   * @param frameBuffer - Frame buffer (Float32Array, at original camera resolution)
+   * @param frameWidth - Frame width (original camera resolution)
+   * @param frameHeight - Frame height (original camera resolution)
    * @param centerX - Selected center X (normalized)
    * @param centerY - Selected center Y (normalized)
    * @returns Calibration result
@@ -292,14 +351,17 @@ export function useRimCalibration(
         }
       }
 
-      // Calculate ROI in YOLO input space
+      // Calculate ROI in original frame space
       const roi = calculateRoi(centerX, centerY, frameWidth, frameHeight, cfg)
 
-      // Crop frame to ROI
+      // Crop frame to ROI from original frame
       const cropBuffer = cropFrameBuffer(frameBuffer, frameWidth, frameHeight, roi)
 
-      // Run YOLO inference on crop
-      const rimDetection = runYoloOnCrop(cropBuffer, roi.width, roi.height)
+      // Resize crop to YOLO input size using simple nearest-neighbor scaling
+      const resizedCrop = resizeCropToYoloInput(cropBuffer, roi.width, roi.height, yoloInputSize)
+
+      // Run YOLO inference on resized crop
+      const rimDetection = runYoloOnCrop(resizedCrop, yoloInputSize, yoloInputSize)
 
       if (!rimDetection) {
         return {
