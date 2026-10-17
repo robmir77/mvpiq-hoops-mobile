@@ -712,7 +712,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const isFocused = useIsFocused()
     const isActive = isFocused
     const cameraRef = useRef<CameraRef>(null)
-    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(initialResolution ?? DEFAULT_CAPTURE)
+    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(initialResolution ?? null)
     const [selectedFps, setSelectedFps] = useState<number | null>(initialFps ?? DEFAULT_FPS)
     const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(initialPoseResolution ?? DEFAULT_POSE_RESOLUTION)
     const [selectedMoveNetModelId, setSelectedMoveNetModelId] = useState<string>(initialMoveNetModelId ?? DEFAULT_MOVENET_MODEL_ID)
@@ -806,27 +806,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId])
 
-    // Auto-select default camera resolution when YOLO model changes
+    // Auto-select maximum camera resolution when YOLO model changes
     useEffect(() => {
         if (availableResolutions.length > 0 && selectedYoloModelId) {
-            const currentModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
-            const defaultRes = currentModel?.defaultCameraResolution
-
-            if (defaultRes) {
-                // Try to find exact match
-                const exactMatch = availableResolutions.find(r => r.width === defaultRes.width && r.height === defaultRes.height)
-                if (exactMatch) {
-                    setSelectedResolution(exactMatch)
-                    return
-                }
-
-                // Find closest resolution >= default
-                const minPixels = defaultRes.width * defaultRes.height
-                const closest = availableResolutions.find(r => r.width * r.height >= minPixels)
-                if (closest) {
-                    setSelectedResolution(closest)
-                }
-            }
+            // Always select the maximum available resolution (already sorted descending)
+            setSelectedResolution(availableResolutions[0])
         }
     }, [selectedYoloModelId, availableResolutions])
 
