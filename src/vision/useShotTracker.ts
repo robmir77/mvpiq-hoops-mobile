@@ -34,7 +34,7 @@ import {
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
 import { telemetryLogger, type DiagnosticWindowSnapshot } from './telemetry'
-import { YOLO_CONFIG, TEST_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, TEST_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 
 
 const BALL_STABILITY_THRESHOLD = 0.02 // Position change threshold (2%)
@@ -86,9 +86,9 @@ export const useShotTracker = (
     } | null,
 
     enabled: boolean = true,
-    poseEnabled: boolean = true,
-    ballEnabled: boolean = true,
-    rimEnabled: boolean = true,
+    poseEnabled: boolean = VISION_CONFIG.POSE_DETECTION_ENABLED,
+    ballEnabled: boolean = VISION_CONFIG.BALL_DETECTION_ENABLED,
+    rimEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED,
 
     // runtimeActive parameter exists for API compatibility but is not used in the frame processor
     // Vision pipeline continues to run even when Runtime is ACTIVE

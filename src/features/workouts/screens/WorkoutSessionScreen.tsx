@@ -41,7 +41,7 @@ import { TelemetrySampler } from '../services/telemetrySampler'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
-import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG, TEST_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG, TEST_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 import RealtimeBallOverlay from '../components/RealtimeBallOverlay'
 import ReactOverlay from '../components/ReactOverlay'
 import { WorkoutControls } from '../components/WorkoutControls'
@@ -147,9 +147,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
     const [modelsReady, setModelsReady]     = useState(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
-    const [poseEnabled, setPoseEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_MOVENET)
-    const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
-    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
+    const [poseEnabled, setPoseEnabled] = useState<boolean>(VISION_CONFIG.POSE_DETECTION_ENABLED)
+    const [ballEnabled, setBallEnabled] = useState<boolean>(VISION_CONFIG.BALL_DETECTION_ENABLED)
+    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(VISION_CONFIG.RIM_DETECTION_ENABLED)
     const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
     const [cameraFps, setCameraFps] = useState(0)
     const [showTelemetry, setShowTelemetry] = useState<boolean>(TEST_CONFIG.ENABLE_TELEMETRY_OVERLAY)

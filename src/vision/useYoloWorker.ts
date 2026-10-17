@@ -54,7 +54,7 @@ export const useYoloWorker = (
   perfYoloWorkletPrepTotal?: any, // SharedValue for worklet preprocessing (A→B)
   perfYoloJsPreprocessTotal?: any, // SharedValue for JS preprocessing (C→D)
   perfYoloPostprocessTotal?: any, // SharedValue for postprocess/callback (E→F)
-  rimEnabled: boolean = true
+  rimEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED
 ) => {
   // Pure YOLO detector instance (worklet-safe)
   const yoloDetectorRef = useRef(new YoloDetector(

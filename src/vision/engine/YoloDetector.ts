@@ -3,7 +3,7 @@
 // Worklet-safe, no React dependencies
 // Extracted from yoloParserFloat16.ts
 
-import { YOLO_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 const STRIDES = [8, 16, 32]
@@ -38,7 +38,7 @@ export class YoloDetector {
   private ballConfThreshold: number
   private rimConfThreshold: number
   private playerConfThreshold: number
-  private rimDetectionEnabled: boolean = true
+  private rimDetectionEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED
 
   // Persistent rim detection state (for confidence-based replacement)
   private persistentRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null

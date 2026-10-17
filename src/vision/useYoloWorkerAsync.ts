@@ -14,7 +14,7 @@ import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
 import { getYoloModel } from './yoloModels'
 import { scheduleOnRN } from 'react-native-worklets'
-import { TEST_CONFIG, YOLO_CONFIG } from '@/config/appConfig'
+import { TEST_CONFIG, YOLO_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 import { telemetryLogger } from './telemetry'
 
 interface YoloWorkerResult {
@@ -87,7 +87,7 @@ export const useYoloWorkerAsync = (
   yoloScheduledCount?: { value: number },
   perfYoloScheduleWaitTotal?: SharedValue<number>,
   onResultCallback?: (result: YoloWorkerResult) => void,
-  rimEnabled: boolean = true,
+  rimEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED,
   // Ball rejection diagnostics
   ballYoloParsed?: SharedValue<number>,
   ballRejectedSize?: SharedValue<number>,

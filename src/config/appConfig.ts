@@ -56,6 +56,12 @@ export const VISION_CONFIG = {
     ENABLED: true,
     // MoveNet executes only when player bbox is above threshold (no FPS limit)
   },
+
+  // Detection module defaults
+  BALL_DETECTION_ENABLED: true, // Enable ball detection by default
+  PLAYER_DETECTION_ENABLED: true, // Enable player detection by default
+  RIM_DETECTION_ENABLED: false, // Disable rim detection by default
+  POSE_DETECTION_ENABLED: true, // Enable pose detection by default
 } as const;
 
 // Model Configuration
