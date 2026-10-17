@@ -4,14 +4,14 @@ Questa directory contiene i modelli TensorFlow Lite usati dal percorso vision mo
 
 ## File presenti nel repository
 
-| File | Input dichiarato dal nome/configurazione | Formato |
-|---|---:|---|
-| `best_320_float16.tflite` | 320×320 | TFLite |
-| `best_384_float16.tflite` | 384×384 | TFLite |
-| `best_448_float16.tflite` | 448×448 | TFLite |
-| `best_512_float16.tflite` | 512×512 | TFLite |
-| `best_640_float16.tflite` | 640×640 | TFLite |
-| `movenet_lightning_192_int8.tflite` | 192×192 | TFLite |
+| File | Input dichiarato dal nome/configurazione | Formato | Epoche | Risoluzione camera default |
+|---|---:|---|---:|---|
+| `best_320_float16.tflite` | 320×320 | TFLite | 50 | 640×360 |
+| `best_384_float16.tflite` | 384×384 | TFLite | 200 | 1280×720 |
+| `best_448_float16.tflite` | 448×448 | TFLite | 20 | 1280×720 |
+| `best_512_float16.tflite` | 512×512 | TFLite | 40 | 1280×720 |
+| `best_640_float16.tflite` | 640×640 | TFLite | 30 | 1280×720 |
+| `movenet_lightning_192_int8.tflite` | 192×192 | TFLite | - | - |
 
 ## YOLO
 
@@ -26,6 +26,7 @@ Il file `movenet_lightning_192_int8.tflite` è il modello pose presente. Il perc
 ## Selezione e prestazioni
 
 - La selezione effettiva del modello è gestita dal codice di configurazione e dai worker, non da questo README.
+- Il modello YOLO di default è configurato in `src/config/appConfig.ts` (attualmente: `best_448_float16`).
 - Non trattare gli FPS storici come prestazioni garantite: dipendono da dispositivo, delegate, risoluzione camera, scheduler, preprocessing e carico UI.
 - Per confrontare modelli registrare commit, dispositivo, delegate, risoluzione, warm-up, durata, FPS e percentili di latenza.
 - Non sostituire un modello senza verificare che il nome configurato esista e che il parser supporti il suo output.
