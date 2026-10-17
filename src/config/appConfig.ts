@@ -60,7 +60,7 @@ export const VISION_CONFIG = {
 
 // Model Configuration
 export const MODEL_CONFIG = {
-  DEFAULT_YOLO_MODEL_ID: 'best_448_float16', // Default YOLO model (448 offers best balance of stability and performance)
+  DEFAULT_YOLO_MODEL_ID: 'best_384_float16', // Default YOLO model (384 offers best shot detection accuracy)
   DEFAULT_MOVENET_MODEL_ID: 'movenet_lightning_192_int8', // Default MoveNet model
 } as const;
 

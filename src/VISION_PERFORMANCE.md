@@ -81,3 +81,18 @@ I precedenti audit di progetto riportavano schedule wait significativo per YOLO 
 - `src/features/workouts/screens/WorkoutSessionScreen.tsx`
 - `src/features/workouts/runtime/WorkoutSessionRuntime.ts`
 - `src/features/workouts/services/telemetrySampler.ts`
+
+## Qualità del modello e accuratezza
+
+Le prestazioni di FPS e latenza YOLO sono simili tra tutti i modelli, ma l'overlay soffre di prestazioni inferiori con modelli di input più grandi (512, 640). I modelli YOLO disponibili hanno livelli di training diversi che influenzano l'accuratezza del rilevamento:
+- `best_384_float16`: 200 epoche (validato come più affidabile per riconoscimento tiri)
+- `best_320_float16`: 50 epoche
+- `best_512_float16`: 40 epoche
+- `best_640_float16`: 30 epoche
+- `best_448_float16`: 20 epoche
+
+Per dettagli sui comandi di training e checkpoint, vedere `assets/models/README.md`. Quando si confrontano modelli, distinguere tra:
+- Problemi di throughput (FPS bassi, latenza alta)
+- Problemi di accuratezza (modello poco addestrato, soglie inadeguate)
+- Problemi di overlay (modelli con input grande causano rendering lento)
+- Problemi di configurazione (preprocessing, NMS, delegate)

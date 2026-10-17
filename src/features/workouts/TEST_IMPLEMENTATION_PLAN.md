@@ -150,7 +150,7 @@ Gli unit test possono verificare trasformazioni, stato e props, ma **non dimostr
 - [ ] Eseguire nuovamente l'intera suite dopo ogni correzione.
 - [ ] Eseguire la suite di coverage e individuare i rami critici non coperti.
 
-## 10. Fase 7 — Validazione su dispositivo reale
+## 7. Fase 7 — Validazione su dispositivo reale
 
 Solo dopo il superamento dei test automatici:
 
@@ -163,6 +163,100 @@ Solo dopo il superamento dei test automatici:
 - [ ] Annotare dispositivo, versione app, condizioni del test e risultati.
 
 Non considerare il test su device superato soltanto perché i modelli risultano caricati: serve evidenza che i frame siano elaborati e che gli output raggiungano tracking e overlay.
+
+## 8. Piano di test su dispositivo — Riconoscimento, Classificazione e Prestazioni
+
+**Obiettivo:** Separare nettamente il riconoscimento del tiro, la classificazione del risultato (MADE/MISS) e le prestazioni della pipeline.
+
+### Tabella di registrazione delle prove
+
+| Campo | Valore da registrare |
+|---|---|
+| Device e versione app | Modello, OS, build/commit |
+| Modello YOLO | ID, formato e risoluzione |
+| Configurazione camera | Risoluzione, FPS configurati |
+| Tiri reali | Numero annotato manualmente |
+| Tiri rilevati | totalShots |
+| Canestri reali | Numero annotato manualmente |
+| Canestri riconosciuti | madeShots |
+| Falsi positivi / tiri persi | Confronto con il video |
+| FPS | Camera, YOLO, MoveNet |
+| Anomalie | Log correlati e timestamp |
+
+### T0 — Baseline runtime e conteggio dei tiri
+
+**Stato:** ✅ Verificato nel test
+
+**Risultato registrato:**
+- Device: Samsung Galaxy S21 Ultra
+- Risoluzione camera: 4000 × 2252
+- Modello: best_384_float16
+- Tiri effettuati: 4
+- Tiri registrati: 4 su 4
+- Canestri realizzati: 0 (i quattro tiri erano tutti sbagliati, risultato coerente)
+- Prestazioni riportate: camera 29–39 FPS, YOLO 27–29 FPS, MoveNet 0–3 FPS
+
+**Criterio:** Sessione eseguita, modello caricato, tiri registrati correttamente.
+
+**Da verificare separatamente:** stabilità su più sessioni e assenza di doppi conteggi.
+
+### T1 — Classificazione MADE/MISS
+
+**Priorità:** Alta
+
+**Obiettivo:** Verificare che il sistema distingua correttamente un canestro da un tiro sbagliato.
+
+**Procedura:**
+- Eseguire una sequenza contenente sia canestri realizzati sia tiri sbagliati
+- Annotare il risultato reale di ogni tiro
+- Confrontarlo con totalShots e madeShots
+- Controllare che ogni tiro venga classificato una sola volta
+
+**Criterio:** Tutti gli eventi devono essere confrontabili con il risultato reale; eventuali discrepanze devono essere riproducibili e analizzabili nei log.
+
+**Nota:** Non marcare come fallita la classificazione dei canestri se nella prova non c'erano canestri da riconoscere.
+
+### T2 — Continuità del tracking
+
+**Priorità:** Successivo
+
+**Obiettivo:** Correlare rilevazioni della palla, traiettoria, eventi del tiro e scadenze TTL.
+
+**Procedura:**
+- Verificare cosa accade nei frame precedenti a un tiro classificato in modo errato
+- Verificare il significato di Tracking=0 e quando viene campionata questa metrica
+
+**Criterio:** Identificare se e dove la continuità della palla si interrompe negli eventi problematici.
+
+### T3 — Prestazioni e overlay
+
+**Priorità:** Da completare
+
+**Obiettivo:** Verificare gli FPS mostrati nell'overlay e interpretare MoveNet.
+
+**Procedura:**
+- Verificare gli FPS mostrati nell'overlay durante una sessione
+- Registrare durata, FPS e contatori prima, durante e dopo i tiri
+- Interpretare MoveNet a 0–3 FPS in relazione alle condizioni di attivazione previste
+
+**Criterio:** Distinguere i valori realmente misurati da quelli assenti o non aggiornati.
+
+**Nota:** Le performance di inferenza YOLO (FPS) sono simili tra tutti i modelli, ma l'overlay soffre di prestazioni inferiori con modelli di input più grandi (512, 640).
+
+### T4 — Confronto modelli e precisione numerica
+
+**Priorità:** Da rimandare
+
+**Obiettivo:** Valutare altri modelli e formati dopo aver validato la baseline.
+
+**Procedura:**
+- Mantenere best_384_float16 come baseline
+- Verificare checkpoint e configurazioni degli altri modelli
+- Valutare FLOAT32 soltanto con un confronto A/B a parità di checkpoint e configurazione
+
+**Criterio:** Confrontare accuratezza e prestazioni senza confondere gli effetti del training con quelli dell'esportazione.
+
+**Nota:** Gli altri modelli hanno meno epoche di training (20-50 vs 200 del 384), che influenzano l'accuratezza del rilevamento. Per migliorarli, eseguire training resume fino a 150-200 epoche.
 
 ## 11. Strategia di esecuzione
 
@@ -198,7 +292,8 @@ Compilare questa tabella soltanto con risultati realmente osservati.
 | 4 — Queue/outbox | ✅ Completata | Test workoutAsyncQueue, workoutLifecycle.e2e, telemetrySampler | **Ambiente:** Branch Validation-1.0<br><br>**Test passati (51/51):**<br>- workoutAsyncQueue.test.ts: 20/20 ✓ (mock updateRetryCount aggiunto)<br>- workoutLifecycle.e2e.test.ts: 7/7 ✓ (mock PersistentOutbox completo, API mock sempre fallisce per test offline)<br>- telemetrySampler.test.ts: 24/24 ✓ (gestione timestamp 0, negativi, non-monotonici)<br><br>**Correzioni applicate:**<br>- workoutLifecycle.e2e.test.ts: sostituito `...new PersistentOutbox()` con mock completo per tutti i test<br>- workoutLifecycle.e2e.test.ts: API mock configurato con `.mockRejectedValue()` invece di `.mockRejectedValueOnce()` per test offline<br>- telemetrySampler.ts: aggiunto check per timestamp non-monotonici (reset a nuovo timestamp)<br>- telemetrySampler.test.ts: corretto test timestamp 0 (ora si aspetta false quando < sampleIntervalMs)<br>- telemetrySampler.test.ts: corretto test 2 Hz sampling (loop inizia da 500 invece di 0)<br><br>**Note:** workoutAsyncQueue.test.ts era già passato (20/20). Le correzioni riguardano solo lifecycle e telemetrySampler. | — |
 | 5 — Overlay/coordinate | Da eseguire | Test utility/componenti | — | — |
 | 6 — Regressione | ✅ Completata | Suite completa Jest | **Ambiente:** Branch Validation-1.0<br><br>**Test passati (271/271):**<br>- 18/18 suite passate<br>- 271/271 test passati<br><br>**Suite principali:**<br>- workouts.api.test.ts: 20/20 ✓<br>- workoutFlow.integration.test.ts: 11/11 ✓<br>- manualShotRegistration.test.ts: 19/19 ✓<br>- homography.test.ts: 12/12 ✓<br>- calibration.test.ts: 23/23 ✓<br>- TrackingEngine.test.ts: 4/4 ✓<br>- PlayerTrackingEngine.test.ts: 8/8 ✓<br>- BallTrajectoryAnalyzer.test.ts: 14/14 ✓<br>- VisionEngineAdapter.test.ts: 3/3 ✓<br>- BallTrackingEngine.test.ts: 19/19 ✓<br>- ShotDetectionEngine.test.ts: 12/12 ✓<br>- workoutAsyncQueue.test.ts: 20/20 ✓<br>- workoutLifecycle.e2e.test.ts: 7/7 ✓<br>- telemetrySampler.test.ts: 24/24 ✓<br>- persistentOutbox.test.ts: 15/15 ✓<br>- RuntimeProcessFrameCoordinator.test.ts: 8/8 ✓<br>- calibration.test.ts (seconda suite): 23/23 ✓<br>- RuntimeProcessFrameCoordinator.test.ts (seconda suite): 8/8 ✓<br><br>**Note:** Suite completa ora eseguibile senza heap limit. Tutte le correzioni applicate nelle fasi 2 e 4 hanno risolto i fallimenti preesistenti. | — |
-| 7 — Dispositivo | Da eseguire | Checklist manuale + log/video | — | — |
+| 7 — Dispositivo T0 | ✅ Completata | Baseline runtime e conteggio tiri | **Ambiente:** Samsung Galaxy S21 Ultra<br><br>**Risultato:**<br>- Camera 4000×2252<br>- Modello best_384_float16<br>- 4 tiri effettuati, 4 registrati<br>- 0 canestri (tutti tiri sbagliati, coerente)<br>- FPS: camera 29-39, YOLO 27-29, MoveNet 0-3<br><br>**Note:** Riconoscimento tiri funzionante. Classificazione MADE/MISS da verificare con prova mista canestri/tiri sbagliati. | — |
+| 7 — Dispositivo T1 | Da eseguire | Classificazione MADE/MISS | Sequenza mista canestri/tiri sbagliati con video e log | — |
 
 ## 13. Criteri finali di completamento
 
