@@ -98,6 +98,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
     const [torchMode, setTorchMode] = useState<TorchMode>('auto')
+    const isPaused = session?.status === 'PAUSED'
 
     // Stabilize effectiveResolution to prevent remount when calibration loads
     const effectiveResolutionRef = useRef<{ width: number; height: number }>(
@@ -365,6 +366,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             }
         }
     }, [device, calibration?.ambientBrightness, calibrationParam?.ambientBrightness])
+
+
+    // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
+    useEffect(() => {
+        void applyTorchSettings(torchMode, isActive && !isPaused)
+    }, [applyTorchSettings, torchMode, isActive, isPaused])
 
     const lastBackendFrameTimestamp = useRef<number>(0)
     const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
@@ -1304,13 +1311,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             <Text style={styles.permDesc}>Nessuna camera disponibile</Text>
         </View>
     )
-
-    const isPaused = session?.status === 'PAUSED'
-
-    // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
-    useEffect(() => {
-        void applyTorchSettings(torchMode, isActive && !isPaused)
-    }, [applyTorchSettings, torchMode, isActive, isPaused])
 
 
     return (
