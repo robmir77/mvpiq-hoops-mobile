@@ -23,6 +23,7 @@ interface WorkoutControlsProps {
     diagnosticMode: boolean
     torchMode: TorchMode
     torchAvailable: boolean
+    torchAutoReady: boolean
     autoStatusText: string
     autoDotActive: boolean
     onToggleBall: () => void
@@ -71,6 +72,7 @@ export const WorkoutControls: React.FC<WorkoutControlsProps> = ({
     diagnosticMode,
     torchMode,
     torchAvailable,
+    torchAutoReady,
     autoStatusText,
     autoDotActive,
     onToggleBall,
@@ -166,7 +168,7 @@ export const WorkoutControls: React.FC<WorkoutControlsProps> = ({
                         styles.torchBtnLabel,
                         torchMode === 'on' ? styles.torchBtnLabelOn : torchMode === 'auto' ? styles.torchBtnLabelAuto : styles.torchBtnLabelOff,
                     ]}>{torchAvailable ? torchMode.toUpperCase() : 'NON DISP.'}</Text>
-                    <Text style={styles.torchBtnHint}>{torchMode === 'auto' ? 'Luce automatica' : torchMode === 'on' ? 'Intensità max' : 'Luce spenta'}</Text>
+                    <Text style={styles.torchBtnHint}>{torchMode === 'auto' ? (torchAutoReady ? 'Luce automatica' : 'Calibra per AUTO') : torchMode === 'on' ? 'Intensità max' : 'Luce spenta'}</Text>
                 </TouchableOpacity>
                 <Text style={styles.torchHelpText}>La modalità AUTO regola la torcia in base alla luminosità misurata in calibrazione.</Text>
             </View>
