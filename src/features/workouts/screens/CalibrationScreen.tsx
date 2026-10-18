@@ -1036,8 +1036,13 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
 
-        // Ignore taps on controls that bubble up from the camera overlay.
-        if (ignoreCameraTouchRef.current) {
+        // Controls sit on top of the camera and can overlap the hoop/court points.
+        // Ignore their hit areas even if native touch-event ordering differs by device.
+        const rimButtonTouch = locationY >= 0 && locationY <= 64 && locationX >= SW - 240
+        const configButtonCenterY = CAM_H / 2 - 150
+        const configButtonTouch = locationX <= 80 &&
+            locationY >= configButtonCenterY - 40 && locationY <= configButtonCenterY + 40
+        if (showConfigPanel || ignoreCameraTouchRef.current || rimButtonTouch || configButtonTouch) {
             ignoreCameraTouchRef.current = false
             return
         }
