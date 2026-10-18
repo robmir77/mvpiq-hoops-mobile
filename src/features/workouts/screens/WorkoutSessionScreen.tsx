@@ -1345,7 +1345,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             device={device}
                             isActive={isActive && !isPaused}
                             outputs={[frameOutput]}
-                            torchMode="off"
                             zoom={isActive && !isPaused ? zoom : undefined}
                             resizeMode="cover"
                             constraints={constraints}
