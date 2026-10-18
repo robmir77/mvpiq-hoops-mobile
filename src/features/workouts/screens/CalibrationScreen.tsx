@@ -1181,7 +1181,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
             // Save calibration locally - will be sent to backend after session creation
             setSavedCalibration(cal)
-            showSuccess('✓ Calibrazione salvata', 'Puoi procedere con la sessione')
+            showSuccess(
+                '✓ Calibrazione salvata',
+                ambientBrightness !== undefined
+                    ? `Indice di luminosità immagine: ${Math.round(ambientBrightness * 100)}/100. Puoi procedere con la sessione.`
+                    : 'Luminosità non rilevata: in modalità AUTO la torcia resterà spenta. Puoi procedere con la sessione.'
+            )
         } catch (e: any) {
             showError('Errore', e.message || 'Impossibile salvare')
         } finally {
