@@ -284,7 +284,9 @@ I file sono il dataset fisso iniziale. Non assumere in anticipo quanti tiri cont
 ### 10.2 Fase B — Verifica di compatibilità dei modelli
 
 - [ ] Usare `best_384_float16` come baseline iniziale selezionandolo esplicitamente per ID: in `src/config/appConfig.ts` il default attualmente dichiarato è `best_640_float16`, quindi non affidarsi al modello predefinito durante l'A/B.
-- [ ] Il repository contiene già `assets/models/best_640_float16.tflite` e il registro `src/vision/yoloModels.ts` lo descrive come artefatto da 30 epoche. Non assumere che sia il risultato del training attualmente in corso: identificare con nome/hash il nuovo artefatto e aggiungerlo al confronto solo quando sarà pronto.
+- [ ] Confrontare inizialmente due modelli: `best_384_float16` (baseline) e `best_640_float16` già versionato (30 epoche). Il 640 da 50 epoche entrerà in una successiva esecuzione dello stesso protocollo.
+- [x] Per il confronto iniziale usare il `best_640_float16.tflite` già presente nel repository (registro `src/vision/yoloModels.ts`: 30 epoche), così da misurare i miglioramenti rispetto alla baseline `best_384_float16` mentre termina l'addestramento a 50 epoche.
+- [ ] Quando sarà pronto, aggiungere come terzo candidato il nuovo artefatto YOLO 640 da 50 epoche, identificandolo tramite nome e hash e mantenendo invariati video, frame campionati e protocollo.
 - [ ] Registrare per ciascun artefatto: percorso/nome, hash, input shape, dtype, quantizzazione, output shape, versione/configurazione del training e delegate usato.
 - [ ] Verificare preprocessing, normalizzazione, letterbox/resize, interpretazione output, soglie e NMS del percorso effettivo dell'app.
 - [ ] Non considerare `compare_models.py` un benchmark video: lo script esistente ispeziona metadati dei modelli e non esegue da solo il confronto delle detection sui tre MP4.
