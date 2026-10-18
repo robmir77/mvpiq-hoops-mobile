@@ -1065,6 +1065,43 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }
 
+    // Capture one RGB frame only when saving calibration; no per-frame brightness work is added to the workout pipeline.
+    const captureAmbientBrightness = async (): Promise<number | undefined> => {
+        requestFrameCapture.value = false
+        frameCaptured.value = false
+        capturedFrameRef.current = null
+        requestFrameCapture.value = true
+
+        // One preview frame should arrive quickly; keep the wait bounded.
+        await new Promise(resolve => setTimeout(resolve, 250))
+        requestFrameCapture.value = false
+
+        const buffer = capturedFrameRef.current
+        frameCaptured.value = false
+        capturedFrameRef.current = null
+        if (!buffer || buffer.length < 3) return undefined
+
+        // pixelFormat is RGB. Sample at most ~1,200 pixels to keep the calculation tiny.
+        const pixelCount = Math.floor(buffer.length / 3)
+        const step = Math.max(1, Math.floor(pixelCount / 1200))
+        let sum = 0
+        let samples = 0
+        let maxChannel = 0
+        for (let pixel = 0; pixel < pixelCount; pixel += step) {
+            const offset = pixel * 3
+            const r = buffer[offset]
+            const g = buffer[offset + 1]
+            const b = buffer[offset + 2]
+            sum += (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+            maxChannel = Math.max(maxChannel, r, g, b)
+            samples++
+        }
+        if (samples === 0) return undefined
+        const mean = sum / samples
+        // The frame buffer is normally 8-bit RGB; also tolerate normalized float buffers.
+        return Math.max(0, Math.min(1, mean / (maxChannel <= 1.5 ? 1 : 255)))
+    }
+
     const handleSave = async () => {
         const hoopPoint = points.find(p => p.id === 'hoop')
         const cornerPoints = points.filter(p => p.id.startsWith('corner'))
@@ -1112,6 +1149,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 console.log('[Calibration] Using manually selected center:', finalHoopCenter)
             }
 
+            const ambientBrightness = await captureAmbientBrightness()
+            console.log('[Calibration] Ambient brightness sample:', ambientBrightness ?? 'unavailable')
+
             const cal: CalibrationData = {
                 homographyMatrix,
                 hoopCenter: finalHoopCenter,
@@ -1122,6 +1162,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     height: refinedRim.height,
                 } : undefined,
                 cameraResolution: selectedResolution ?? undefined,
+                ambientBrightness,
                 courtCorners,
                 courtWidth: COURT_CONFIG.WIDTH_M,
                 courtHeight: courtType === 'FULL_COURT' ? COURT_CONFIG.FULL_HEIGHT_M : COURT_CONFIG.HALF_HEIGHT_M,
