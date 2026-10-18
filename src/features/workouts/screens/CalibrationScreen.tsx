@@ -869,9 +869,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [rimCalibrationStatus, setRimCalibrationStatus] = useState<'idle' | 'processing' | 'detected' | 'notDetected' | 'error'>('idle')
     const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const requestFrameCapture = useSharedValue(false)
-    const [capturedFrame, setCapturedFrame] = useState<Float32Array | null>(null)
+    const capturedFrameRef = useRef<Float32Array | null>(null)
     const frameCaptured = useSharedValue(false)
-    const [ignoreCameraTouch, setIgnoreCameraTouch] = useState(false)
+    // Synchronous guard: button onPressIn fires before the parent canvas onTouchEnd.
+    const ignoreCameraTouchRef = useRef(false)
 
     // Rim calibration hook
     const { calculateRoi, calibrateRim, isModelReady } = useRimCalibration(
@@ -913,9 +914,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
                     if (float32Buffer.length > 0) {
                         frameCaptured.value = true
-                        runOnJS(() => {
-                            setCapturedFrame(float32Buffer)
-                        })()
+                        runOnJS((buffer: Float32Array) => {
+                            capturedFrameRef.current = buffer
+                        })(float32Buffer)
                     }
                 }
             } catch (error) {
@@ -927,6 +928,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
     // Helper to update point position
     const updatePoint = (id: DraggablePoint['id'], x: number, y: number) => {
         setPoints(prev => prev.map(p => p.id === id ? { ...p, x, y } : p))
+        // Moving a calibration point invalidates any previous saved result.
+        setSavedCalibration(null)
+        if (id === 'hoop') {
+            setRefinedRim(null)
+            setRimCalibrationStatus('idle')
+        }
     }
 
     const normalizePoint = (rawX: number, rawY: number): Point => {
@@ -1028,9 +1035,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
 
-        // Ignore touches if Rim button was just pressed
-        if (ignoreCameraTouch) {
-            setIgnoreCameraTouch(false)
+        // Ignore taps on controls that bubble up from the camera overlay.
+        if (ignoreCameraTouchRef.current) {
+            ignoreCameraTouchRef.current = false
             return
         }
 
@@ -1141,15 +1148,17 @@ export default function CalibrationScreen({ navigation, route }: any) {
             return
         }
 
-        // Set flag to ignore the next camera touch (the button press will propagate)
-        setIgnoreCameraTouch(true)
+        // onPressIn sets the guard before the parent canvas receives touch-end.
+        // Clear here as a fallback in case the parent did not receive that event;
+        // do not re-arm it after the touch-end, or the next real tap may be ignored.
+        ignoreCameraTouchRef.current = false
 
         setRimCalibrationStatus('processing')
 
         try {
             // Reset latch and frame reference
             frameCaptured.value = false
-            setCapturedFrame(null)
+            capturedFrameRef.current = null
             requestFrameCapture.value = true
 
             // Wait for frame to be captured (give it 2000ms)
@@ -1159,7 +1168,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
             requestFrameCapture.value = false
 
             // Get the captured frame
-            const frameBuffer = capturedFrame
+            const frameBuffer = capturedFrameRef.current
             if (!frameBuffer) {
                 throw new Error('Impossibile catturare frame')
             }
@@ -1199,7 +1208,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         } finally {
             requestFrameCapture.value = false
             frameCaptured.value = false
-            setCapturedFrame(null)
+            capturedFrameRef.current = null
         }
     }
 
@@ -1323,6 +1332,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
             { id: 'corner4', x: SW * 0.08, y: CAM_H * 0.85, label: '4' },
         ])
         setSavedCalibration(null)
+        setRefinedRim(null)
+        setRimCalibrationStatus('idle')
     }
 
     const OverlayComponent =
@@ -1387,6 +1398,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 {/* Camera config button */}
                 <TouchableOpacity
                     style={styles.configBtn}
+                    onPressIn={() => { ignoreCameraTouchRef.current = true }}
                     onPress={() => setShowConfigPanel(!showConfigPanel)}
                 >
                     <Text style={styles.configBtnText}>⚙️</Text>
@@ -1396,12 +1408,13 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 {isModelReady && rimRoi && (
                     <TouchableOpacity
                         style={[styles.rimCalibBtn, rimCalibrationStatus === 'processing' && styles.rimCalibBtnDisabled]}
+                        onPressIn={() => { ignoreCameraTouchRef.current = true }}
                         onPress={handleRimCalibration}
                         disabled={rimCalibrationStatus === 'processing'}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                         <Text style={styles.rimCalibBtnText}>
-                            {rimCalibrationStatus === 'processing' ? '⏳...' : rimCalibrationStatus === 'detected' ? '✓' : '🎯 Rileva Rim'}
+                            {rimCalibrationStatus === 'processing' ? '⏳ Rilevamento...' : rimCalibrationStatus === 'detected' ? '✓ Rim rilevato · ripeti' : rimCalibrationStatus === 'notDetected' || rimCalibrationStatus === 'error' ? '↻ Riprova rim' : '🎯 Rileva rim'}
                         </Text>
                     </TouchableOpacity>
                 )}
