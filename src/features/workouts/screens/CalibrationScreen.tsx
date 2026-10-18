@@ -869,9 +869,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [rimCalibrationStatus, setRimCalibrationStatus] = useState<'idle' | 'processing' | 'detected' | 'notDetected' | 'error'>('idle')
     const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const requestFrameCapture = useSharedValue(false)
+    const requestBrightnessCapture = useSharedValue(false)
     const capturedFrameRef = useRef<Float32Array | null>(null)
+    const ambientBrightnessRef = useRef<number | null>(null)
     const storeCapturedFrame = React.useCallback((buffer: Float32Array) => {
         capturedFrameRef.current = buffer
+    }, [])
+    const storeAmbientBrightness = React.useCallback((brightness: number) => {
+        ambientBrightnessRef.current = brightness
     }, [])
     const frameCaptured = useSharedValue(false)
     // Synchronous guard: button onPressIn fires before the parent canvas onTouchEnd.
@@ -894,6 +899,38 @@ export default function CalibrationScreen({ navigation, route }: any) {
         targetResolution: selectedResolution ? { width: selectedResolution.width, height: selectedResolution.height } : undefined,
         onFrame: (frame: Frame) => {
             'worklet'
+
+            // Calibration brightness uses a sparse sample on the frame thread and sends back one number only.
+            // It does not copy the full camera frame to the JS thread.
+            if (requestBrightnessCapture.value) {
+                requestBrightnessCapture.value = false
+                try {
+                    const pixelBuffer = frame.getPixelBuffer()
+                    if (pixelBuffer) {
+                        const data = pixelBuffer instanceof Float32Array
+                            ? pixelBuffer
+                            : new Uint8Array(pixelBuffer as ArrayBufferLike)
+                        const pixelCount = Math.floor(data.length / 3)
+                        const step = Math.max(1, Math.floor(pixelCount / 1200))
+                        let luminanceSum = 0
+                        let samples = 0
+                        for (let pixel = 0; pixel < pixelCount; pixel += step) {
+                            const offset = pixel * 3
+                            luminanceSum += 0.2126 * data[offset] +
+                                0.7152 * data[offset + 1] +
+                                0.0722 * data[offset + 2]
+                            samples++
+                        }
+                        if (samples > 0) {
+                            runOnJS(storeAmbientBrightness)(Math.max(0, Math.min(1, (luminanceSum / samples) / 255)))
+                        }
+                    }
+                } catch (error) {
+                    console.error('[Calibration] Brightness sampling failed:', error)
+                }
+                return
+            }
+
             if (!requestFrameCapture.value) return
 
             // Check latch to prevent duplicate captures
@@ -1067,37 +1104,13 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     // Capture one RGB frame only when saving calibration; no per-frame brightness work is added to the workout pipeline.
     const captureAmbientBrightness = async (): Promise<number | undefined> => {
-        requestFrameCapture.value = false
-        frameCaptured.value = false
-        capturedFrameRef.current = null
-        requestFrameCapture.value = true
+        ambientBrightnessRef.current = null
+        requestBrightnessCapture.value = true
 
         // One preview frame should arrive quickly; keep the wait bounded.
         await new Promise(resolve => setTimeout(resolve, 250))
-        requestFrameCapture.value = false
-
-        const buffer = capturedFrameRef.current
-        frameCaptured.value = false
-        capturedFrameRef.current = null
-        if (!buffer || buffer.length < 3) return undefined
-
-        // Keep the same RGB-interleaved assumption as useRimCalibration.cropFrameBuffer.
-        const pixelCount = Math.floor(buffer.length / 3)
-        const step = Math.max(1, Math.floor(pixelCount / 1200))
-        let sum = 0
-        let samples = 0
-        for (let pixel = 0; pixel < pixelCount; pixel += step) {
-            const offset = pixel * 3
-            const r = buffer[offset]
-            const g = buffer[offset + 1]
-            const b = buffer[offset + 2]
-            sum += (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
-            samples++
-        }
-        if (samples === 0) return undefined
-        const mean = sum / samples
-        // VisionCamera's RGB buffer is 8-bit data copied into Float32Array for inference.
-        return Math.max(0, Math.min(1, mean / 255))
+        requestBrightnessCapture.value = false
+        return ambientBrightnessRef.current ?? undefined
     }
 
     const handleSave = async () => {
