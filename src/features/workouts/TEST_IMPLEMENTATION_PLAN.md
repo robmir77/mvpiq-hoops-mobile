@@ -332,7 +332,8 @@ Ordine consigliato:
 5. **Queue/outbox:** verificare affidabilità asincrona.
 6. **Overlay:** verificare coordinate e aggiornamenti dello stato.
 7. **Regressione completa e coverage.**
-8. **Device test** con checklist e prove registrate.
+8. **Benchmark video offline:** inventario e annotazioni dei tre MP4, verifica di compatibilità dei modelli e confronto sulle stesse sequenze di frame.
+9. **Replay end-to-end e device test:** dopo aver verificato o implementato un ingresso deterministico dei frame, misurare conteggio e prestazioni sul dispositivo.
 
 Dopo ogni fase:
 1. eseguire il test mirato;
