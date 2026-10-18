@@ -5,7 +5,10 @@
 
 import React from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { Zap } from 'lucide-react-native'
 import type { ShotResult } from '../types/workouts.types'
+
+export type TorchMode = 'auto' | 'on' | 'off'
 
 interface WorkoutControlsProps {
     isPaused: boolean
@@ -18,6 +21,8 @@ interface WorkoutControlsProps {
     rimDetectionEnabled: boolean
     debugMode: boolean
     diagnosticMode: boolean
+    torchMode: TorchMode
+    torchAvailable: boolean
     autoStatusText: string
     autoDotActive: boolean
     onToggleBall: () => void
@@ -25,6 +30,7 @@ interface WorkoutControlsProps {
     onToggleRim: () => void
     onToggleDebug: () => void
     onToggleDiagnostic: () => void
+    onCycleTorch: () => void
     onManualShot: (result: ShotResult) => void
     onToggleVideoRecording: () => void
     onEndSession: () => void
@@ -63,6 +69,8 @@ export const WorkoutControls: React.FC<WorkoutControlsProps> = ({
     rimDetectionEnabled,
     debugMode,
     diagnosticMode,
+    torchMode,
+    torchAvailable,
     autoStatusText,
     autoDotActive,
     onToggleBall,
@@ -70,6 +78,7 @@ export const WorkoutControls: React.FC<WorkoutControlsProps> = ({
     onToggleRim,
     onToggleDebug,
     onToggleDiagnostic,
+    onCycleTorch,
     onManualShot,
     onToggleVideoRecording,
     onEndSession,
@@ -139,6 +148,27 @@ export const WorkoutControls: React.FC<WorkoutControlsProps> = ({
                     labelOff="🏀 SHOT"
                     onPress={onToggleDiagnostic}
                 />
+            </View>
+            <View style={styles.torchRow}>
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={torchAvailable ? `Torcia ${torchMode.toUpperCase()}` : 'Torcia non disponibile'}
+                    style={[
+                        styles.torchBtn,
+                        torchMode === 'on' ? styles.torchBtnOn : torchMode === 'auto' ? styles.torchBtnAuto : styles.torchBtnOff,
+                        (!torchAvailable || isPaused || isEnding) && styles.btnDisabled,
+                    ]}
+                    onPress={onCycleTorch}
+                    disabled={!torchAvailable || isPaused || isEnding}
+                >
+                    <Zap size={18} color={torchMode === 'on' ? '#fbbf24' : torchMode === 'auto' ? '#93c5fd' : '#9ca3af'} strokeWidth={2.5} />
+                    <Text style={[
+                        styles.torchBtnLabel,
+                        torchMode === 'on' ? styles.torchBtnLabelOn : torchMode === 'auto' ? styles.torchBtnLabelAuto : styles.torchBtnLabelOff,
+                    ]}>{torchAvailable ? torchMode.toUpperCase() : 'NON DISP.'}</Text>
+                    <Text style={styles.torchBtnHint}>{torchMode === 'auto' ? 'Luce automatica' : torchMode === 'on' ? 'Intensità max' : 'Luce spenta'}</Text>
+                </TouchableOpacity>
+                <Text style={styles.torchHelpText}>La modalità AUTO regola la torcia in base alla luminosità misurata in calibrazione.</Text>
             </View>
             <View style={styles.manualRow}>
                 <Text style={styles.manualLabel}>Correzione:</Text>
@@ -257,6 +287,32 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         fontSize: 12,
     },
+    torchRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 10,
+        paddingVertical: 2,
+    },
+    torchBtn: {
+        minWidth: 112,
+        paddingHorizontal: 13,
+        paddingVertical: 9,
+        borderRadius: 12,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 3,
+    },
+    torchBtnAuto: { backgroundColor: 'rgba(59,130,246,0.12)', borderColor: '#3b82f6' },
+    torchBtnOn: { backgroundColor: 'rgba(251,191,36,0.14)', borderColor: '#fbbf24' },
+    torchBtnOff: { backgroundColor: 'rgba(107,114,128,0.10)', borderColor: '#4b5563' },
+    torchBtnLabel: { fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+    torchBtnLabelAuto: { color: '#93c5fd' },
+    torchBtnLabelOn: { color: '#fbbf24' },
+    torchBtnLabelOff: { color: '#9ca3af' },
+    torchBtnHint: { color: '#9ca3af', fontSize: 9, fontWeight: '600' },
+    torchHelpText: { flex: 1, color: '#737d90', fontSize: 10, lineHeight: 14 },
     manualRow: {
         flexDirection: 'row',
         alignItems: 'center',
