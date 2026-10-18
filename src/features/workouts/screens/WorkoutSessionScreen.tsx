@@ -98,6 +98,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
     const [torchMode, setTorchMode] = useState<TorchMode>('auto')
+    const [cameraStarted, setCameraStarted] = useState(false)
     const isPaused = session?.status === 'PAUSED'
 
     // Stabilize effectiveResolution to prevent remount when calibration loads
@@ -321,7 +322,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
     const cameraRef       = useRef<CameraRef>(null)
     const applyTorchSettings = useCallback(async (mode: TorchMode, shouldBeActive: boolean) => {
-        const controller = cameraRef.current
+        // VisionCamera 5.x exposes torch methods on CameraRef.controller, not CameraRef itself.
+        const controller = cameraRef.current?.controller
         if (!controller || !device?.hasTorch) return
 
         const brightness = calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness
@@ -370,8 +372,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
     useEffect(() => {
+        if (!cameraStarted) return
         void applyTorchSettings(torchMode, isActive && !isPaused && !isEnding)
-    }, [applyTorchSettings, torchMode, isActive, isPaused, isEnding])
+    }, [applyTorchSettings, torchMode, isActive, isPaused, isEnding, cameraStarted])
 
     const lastBackendFrameTimestamp = useRef<number>(0)
     const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
@@ -1344,6 +1347,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             style={StyleSheet.absoluteFill}
                             device={device}
                             isActive={isActive && !isPaused}
+                            onStarted={() => setCameraStarted(true)}
+                            onStopped={() => setCameraStarted(false)}
                             outputs={[frameOutput]}
                             zoom={isActive && !isPaused ? zoom : undefined}
                             resizeMode="cover"
