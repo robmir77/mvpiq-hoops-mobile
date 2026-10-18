@@ -258,6 +258,69 @@ Non considerare il test su device superato soltanto perché i modelli risultano 
 
 **Nota:** Gli altri modelli hanno meno epoche di training (20-50 vs 200 del 384), che influenzano l'accuratezza del rilevamento. Per migliorarli, eseguire training resume fino a 150-200 epoche.
 
+## 10. Benchmark comparativo dei modelli YOLO usando video fissi
+
+**Stato:** pianificato — da implementare dopo la disponibilità del modello 640 esportato e compatibile con l'app.  
+**Obiettivo:** confrontare i modelli sugli stessi contenuti, separando la qualità delle detection dalle prestazioni e dal conteggio finale dei tiri.
+
+### Dataset di test versionato
+
+Usare tutti e tre i video già presenti nel branch `Validation-1.0`:
+
+- `src/vision/__tests__/media/Tiro Libero.mp4`
+- `src/vision/__tests__/media/Tiro da 3.mp4`
+- `src/vision/__tests__/media/Tirp a centrocampo.mp4`
+
+I file sono il dataset fisso iniziale. Non assumere in anticipo quanti tiri contenga ciascun video o quali difficoltà rappresenti: ispezionarli e annotare manualmente i riferimenti prima di interpretare i risultati. Registrare nome, durata, dimensioni, FPS e hash dei file per identificare esattamente la versione usata.
+
+### 10.1 Fase A — Inventario e riferimento annotato
+
+- [ ] Verificare che i tre file siano leggibili e rilevare durata, risoluzione, frame rate e numero di frame.
+- [ ] Creare un manifesto del dataset con percorso, hash e metadati dei video.
+- [ ] Guardare ciascun video e annotare il numero dei tentativi di tiro e, quando distinguibile, l'esito reale.
+- [ ] Selezionare frame rappresentativi a intervalli ripetibili, includendo la palla visibile, la palla piccola/in movimento e frame senza palla quando presenti.
+- [ ] Annotare manualmente le bounding box di palla, persone e canestro nei frame campionati per poter calcolare metriche di detection. Se non si annotano bounding box, limitare le conclusioni a un confronto qualitativo e non dichiarare precision/recall misurate.
+
+### 10.2 Fase B — Verifica di compatibilità dei modelli
+
+- [ ] Usare `best_384_float16` come baseline iniziale solo dopo aver verificato il file esatto e la configurazione che l'app carica.
+- [ ] Aggiungere il modello 640 soltanto quando l'addestramento è terminato e il relativo artefatto TFLite è stato esportato.
+- [ ] Registrare per ciascun artefatto: percorso/nome, hash, input shape, dtype, quantizzazione, output shape, versione/configurazione del training e delegate usato.
+- [ ] Verificare preprocessing, normalizzazione, letterbox/resize, interpretazione output, soglie e NMS del percorso effettivo dell'app.
+- [ ] Non considerare `compare_models.py` un benchmark video: lo script esistente ispeziona metadati dei modelli e non esegue da solo il confronto delle detection sui tre MP4.
+
+### 10.3 Fase C — Benchmark offline delle detection
+
+- [ ] Definire un runner ripetibile che decodifichi gli stessi frame dai tre video e li passi ai modelli usando il preprocessing corretto per ciascun artefatto.
+- [ ] Eseguire un modello alla volta, mantenendo fissi frame campionati, soglie equivalenti quando applicabili e configurazione di valutazione.
+- [ ] Salvare i risultati grezzi per frame in CSV/JSON: video, timestamp/frame index, modello, classe, confidenza, bounding box e latenza d'inferenza.
+- [ ] Calcolare precision, recall e metriche di localizzazione soltanto sui frame annotati e con una regola IoU dichiarata.
+- [ ] Riportare separatamente falsi positivi, mancate detection, confidenza e latenza mediana/P95; non aggregare tutto in un unico punteggio non spiegato.
+- [ ] Ripetere i run necessari a distinguere il costo di inizializzazione dal tempo d'inferenza. Specificare hardware, runtime, delegate e versione delle librerie.
+- [ ] Se l'ambiente offline non supporta lo stesso runtime/delegate dell'app, etichettare i tempi come benchmark offline e non usarli come sostituti delle prestazioni sul telefono.
+
+### 10.4 Fase D — Replay end-to-end e verifica su dispositivo
+
+- [ ] Verificare se la pipeline attuale accetta frame provenienti da un video. Se non li accetta, progettare un harness di replay separato che alimenti frame e timestamp in modo deterministico senza alterare il comportamento normale della camera.
+- [ ] Prima di implementare il replay, individuare il punto d'ingresso reale di YOLO/worker e i contratti di timestamp, dimensioni e coordinate.
+- [ ] Per ciascun video e modello, registrare tiri annotati, tiri rilevati, MADE/MISS quando verificabile, falsi positivi, tiri persi, FPS effettivi, latenze e osservazioni stale.
+- [ ] Eseguire infine prove sul Samsung Galaxy S21 Ultra con build e impostazioni registrate. Usare lo stesso video, stesso ordine di frame e stesso punto di partenza per ogni modello.
+- [ ] Verificare che il replay non crei una coda illimitata: documentare frame prodotti, elaborati, saltati e ritardo accumulato.
+- [ ] Non modificare soglie, tracking, shot detection o throttling per favorire un modello durante il confronto; eventuali esperimenti di tuning vanno registrati come test separati.
+
+### Output richiesti
+
+1. Manifesto dei tre video e annotazioni di riferimento.
+2. CSV/JSON delle detection per modello e frame.
+3. Report comparativo con metriche, configurazioni, limiti e anomalie.
+4. Report separato end-to-end/device per conteggio dei tiri e prestazioni.
+
+### Criteri di uscita
+
+Il confronto è considerato ripetibile quando entrambi i modelli elaborano gli stessi frame con configurazioni documentate, i risultati grezzi sono conservati e le metriche sono confrontate con annotazioni esplicite. Se il replay end-to-end non è ancora disponibile, riportare soltanto il benchmark offline e lasciare il conteggio completo dei tiri come non verificato.
+
+---
+
 ## 11. Strategia di esecuzione
 
 Ordine consigliato:
