@@ -260,7 +260,7 @@ Non considerare il test su device superato soltanto perché i modelli risultano 
 
 ## 10. Benchmark comparativo dei modelli YOLO usando video fissi
 
-**Stato:** pianificato — da implementare dopo la disponibilità del modello 640 esportato e compatibile con l'app.  
+**Stato:** runner offline aggiunto in `scripts/benchmark_yolo_videos.py`; esecuzione e validazione del preprocessing ancora da fare. Il modello 640 esistente da 30 epoche può essere provato subito; il modello 640 da 50 epoche sarà aggiunto quando esportato e verificato.  
 **Obiettivo:** confrontare i modelli sugli stessi contenuti, separando la qualità delle detection dalle prestazioni e dal conteggio finale dei tiri.
 
 ### Dataset di test versionato
@@ -272,6 +272,30 @@ Usare tutti e tre i video già presenti nel branch `Validation-1.0`:
 - `src/vision/__tests__/media/Tirp a centrocampo.mp4`
 
 I file sono il dataset fisso iniziale. Non assumere in anticipo quanti tiri contenga ciascun video o quali difficoltà rappresenti: ispezionarli e annotare manualmente i riferimenti prima di interpretare i risultati. Registrare nome, durata, dimensioni, FPS e hash dei file per identificare esattamente la versione usata.
+
+### 10.0 Runner offline iniziale
+
+È stato aggiunto `scripts/benchmark_yolo_videos.py`. Il runner:
+- legge i modelli TFLite e i tre MP4;
+- registra hash SHA-256 e metadati dei video e dei modelli;
+- campiona gli stessi frame secondo `--every-n-frames`;
+- misura la latenza TFLite dopo un numero configurabile di warm-up;
+- salva le detection diagnostiche in CSV e un riepilogo in `manifest.json`.
+
+Esempio dalla root del repository (in un ambiente Python separato):
+
+```bash
+pip install opencv-python numpy tensorflow
+python scripts/benchmark_yolo_videos.py \
+  --models assets/models/best_384_float16.tflite assets/models/best_640_float16.tflite \
+  --videos "src/vision/__tests__/media/Tiro Libero.mp4" \
+          "src/vision/__tests__/media/Tiro da 3.mp4" \
+          "src/vision/__tests__/media/Tirp a centrocampo.mp4" \
+  --every-n-frames 5 --warmup 5 --threads 2 \
+  --output-dir benchmark-results/yolo-ab
+```
+
+**Limiti da rispettare:** il runner non è ancora stato eseguito in questo ambiente. Il preprocessing OpenCV (RGB, contain/letterbox e intervallo numerico dei pixel) deve essere confrontato con l'output effettivo di `react-native-vision-camera-resizer` prima di considerare le detection equivalenti a quelle dell'app. `--input-scale` rende esplicito il moltiplicatore dei pixel; il valore predefinito è `1.0`, da confermare con una verifica sul dispositivo. Il decoder Python è diagnostico: non replica ancora integralmente `YoloDetector.parseOutput()`, la soglia adattiva o il filtro finale della palla nel worker. Il CSV consente quindi un confronto preliminare, non una dichiarazione di precision/recall o di accuratezza finale. Il runner misura latenza su CPU/default delegate Python, non FPS su Samsung S21 Ultra.
 
 ### 10.1 Fase A — Inventario e riferimento annotato
 
