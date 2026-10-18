@@ -1411,16 +1411,16 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 </TouchableOpacity>
 
                 {/* Rim calibration button */}
-                {isModelReady && rimRoi && (
+                {rimRoi && (
                     <TouchableOpacity
-                        style={[styles.rimCalibBtn, rimCalibrationStatus === 'processing' && styles.rimCalibBtnDisabled]}
+                        style={[styles.rimCalibBtn, (!isModelReady || rimCalibrationStatus === 'processing') && styles.rimCalibBtnDisabled]}
                         onPressIn={() => { ignoreCameraTouchRef.current = true }}
                         onPress={handleRimCalibration}
-                        disabled={rimCalibrationStatus === 'processing'}
+                        disabled={!isModelReady || rimCalibrationStatus === 'processing'}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                         <Text style={styles.rimCalibBtnText}>
-                            {rimCalibrationStatus === 'processing' ? '⏳ Rilevamento...' : rimCalibrationStatus === 'detected' ? '✓ Rim rilevato · ripeti' : rimCalibrationStatus === 'notDetected' || rimCalibrationStatus === 'error' ? '↻ Riprova rim' : '🎯 Rileva rim'}
+                            {!isModelReady ? '⏳ Caricamento YOLO...' : rimCalibrationStatus === 'processing' ? '⏳ Rilevamento...' : rimCalibrationStatus === 'detected' ? '✓ Rim rilevato · ripeti' : rimCalibrationStatus === 'notDetected' || rimCalibrationStatus === 'error' ? '↻ Riprova rim' : '🎯 Rileva rim'}
                         </Text>
                     </TouchableOpacity>
                 )}
