@@ -184,12 +184,27 @@ export function cropFrameBuffer(
   frameHeight: number,
   roi: RoiRegion
 ): Float32Array {
-  const croppedSize = roi.width * roi.height * 3 // RGB interleaved
+  // Normalize ROI to integer bounds within frame
+  const left = Math.max(0, Math.floor(roi.x))
+  const top = Math.max(0, Math.floor(roi.y))
+  const right = Math.min(frameWidth, Math.ceil(roi.x + roi.width))
+  const bottom = Math.min(frameHeight, Math.ceil(roi.y + roi.height))
+
+  const width = right - left
+  const height = bottom - top
+
+  // Validate dimensions
+  if (width <= 0 || height <= 0) {
+    console.warn('[cropFrameBuffer] Invalid ROI dimensions:', { left, top, right, bottom, width, height })
+    return new Float32Array(0)
+  }
+
+  const croppedSize = width * height * 3 // RGB interleaved
   const cropped = new Float32Array(croppedSize)
 
   let croppedIndex = 0
-  for (let y = roi.y; y < roi.y + roi.height; y++) {
-    for (let x = roi.x; x < roi.x + roi.width; x++) {
+  for (let y = top; y < bottom; y++) {
+    for (let x = left; x < right; x++) {
       const srcIndex = (y * frameWidth + x) * 3
       cropped[croppedIndex++] = buffer[srcIndex]     // R
       cropped[croppedIndex++] = buffer[srcIndex + 1] // G

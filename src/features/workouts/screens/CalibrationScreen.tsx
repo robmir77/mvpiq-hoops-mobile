@@ -868,9 +868,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [rimRoi, setRimRoi] = useState<RoiRegion | null>(null)
     const [rimCalibrationStatus, setRimCalibrationStatus] = useState<'idle' | 'processing' | 'detected' | 'notDetected' | 'error'>('idle')
     const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
-    const [requestFrameCapture, setRequestFrameCapture] = useState(false)
+    const requestFrameCapture = useSharedValue(false)
     const [capturedFrame, setCapturedFrame] = useState<Float32Array | null>(null)
-    const frameCaptured = useSharedValue(false) // Latch to prevent duplicate captures (worklet-safe)
+    const frameCaptured = useSharedValue(false)
+    const [ignoreCameraTouch, setIgnoreCameraTouch] = useState(false)
 
     // Rim calibration hook
     const { calculateRoi, calibrateRim, isModelReady } = useRimCalibration(
@@ -884,13 +885,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const yoloInputSize = yoloModel?.inputSize || 384
 
     // Frame output for rim calibration - captures single frame when requested
-    // Captures at original camera resolution, not YOLO input size
     useFrameOutput({
         pixelFormat: 'rgb',
         targetResolution: selectedResolution ? { width: selectedResolution.width, height: selectedResolution.height } : undefined,
         onFrame: (frame: Frame) => {
             'worklet'
-            if (!requestFrameCapture) return
+            if (!requestFrameCapture.value) return
 
             // Check latch to prevent duplicate captures
             if (frameCaptured.value) return
@@ -899,29 +899,20 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 // Extract pixel buffer from GPUFrame at original resolution
                 const pixelBuffer = frame.getPixelBuffer()
                 if (pixelBuffer) {
-                    // Log buffer metadata for verification
-                    console.log('[Calibration] PixelBuffer type:', typeof pixelBuffer)
-                    console.log('[Calibration] PixelBuffer constructor:', pixelBuffer.constructor.name)
-                    console.log('[Calibration] PixelBuffer byteLength:', pixelBuffer.byteLength)
-
-                    // Convert to Float32Array
-                    const float32Buffer = new Float32Array(pixelBuffer as ArrayBufferLike)
-                    console.log('[Calibration] Float32Array length:', float32Buffer.length)
-                    if (selectedResolution) {
-                        console.log('[Calibration] Expected length (RGB interleaved):', selectedResolution.width * selectedResolution.height * 3)
-                    }
-
-                    // Log sample values for verification
-                    if (float32Buffer.length > 0) {
-                        console.log('[Calibration] Sample values [0-5]:', float32Buffer.slice(0, 5))
-                        console.log('[Calibration] Min value:', Math.min(...float32Buffer))
-                        console.log('[Calibration] Max value:', Math.max(...float32Buffer))
+                    // Check if buffer is already Float32Array or needs conversion
+                    let float32Buffer: Float32Array
+                    if (pixelBuffer instanceof Float32Array) {
+                        float32Buffer = pixelBuffer
+                    } else {
+                        const uint8Buffer = new Uint8Array(pixelBuffer as ArrayBufferLike)
+                        float32Buffer = new Float32Array(uint8Buffer.length)
+                        for (let i = 0; i < uint8Buffer.length; i++) {
+                            float32Buffer[i] = uint8Buffer[i]
+                        }
                     }
 
                     if (float32Buffer.length > 0) {
-                        // Set latch before storing to prevent race conditions
                         frameCaptured.value = true
-                        // Store the frame buffer at original resolution via state setter
                         runOnJS(() => {
                             setCapturedFrame(float32Buffer)
                         })()
@@ -1036,6 +1027,13 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
+
+        // Ignore touches if Rim button was just pressed
+        if (ignoreCameraTouch) {
+            setIgnoreCameraTouch(false)
+            return
+        }
+
         // Find closest point to touch with larger tolerance
         let closestId: DraggablePoint['id'] | null = null
         let minDist = Infinity
@@ -1143,19 +1141,22 @@ export default function CalibrationScreen({ navigation, route }: any) {
             return
         }
 
+        // Set flag to ignore the next camera touch (the button press will propagate)
+        setIgnoreCameraTouch(true)
+
         setRimCalibrationStatus('processing')
 
         try {
             // Reset latch and frame reference
             frameCaptured.value = false
             setCapturedFrame(null)
-            setRequestFrameCapture(true)
+            requestFrameCapture.value = true
 
-            // Wait for frame to be captured (give it 500ms)
-            await new Promise(resolve => setTimeout(resolve, 500))
+            // Wait for frame to be captured (give it 2000ms)
+            await new Promise(resolve => setTimeout(resolve, 2000))
 
             // Disable frame capture
-            setRequestFrameCapture(false)
+            requestFrameCapture.value = false
 
             // Get the captured frame
             const frameBuffer = capturedFrame
@@ -1163,13 +1164,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 throw new Error('Impossibile catturare frame')
             }
 
-            console.log('[Calibration] Frame captured for rim calibration, buffer size:', frameBuffer.length)
-
             // Get normalized hoop center
             const normHoop = normalizePoint(hoopPoint.x, hoopPoint.y)
 
             // Run rim calibration with the captured frame at original camera resolution
-            // calibrateRim will handle cropping and resizing internally
             const result = await calibrateRim(
                 frameBuffer,
                 selectedResolution.width,
@@ -1189,6 +1187,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 setRimCalibrationStatus('detected')
                 showSuccess('Rilevamento completato', `Confidenza: ${(result.confidence * 100).toFixed(1)}%`)
             } else {
+                // Only reset refinedRim when detection fails - keep ROI box visible
+                console.log('[Calibration] Detection failed, resetting refinedRim only. result:', result)
+                setRefinedRim(null)
                 setRimCalibrationStatus('notDetected')
                 showWarning('Rilevamento fallito', result.error || 'Nessun rilevamento valido - usa selezione manuale')
             }
@@ -1196,9 +1197,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
             setRimCalibrationStatus('error')
             showError('Errore', error instanceof Error ? error.message : 'Errore durante la calibrazione')
         } finally {
-            setRequestFrameCapture(false)
-            frameCaptured.value = false // Reset latch for next capture
-            setCapturedFrame(null) // Clear frame buffer
+            requestFrameCapture.value = false
+            frameCaptured.value = false
+            setCapturedFrame(null)
         }
     }
 
@@ -1397,6 +1398,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         style={[styles.rimCalibBtn, rimCalibrationStatus === 'processing' && styles.rimCalibBtnDisabled]}
                         onPress={handleRimCalibration}
                         disabled={rimCalibrationStatus === 'processing'}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                         <Text style={styles.rimCalibBtnText}>
                             {rimCalibrationStatus === 'processing' ? '⏳...' : rimCalibrationStatus === 'detected' ? '✓' : '🎯 Rileva Rim'}
