@@ -1081,14 +1081,19 @@ export default function CalibrationScreen({ navigation, route }: any) {
         capturedFrameRef.current = null
         if (!buffer || buffer.length < 3) return undefined
 
-        // pixelFormat is RGB. Sample at most ~1,200 pixels to keep the calculation tiny.
-        const pixelCount = Math.floor(buffer.length / 3)
+        // RGB output can be packed as RGB or RGBA depending on the native camera format.
+        const expectedPixels = selectedResolution
+            ? selectedResolution.width * selectedResolution.height
+            : 0
+        const inferredChannels = expectedPixels > 0 ? Math.round(buffer.length / expectedPixels) : 3
+        const channels = inferredChannels === 4 ? 4 : 3
+        const pixelCount = Math.floor(buffer.length / channels)
         const step = Math.max(1, Math.floor(pixelCount / 1200))
         let sum = 0
         let samples = 0
         let maxChannel = 0
         for (let pixel = 0; pixel < pixelCount; pixel += step) {
-            const offset = pixel * 3
+            const offset = pixel * channels
             const r = buffer[offset]
             const g = buffer[offset + 1]
             const b = buffer[offset + 2]
