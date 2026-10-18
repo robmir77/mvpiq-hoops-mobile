@@ -370,8 +370,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
     useEffect(() => {
-        void applyTorchSettings(torchMode, isActive && !isPaused)
-    }, [applyTorchSettings, torchMode, isActive, isPaused])
+        void applyTorchSettings(torchMode, isActive && !isPaused && !isEnding)
+    }, [applyTorchSettings, torchMode, isActive, isPaused, isEnding])
 
     const lastBackendFrameTimestamp = useRef<number>(0)
     const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
