@@ -321,60 +321,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
     const cameraRef       = useRef<CameraRef>(null)
-    const applyTorchSettings = useCallback(async (mode: TorchMode, shouldBeActive: boolean) => {
-        // VisionCamera 5.x exposes torch methods on CameraRef.controller, not CameraRef itself.
-        const controller = cameraRef.current?.controller
-        if (!controller || !device?.hasTorch) return
-
-        const brightness = calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness
-        const autoWantsTorch = typeof brightness === 'number' && brightness < 0.28
-        const wantsTorch = shouldBeActive && !!device?.hasTorch && (
-            mode === 'on' || (mode === 'auto' && autoWantsTorch)
-        )
-
-        try {
-            if (!wantsTorch) {
-                await controller.setTorchMode('off')
-                return
-            }
-
-            if (mode === 'on') {
-                if (device?.supportsTorchStrength && device.maxTorchStrength > device.minTorchStrength) {
-                    await controller.enableTorchWithStrength(device.maxTorchStrength)
-                } else {
-                    await controller.setTorchMode('on')
-                }
-                return
-            }
-
-            // AUTO: a darker calibration selects a stronger, but not always maximum, LED level.
-            if (mode === 'auto' && device?.supportsTorchStrength &&
-                device.maxTorchStrength > device.minTorchStrength && typeof brightness === 'number') {
-                const level = brightness < 0.10 ? 0.90 : brightness < 0.17 ? 0.68 : 0.42
-                const strength = device.minTorchStrength +
-                    (device.maxTorchStrength - device.minTorchStrength) * level
-                await controller.enableTorchWithStrength(strength)
-            } else {
-                await controller.setTorchMode('on')
-            }
-        } catch (error) {
-            // Strength control is not implemented by every camera even when metadata is present.
-            // Fall back to the supported binary torch API without interrupting the workout.
-            console.warn('[WorkoutSession] Torch control fallback:', error)
-            try {
-                await controller.setTorchMode(wantsTorch ? 'on' : 'off')
-            } catch (fallbackError) {
-                console.warn('[WorkoutSession] Unable to update torch:', fallbackError)
-            }
-        }
-    }, [device, calibration?.ambientBrightness, calibrationParam?.ambientBrightness])
-
-
-    // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
-    useEffect(() => {
-        if (!cameraStarted) return
-        void applyTorchSettings(torchMode, isActive && !isPaused && !isEnding)
-    }, [applyTorchSettings, torchMode, isActive, isPaused, isEnding, cameraStarted])
 
     const lastBackendFrameTimestamp = useRef<number>(0)
     const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
@@ -699,6 +645,61 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         handlePlayerDetection,
         false // runtimeActive: Decision 29 reverted - not used in frame processor
     )
+
+    // Torch control - must be after device and isActive are declared
+    const applyTorchSettings = useCallback(async (mode: TorchMode, shouldBeActive: boolean) => {
+        // VisionCamera 5.x exposes torch methods on CameraRef.controller, not CameraRef itself.
+        const controller = cameraRef.current?.controller
+        if (!controller || !device?.hasTorch) return
+
+        const brightness = calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness
+        const autoWantsTorch = typeof brightness === 'number' && brightness < 0.28
+        const wantsTorch = shouldBeActive && !!device?.hasTorch && (
+            mode === 'on' || (mode === 'auto' && autoWantsTorch)
+        )
+
+        try {
+            if (!wantsTorch) {
+                await controller.setTorchMode('off')
+                return
+            }
+
+            if (mode === 'on') {
+                if (device?.supportsTorchStrength && device.maxTorchStrength > device.minTorchStrength) {
+                    await controller.enableTorchWithStrength(device.maxTorchStrength)
+                } else {
+                    await controller.setTorchMode('on')
+                }
+                return
+            }
+
+            // AUTO: a darker calibration selects a stronger, but not always maximum, LED level.
+            if (mode === 'auto' && device?.supportsTorchStrength &&
+                device.maxTorchStrength > device.minTorchStrength && typeof brightness === 'number') {
+                const level = brightness < 0.10 ? 0.90 : brightness < 0.17 ? 0.68 : 0.42
+                const strength = device.minTorchStrength +
+                    (device.maxTorchStrength - device.minTorchStrength) * level
+                await controller.enableTorchWithStrength(strength)
+            } else {
+                await controller.setTorchMode('on')
+            }
+        } catch (error) {
+            // Strength control is not implemented by every camera even when metadata is present.
+            // Fall back to the supported binary torch API without interrupting the workout.
+            console.warn('[WorkoutSession] Torch control fallback:', error)
+            try {
+                await controller.setTorchMode(wantsTorch ? 'on' : 'off')
+            } catch (fallbackError) {
+                console.warn('[WorkoutSession] Unable to update torch:', fallbackError)
+            }
+        }
+    }, [device, calibration?.ambientBrightness, calibrationParam?.ambientBrightness])
+
+    // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
+    useEffect(() => {
+        if (!cameraStarted) return
+        void applyTorchSettings(torchMode, isActive && !isPaused && !isEnding)
+    }, [applyTorchSettings, torchMode, isActive, isPaused, isEnding, cameraStarted])
 
     // Create VisionEngineAdapter for Runtime (Phase 3)
     useEffect(() => {
