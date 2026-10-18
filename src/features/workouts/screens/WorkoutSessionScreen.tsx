@@ -321,7 +321,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const cameraRef       = useRef<CameraRef>(null)
     const applyTorchSettings = useCallback(async (mode: TorchMode, shouldBeActive: boolean) => {
         const controller = cameraRef.current
-        if (!controller) return
+        if (!controller || !device?.hasTorch) return
 
         const brightness = calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness
         const autoWantsTorch = typeof brightness === 'number' && brightness < 0.28
