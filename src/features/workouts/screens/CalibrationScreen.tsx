@@ -1081,30 +1081,23 @@ export default function CalibrationScreen({ navigation, route }: any) {
         capturedFrameRef.current = null
         if (!buffer || buffer.length < 3) return undefined
 
-        // RGB output can be packed as RGB or RGBA depending on the native camera format.
-        const expectedPixels = selectedResolution
-            ? selectedResolution.width * selectedResolution.height
-            : 0
-        const inferredChannels = expectedPixels > 0 ? Math.round(buffer.length / expectedPixels) : 3
-        const channels = inferredChannels === 4 ? 4 : 3
-        const pixelCount = Math.floor(buffer.length / channels)
+        // Keep the same RGB-interleaved assumption as useRimCalibration.cropFrameBuffer.
+        const pixelCount = Math.floor(buffer.length / 3)
         const step = Math.max(1, Math.floor(pixelCount / 1200))
         let sum = 0
         let samples = 0
-        let maxChannel = 0
         for (let pixel = 0; pixel < pixelCount; pixel += step) {
-            const offset = pixel * channels
+            const offset = pixel * 3
             const r = buffer[offset]
             const g = buffer[offset + 1]
             const b = buffer[offset + 2]
             sum += (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
-            maxChannel = Math.max(maxChannel, r, g, b)
             samples++
         }
         if (samples === 0) return undefined
         const mean = sum / samples
-        // The frame buffer is normally 8-bit RGB; also tolerate normalized float buffers.
-        return Math.max(0, Math.min(1, mean / (maxChannel <= 1.5 ? 1 : 255)))
+        // VisionCamera's RGB buffer is 8-bit data copied into Float32Array for inference.
+        return Math.max(0, Math.min(1, mean / 255))
     }
 
     const handleSave = async () => {
