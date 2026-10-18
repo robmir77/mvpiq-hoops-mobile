@@ -44,7 +44,7 @@ import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, Telemetr
 import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG, TEST_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 import RealtimeBallOverlay from '../components/RealtimeBallOverlay'
 import ReactOverlay from '../components/ReactOverlay'
-import { WorkoutControls } from '../components/WorkoutControls'
+import { WorkoutControls, type TorchMode } from '../components/WorkoutControls'
 import { WorkoutHeader } from '../components/WorkoutHeader'
 import { ShotFeedback } from '../components/ShotFeedback'
 // import { useScreenshotCapture } from '../hooks/useScreenshotCapture' // Screenshot capture disabled
@@ -97,6 +97,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
+    const [torchMode, setTorchMode] = useState<TorchMode>('auto')
 
     // Stabilize effectiveResolution to prevent remount when calibration loads
     const effectiveResolutionRef = useRef<{ width: number; height: number }>(
@@ -318,6 +319,53 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
     const cameraRef       = useRef<CameraRef>(null)
+    const applyTorchSettings = useCallback(async (mode: TorchMode, shouldBeActive: boolean) => {
+        const controller = cameraRef.current
+        if (!controller) return
+
+        const brightness = calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness
+        const autoWantsTorch = typeof brightness === 'number' && brightness < 0.28
+        const wantsTorch = shouldBeActive && !!device?.hasTorch && (
+            mode === 'on' || (mode === 'auto' && autoWantsTorch)
+        )
+
+        try {
+            if (!wantsTorch) {
+                await controller.setTorchMode('off')
+                return
+            }
+
+            if (mode === 'on') {
+                if (device?.supportsTorchStrength && device.maxTorchStrength > device.minTorchStrength) {
+                    await controller.enableTorchWithStrength(device.maxTorchStrength)
+                } else {
+                    await controller.setTorchMode('on')
+                }
+                return
+            }
+
+            // AUTO: a darker calibration selects a stronger, but not always maximum, LED level.
+            if (mode === 'auto' && device?.supportsTorchStrength &&
+                device.maxTorchStrength > device.minTorchStrength && typeof brightness === 'number') {
+                const level = brightness < 0.10 ? 0.90 : brightness < 0.17 ? 0.68 : 0.42
+                const strength = device.minTorchStrength +
+                    (device.maxTorchStrength - device.minTorchStrength) * level
+                await controller.enableTorchWithStrength(strength)
+            } else {
+                await controller.setTorchMode('on')
+            }
+        } catch (error) {
+            // Strength control is not implemented by every camera even when metadata is present.
+            // Fall back to the supported binary torch API without interrupting the workout.
+            console.warn('[WorkoutSession] Torch control fallback:', error)
+            try {
+                await controller.setTorchMode(wantsTorch ? 'on' : 'off')
+            } catch (fallbackError) {
+                console.warn('[WorkoutSession] Unable to update torch:', fallbackError)
+            }
+        }
+    }, [device, calibration?.ambientBrightness, calibrationParam?.ambientBrightness])
+
     const lastBackendFrameTimestamp = useRef<number>(0)
     const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
     const telemetrySamplerRef = useRef<TelemetrySampler | null>(null)
@@ -1259,6 +1307,12 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     const isPaused = session?.status === 'PAUSED'
 
+    // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
+    useEffect(() => {
+        void applyTorchSettings(torchMode, isActive && !isPaused)
+    }, [applyTorchSettings, torchMode, isActive, isPaused])
+
+
     return (
         <GestureHandlerRootView style={styles.container}>
             <WorkoutHeader
@@ -1291,6 +1345,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             device={device}
                             isActive={isActive && !isPaused}
                             outputs={[frameOutput]}
+                            torchMode="off"
                             zoom={isActive && !isPaused ? zoom : undefined}
                             resizeMode="cover"
                             constraints={constraints}
@@ -1409,6 +1464,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 rimDetectionEnabled={rimDetectionEnabled}
                 debugMode={debugMode}
                 diagnosticMode={diagnosticMode}
+                torchMode={torchMode}
+                torchAvailable={!!device?.hasTorch}
                 autoStatusText={autoStatusText}
                 autoDotActive={autoDotActive}
                 onToggleBall={() => setBallEnabled(!ballEnabled)}
@@ -1438,6 +1495,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     }
                 }}
                 onToggleDebug={() => setDebugMode(!debugMode)}
+                onCycleTorch={() => setTorchMode(current => current === 'auto' ? 'on' : current === 'on' ? 'off' : 'auto')}
                 onToggleDiagnostic={() => {
                     const newValue = !diagnosticMode
                     setDiagnosticMode(newValue)
