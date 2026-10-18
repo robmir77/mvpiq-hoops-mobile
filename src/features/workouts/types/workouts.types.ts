@@ -140,6 +140,8 @@ export interface CalibrationData {
     hoopCenter: { x: number; y: number }
     hoopBbox?: { x: number; y: number; width: number; height: number } // Rim bounding box from YOLO calibration
     cameraResolution?: { width: number; height: number }
+    // Normalized RGB brightness sampled during calibration (0 = dark, 1 = bright).
+    ambientBrightness?: number
     freeThrowLine?: { x: number; y: number }
     courtCorners?: {
         topLeft: { x: number; y: number }
