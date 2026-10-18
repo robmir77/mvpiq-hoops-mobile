@@ -375,6 +375,10 @@ export function useRimCalibration(
       // Resize crop to YOLO input size using simple nearest-neighbor scaling
       const resizedCrop = resizeCropToYoloInput(cropBuffer, roi.width, roi.height, yoloInputSize)
 
+      // Calibration is a one-shot inference: never reuse a rim from an earlier attempt,
+      // and start from the configured confidence threshold each time.
+      yoloDetectorRef.current.reset()
+
       // Run YOLO inference on resized crop
       const rimDetection = runYoloOnCrop(resizedCrop, yoloInputSize, yoloInputSize)
 
