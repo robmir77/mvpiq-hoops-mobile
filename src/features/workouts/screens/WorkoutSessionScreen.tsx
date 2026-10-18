@@ -1465,6 +1465,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 diagnosticMode={diagnosticMode}
                 torchMode={torchMode}
                 torchAvailable={!!device?.hasTorch}
+                torchAutoReady={typeof (calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness) === 'number'}
                 autoStatusText={autoStatusText}
                 autoDotActive={autoDotActive}
                 onToggleBall={() => setBallEnabled(!ballEnabled)}
