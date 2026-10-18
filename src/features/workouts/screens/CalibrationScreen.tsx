@@ -870,6 +870,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
     const requestFrameCapture = useSharedValue(false)
     const capturedFrameRef = useRef<Float32Array | null>(null)
+    const storeCapturedFrame = React.useCallback((buffer: Float32Array) => {
+        capturedFrameRef.current = buffer
+    }, [])
     const frameCaptured = useSharedValue(false)
     // Synchronous guard: button onPressIn fires before the parent canvas onTouchEnd.
     const ignoreCameraTouchRef = useRef(false)
@@ -914,9 +917,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
                     if (float32Buffer.length > 0) {
                         frameCaptured.value = true
-                        runOnJS((buffer: Float32Array) => {
-                            capturedFrameRef.current = buffer
-                        })(float32Buffer)
+                        runOnJS(storeCapturedFrame)(float32Buffer)
                     }
                 }
             } catch (error) {
