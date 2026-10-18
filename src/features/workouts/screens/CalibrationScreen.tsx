@@ -1154,10 +1154,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
             return
         }
 
-        // onPressIn sets the guard before the parent canvas receives touch-end.
-        // Clear here as a fallback in case the parent did not receive that event;
-        // do not re-arm it after the touch-end, or the next real tap may be ignored.
-        ignoreCameraTouchRef.current = false
+        // Do not clear ignoreCameraTouchRef here. This handler runs on press and
+        // the parent camera's onTouchEnd can run afterward; clearing here lets that
+        // same button tap be mistaken for a point-placement gesture (seen on first try).
+        // handleCameraTouch consumes and clears the guard when the bubbled touch arrives.
 
         setRimCalibrationStatus('processing')
 
