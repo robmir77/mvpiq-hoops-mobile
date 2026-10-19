@@ -260,7 +260,7 @@ Non considerare il test su device superato soltanto perché i modelli risultano 
 
 ## 10. Benchmark comparativo dei modelli YOLO usando video fissi
 
-**Stato:** runner offline aggiunto in `scripts/benchmark_yolo_videos.py`; esecuzione e validazione del preprocessing ancora da fare. Il modello 640 esistente da 30 epoche può essere provato subito; il modello 640 da 50 epoche sarà aggiunto quando esportato e verificato.  
+**Stato:** runner offline presente in `scripts/benchmark_yolo_videos.py`; aggiunta la modalità `app-compatible` per portare la selezione/filtraggio di `YoloDetector.ts` e `BallDetectionProcessor.ts`. Il preprocessing OpenCV e il runtime Python restano da verificare rispetto al percorso nativo dell'app. I risultati storici prodotti prima di questa modifica restano diagnostici e non sono automaticamente rigenerati.  
 **Obiettivo:** confrontare i modelli sugli stessi contenuti, separando la qualità delle detection dalle prestazioni e dal conteggio finale dei tiri.
 
 ### Dataset di test versionato
@@ -295,7 +295,7 @@ python scripts/benchmark_yolo_videos.py \
   --output-dir benchmark-results/yolo-ab
 ```
 
-**Limiti da rispettare:** il runner non è ancora stato eseguito in questo ambiente. Il preprocessing OpenCV (RGB, contain/letterbox e intervallo numerico dei pixel) deve essere confrontato con l'output effettivo di `react-native-vision-camera-resizer` prima di considerare le detection equivalenti a quelle dell'app. `--input-scale` rende esplicito il moltiplicatore dei pixel; il valore predefinito è `1.0`, da confermare con una verifica sul dispositivo. Il decoder Python è diagnostico: non replica ancora integralmente `YoloDetector.parseOutput()`, la soglia adattiva o il filtro finale della palla nel worker. Il CSV consente quindi un confronto preliminare, non una dichiarazione di precision/recall o di accuratezza finale. Il runner misura latenza su CPU/default delegate Python, non FPS su Samsung S21 Ultra.
+**Limiti da rispettare:** il runner non è ancora stato eseguito in questo ambiente. Il preprocessing OpenCV (RGB, contain/letterbox e intervallo numerico dei pixel) deve essere confrontato con l'output effettivo di `react-native-vision-camera-resizer` prima di considerare le detection equivalenti a quelle dell'app. `--input-scale` rende esplicito il moltiplicatore dei pixel; il valore predefinito è `1.0`, da confermare con una verifica sul dispositivo. Il decoder predefinito ora è `app-compatible`: per ogni classe seleziona la confidence più alta tra i candidati che superano i filtri di classe, replica la soglia adattiva per frame e applica il filtro post-selezione della palla. `--decoder diagnostic` conserva il decoder storico basato su argmax. Anche la modalità app-compatible non è ancora equivalenza end-to-end: usa preprocessing OpenCV invece del resizer nativo verificato, gira su runtime/delegate diversi e non calcola precision/recall senza ground truth annotata. I CSV storici restano prodotti con il decoder precedente e vanno rigenerati in una nuova cartella per confronti validi. Il runner misura latenza su CPU/default delegate Python, non FPS su Samsung S21 Ultra.
 
 ### 10.1 Fase A — Inventario e riferimento annotato
 
@@ -327,6 +327,10 @@ python scripts/benchmark_yolo_videos.py \
 
 ### 10.3.1 Comandi di esecuzione e overlay comparativo
 
+**Importante per il confronto corrente:** i file già presenti in `benchmark-results/yolo-ab-full/` sono stati generati con il decoder diagnostico precedente; non confrontarli come se fossero detection equivalenti all'app. Rigenerare i CSV in una directory nuova con il decoder app-compatible. La modalità `app-compatible` riproduce la selezione per classe (massima confidence tra i candidati validi), soglie adattive e filtro post-selezione della palla; non modifica i sorgenti di produzione né le soglie dell'app.
+
+
+
 **Risultati già versionati:** `benchmark-results/yolo-ab/`. Il `manifest.json` registra un campionamento ogni 5 frame, 5 inferenze di warm-up e 77 inferenze misurate per modello. I CSV attuali sono quindi adatti a un primo controllo visivo dei frame campionati; non descrivono ogni frame del video.
 
 Eseguire i comandi dalla root del repository, nel branch `Validation-1.0`, usando PowerShell.
@@ -348,7 +352,8 @@ python .\scripts\benchmark_yolo_videos.py `
   --every-n-frames 5 `
   --warmup 5 `
   --threads 2 `
-  --output-dir .\benchmark-results\yolo-ab-reproduced
+  --decoder app-compatible `
+  --output-dir .\benchmark-results\yolo-ab-app-compatible
 ```
 
 L'output va in una cartella distinta per non sovrascrivere i risultati già committati. Confrontare il nuovo `manifest.json` con quello esistente; differenze nei tempi possono dipendere dall'hardware, dal runtime e dal carico del sistema.
@@ -365,7 +370,7 @@ python .\scripts\render_yolo_overlay_comparison.py `
   --output-dir .\benchmark-results\yolo-ab\overlay-comparison
 ```
 
-Per ciascun video lo script salva PNG comparativi in `frames\` e un `contact_sheet.png`. Le box e le confidence sono diagnostiche e provengono dal decoder offline: **non sono l'overlay esatto dell'app, non equivalgono a precisione misurata e non sostituiscono annotazioni ground truth**.
+Per ciascun video lo script salva PNG comparativi in `frames\` e un `contact_sheet.png`. Usare i CSV prodotti da `yolo-ab-app-compatible` per il confronto aggiornato; i CSV storici di `yolo-ab-full` rimangono diagnostici. Le box non sono l'overlay esatto dell'app e non equivalgono a precision/recall misurate.
 
 #### C. Analizzare la continuità temporale con campionamento di ogni frame
 
@@ -378,7 +383,8 @@ python .\scripts\benchmark_yolo_videos.py `
   --every-n-frames 1 `
   --warmup 5 `
   --threads 2 `
-  --output-dir .\benchmark-results\yolo-ab-every-frame
+  --decoder app-compatible `
+  --output-dir .\benchmark-results\yolo-ab-app-compatible-every-frame
 ```
 
 Poi generare i frame comparativi dai CSV completi:
