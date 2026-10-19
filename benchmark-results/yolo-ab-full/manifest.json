@@ -1,6 +1,6 @@
 {
   "benchmark": "MVPiQ offline YOLO video benchmark",
-  "created_utc": "2026-10-18T11:11:31Z",
+  "created_utc": "2026-10-19T06:23:56Z",
   "sampling_every_n_frames": 1,
   "warmup_per_model": 5,
   "preprocessing_options": {
@@ -80,19 +80,19 @@
       "warmup_inferences_discarded": 5,
       "measured_inferences": 400,
       "latency_ms": {
-        "mean": 27.279606502415845,
-        "median": 25.181799996062182,
-        "p95": 39.99887500976909,
-        "min": 20.00170000246726,
-        "max": 71.96380000095814
+        "mean": 18.26070700022683,
+        "median": 16.570600011618808,
+        "p95": 26.535600003262505,
+        "min": 14.085200004046783,
+        "max": 32.01699999044649
       },
       "detections_csv": "benchmark-results\\yolo-ab-full\\best_384_float16_detections.csv",
       "interpretation_limit": "Diagnostic decoder only: not exact app parser; no adaptive thresholds, no app-level ball filter, and no ground-truth precision/recall."
     },
     {
       "model": "assets\\models\\best_640_float16.tflite",
-      "model_sha256": "c4565cfc75ff89d869712eef4962f24734c8e545591db355b61c64835ae5d1f7",
-      "model_size_bytes": 5367123,
+      "model_sha256": "c7381ac87876f131f14566310503aa0399c52b603ae9be4c56ff057bd76536c8",
+      "model_size_bytes": 5367122,
       "input_shape": [
         1,
         640,
@@ -161,11 +161,11 @@
       "warmup_inferences_discarded": 5,
       "measured_inferences": 400,
       "latency_ms": {
-        "mean": 83.56876324985933,
-        "median": 79.93705000262707,
-        "p95": 116.75798498617948,
-        "min": 58.71640000259504,
-        "max": 149.84960001311265
+        "mean": 76.19155600012164,
+        "median": 63.679200000478886,
+        "p95": 147.34572498564367,
+        "min": 41.752199991606176,
+        "max": 382.7681999828201
       },
       "detections_csv": "benchmark-results\\yolo-ab-full\\best_640_float16_detections.csv",
       "interpretation_limit": "Diagnostic decoder only: not exact app parser; no adaptive thresholds, no app-level ball filter, and no ground-truth precision/recall."
