@@ -331,7 +331,7 @@ python scripts/benchmark_yolo_videos.py \
 
 
 
-**Risultati già versionati:** `benchmark-results/yolo-ab/`. Il `manifest.json` registra un campionamento ogni 5 frame, 5 inferenze di warm-up e 77 inferenze misurate per modello. I CSV attuali sono quindi adatti a un primo controllo visivo dei frame campionati; non descrivono ogni frame del video.
+**Risultati storici:** `benchmark-results/yolo-ab/` e `benchmark-results/yolo-ab-full/`. Il run più recente in `yolo-ab-full/manifest.json` registra 400 inferenze misurate per modello; per il modello 640 il tempo offline è mediana 63,68 ms e P95 147,35 ms. Questi tempi sono misurazioni Python/TFLite offline e non FPS su dispositivo. Le detection in questi CSV sono state generate dal decoder diagnostico precedente; per confronti di detection usare i nuovi output `yolo-ab-app-compatible/`.
 
 Eseguire i comandi dalla root del repository, nel branch `Validation-1.0`, usando PowerShell.
 
