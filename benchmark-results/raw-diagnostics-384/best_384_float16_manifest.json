@@ -1,0 +1,28 @@
+{
+  "model": "assets\\models\\best_384_float16.tflite",
+  "model_sha256": "876e598147d2c7b8bf39415e507314f768467f73cde664250b667a2de7165b10",
+  "input_shape": [
+    1,
+    384,
+    384,
+    3
+  ],
+  "input_dtype": "<class 'numpy.float32'>",
+  "output_shape": [
+    1,
+    7,
+    3024
+  ],
+  "output_dtype": "<class 'numpy.float32'>",
+  "class_index_assumption": {
+    "4": "ball",
+    "5": "player/human",
+    "6": "rim"
+  },
+  "preprocessing": "OpenCV RGB, centered contain/letterbox, float32",
+  "input_scale": 1.0,
+  "pad_value_after_scaling": 114.0,
+  "top_k_per_class_per_frame": 10,
+  "warning": "Class order and coordinate encoding are assumptions to verify; not proof of app equivalence.",
+  "sampled_frames_rendered": 27
+}
