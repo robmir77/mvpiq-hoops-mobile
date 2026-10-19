@@ -297,6 +297,24 @@ python scripts/benchmark_yolo_videos.py \
 
 **Limiti da rispettare:** il runner non è ancora stato eseguito in questo ambiente. Il preprocessing OpenCV (RGB, contain/letterbox e intervallo numerico dei pixel) deve essere confrontato con l'output effettivo di `react-native-vision-camera-resizer` prima di considerare le detection equivalenti a quelle dell'app. `--input-scale` rende esplicito il moltiplicatore dei pixel; il valore predefinito è `1.0`, da confermare con una verifica sul dispositivo. Il decoder predefinito ora è `app-compatible`: per ogni classe seleziona la confidence più alta tra i candidati che superano i filtri di classe, replica la soglia adattiva per frame e applica il filtro post-selezione della palla. `--decoder diagnostic` conserva il decoder storico basato su argmax. Anche la modalità app-compatible non è ancora equivalenza end-to-end: usa preprocessing OpenCV invece del resizer nativo verificato, gira su runtime/delegate diversi e non calcola precision/recall senza ground truth annotata. I CSV storici restano prodotti con il decoder precedente e vanno rigenerati in una nuova cartella per confronti validi. Il runner misura latenza su CPU/default delegate Python, non FPS su Samsung S21 Ultra.
 
+### 10.0.1 Visualizzazione delle detection
+
+È stato aggiunto `scripts/render_yolo_benchmark.py` per disegnare sul frame i box salvati nel CSV, con classe e confidence. Se si passano i CSV di più modelli, genera immagini comparative affiancate per ogni frame campionato. Salva le immagini nella cartella indicata da `--output-dir`.
+
+Esempio dalla root del repository:
+
+```bash
+python scripts/render_yolo_benchmark.py \\
+  --csv benchmark-results/yolo-ab-app-compatible/best_384_float16_detections.csv \\
+       benchmark-results/yolo-ab-app-compatible/best_640_float16_detections.csv \\
+  --videos "src/vision/__tests__/media/Tiro Libero.mp4" \\
+           "src/vision/__tests__/media/Tiro da 3.mp4" \\
+           "src/vision/__tests__/media/Tirp a centrocampo.mp4" \\
+  --output-dir benchmark-results/yolo-ab-app-compatible/visualizations
+```
+
+**Limite:** i CSV attuali contengono al massimo una detection per classe e frame, quindi le immagini mostrano la confidence massima tra i candidati che hanno superato i filtri del decoder; non mostrano tutti gli anchor/candidati YOLO. Per visualizzare ogni candidato occorre estendere il runner affinché esporti i candidati prima della selezione, con soglie configurabili, altrimenti il CSV attuale non contiene le informazioni necessarie. Le immagini vengono generate solo per i frame campionati dal benchmark.
+
 ### 10.1 Fase A — Inventario e riferimento annotato
 
 - [ ] Verificare che i tre file siano leggibili e rilevare durata, risoluzione, frame rate e numero di frame.
