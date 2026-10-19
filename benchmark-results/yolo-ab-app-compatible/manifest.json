@@ -1,0 +1,178 @@
+{
+  "benchmark": "MVPiQ offline YOLO video benchmark",
+  "created_utc": "2026-10-19T10:47:44Z",
+  "sampling_every_n_frames": 5,
+  "warmup_per_model": 5,
+  "preprocessing_options": {
+    "input_scale": 1.0,
+    "pad_value": 0.0
+  },
+  "decoder": "app-compatible",
+  "decoder_notes": "App-compatible ports YoloDetector.ts + BallDetectionProcessor.ts logic, but OpenCV preprocessing and Python runtime are not proven equivalent to the native app path.",
+  "results": [
+    {
+      "model": "assets\\models\\best_384_float16.tflite",
+      "model_sha256": "876e598147d2c7b8bf39415e507314f768467f73cde664250b667a2de7165b10",
+      "model_size_bytes": 5302609,
+      "input_shape": [
+        1,
+        384,
+        384,
+        3
+      ],
+      "input_dtype": "<class 'numpy.float32'>",
+      "output_shape": [
+        1,
+        7,
+        3024
+      ],
+      "output_dtype": "<class 'numpy.float32'>",
+      "num_threads": 2,
+      "input_scale": 1.0,
+      "pad_value_after_scaling": 0.0,
+      "preprocessing": "RGB, OpenCV linear resize, contain/letterbox, centered padding",
+      "decoder_mode": "app-compatible",
+      "thresholds": {
+        "ball": 0.001,
+        "player": 0.03,
+        "rim": 0.3
+      },
+      "videos": [
+        {
+          "path": "src\\vision\\__tests__\\media\\Tiro Libero.mp4",
+          "sha256": "e15e72f269e466a6508fc8a939516dedafb51a6dc149558e4e1d600bff12a938",
+          "size_bytes": 1046205,
+          "width": 1024,
+          "height": 576,
+          "fps_reported": 29.774436090225564,
+          "frame_count_reported": 132,
+          "duration_seconds_reported": 4.433333333333334,
+          "sampled_frames": 27,
+          "frame_count_decoded": 132
+        },
+        {
+          "path": "src\\vision\\__tests__\\media\\Tiro da 3.mp4",
+          "sha256": "d0729edf105a00d5a5e0b41e9dc29ee39c0e8ab16272a5af2733ead080bd8d2e",
+          "size_bytes": 830482,
+          "width": 1024,
+          "height": 576,
+          "fps_reported": 29.727272727272727,
+          "frame_count_reported": 109,
+          "duration_seconds_reported": 3.666666666666667,
+          "sampled_frames": 22,
+          "frame_count_decoded": 109
+        },
+        {
+          "path": "src\\vision\\__tests__\\media\\Tirp a centrocampo.mp4",
+          "sha256": "bf21bea92949a7c52db53ab51ebc2a8d306d23b2d73a5bf7ca49a45d41183c74",
+          "size_bytes": 1231867,
+          "width": 1024,
+          "height": 576,
+          "fps_reported": 29.818181818181817,
+          "frame_count_reported": 164,
+          "duration_seconds_reported": 5.5,
+          "sampled_frames": 33,
+          "frame_count_decoded": 164
+        }
+      ],
+      "input_tensor_stats_first_frame": {
+        "min": 0.0,
+        "max": 255.0,
+        "mean": 77.29644012451172
+      },
+      "warmup_inferences_discarded": 5,
+      "measured_inferences": 77,
+      "latency_ms": {
+        "mean": 15.68314415635541,
+        "median": 15.380199998617172,
+        "p95": 17.514439998194575,
+        "min": 14.373300014995039,
+        "max": 21.482100011780858
+      },
+      "detections_csv": "benchmark-results\\yolo-ab-app-compatible\\best_384_float16_detections.csv",
+      "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."
+    },
+    {
+      "model": "assets\\models\\best_640_float16.tflite",
+      "model_sha256": "c7381ac87876f131f14566310503aa0399c52b603ae9be4c56ff057bd76536c8",
+      "model_size_bytes": 5367122,
+      "input_shape": [
+        1,
+        640,
+        640,
+        3
+      ],
+      "input_dtype": "<class 'numpy.float32'>",
+      "output_shape": [
+        1,
+        7,
+        8400
+      ],
+      "output_dtype": "<class 'numpy.float32'>",
+      "num_threads": 2,
+      "input_scale": 1.0,
+      "pad_value_after_scaling": 0.0,
+      "preprocessing": "RGB, OpenCV linear resize, contain/letterbox, centered padding",
+      "decoder_mode": "app-compatible",
+      "thresholds": {
+        "ball": 0.001,
+        "player": 0.03,
+        "rim": 0.3
+      },
+      "videos": [
+        {
+          "path": "src\\vision\\__tests__\\media\\Tiro Libero.mp4",
+          "sha256": "e15e72f269e466a6508fc8a939516dedafb51a6dc149558e4e1d600bff12a938",
+          "size_bytes": 1046205,
+          "width": 1024,
+          "height": 576,
+          "fps_reported": 29.774436090225564,
+          "frame_count_reported": 132,
+          "duration_seconds_reported": 4.433333333333334,
+          "sampled_frames": 27,
+          "frame_count_decoded": 132
+        },
+        {
+          "path": "src\\vision\\__tests__\\media\\Tiro da 3.mp4",
+          "sha256": "d0729edf105a00d5a5e0b41e9dc29ee39c0e8ab16272a5af2733ead080bd8d2e",
+          "size_bytes": 830482,
+          "width": 1024,
+          "height": 576,
+          "fps_reported": 29.727272727272727,
+          "frame_count_reported": 109,
+          "duration_seconds_reported": 3.666666666666667,
+          "sampled_frames": 22,
+          "frame_count_decoded": 109
+        },
+        {
+          "path": "src\\vision\\__tests__\\media\\Tirp a centrocampo.mp4",
+          "sha256": "bf21bea92949a7c52db53ab51ebc2a8d306d23b2d73a5bf7ca49a45d41183c74",
+          "size_bytes": 1231867,
+          "width": 1024,
+          "height": 576,
+          "fps_reported": 29.818181818181817,
+          "frame_count_reported": 164,
+          "duration_seconds_reported": 5.5,
+          "sampled_frames": 33,
+          "frame_count_decoded": 164
+        }
+      ],
+      "input_tensor_stats_first_frame": {
+        "min": 0.0,
+        "max": 255.0,
+        "mean": 77.25270080566406
+      },
+      "warmup_inferences_discarded": 5,
+      "measured_inferences": 77,
+      "latency_ms": {
+        "mean": 51.88987013020601,
+        "median": 49.07479998655617,
+        "p95": 66.61871999967843,
+        "min": 43.422200018540025,
+        "max": 95.44760000426322
+      },
+      "detections_csv": "benchmark-results\\yolo-ab-app-compatible\\best_640_float16_detections.csv",
+      "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."
+    }
+  ]
+}
