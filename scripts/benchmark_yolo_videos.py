@@ -17,9 +17,11 @@ Important:
 - The resize/letterbox and input value range must be verified against the native
   react-native-vision-camera-resizer output before treating accuracy numbers as
   equivalent to the app. Use --input-scale to explicitly set value scaling.
-- Detection output is a diagnostic top-confidence-per-class summary, not the
-  authoritative app result: the app uses src/vision/engine/YoloDetector.ts,
-  adaptive thresholds, and an additional ball filter.
+- The default app-compatible decoder ports the selection/filter logic from
+  YoloDetector.ts and BallDetectionProcessor.ts. The diagnostic decoder remains
+  available with --decoder diagnostic.
+- Preprocessing is still OpenCV-based and must be checked against the native
+  resizer before claiming full input-path equivalence.
 - No precision/recall is reported without manually annotated ground-truth boxes.
 """
 
@@ -140,6 +142,151 @@ def decode_top_detections(raw: np.ndarray, input_w: int, input_h: int,
     return results
 
 
+class AppCompatibleDecoder:
+    """Stateful Python port of YoloDetector.parseOutput + BallDetectionProcessor.
+
+    This matches selection/filter logic, not the native app's image preprocessing
+    or runtime/delegate. State is reset for each video, like a new session.
+    """
+
+    def __init__(self) -> None:
+        self.base = {"ball": 0.001, "player": 0.03, "rim": 0.30}
+        self.threshold = dict(self.base)
+        self.history: dict[str, list[bool]] = {k: [] for k in CLASS_NAMES}
+        self.confidence_history: dict[str, list[float]] = {k: [] for k in CLASS_NAMES}
+        self.window_size = 15
+        self.min_threshold = 0.0005
+        self.max_threshold = 0.50
+        self.adjustment_factor = 0.2
+        self.high_conf_threshold = 0.7
+        self.low_conf_threshold = 0.2
+        self.rim_enabled = False  # VISION_CONFIG.RIM_DETECTION_ENABLED
+
+    @staticmethod
+    def _valid_ball_geometry(width: float, height: float) -> bool:
+        return width > 0 and height > 0 and 0.25 <= width / height <= 4.0
+
+    @staticmethod
+    def _size_threshold(width: float, height: float, base: float,
+                        min_size: float, max_size: float, resolution_scale: float) -> float:
+        avg_size = (width + height) / 2
+        max_size *= resolution_scale
+        min_size *= resolution_scale
+        if avg_size >= max_size:
+            return base
+        t = min(1.0, max(0.0, (avg_size - min_size) / (max_size - min_size)))
+        smooth_t = t * t * (3 - 2 * t)
+        return 0.01 + (base - 0.01) * smooth_t
+
+    def _update_threshold(self, name: str, detected: bool, confidence: float | None) -> None:
+        history = self.history[name]
+        confidences = self.confidence_history[name]
+        history.append(detected)
+        if detected and confidence is not None:
+            confidences.append(confidence)
+        if len(history) > self.window_size:
+            history.pop(0)
+            if len(confidences) > self.window_size:
+                confidences.pop(0)
+        detection_rate = sum(history) / len(history)
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        current = self.threshold[name]
+        base = self.base[name]
+        new = current
+        if detection_rate > 0.7 and avg_confidence > self.high_conf_threshold:
+            target = min(base * 2, self.max_threshold)
+            new = current + (target - current) * self.adjustment_factor
+        elif detection_rate < 0.3:
+            target = max(base * 0.5, self.min_threshold)
+            new = current + (target - current) * self.adjustment_factor
+        elif avg_confidence > self.high_conf_threshold and len(confidences) > 5:
+            new = current + (base - current) * self.adjustment_factor * 0.5
+        elif avg_confidence < self.low_conf_threshold and len(confidences) > 5:
+            new = current + (base * 0.5 - current) * self.adjustment_factor * 0.5
+        self.threshold[name] = max(self.min_threshold, min(self.max_threshold, new))
+
+    def decode(self, raw: np.ndarray, frame_w: int, frame_h: int) -> dict[str, dict[str, float] | None]:
+        output = normalize_output(raw)
+        n = output.shape[1]
+        results: dict[str, dict[str, float] | None] = {name: None for name in CLASS_NAMES}
+        if n <= 0:
+            return results
+        tensor_size_by_anchors = {8400: 640, 5376: 512, 4116: 448, 3024: 384, 2100: 320}
+        tensor_size = tensor_size_by_anchors.get(n, 512)
+        scale = min(tensor_size / (frame_w or 1280), tensor_size / (frame_h or 720))
+        resized_w = (frame_w or 1280) * scale
+        resized_h = (frame_h or 720) * scale
+        offset_x = (tensor_size - resized_w) / 2 if resized_w < tensor_size else 0.0
+        offset_y = (tensor_size - resized_h) / 2 if resized_h < tensor_size else 0.0
+        resolution_scale = tensor_size / 512
+        best: dict[str, dict[str, float] | None] = {name: None for name in CLASS_NAMES}
+
+        for idx in range(n):
+            cx, cy, bw, bh = (float(output[k, idx]) for k in range(4))
+            scores = {"ball": float(output[4, idx]), "player": float(output[5, idx]), "rim": float(output[6, idx])}
+            cx_frame = ((cx * tensor_size) - offset_x) / scale / (frame_w or 1280)
+            cy_frame = ((cy * tensor_size) - offset_y) / scale / (frame_h or 720)
+            w_frame = (bw * tensor_size) / scale / (frame_w or 1280)
+            h_frame = (bh * tensor_size) / scale / (frame_h or 720)
+            if not all(math.isfinite(v) for v in (cx_frame, cy_frame, w_frame, h_frame)):
+                continue
+            if w_frame <= 0.01 or h_frame <= 0.01:
+                continue
+
+            # YoloDetector chooses the highest-confidence candidate among those
+            # passing each class's filters, rather than argmax over raw scores.
+            ball_threshold = self._size_threshold(
+                w_frame, h_frame, self.threshold["ball"], 0.10, 0.40, resolution_scale
+            )
+            if self._valid_ball_geometry(w_frame, h_frame) and scores["ball"] >= ball_threshold:
+                current = best["ball"]
+                if current is None or scores["ball"] > current["confidence"]:
+                    best["ball"] = {
+                        "x": cx_frame, "y": cy_frame, "width": w_frame, "height": h_frame,
+                        "confidence": scores["ball"], "anchor_index": float(idx), "anchor_count": float(n),
+                    }
+
+            if scores["player"] >= self.threshold["player"]:
+                current = best["player"]
+                if current is None or scores["player"] > current["confidence"]:
+                    best["player"] = {
+                        "x": cx_frame, "y": cy_frame, "width": w_frame, "height": h_frame,
+                        "confidence": scores["player"], "anchor_index": float(idx), "anchor_count": float(n),
+                    }
+
+            if self.rim_enabled and scores["rim"] >= self.threshold["rim"]:
+                current = best["rim"]
+                if current is None or scores["rim"] > current["confidence"]:
+                    best["rim"] = {
+                        "x": cx_frame, "y": cy_frame, "width": w_frame, "height": h_frame,
+                        "confidence": scores["rim"], "anchor_index": float(idx), "anchor_count": float(n),
+                    }
+
+        # BallDetectionProcessor runs AFTER YoloDetector has selected its best
+        # ball; if it rejects that result, app code does not fall back to #2.
+        ball = best["ball"]
+        if ball is not None:
+            if not self._valid_ball_geometry(ball["width"], ball["height"]):
+                ball = None
+            else:
+                post_threshold = self._size_threshold(
+                    ball["width"], ball["height"], 0.005, 0.01, 0.30, 1.0
+                )
+                if ball["confidence"] < post_threshold:
+                    ball = None
+        results["ball"] = ball
+        results["player"] = best["player"]
+        results["rim"] = best["rim"] if self.rim_enabled else None
+
+        self._update_threshold("ball", best["ball"] is not None,
+                               best["ball"]["confidence"] if best["ball"] else None)
+        self._update_threshold("player", best["player"] is not None,
+                               best["player"]["confidence"] if best["player"] else None)
+        self._update_threshold("rim", best["rim"] is not None,
+                               best["rim"]["confidence"] if best["rim"] else None)
+        return results
+
+
 def make_interpreter(model_path: Path, threads: int):
     try:
         import tensorflow as tf
@@ -155,7 +302,7 @@ def make_interpreter(model_path: Path, threads: int):
 
 def benchmark_one(model_path: Path, videos: list[Path], output_dir: Path,
                   every_n_frames: int, warmup: int, threads: int,
-                  input_scale: float, pad_value: float) -> dict[str, Any]:
+                  input_scale: float, pad_value: float, decoder_mode: str) -> dict[str, Any]:
     interpreter = make_interpreter(model_path, threads)
     input_detail = interpreter.get_input_details()[0]
     output_detail = interpreter.get_output_details()[0]
@@ -184,6 +331,7 @@ def benchmark_one(model_path: Path, videos: list[Path], output_dir: Path,
         "input_scale": input_scale,
         "pad_value_after_scaling": pad_value,
         "preprocessing": "RGB, OpenCV linear resize, contain/letterbox, centered padding",
+        "decoder_mode": decoder_mode,
         "thresholds": DEFAULT_THRESHOLDS,
         "videos": [],
     }
@@ -207,6 +355,7 @@ def benchmark_one(model_path: Path, videos: list[Path], output_dir: Path,
             "sampled_frames": 0,
         }
         frame_index = 0
+        app_decoder = AppCompatibleDecoder() if decoder_mode == "app-compatible" else None
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -223,13 +372,18 @@ def benchmark_one(model_path: Path, videos: list[Path], output_dir: Path,
                 interpreter.invoke()
                 elapsed_ms = (time.perf_counter() - started) * 1000.0
                 raw_output = interpreter.get_tensor(output_detail["index"])
+                # Decode every sampled frame so adaptive state evolves during warm-up too.
+                if decoder_mode == "app-compatible":
+                    assert app_decoder is not None
+                    decoded = app_decoder.decode(raw_output, frame.shape[1], frame.shape[0])
+                else:
+                    decoded = decode_top_detections(
+                        raw_output, input_w, input_h, frame.shape[1], frame.shape[0], letterbox
+                    )
                 if warmup_done < warmup:
                     warmup_done += 1
                 else:
                     inference_ms.append(elapsed_ms)
-                    decoded = decode_top_detections(
-                        raw_output, input_w, input_h, frame.shape[1], frame.shape[0], letterbox
-                    )
                     for class_name, detection in decoded.items():
                         row: dict[str, Any] = {
                             "model": model_name,
@@ -280,8 +434,11 @@ def benchmark_one(model_path: Path, videos: list[Path], output_dir: Path,
     }
     model_record["detections_csv"] = str(csv_path)
     model_record["interpretation_limit"] = (
-        "Diagnostic decoder only: not exact app parser; no adaptive thresholds, no app-level ball filter, "
-        "and no ground-truth precision/recall."
+        "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the "
+        "post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, "
+        "and device scheduling differ; no ground-truth precision/recall without annotations."
+        if decoder_mode == "app-compatible" else
+        "Diagnostic top-confidence decoder only: no app filters or adaptive thresholds; no ground-truth precision/recall."
     )
     return model_record
 
@@ -291,6 +448,10 @@ def main() -> int:
     parser.add_argument("--models", nargs="+", required=True, type=Path, help="Percorsi ai modelli .tflite")
     parser.add_argument("--videos", nargs="+", required=True, type=Path, help="Video MP4 da confrontare")
     parser.add_argument("--output-dir", type=Path, default=Path("benchmark-results/yolo-ab"))
+    parser.add_argument(
+        "--decoder", choices=("app-compatible", "diagnostic"), default="app-compatible",
+        help="app-compatible replica la selezione/filtri del parser app; diagnostic mantiene il decoder argmax storico",
+    )
     parser.add_argument("--every-n-frames", type=int, default=5, help="Inferenza ogni N frame (default: 5)")
     parser.add_argument("--warmup", type=int, default=5, help="Inferenze iniziali da scartare per ogni modello")
     parser.add_argument("--threads", type=int, default=2, help="Thread CPU TFLite (default: 2)")
@@ -319,13 +480,19 @@ def main() -> int:
         "sampling_every_n_frames": args.every_n_frames,
         "warmup_per_model": args.warmup,
         "preprocessing_options": {"input_scale": args.input_scale, "pad_value": args.pad_value},
+        "decoder": args.decoder,
+        "decoder_notes": (
+            "App-compatible ports YoloDetector.ts + BallDetectionProcessor.ts logic, but OpenCV preprocessing "
+            "and Python runtime are not proven equivalent to the native app path."
+            if args.decoder == "app-compatible" else "Legacy diagnostic argmax-per-class decoder."
+        ),
         "results": [],
     }
     for model_path in args.models:
         print(f"[benchmark] Modello: {model_path}", flush=True)
         result = benchmark_one(
             model_path, args.videos, args.output_dir, args.every_n_frames,
-            args.warmup, args.threads, args.input_scale, args.pad_value,
+            args.warmup, args.threads, args.input_scale, args.pad_value, args.decoder,
         )
         manifest["results"].append(result)
         latency = result["latency_ms"]
