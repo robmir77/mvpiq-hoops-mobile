@@ -360,14 +360,14 @@ L'output va in una cartella distinta per non sovrascrivere i risultati già comm
 
 #### B. Generare frame e contact sheet dai risultati già committati
 
-Questo passaggio **non richiede di rieseguire l'inferenza**: usa i due CSV esistenti e i tre video originali.
+Dopo aver eseguito il benchmark al punto A, questo passaggio usa i CSV app-compatible appena generati e i tre video originali; non riesegue l'inferenza.
 
 ```powershell
 python .\scripts\render_yolo_overlay_comparison.py `
   --videos ".\src\vision\__tests__\media\Tiro Libero.mp4" ".\src\vision\__tests__\media\Tiro da 3.mp4" ".\src\vision\__tests__\media\Tirp a centrocampo.mp4" `
-  --csv-384 .\benchmark-results\yolo-ab\best_384_float16_detections.csv `
-  --csv-640 .\benchmark-results\yolo-ab\best_640_float16_detections.csv `
-  --output-dir .\benchmark-results\yolo-ab\overlay-comparison
+  --csv-384 .\benchmark-results\yolo-ab-app-compatible\best_384_float16_detections.csv `
+  --csv-640 .\benchmark-results\yolo-ab-app-compatible\best_640_float16_detections.csv `
+  --output-dir .\benchmark-results\yolo-ab-app-compatible\overlay-comparison
 ```
 
 Per ciascun video lo script salva PNG comparativi in `frames\` e un `contact_sheet.png`. Usare i CSV prodotti da `yolo-ab-app-compatible` per il confronto aggiornato; i CSV storici di `yolo-ab-full` rimangono diagnostici. Le box non sono l'overlay esatto dell'app e non equivalgono a precision/recall misurate.
@@ -392,9 +392,9 @@ Poi generare i frame comparativi dai CSV completi:
 ```powershell
 python .\scripts\render_yolo_overlay_comparison.py `
   --videos ".\src\vision\__tests__\media\Tiro Libero.mp4" ".\src\vision\__tests__\media\Tiro da 3.mp4" ".\src\vision\__tests__\media\Tirp a centrocampo.mp4" `
-  --csv-384 .\benchmark-results\yolo-ab-every-frame\best_384_float16_detections.csv `
-  --csv-640 .\benchmark-results\yolo-ab-every-frame\best_640_float16_detections.csv `
-  --output-dir .\benchmark-results\yolo-ab-every-frame\overlay-comparison
+  --csv-384 .\benchmark-results\yolo-ab-app-compatible-every-frame\best_384_float16_detections.csv `
+  --csv-640 .\benchmark-results\yolo-ab-app-compatible-every-frame\best_640_float16_detections.csv `
+  --output-dir .\benchmark-results\yolo-ab-app-compatible-every-frame\overlay-comparison
 ```
 
 **Lettura dei risultati:** verificare visivamente falsi positivi, detection mancanti, cambi bruschi di posizione e interruzioni della palla tra frame consecutivi. La confidence è il punteggio del modello, non la probabilità che la detection sia corretta; precision/recall richiedono box annotate manualmente e una regola IoU dichiarata. Questo benchmark offline su CPU non misura gli FPS effettivi dell'app sul telefono.
