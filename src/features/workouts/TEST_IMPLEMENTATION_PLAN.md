@@ -325,6 +325,74 @@ python scripts/benchmark_yolo_videos.py \
 - [ ] Ripetere i run necessari a distinguere il costo di inizializzazione dal tempo d'inferenza. Specificare hardware, runtime, delegate e versione delle librerie.
 - [ ] Se l'ambiente offline non supporta lo stesso runtime/delegate dell'app, etichettare i tempi come benchmark offline e non usarli come sostituti delle prestazioni sul telefono.
 
+### 10.3.1 Comandi di esecuzione e overlay comparativo
+
+**Risultati già versionati:** `benchmark-results/yolo-ab/`. Il `manifest.json` registra un campionamento ogni 5 frame, 5 inferenze di warm-up e 77 inferenze misurate per modello. I CSV attuali sono quindi adatti a un primo controllo visivo dei frame campionati; non descrivono ogni frame del video.
+
+Eseguire i comandi dalla root del repository, nel branch `Validation-1.0`, usando PowerShell.
+
+#### A. Riprodurre il benchmark offline già registrato
+
+Prerequisiti Python, in un ambiente dedicato:
+
+```powershell
+python -m pip install opencv-python numpy tensorflow
+```
+
+Comando:
+
+```powershell
+python .\scripts\benchmark_yolo_videos.py `
+  --models .\assets\models\best_384_float16.tflite .\assets\models\best_640_float16.tflite `
+  --videos ".\src\vision\__tests__\media\Tiro Libero.mp4" ".\src\vision\__tests__\media\Tiro da 3.mp4" ".\src\vision\__tests__\media\Tirp a centrocampo.mp4" `
+  --every-n-frames 5 `
+  --warmup 5 `
+  --threads 2 `
+  --output-dir .\benchmark-results\yolo-ab-reproduced
+```
+
+L'output va in una cartella distinta per non sovrascrivere i risultati già committati. Confrontare il nuovo `manifest.json` con quello esistente; differenze nei tempi possono dipendere dall'hardware, dal runtime e dal carico del sistema.
+
+#### B. Generare frame e contact sheet dai risultati già committati
+
+Questo passaggio **non richiede di rieseguire l'inferenza**: usa i due CSV esistenti e i tre video originali.
+
+```powershell
+python .\scripts\render_yolo_overlay_comparison.py `
+  --videos ".\src\vision\__tests__\media\Tiro Libero.mp4" ".\src\vision\__tests__\media\Tiro da 3.mp4" ".\src\vision\__tests__\media\Tirp a centrocampo.mp4" `
+  --csv-384 .\benchmark-results\yolo-ab\best_384_float16_detections.csv `
+  --csv-640 .\benchmark-results\yolo-ab\best_640_float16_detections.csv `
+  --output-dir .\benchmark-results\yolo-ab\overlay-comparison
+```
+
+Per ciascun video lo script salva PNG comparativi in `frames\` e un `contact_sheet.png`. Le box e le confidence sono diagnostiche e provengono dal decoder offline: **non sono l'overlay esatto dell'app, non equivalgono a precisione misurata e non sostituiscono annotazioni ground truth**.
+
+#### C. Analizzare la continuità temporale con campionamento di ogni frame
+
+Da eseguire solo dopo il primo controllo visivo, se serve esaminare anche i frame non inclusi nel benchmark attuale. L'output è separato per conservare la baseline.
+
+```powershell
+python .\scripts\benchmark_yolo_videos.py `
+  --models .\assets\models\best_384_float16.tflite .\assets\models\best_640_float16.tflite `
+  --videos ".\src\vision\__tests__\media\Tiro Libero.mp4" ".\src\vision\__tests__\media\Tiro da 3.mp4" ".\src\vision\__tests__\media\Tirp a centrocampo.mp4" `
+  --every-n-frames 1 `
+  --warmup 5 `
+  --threads 2 `
+  --output-dir .\benchmark-results\yolo-ab-every-frame
+```
+
+Poi generare i frame comparativi dai CSV completi:
+
+```powershell
+python .\scripts\render_yolo_overlay_comparison.py `
+  --videos ".\src\vision\__tests__\media\Tiro Libero.mp4" ".\src\vision\__tests__\media\Tiro da 3.mp4" ".\src\vision\__tests__\media\Tirp a centrocampo.mp4" `
+  --csv-384 .\benchmark-results\yolo-ab-every-frame\best_384_float16_detections.csv `
+  --csv-640 .\benchmark-results\yolo-ab-every-frame\best_640_float16_detections.csv `
+  --output-dir .\benchmark-results\yolo-ab-every-frame\overlay-comparison
+```
+
+**Lettura dei risultati:** verificare visivamente falsi positivi, detection mancanti, cambi bruschi di posizione e interruzioni della palla tra frame consecutivi. La confidence è il punteggio del modello, non la probabilità che la detection sia corretta; precision/recall richiedono box annotate manualmente e una regola IoU dichiarata. Questo benchmark offline su CPU non misura gli FPS effettivi dell'app sul telefono.
+
 ### 10.4 Fase D — Replay end-to-end e verifica su dispositivo
 
 - [ ] Verificare se la pipeline attuale accetta frame provenienti da un video. Se non li accetta, progettare un harness di replay separato che alimenti frame e timestamp in modo deterministico senza alterare il comportamento normale della camera.
