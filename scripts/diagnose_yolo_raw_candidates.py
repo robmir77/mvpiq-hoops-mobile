@@ -50,8 +50,8 @@ def main():
     ap.add_argument("--every-n-frames", type=int, default=5)
     ap.add_argument("--top-k", type=int, default=10)
     ap.add_argument("--threads", type=int, default=2)
-    ap.add_argument("--input-scale", type=float, default=1.0)
-    ap.add_argument("--pad-value", type=float, default=114.0)
+    ap.add_argument("--input-scale", type=float, default=1.0, help="Deve coincidere con il benchmark/app; default 1.0 come manifest yolo-ab-app-compatible")
+    ap.add_argument("--pad-value", type=float, default=0.0, help="Valore padding dopo input-scale; default 0.0 come manifest yolo-ab-app-compatible")
     ap.add_argument("--min-score", type=float, default=0.001)
     args = ap.parse_args()
     if args.every_n_frames < 1 or args.top_k < 1:
@@ -85,7 +85,7 @@ def main():
         "preprocessing": "OpenCV RGB, centered contain/letterbox, float32",
         "input_scale": args.input_scale, "pad_value_after_scaling": args.pad_value,
         "top_k_per_class_per_frame": args.top_k,
-        "warning": "Class order and coordinate encoding are assumptions to verify; not proof of app equivalence."
+        "warning": "Class order and coordinate encoding are assumptions to verify; not proof of app equivalence.",\n        "preprocessing_reference": "Defaults match benchmark-results/yolo-ab-app-compatible/manifest.json (input_scale=1.0, pad_value_after_scaling=0.0); OpenCV preprocessing still may differ from native app resizer."
     }
     import hashlib
     h = hashlib.sha256()
