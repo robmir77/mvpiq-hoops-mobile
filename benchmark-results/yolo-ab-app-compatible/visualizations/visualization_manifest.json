@@ -1,0 +1,27 @@
+{
+  "source_csvs": [
+    "benchmark-results\\yolo-ab-app-compatible\\best_384_float16_detections.csv",
+    "benchmark-results\\yolo-ab-app-compatible\\best_640_float16_detections.csv"
+  ],
+  "videos": [
+    {
+      "video": "src\\vision\\__tests__\\media\\Tiro Libero.mp4",
+      "video_name": "Tiro Libero.mp4",
+      "sampled_frames_rendered": 22,
+      "output_directory": "benchmark-results\\yolo-ab-app-compatible\\visualizations\\Tiro Libero"
+    },
+    {
+      "video": "src\\vision\\__tests__\\media\\Tiro da 3.mp4",
+      "video_name": "Tiro da 3.mp4",
+      "sampled_frames_rendered": 22,
+      "output_directory": "benchmark-results\\yolo-ab-app-compatible\\visualizations\\Tiro da 3"
+    },
+    {
+      "video": "src\\vision\\__tests__\\media\\Tirp a centrocampo.mp4",
+      "video_name": "Tirp a centrocampo.mp4",
+      "sampled_frames_rendered": 33,
+      "output_directory": "benchmark-results\\yolo-ab-app-compatible\\visualizations\\Tirp a centrocampo"
+    }
+  ],
+  "note": "Draws the detections already recorded in CSV; the current CSV has at most one detection per class per sampled frame."
+}
