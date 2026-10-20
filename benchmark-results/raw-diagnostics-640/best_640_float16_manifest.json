@@ -1,6 +1,6 @@
 {
   "model": "assets\\models\\best_640_float16.tflite",
-  "model_sha256": "c7381ac87876f131f14566310503aa0399c52b603ae9be4c56ff057bd76536c8",
+  "model_sha256": "c50aea034a0b9331b803b83405141afa2520573330d620558c77580131b5216e",
   "input_shape": [
     1,
     640,
