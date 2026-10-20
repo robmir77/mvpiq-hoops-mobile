@@ -85,7 +85,8 @@ def main():
         "preprocessing": "OpenCV RGB, centered contain/letterbox, float32",
         "input_scale": args.input_scale, "pad_value_after_scaling": args.pad_value,
         "top_k_per_class_per_frame": args.top_k,
-        "warning": "Class order and coordinate encoding are assumptions to verify; not proof of app equivalence.",\n        "preprocessing_reference": "Defaults match benchmark-results/yolo-ab-app-compatible/manifest.json (input_scale=1.0, pad_value_after_scaling=0.0); OpenCV preprocessing still may differ from native app resizer."
+        "warning": "Class order and coordinate encoding are assumptions to verify; not proof of app equivalence.",
+        "preprocessing_reference": "Defaults match benchmark-results/yolo-ab-app-compatible/manifest.json (input_scale=1.0, pad_value_after_scaling=0.0); OpenCV preprocessing still may differ from native app resizer."
     }
     import hashlib
     h = hashlib.sha256()
