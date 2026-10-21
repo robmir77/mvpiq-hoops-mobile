@@ -1,6 +1,6 @@
 {
   "benchmark": "MVPiQ offline YOLO video benchmark",
-  "created_utc": "2026-10-19T10:47:44Z",
+  "created_utc": "2026-10-21T20:30:40Z",
   "sampling_every_n_frames": 5,
   "warmup_per_model": 5,
   "preprocessing_options": {
@@ -83,19 +83,19 @@
       "warmup_inferences_discarded": 5,
       "measured_inferences": 77,
       "latency_ms": {
-        "mean": 15.68314415635541,
-        "median": 15.380199998617172,
-        "p95": 17.514439998194575,
-        "min": 14.373300014995039,
-        "max": 21.482100011780858
+        "mean": 14.589931168833951,
+        "median": 14.43369999992683,
+        "p95": 15.54189999992559,
+        "min": 14.169100000117396,
+        "max": 17.83779999982471
       },
       "detections_csv": "benchmark-results\\yolo-ab-app-compatible\\best_384_float16_detections.csv",
       "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."
     },
     {
       "model": "assets\\models\\best_640_float16.tflite",
-      "model_sha256": "c7381ac87876f131f14566310503aa0399c52b603ae9be4c56ff057bd76536c8",
-      "model_size_bytes": 5367122,
+      "model_sha256": "abdb50c462a53e73208a9882877ec44997ea3048e93b6a7dd09d57b1ff21d494",
+      "model_size_bytes": 5367123,
       "input_shape": [
         1,
         640,
@@ -165,11 +165,11 @@
       "warmup_inferences_discarded": 5,
       "measured_inferences": 77,
       "latency_ms": {
-        "mean": 51.88987013020601,
-        "median": 49.07479998655617,
-        "p95": 66.61871999967843,
-        "min": 43.422200018540025,
-        "max": 95.44760000426322
+        "mean": 43.92035714286008,
+        "median": 43.56200000006538,
+        "p95": 46.25620000001618,
+        "min": 42.09949999994933,
+        "max": 47.52549999989242
       },
       "detections_csv": "benchmark-results\\yolo-ab-app-compatible\\best_640_float16_detections.csv",
       "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."

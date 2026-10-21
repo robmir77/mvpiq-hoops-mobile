@@ -1,12 +1,14 @@
 {
   "benchmark": "MVPiQ offline YOLO video benchmark",
-  "created_utc": "2026-10-18T10:56:55Z",
+  "created_utc": "2026-10-20T17:15:07Z",
   "sampling_every_n_frames": 5,
   "warmup_per_model": 5,
   "preprocessing_options": {
     "input_scale": 1.0,
     "pad_value": 0.0
   },
+  "decoder": "app-compatible",
+  "decoder_notes": "App-compatible ports YoloDetector.ts + BallDetectionProcessor.ts logic, but OpenCV preprocessing and Python runtime are not proven equivalent to the native app path.",
   "results": [
     {
       "model": "assets\\models\\best_384_float16.tflite",
@@ -29,6 +31,7 @@
       "input_scale": 1.0,
       "pad_value_after_scaling": 0.0,
       "preprocessing": "RGB, OpenCV linear resize, contain/letterbox, centered padding",
+      "decoder_mode": "app-compatible",
       "thresholds": {
         "ball": 0.001,
         "player": 0.03,
@@ -80,19 +83,19 @@
       "warmup_inferences_discarded": 5,
       "measured_inferences": 77,
       "latency_ms": {
-        "mean": 26.559848050728995,
-        "median": 25.032100005773827,
-        "p95": 38.889419980114326,
-        "min": 19.52899998286739,
-        "max": 43.174599995836616
+        "mean": 26.40699740202928,
+        "median": 25.060699961613864,
+        "p95": 40.43900001561269,
+        "min": 14.75540001410991,
+        "max": 44.55940000480041
       },
       "detections_csv": "benchmark-results\\yolo-ab\\best_384_float16_detections.csv",
-      "interpretation_limit": "Diagnostic decoder only: not exact app parser; no adaptive thresholds, no app-level ball filter, and no ground-truth precision/recall."
+      "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."
     },
     {
       "model": "assets\\models\\best_640_float16.tflite",
-      "model_sha256": "c4565cfc75ff89d869712eef4962f24734c8e545591db355b61c64835ae5d1f7",
-      "model_size_bytes": 5367123,
+      "model_sha256": "c50aea034a0b9331b803b83405141afa2520573330d620558c77580131b5216e",
+      "model_size_bytes": 5367122,
       "input_shape": [
         1,
         640,
@@ -110,6 +113,7 @@
       "input_scale": 1.0,
       "pad_value_after_scaling": 0.0,
       "preprocessing": "RGB, OpenCV linear resize, contain/letterbox, centered padding",
+      "decoder_mode": "app-compatible",
       "thresholds": {
         "ball": 0.001,
         "player": 0.03,
@@ -161,14 +165,14 @@
       "warmup_inferences_discarded": 5,
       "measured_inferences": 77,
       "latency_ms": {
-        "mean": 87.36344675462415,
-        "median": 82.20269999583252,
-        "p95": 123.90452001709491,
-        "min": 60.201500018592924,
-        "max": 140.55659997393377
+        "mean": 100.21681428808331,
+        "median": 98.62290002638474,
+        "p95": 148.22613999713212,
+        "min": 53.526600007899106,
+        "max": 176.54070002026856
       },
       "detections_csv": "benchmark-results\\yolo-ab\\best_640_float16_detections.csv",
-      "interpretation_limit": "Diagnostic decoder only: not exact app parser; no adaptive thresholds, no app-level ball filter, and no ground-truth precision/recall."
+      "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."
     }
   ]
 }
