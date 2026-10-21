@@ -82,10 +82,10 @@ export interface BackendPoseKeypoint {
   confidence: number
 }
 
-// Frame di posa grezza per ShotEvent
+// Frame di posa grezza per ShotEvent (formato frontend interno)
 export interface RawPoseFrame {
   timestampMs: number
-  keypoints: BackendPoseKeypoint[]  // Array di keypoints nel formato backend
+  keypoints: PoseKeypoints  // Pose keypoints nel formato frontend (named keypoints o MoveNet array)
   coordinateSpace: 'IMAGE_NORMALIZED' | 'IMAGE_PIXELS'
 }
 

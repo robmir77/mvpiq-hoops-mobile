@@ -1,6 +1,6 @@
 {
   "model": "assets\\models\\best_640_float16.tflite",
-  "model_sha256": "c50aea034a0b9331b803b83405141afa2520573330d620558c77580131b5216e",
+  "model_sha256": "abdb50c462a53e73208a9882877ec44997ea3048e93b6a7dd09d57b1ff21d494",
   "input_shape": [
     1,
     640,
@@ -21,8 +21,9 @@
   },
   "preprocessing": "OpenCV RGB, centered contain/letterbox, float32",
   "input_scale": 1.0,
-  "pad_value_after_scaling": 114.0,
+  "pad_value_after_scaling": 0.0,
   "top_k_per_class_per_frame": 10,
   "warning": "Class order and coordinate encoding are assumptions to verify; not proof of app equivalence.",
+  "preprocessing_reference": "Defaults match benchmark-results/yolo-ab-app-compatible/manifest.json (input_scale=1.0, pad_value_after_scaling=0.0); OpenCV preprocessing still may differ from native app resizer.",
   "sampled_frames_rendered": 27
 }

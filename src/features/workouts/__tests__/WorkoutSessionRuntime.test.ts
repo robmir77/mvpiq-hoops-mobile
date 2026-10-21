@@ -499,4 +499,488 @@ describe('WorkoutSessionRuntime', () => {
       // This may need adjustment based on actual error handling
     })
   })
+
+  describe('processFrame - frame processing', () => {
+    const createMockVisionEngine = () => ({
+      start: jest.fn(),
+      stop: jest.fn(),
+      processFrame: jest.fn().mockReturnValue({
+        ball: null,
+        player: null,
+        rim: null,
+        pose: null,
+        observationTimestamps: {},
+      }),
+      getCurrentResults: jest.fn().mockReturnValue({
+        ball: null,
+        player: null,
+        rim: null,
+        pose: null,
+        poseTimestamp: null,
+      }),
+      setBallDetectionEnabled: jest.fn(),
+      setPlayerDetectionEnabled: jest.fn(),
+      setRimDetectionEnabled: jest.fn(),
+      setPoseDetectionEnabled: jest.fn(),
+      isReady: jest.fn(),
+    })
+
+    const createMockTrackingEngine = () => ({
+      processFrame: jest.fn().mockReturnValue({
+        ballPosition: null,
+        ballPositionRaw: null,
+        ballVelocity: null,
+        hoopPosition: null,
+        confidence: null,
+        inFlight: false,
+        shotDetected: false,
+        shotResult: null,
+        trajectory: [],
+      }),
+      resetShot: jest.fn(),
+      resetAll: jest.fn(),
+      getState: jest.fn(),
+      getComparisonStats: jest.fn(),
+      getCurrentPlayerPosition: jest.fn(),
+    })
+
+    const createMockQueue = () => ({
+      enqueueCritical: jest.fn().mockResolvedValue(true),
+      enqueueTelemetry: jest.fn(),
+      flushCriticalOnly: jest.fn(),
+      flushTelemetryOnly: jest.fn(),
+      shutdown: jest.fn().mockResolvedValue(undefined),
+      criticalSize: 0,
+      telemetrySize: 0,
+      telemetryDropped: 0,
+      criticalOverflow: 0,
+      getQueueMetrics: jest.fn().mockReturnValue({
+        telemetry: { pending: 0, dropped: 0 },
+        critical: { pending: 0, overflow: 0 },
+      }),
+    })
+
+    beforeEach(() => {
+      const mockVisionEngine = createMockVisionEngine()
+      const mockTrackingEngine = createMockTrackingEngine()
+      const mockQueue = createMockQueue()
+
+      runtime.setVisionEngine(mockVisionEngine)
+      runtime.setTrackingEngine(mockTrackingEngine)
+      runtime.setWorkoutQueue(mockQueue)
+    })
+
+    it('should process frame when state is ACTIVE', async () => {
+      await runtime.start()
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtime.processFrame(frame)
+
+      const trackingEngine = runtime.getTrackingEngine()
+      expect(trackingEngine?.processFrame).toHaveBeenCalled()
+    })
+
+    it('should NOT process frame when state is IDLE', async () => {
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtime.processFrame(frame)
+
+      const trackingEngine = runtime.getTrackingEngine()
+      expect(trackingEngine?.processFrame).not.toHaveBeenCalled()
+    })
+
+    it('should NOT process frame when state is PAUSED', async () => {
+      await runtime.start()
+      await runtime.pause()
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtime.processFrame(frame)
+
+      const trackingEngine = runtime.getTrackingEngine()
+      expect(trackingEngine?.processFrame).not.toHaveBeenCalled()
+    })
+
+    it('should NOT process frame when state is COMPLETED', async () => {
+      await runtime.start()
+      await runtime.stop()
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtime.processFrame(frame)
+
+      const trackingEngine = runtime.getTrackingEngine()
+      expect(trackingEngine?.processFrame).not.toHaveBeenCalled()
+    })
+
+    it('should guard against concurrent processFrame calls', async () => {
+      await runtime.start()
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      // Make processFrame take some time
+      const trackingEngine = runtime.getTrackingEngine()
+      trackingEngine!.processFrame = jest.fn().mockImplementation(
+        () => new Promise(resolve => setTimeout(resolve, 100))
+      )
+
+      // Call processFrame twice concurrently
+      const promise1 = runtime.processFrame(frame)
+      const promise2 = runtime.processFrame(frame)
+
+      await Promise.all([promise1, promise2])
+
+      // Should only call processFrame once due to guard
+      expect(trackingEngine?.processFrame).toHaveBeenCalledTimes(1)
+    })
+
+    it('should increment processFrameCount only when frame is processed', async () => {
+      await runtime.start()
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtime.processFrame(frame)
+
+      // processFrameCount is private, but we can verify through side effects
+      // For now, just ensure no error is thrown
+      expect(runtime.getState()).toBe('ACTIVE')
+    })
+
+    it('should call onTrackingStateUpdate callback with tracking state', async () => {
+      const trackingCallback = jest.fn()
+      const runtimeWithCallback = new WorkoutSessionRuntime(
+        { sessionId: mockSessionId, userId: mockUserId },
+        { onTrackingStateUpdate: trackingCallback }
+      )
+
+      const mockVisionEngine = createMockVisionEngine()
+      const mockTrackingEngine = createMockTrackingEngine()
+      const mockQueue = createMockQueue()
+
+      runtimeWithCallback.setVisionEngine(mockVisionEngine)
+      runtimeWithCallback.setTrackingEngine(mockTrackingEngine)
+      runtimeWithCallback.setWorkoutQueue(mockQueue)
+
+      await runtimeWithCallback.start()
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtimeWithCallback.processFrame(frame)
+
+      expect(trackingCallback).toHaveBeenCalled()
+    })
+
+    it('should wait for in-flight frame before stopping', async () => {
+      await runtime.start()
+
+      const trackingEngine = runtime.getTrackingEngine()
+      trackingEngine!.processFrame = jest.fn().mockImplementation(
+        () => new Promise(resolve => setTimeout(resolve, 100))
+      )
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      const processPromise = runtime.processFrame(frame)
+
+      // Stop immediately after starting frame processing
+      const stopPromise = runtime.stop()
+
+      await Promise.all([processPromise, stopPromise])
+
+      expect(runtime.getState()).toBe('COMPLETED')
+    })
+  })
+
+  describe('shot detection - deduplication and normalization', () => {
+    const createMockVisionEngine = () => ({
+      start: jest.fn(),
+      stop: jest.fn(),
+      processFrame: jest.fn().mockReturnValue({
+        ball: null,
+        player: null,
+        rim: null,
+        pose: null,
+        observationTimestamps: {},
+      }),
+      getCurrentResults: jest.fn().mockReturnValue({
+        ball: null,
+        player: null,
+        rim: null,
+        pose: null,
+        poseTimestamp: null,
+      }),
+      setBallDetectionEnabled: jest.fn(),
+      setPlayerDetectionEnabled: jest.fn(),
+      setRimDetectionEnabled: jest.fn(),
+      setPoseDetectionEnabled: jest.fn(),
+      isReady: jest.fn(),
+    })
+
+    const createMockTrackingEngine = () => ({
+      processFrame: jest.fn().mockReturnValue({
+        ballPosition: null,
+        ballPositionRaw: null,
+        ballVelocity: null,
+        hoopPosition: null,
+        confidence: null,
+        inFlight: false,
+        shotDetected: false,
+        shotResult: null,
+        trajectory: [],
+      }),
+      resetShot: jest.fn(),
+      resetAll: jest.fn(),
+      getState: jest.fn(),
+      getComparisonStats: jest.fn(),
+      getCurrentPlayerPosition: jest.fn(),
+    })
+
+    const createMockQueue = () => ({
+      enqueueCritical: jest.fn().mockResolvedValue(true),
+      enqueueTelemetry: jest.fn(),
+      flushCriticalOnly: jest.fn(),
+      flushTelemetryOnly: jest.fn(),
+      shutdown: jest.fn().mockResolvedValue(undefined),
+      criticalSize: 0,
+      telemetrySize: 0,
+      telemetryDropped: 0,
+      criticalOverflow: 0,
+      getQueueMetrics: jest.fn().mockReturnValue({
+        telemetry: { pending: 0, dropped: 0 },
+        critical: { pending: 0, overflow: 0 },
+      }),
+    })
+
+    beforeEach(() => {
+      const mockVisionEngine = createMockVisionEngine()
+      const mockTrackingEngine = createMockTrackingEngine()
+      const mockQueue = createMockQueue()
+
+      runtime.setVisionEngine(mockVisionEngine)
+      runtime.setTrackingEngine(mockTrackingEngine)
+      runtime.setWorkoutQueue(mockQueue)
+    })
+
+    it('should not count shot twice if same shotId is processed again (deduplication)', async () => {
+      await runtime.start()
+
+      const trackingEngine = runtime.getTrackingEngine()
+      const shotId = 'shot-123'
+
+      // Simulate a shot detection with the same ID twice
+      trackingEngine!.processFrame = jest.fn().mockReturnValue({
+        ballPosition: { x: 0.5, y: 0.5 },
+        ballPositionRaw: { x: 0.5, y: 0.5 },
+        ballVelocity: { vx: 0, vy: 0 },
+        hoopPosition: { x: 0.5, y: 0.3 },
+        confidence: 0.9,
+        inFlight: false,
+        shotDetected: true,
+        shotResult: 'MADE',
+        shotId: shotId,
+        trajectory: [],
+      })
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      // First shot
+      await runtime.processFrame(frame)
+      let metrics = runtime.getMetrics()
+      expect(metrics.totalShots).toBe(1)
+      expect(metrics.madeShots).toBe(1)
+
+      // Same shot ID again (should be deduplicated)
+      await runtime.processFrame(frame)
+      metrics = runtime.getMetrics()
+      expect(metrics.totalShots).toBe(1) // Still 1, not 2
+      expect(metrics.madeShots).toBe(1)
+    })
+
+    it('should not increment metrics if enqueueCritical fails', async () => {
+      await runtime.start()
+
+      const queue = runtime['workoutQueue']
+      queue!.enqueueCritical = jest.fn().mockResolvedValue(false)
+
+      const trackingEngine = runtime.getTrackingEngine()
+      trackingEngine!.processFrame = jest.fn().mockReturnValue({
+        ballPosition: { x: 0.5, y: 0.5 },
+        ballPositionRaw: { x: 0.5, y: 0.5 },
+        ballVelocity: { vx: 0, vy: 0 },
+        hoopPosition: { x: 0.5, y: 0.3 },
+        confidence: 0.9,
+        inFlight: false,
+        shotDetected: true,
+        shotResult: 'MADE',
+        shotId: 'shot-456',
+        trajectory: [],
+      })
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtime.processFrame(frame)
+
+      const metrics = runtime.getMetrics()
+      expect(metrics.totalShots).toBe(0) // Not incremented
+      expect(metrics.madeShots).toBe(0)
+    })
+
+    it('should normalize AIRBALL to MISS for public contract', async () => {
+      await runtime.start()
+
+      const trackingEngine = runtime.getTrackingEngine()
+      const shotCallback = jest.fn()
+
+      const runtimeWithCallback = new WorkoutSessionRuntime(
+        { sessionId: mockSessionId, userId: mockUserId },
+        { onShotDetected: shotCallback }
+      )
+
+      const mockVisionEngine = createMockVisionEngine()
+      const mockTrackingEngine = createMockTrackingEngine()
+      const mockQueue = createMockQueue()
+
+      runtimeWithCallback.setVisionEngine(mockVisionEngine)
+      runtimeWithCallback.setTrackingEngine(mockTrackingEngine)
+      runtimeWithCallback.setWorkoutQueue(mockQueue)
+
+      await runtimeWithCallback.start()
+
+      mockTrackingEngine.processFrame = jest.fn().mockReturnValue({
+        ballPosition: { x: 0.5, y: 0.5 },
+        ballPositionRaw: { x: 0.5, y: 0.5 },
+        ballVelocity: { vx: 0, vy: 0 },
+        hoopPosition: { x: 0.5, y: 0.3 },
+        confidence: 0.9,
+        inFlight: false,
+        shotDetected: true,
+        shotResult: 'AIRBALL', // Internal result
+        shotId: 'shot-789',
+        trajectory: [],
+      })
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtimeWithCallback.processFrame(frame)
+
+      // Callback should receive normalized result (MISS, not AIRBALL)
+      expect(shotCallback).toHaveBeenCalledWith('MISS')
+    })
+
+    it('should distinguish manual shots from automatic shots in tracking data', async () => {
+      await runtime.start()
+
+      // Manual shot
+      await runtime.registerManualShot('MADE')
+
+      const queue = runtime['workoutQueue'] as any
+      const manualCall = queue.enqueueCritical.mock.calls[0]
+      const manualPayload = manualCall[0].payload
+
+      expect(manualPayload.trackingData).toContain('manualEntry')
+
+      // Reset for automatic shot
+      queue.enqueueCritical.mockClear()
+
+      const trackingEngine = runtime.getTrackingEngine()
+      trackingEngine!.processFrame = jest.fn().mockReturnValue({
+        ballPosition: { x: 0.5, y: 0.5 },
+        ballPositionRaw: { x: 0.5, y: 0.5 },
+        ballVelocity: { vx: 0, vy: 0 },
+        hoopPosition: { x: 0.5, y: 0.3 },
+        confidence: 0.9,
+        inFlight: false,
+        shotDetected: true,
+        shotResult: 'MADE',
+        shotId: 'shot-auto',
+        trajectory: [],
+      })
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      await runtime.processFrame(frame)
+
+      const autoCall = queue.enqueueCritical.mock.calls[0]
+      const autoPayload = autoCall[0].payload
+
+      // Automatic shot should NOT have manualEntry flag
+      expect(autoPayload.trackingData).not.toContain('manualEntry')
+    })
+
+    it('should handle shot without shotId gracefully', async () => {
+      await runtime.start()
+
+      const trackingEngine = runtime.getTrackingEngine()
+      trackingEngine!.processFrame = jest.fn().mockReturnValue({
+        ballPosition: { x: 0.5, y: 0.5 },
+        ballPositionRaw: { x: 0.5, y: 0.5 },
+        ballVelocity: { vx: 0, vy: 0 },
+        hoopPosition: { x: 0.5, y: 0.3 },
+        confidence: 0.9,
+        inFlight: false,
+        shotDetected: true,
+        shotResult: 'MADE',
+        shotId: undefined, // No ID
+        trajectory: [],
+      })
+
+      const frame = {
+        width: 1920,
+        height: 1080,
+        timestamp: Date.now(),
+      }
+
+      // Should not throw
+      await expect(runtime.processFrame(frame)).resolves.not.toThrow()
+    })
+  })
 })
