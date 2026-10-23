@@ -218,6 +218,45 @@ describe('BallTrackingEngine - Kalman v2', () => {
     })
   })
 
+  describe('Coordinate safety guards', () => {
+    it('should reject non-normalized detections without changing the current position', () => {
+      const frameTs = 1000
+      engine.update(0.5, 0.4, frameTs)
+
+      const result = engine.update(2.5, -1.2, frameTs + 16)
+
+      expect(result.x).toBeCloseTo(0.5, 3)
+      expect(result.y).toBeCloseTo(0.4, 3)
+      expect(engine.getState().ballRejectionReason).toContain('Invalid normalized detection')
+    })
+
+    it('should stop prediction when the projected point escapes the normalized image', () => {
+      engine.update(0.9, 0.5, 1000)
+      // Simulate a corrupted/high velocity state that would extrapolate outside the frame.
+      ;(engine as any).kalman.vx = 5
+
+      const prediction = engine.predict(1100)
+
+      expect(prediction).toBeNull()
+      expect(engine.getState().trackState).toBe('LOST')
+      expect(engine.getState().ballPosition).toBeNull()
+      expect(engine.getState().ballRejectionReason).toContain('outside normalized image bounds')
+    })
+
+    it('should recover a corrupted filter position from the next valid detection', () => {
+      engine.update(0.5, 0.4, 1000)
+      ;(engine as any).kalman.x = -68.58
+      ;(engine as any).kalman.vx = -4.65
+
+      const result = engine.update(0.654, 0.775, 1016)
+
+      expect(result.x).toBeCloseTo(0.654, 3)
+      expect(result.y).toBeCloseTo(0.775, 3)
+      expect(engine.getVelocity()).toEqual({ vx: 0, vy: 0 })
+      expect(engine.getState().ballRejectionReason).toContain('Recovered corrupted Kalman state')
+    })
+  })
+
   describe('State Management', () => {
     it('should maintain raw detection separately', () => {
       const frameTs = 1000
