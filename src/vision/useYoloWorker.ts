@@ -232,6 +232,10 @@ export const useYoloWorker = (
     resized: any
   ) => {
     try {
+      console.log('[YOLO DEBUG] runYoloInference entered', {
+        model: selectedYoloModel?.fileName,
+        hasModel: !!yoloModelInstance,
+      })
       const tC = performance.now() // C: callback start (JS thread)
 
       // Profiling B→C: worklet → JS scheduling wait
@@ -244,7 +248,13 @@ export const useYoloWorker = (
       const jsPreprocessMs = 0
 
       const tD = performance.now() // D: inference start (after JS preprocessing)
+      console.log('[YOLO DEBUG] before runSync')
       const outputs = yoloModelInstance!.runSync([inputBuffer])
+      console.log('[YOLO DEBUG] after runSync', {
+        outputCount: outputs.length,
+        firstOutputType: outputs[0]?.constructor?.name,
+        firstOutputLength: outputs[0]?.length,
+      })
       const tE = performance.now() // E: inference end
       const runMs = tE - tD // D→E: inference time
       const rawOutput = outputs[0] as ArrayBufferLike
