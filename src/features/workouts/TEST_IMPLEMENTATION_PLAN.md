@@ -488,3 +488,17 @@ Il piano è completato quando:
 - la validazione su device è registrata separatamente dai test automatici.
 
 **Nota:** il piano non dichiara già verificati i comportamenti elencati. Ogni spunta e ogni esito dovranno essere aggiornati soltanto dopo l'esecuzione effettiva.
+
+
+## Nota di regressione — coordinate del tracking palla
+
+**Problema osservato:** il payload di diagnostica riportava `ballPositionRaw` in coordinate normalizzate plausibili (es. circa `0.654, 0.775`) ma `ballPosition` filtrata arrivava a valori fortemente negativi (es. `-68.58, -25.82`). `ShotEventBuilder` moltiplica poi la posizione disponibile per le dimensioni del campo; questo spiega i valori anomali di `courtX/courtY`, ma non è la causa primaria della posizione filtrata corrotta.
+
+**Correzione mirata in `BallTrackingEngine`:**
+- rifiutare misurazioni non finite o con centro fuori dall'intervallo normalizzato `[0, 1]`;
+- recuperare lo stato Kalman se posizione/velocità interne sono non finite o la posizione è già uscita dall'immagine;
+- interrompere una predizione che esce dall'immagine con un margine numerico di `0.1`, marcando il tracking come `LOST` anziché aggiungere punti impossibili alla traiettoria.
+
+**Test di regressione aggiunti:** detection fuori intervallo, predizione fuori immagine e recupero da posizione Kalman corrotta.
+
+**Limite della verifica:** le modifiche sono state scritte sul branch `Validation-1.0` via GitHub. La suite Jest non è stata eseguita in questo ambiente e la causa iniziale va confermata con i nuovi log e una prova su dispositivo. Non considerare il difetto risolto su device finché traiettoria e payload non sono stati ricontrollati.
