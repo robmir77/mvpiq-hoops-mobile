@@ -13,6 +13,13 @@ import { INITIAL_KALMAN, KALMAN_CONFIG } from './BallTrackingState'
 
 const BALL_TRACK_TTL_MS = KALMAN_CONFIG.predictionTtlMs
 
+// Tracking coordinates are normalized image coordinates. A center outside this
+// range is not a usable camera observation and must not poison the filter.
+const MIN_NORMALIZED_COORDINATE = 0
+const MAX_NORMALIZED_COORDINATE = 1
+// Allow a small numerical margin for prediction before invalidating a lost track.
+const PREDICTION_MARGIN = 0.1
+
 interface BallTrackingCallbacks {
   onBallDetected?: () => void
   onBallPrediction?: (ageMs: number) => void
@@ -53,6 +60,45 @@ export class BallTrackingEngine {
   // Kalman v2 update with adaptive gain and outlier detection
   update(measX: number, measY: number, frameTs: number): BallPosition {
     const k = this.kalman
+
+    if (
+      !Number.isFinite(measX) ||
+      !Number.isFinite(measY) ||
+      measX < MIN_NORMALIZED_COORDINATE ||
+      measX > MAX_NORMALIZED_COORDINATE ||
+      measY < MIN_NORMALIZED_COORDINATE ||
+      measY > MAX_NORMALIZED_COORDINATE ||
+      !Number.isFinite(frameTs)
+    ) {
+      this.state.ballRejectionReason = `Invalid normalized detection: x=${measX}, y=${measY}`
+      return this.ballTrackingValid ? { x: k.x, y: k.y } : { x: 0, y: 0 }
+    }
+
+    // Recover if a previous filter state escaped the image. Never let a corrupted
+    // velocity/position keep propagating into the trajectory and shot payload.
+    if (
+      !Number.isFinite(k.x) || !Number.isFinite(k.y) ||
+      !Number.isFinite(k.vx) || !Number.isFinite(k.vy) ||
+      k.x < -PREDICTION_MARGIN || k.x > 1 + PREDICTION_MARGIN ||
+      k.y < -PREDICTION_MARGIN || k.y > 1 + PREDICTION_MARGIN
+    ) {
+      k.x = measX
+      k.y = measY
+      k.vx = 0
+      k.vy = 0
+      this.lastFrameTs = frameTs
+      this.ballLastSeenAt = frameTs
+      this.ballTrackingValid = true
+      this.lastBallWasDetected = true
+      this.state.ballPosition = { x: measX, y: measY }
+      this.state.ballPositionRaw = { x: measX, y: measY }
+      this.state.ballVelocity = { vx: 0, vy: 0 }
+      this.state.ballRejectionReason = 'Recovered corrupted Kalman state'
+      this.state.trackState = 'DETECTED'
+      this.state.trackAge = 0
+      this.callbacks?.onBallDetected?.()
+      return { x: measX, y: measY }
+    }
 
     // First detection: initialize position, do NOT calculate velocity
     if (!this.ballTrackingValid) {
@@ -258,6 +304,19 @@ export class BallTrackingEngine {
 
     const predX = k.x + k.vx * dt
     const predY = k.y + k.vy * dt
+
+    if (
+      !Number.isFinite(predX) || !Number.isFinite(predY) ||
+      predX < -PREDICTION_MARGIN || predX > 1 + PREDICTION_MARGIN ||
+      predY < -PREDICTION_MARGIN || predY > 1 + PREDICTION_MARGIN
+    ) {
+      this.ballTrackingValid = false
+      this.state.trackState = 'LOST'
+      this.state.ballPosition = null
+      this.state.ballVelocity = null
+      this.state.ballRejectionReason = 'Prediction outside normalized image bounds'
+      return null
+    }
 
     this.state.trackState = 'PREDICTED'
     this.state.trackAge = ageMs
