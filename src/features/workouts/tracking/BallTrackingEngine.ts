@@ -133,6 +133,29 @@ export class BallTrackingEngine {
     const predX = k.x + k.vx * dt
     const predY = k.y + k.vy * dt
 
+    // A runaway velocity can make the prediction leave the image even while the
+    // previous position was valid. Re-anchor on the current measurement immediately.
+    if (
+      !Number.isFinite(predX) || !Number.isFinite(predY) ||
+      predX < -PREDICTION_MARGIN || predX > 1 + PREDICTION_MARGIN ||
+      predY < -PREDICTION_MARGIN || predY > 1 + PREDICTION_MARGIN
+    ) {
+      k.x = measX
+      k.y = measY
+      k.vx = 0
+      k.vy = 0
+      this.lastFrameTs = frameTs
+      this.ballLastSeenAt = frameTs
+      this.state.ballPosition = { x: measX, y: measY }
+      this.state.ballPositionRaw = { x: measX, y: measY }
+      this.state.ballVelocity = { vx: 0, vy: 0 }
+      this.state.ballRejectionReason = 'Recovered out-of-bounds Kalman prediction'
+      this.state.trackState = 'DETECTED'
+      this.state.trackAge = 0
+      this.callbacks?.onBallDetected?.()
+      return { x: measX, y: measY }
+    }
+
     const dx = measX - predX
     const dy = measY - predY
 
