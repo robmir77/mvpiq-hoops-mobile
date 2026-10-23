@@ -61,6 +61,8 @@ export const useYoloWorker = (
     YOLO_CONFIG.BALL_CONF_THRESHOLD,
     YOLO_CONFIG.RIM_CONF_THRESHOLD
   ))
+  // Temporary one-shot diagnostic for inspecting raw TFLite output before parsing.
+  const rawDebugLoggedRef = useRef(false)
 
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
@@ -247,9 +249,65 @@ export const useYoloWorker = (
       const runMs = tE - tD // D→E: inference time
       const rawOutput = outputs[0] as ArrayBufferLike
 
+      const output = new Float32Array(rawOutput)
+
+      // Temporary one-shot diagnostic: inspect raw model scores without changing them.
+      if (!rawDebugLoggedRef.current) {
+        rawDebugLoggedRef.current = true
+
+        const channels = 7
+        const n = output.length / channels
+
+        if (Number.isInteger(n) && n > 0) {
+          const classes = [
+            { name: 'ball', channel: 4 },
+            { name: 'player', channel: 5 },
+            { name: 'rim', channel: 6 },
+          ]
+
+          const maxima = classes.map(({ name, channel }) => {
+            let bestIndex = 0
+            let bestScore = -Infinity
+
+            for (let i = 0; i < n; i++) {
+              const score = output[channel * n + i]
+
+              if (Number.isFinite(score) && score > bestScore) {
+                bestScore = score
+                bestIndex = i
+              }
+            }
+
+            return {
+              class: name,
+              channel,
+              anchor: bestIndex,
+              score: bestScore,
+              xywh: [
+                output[bestIndex],
+                output[n + bestIndex],
+                output[2 * n + bestIndex],
+                output[3 * n + bestIndex],
+              ],
+            }
+          })
+
+          console.log('[YOLO RAW DEBUG]', {
+            model: selectedYoloModel?.fileName,
+            outputLength: output.length,
+            anchorCount: n,
+            maxima,
+          })
+        } else {
+          console.log('[YOLO RAW DEBUG] Unexpected output length', {
+            model: selectedYoloModel?.fileName,
+            outputLength: output.length,
+          })
+        }
+      }
+
       // Parse YOLO output using pure YoloDetector class
       const tParseStart = performance.now()
-      const output = new Float32Array(rawOutput)
       const result = yoloDetectorRef.current.parseOutput(output, frameWidth, frameHeight)
       const ball = result.ball
       const player = result.player
