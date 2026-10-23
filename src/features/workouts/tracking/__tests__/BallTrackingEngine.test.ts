@@ -243,6 +243,18 @@ describe('BallTrackingEngine - Kalman v2', () => {
       expect(engine.getState().ballRejectionReason).toContain('outside normalized image bounds')
     })
 
+    it('should re-anchor instead of emitting an out-of-bounds update prediction', () => {
+      engine.update(0.9, 0.5, 1000)
+      ;(engine as any).kalman.vx = 5
+
+      const result = engine.update(0.91, 0.5, 1100)
+
+      expect(result.x).toBeCloseTo(0.91, 3)
+      expect(result.y).toBeCloseTo(0.5, 3)
+      expect(engine.getVelocity()).toEqual({ vx: 0, vy: 0 })
+      expect(engine.getState().ballRejectionReason).toContain('Recovered out-of-bounds Kalman prediction')
+    })
+
     it('should recover a corrupted filter position from the next valid detection', () => {
       engine.update(0.5, 0.4, 1000)
       ;(engine as any).kalman.x = -68.58
