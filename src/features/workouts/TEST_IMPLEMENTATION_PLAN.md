@@ -497,7 +497,7 @@ Il piano è completato quando:
 **Correzione mirata in `BallTrackingEngine`:**
 - rifiutare misurazioni non finite o con centro fuori dall'intervallo normalizzato `[0, 1]`;
 - recuperare lo stato Kalman se posizione/velocità interne sono non finite o la posizione è già uscita dall'immagine;
-- interrompere una predizione che esce dall'immagine con un margine numerico di `0.1`, marcando il tracking come `LOST` anziché aggiungere punti impossibili alla traiettoria.
+- interrompere una predizione che esce dall'immagine con un margine numerico di `0.1`, marcando il tracking come `LOST` durante la predizione oppure riancorando subito alla detection valida durante un aggiornamento, anziché aggiungere punti impossibili alla traiettoria.
 
 **Test di regressione aggiunti:** detection fuori intervallo, predizione fuori immagine e recupero da posizione Kalman corrotta.
 
