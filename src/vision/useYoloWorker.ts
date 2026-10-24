@@ -253,7 +253,7 @@ export const useYoloWorker = (
       console.log('[YOLO DEBUG] after runSync', {
         outputCount: outputs.length,
         firstOutputType: outputs[0]?.constructor?.name,
-        firstOutputLength: outputs[0]?.length,
+        firstOutputLength: outputs[0]?.byteLength,
       })
       const tE = performance.now() // E: inference end
       const runMs = tE - tD // D→E: inference time

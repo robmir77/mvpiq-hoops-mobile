@@ -1,11 +1,11 @@
 {
   "model": "assets\\models\\best_640_float16.tflite",
-  "model_sha256": "abdb50c462a53e73208a9882877ec44997ea3048e93b6a7dd09d57b1ff21d494",
+  "model_sha256": "f1c24bdf872e4e8a0df11725511d0fca1754c26a5810b320475d1dc3405c119c",
   "input_shape": [
     1,
+    3,
     640,
-    640,
-    3
+    640
   ],
   "input_dtype": "<class 'numpy.float32'>",
   "output_shape": [

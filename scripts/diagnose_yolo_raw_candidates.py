@@ -19,7 +19,7 @@ import numpy as np
 CLASS_NAMES = ("ball", "player", "rim")
 
 
-def preprocess(frame, size, input_scale, pad_value):
+def preprocess(frame, size, input_scale, pad_value, input_layout="NHWC"):
     h, w = frame.shape[:2]
     scale = min(size / w, size / h)
     rw, rh = max(1, round(w * scale)), max(1, round(h * scale))
@@ -28,7 +28,13 @@ def preprocess(frame, size, input_scale, pad_value):
     tensor = np.full((size, size, 3), pad_value, dtype=np.float32)
     left, top = (size - rw) // 2, (size - rh) // 2
     tensor[top:top + rh, left:left + rw] = resized
-    return tensor[None, ...], {"scale": scale, "left": left, "top": top, "size": size}
+    # Convert to NCHW if needed (LiteRT uses NCHW)
+    if input_layout == "NCHW":
+        tensor = tensor.transpose(2, 0, 1)  # HWC -> CHW
+        tensor = tensor[None, ...]  # Add batch dimension -> [1, 3, H, W]
+    else:
+        tensor = tensor[None, ...]  # Add batch dimension -> [1, H, W, 3]
+    return tensor, {"scale": scale, "left": left, "top": top, "size": size}
 
 
 def normalize(raw):
@@ -36,8 +42,10 @@ def normalize(raw):
     if out.ndim != 2:
         raise ValueError(f"Output TFLite inatteso: {out.shape}")
     if out.shape[0] == 7:
+        # Modello legacy TFLite ha già sigmoid integrata, usiamo i valori direttamente
         return out
     if out.shape[1] == 7:
+        # Modello legacy TFLite ha già sigmoid integrata, usiamo i valori direttamente
         return out.T
     raise ValueError(f"Atteso output [7,N] o [N,7], ricevuto {out.shape}")
 
@@ -67,9 +75,17 @@ def main():
     inp = interpreter.get_input_details()[0]
     out_detail = interpreter.get_output_details()[0]
     shape = [int(x) for x in inp["shape"]]
-    if len(shape) != 4 or shape[0] != 1 or shape[-1] != 3:
-        raise SystemExit(f"Input non supportato: {shape}; atteso NHWC [1,H,W,3]")
-    size = shape[1]
+    # Support both NHWC [1,H,W,3] and NCHW [1,3,H,W] (LiteRT uses NCHW)
+    if len(shape) != 4 or shape[0] != 1:
+        raise SystemExit(f"Input non supportato: {shape}; atteso [1,...]")
+    if shape[-1] == 3:
+        input_layout = "NHWC"
+        size = shape[1]
+    elif shape[1] == 3:
+        input_layout = "NCHW"
+        size = shape[2]
+    else:
+        raise SystemExit(f"Input non supportato: {shape}; atteso NHWC [1,H,W,3] o NCHW [1,3,H,W]")
     if np.dtype(inp["dtype"]) != np.dtype(np.float32):
         raise SystemExit(f"Input dtype {inp['dtype']} non supportato: script diagnostico atteso float32")
 
@@ -118,7 +134,7 @@ def main():
                 if not ok:
                     break
                 if frame_index % args.every_n_frames == 0:
-                    tensor, lb = preprocess(frame, size, args.input_scale, args.pad_value)
+                    tensor, lb = preprocess(frame, size, args.input_scale, args.pad_value, input_layout)
                     interpreter.set_tensor(inp["index"], tensor)
                     interpreter.invoke()
                     raw = normalize(interpreter.get_tensor(out_detail["index"]))

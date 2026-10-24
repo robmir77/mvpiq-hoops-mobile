@@ -342,6 +342,7 @@ export class YoloDetector {
         const cameraW = converted.w
         const cameraH = converted.h
 
+        // Modello legacy TFLite ha già sigmoid integrata, usiamo i valori direttamente
         const ballProb = ballScore
         const humanProb = humanScore
         const rimProb = rimScore
