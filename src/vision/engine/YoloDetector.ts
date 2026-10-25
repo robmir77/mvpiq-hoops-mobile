@@ -301,18 +301,18 @@ export class YoloDetector {
       // Exporters differ: legacy TFLite models can expose normalized xywh (0..1),
       // while ONNX -> onnx2tf commonly preserves xywh in input-pixel units (0..640).
       // Detect the unit convention from the box channels, not the confidence channels.
-      let coordinatesAreNormalized = true
+      let coordinateValuesOutsideNormalizedRange = 0
+      const totalBoxCoordinateValues = nDetections * 4
       for (let i = 0; i < nDetections; i++) {
-        if (
-          Math.abs(output[i]) > 2 ||
-          Math.abs(output[nDetections + i]) > 2 ||
-          Math.abs(output[2 * nDetections + i]) > 2 ||
-          Math.abs(output[3 * nDetections + i]) > 2
-        ) {
-          coordinatesAreNormalized = false
-          break
-        }
+        if (Math.abs(output[i]) > 2) coordinateValuesOutsideNormalizedRange++
+        if (Math.abs(output[nDetections + i]) > 2) coordinateValuesOutsideNormalizedRange++
+        if (Math.abs(output[2 * nDetections + i]) > 2) coordinateValuesOutsideNormalizedRange++
+        if (Math.abs(output[3 * nDetections + i]) > 2) coordinateValuesOutsideNormalizedRange++
       }
+      // A single corrupt/outlier box must not switch the interpretation for the
+      // whole tensor. Pixel-coordinate exports have many values outside [-2, 2].
+      const coordinatesAreNormalized =
+        coordinateValuesOutsideNormalizedRange / totalBoxCoordinateValues < 0.01
       const coordinateScale = coordinatesAreNormalized ? TENSOR_SIZE : 1
 
       // Normalize thresholds to reference resolution 512
