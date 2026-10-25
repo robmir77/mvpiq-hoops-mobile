@@ -31,6 +31,33 @@ describe('YoloDetector', () => {
   const N_ANCHORS = 3549
   const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
+  describe('pixel-coordinate exports', () => {
+    it('should parse ONNX-to-TFLite xywh values expressed in input pixels', () => {
+      const anchors = 8400 // 640x640 YOLO output
+      const mockOutput = new Float32Array(anchors * OUTPUT_CHANNELS)
+      const idx = 100
+
+      // New export convention: xywh are pixels in the 640x640 input tensor,
+      // while class scores remain probabilities.
+      mockOutput[idx] = 320
+      mockOutput[anchors + idx] = 320
+      mockOutput[anchors * 2 + idx] = 100
+      mockOutput[anchors * 3 + idx] = 100
+      mockOutput[anchors * 4 + idx] = 0.9
+      mockOutput[anchors * 5 + idx] = 0.1
+      mockOutput[anchors * 6 + idx] = 0.1
+
+      const detector = new YoloDetector(0.001, 0.30)
+      const result = detector.parseOutput(mockOutput, 1280, 720)
+
+      expect(result.ball).not.toBeNull()
+      expect(result.ball?.x).toBeCloseTo(0.5, 3)
+      expect(result.ball?.y).toBeCloseTo(0.5, 3)
+      expect(result.ball?.width).toBeCloseTo(0.15625, 3)
+      expect(result.ball?.height).toBeCloseTo(0.27778, 3)
+    })
+  })
+
   describe('ball detection', () => {
     it('should detect ball with high confidence', () => {
       // Simulate YOLO output with ball detection
