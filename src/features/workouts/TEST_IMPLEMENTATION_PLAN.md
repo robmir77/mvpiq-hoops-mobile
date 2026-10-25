@@ -513,3 +513,10 @@ Il piano è completato quando:
 **Modifica mirata:** `YoloDetector.parseOutput` rileva ora se i valori dei canali box sono pixel o normalizzati e applica la conversione appropriata prima di rimuovere il letterbox. Aggiunto un test sintetico per l'output 640 in pixel; i test preesistenti con valori normalizzati restano inalterati.
 
 **Da fare prima di dichiarare risolto:** eseguire `npm test -- --runInBand src/vision/__tests__/yoloParser.test.ts`, poi ripetere la sessione sul dispositivo e verificare bbox, confidence, detection palla e conteggio tiri. Questa modifica non cambia soglie, modello o throttling FPS.
+
+
+## 11. Cache dei modelli e verifica checksum
+
+Il caricamento dei modelli in `src/vision/yoloModels.ts` confronta il checksum MD5 dell'asset incluso nel bundle con quello del file nella cache locale. Se i checksum differiscono (o non sono entrambi disponibili), il file locale viene ricreato dal bundle. Dopo la copia viene effettuato un controllo aggiuntivo del checksum, quando disponibile.
+
+**Validazione ancora necessaria:** eseguire i test TypeScript/Jest e verificare su dispositivo, con una nuova build, che i log mostrino il checksum del bundle e della copia locale e che un aggiornamento dello stesso fileName non riutilizzi il modello precedente. MD5 è usato qui per rilevare aggiornamenti accidentali della cache, non come garanzia crittografica di sicurezza.
