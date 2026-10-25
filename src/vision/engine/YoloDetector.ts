@@ -298,15 +298,32 @@ export class YoloDetector {
       const LETTERBOX_OFFSET_X = RESIZED_WIDTH < TENSOR_SIZE ? (TENSOR_SIZE - RESIZED_WIDTH) / 2 : 0
       const LETTERBOX_OFFSET_Y = RESIZED_HEIGHT < TENSOR_SIZE ? (TENSOR_SIZE - RESIZED_HEIGHT) / 2 : 0
 
+      // Exporters differ: legacy TFLite models can expose normalized xywh (0..1),
+      // while ONNX -> onnx2tf commonly preserves xywh in input-pixel units (0..640).
+      // Detect the unit convention from the box channels, not the confidence channels.
+      let coordinatesAreNormalized = true
+      for (let i = 0; i < nDetections; i++) {
+        if (
+          Math.abs(output[i]) > 2 ||
+          Math.abs(output[nDetections + i]) > 2 ||
+          Math.abs(output[2 * nDetections + i]) > 2 ||
+          Math.abs(output[3 * nDetections + i]) > 2
+        ) {
+          coordinatesAreNormalized = false
+          break
+        }
+      }
+      const coordinateScale = coordinatesAreNormalized ? TENSOR_SIZE : 1
+
       // Normalize thresholds to reference resolution 512
       const resolutionScale = TENSOR_SIZE / 512
 
-      // Convert coordinates from letterboxed tensor space to camera-normalized space
+      // Convert coordinates from tensor space to camera-normalized space
       const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
-        const cx_px = cx * TENSOR_SIZE
-        const cy_px = cy * TENSOR_SIZE
-        const w_px = w * TENSOR_SIZE
-        const h_px = h * TENSOR_SIZE
+        const cx_px = cx * coordinateScale
+        const cy_px = cy * coordinateScale
+        const w_px = w * coordinateScale
+        const h_px = h * coordinateScale
 
         const cx_no_letterbox = cx_px - LETTERBOX_OFFSET_X
         const cy_no_letterbox = cy_px - LETTERBOX_OFFSET_Y
