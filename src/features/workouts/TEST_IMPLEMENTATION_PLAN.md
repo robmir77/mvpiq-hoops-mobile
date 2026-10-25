@@ -502,3 +502,14 @@ Il piano è completato quando:
 **Test di regressione aggiunti:** detection fuori intervallo, predizione fuori immagine e recupero da posizione Kalman corrotta.
 
 **Limite della verifica:** le modifiche sono state scritte sul branch `Validation-1.0` via GitHub. La suite Jest non è stata eseguita in questo ambiente e la causa iniziale va confermata con i nuovi log e una prova su dispositivo. Non considerare il difetto risolto su device finché traiettoria e payload non sono stati ricontrollati.
+
+
+## Regressione export YOLO ONNX → TFLite (best_640_float16)
+
+**Evidenza dai log device:** modello `best_640_float16.tflite` caricato correttamente su input 640×640; durante la sessione MoveNet riceve bbox con larghezze impossibili (es. `197.234`, mentre il contratto del crop richiede coordinate/dimensioni normalizzate 0..1) e la confidenza media YOLO osservata è bassa (`0.071`).
+
+**Ipotesi da verificare:** il nuovo percorso ONNX → onnx2tf può esporre `xywh` in pixel del tensor (0..640), mentre `YoloDetector` interpretava sempre `xywh` come normalizzati (0..1). Questo spiega direttamente le dimensioni del bbox fuori scala; i log da soli non dimostrano la convenzione esatta del tensor.
+
+**Modifica mirata:** `YoloDetector.parseOutput` rileva ora se i valori dei canali box sono pixel o normalizzati e applica la conversione appropriata prima di rimuovere il letterbox. Aggiunto un test sintetico per l'output 640 in pixel; i test preesistenti con valori normalizzati restano inalterati.
+
+**Da fare prima di dichiarare risolto:** eseguire `npm test -- --runInBand src/vision/__tests__/yoloParser.test.ts`, poi ripetere la sessione sul dispositivo e verificare bbox, confidence, detection palla e conteggio tiri. Questa modifica non cambia soglie, modello o throttling FPS.
