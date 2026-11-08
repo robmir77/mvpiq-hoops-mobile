@@ -14,6 +14,7 @@ import { DEFAULT_YOLO_MODEL_ID } from './yoloModels'
 import { telemetryLogger } from './telemetry'
 import { scheduleOnRN } from 'react-native-worklets'
 import { VISION_CONFIG, TEST_CONFIG, YOLO_CONFIG } from '@/config/appConfig'
+import { resizerFloat32ToYoloInput } from './engine/yoloPreprocessing'
 
 const YOLO_INPUT_SIZE = 512
 
@@ -439,8 +440,11 @@ export const useYoloWorker = (
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (source.length === yoloInputElements) {
-          // Pass buffer directly without slice() to avoid unnecessary copy
-          const inputBuffer = source.buffer as ArrayBuffer
+          // VisionCamera Resizer float32 is normalized to 0..1. The YOLO TFLite
+          // exports used here expect RGB float32 in 0..255, as in the Python runner.
+          // Scale into a separate owned buffer: do not mutate the GPUFrame buffer.
+          const modelInput = resizerFloat32ToYoloInput(source)
+          const inputBuffer = modelInput.buffer as ArrayBuffer
 
           // ASYNC: Pass buffer to JS thread for inference
           scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, tA, tB, resizeMs, resized)
