@@ -19,6 +19,57 @@ if (typeof (global as any).Buffer === 'undefined') {
   (global as any).Buffer = require('buffer').Buffer
 }
 
+// Temporary diagnostic functions for tensor comparison with Python benchmark
+const getTensorStats = (data: Float32Array) => {
+  let min = Infinity
+  let max = -Infinity
+  let sum = 0
+
+  for (let i = 0; i < data.length; i++) {
+    const value = data[i]
+    if (value < min) min = value
+    if (value > max) max = value
+    sum += value
+  }
+
+  return {
+    min,
+    max,
+    mean: sum / data.length,
+    elements: data.length,
+  }
+}
+
+const saveDebugTensor = async (
+  filename: string,
+  data: Float32Array
+) => {
+  const directory = `${FileSystem.documentDirectory}yolo-debug/`
+  const info = await FileSystem.getInfoAsync(directory)
+
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(directory, {
+      intermediates: true,
+    })
+  }
+
+  const bytes = new Uint8Array(
+    data.buffer,
+    data.byteOffset,
+    data.byteLength
+  )
+
+  const base64 = (global as any).Buffer.from(bytes).toString('base64')
+
+  await FileSystem.writeAsStringAsync(
+    directory + filename,
+    base64,
+    { encoding: FileSystem.EncodingType.Base64 }
+  )
+
+  return directory + filename
+}
+
 export interface BenchmarkResult {
   frameIndex: number
   videoName: string
@@ -100,6 +151,41 @@ export const useImageBenchmark = (yoloModelId?: string) => {
       new Float32Array(buffer), width, height, tensorSize
     )
 
+    // Temporary diagnostic: capture input tensor for frame_000085.jpg
+    const decodedImageUri = decodeURIComponent(imageUri)
+
+    const isTargetFrame = decodedImageUri.includes(
+      '/Tiro a centrocampo/frame_000085.jpg'
+    )
+
+    if (decodedImageUri.includes('frame_000085.jpg')) {
+      console.log('[YOLO DEBUG] Frame 000085 detected', {
+        imageUri,
+        decodedImageUri,
+        isTargetFrame,
+        video: decodedImageUri.includes('Tiro Libero') ? 'Tiro Libero' : decodedImageUri.includes('Tiro a centrocampo') ? 'Tiro a centrocampo' : 'unknown',
+      })
+    }
+
+    let inputStats: ReturnType<typeof getTensorStats> | null = null
+    let inputFile: string | null = null
+
+    if (isTargetFrame) {
+      inputStats = getTensorStats(inputBuffer)
+      inputFile = await saveDebugTensor(
+        'frame_000085_android_input.f32',
+        inputBuffer
+      )
+
+      console.log('[YOLO DEBUG] Android input', {
+        width,
+        height,
+        tensorSize,
+        ...inputStats,
+        file: inputFile,
+      })
+    }
+
     // Run inference
     const inferenceStart = performance.now()
     const outputs = tflite.model.runSync([inputBuffer.buffer as any])
@@ -108,6 +194,38 @@ export const useImageBenchmark = (yoloModelId?: string) => {
     // Parse output with YoloDetector
     const detector = yoloDetectorRef.current
     const rawOutput = outputs[0] as ArrayBufferLike
+
+    // Temporary diagnostic: capture output tensor for frame_000085.jpg
+    if (isTargetFrame) {
+      const outputFloat32 = new Float32Array(rawOutput)
+      const outputStats = getTensorStats(outputFloat32)
+
+      const outputFile = await saveDebugTensor(
+        'frame_000085_android_output.f32',
+        outputFloat32
+      )
+
+      const metadata = {
+        image: 'frame_000085.jpg',
+        width,
+        height,
+        inputSize: tensorSize,
+        input: inputStats,
+        inputFile,
+        output: outputStats,
+        outputFile,
+        outputShapeExpected: [1, 7, outputFloat32.length / 7],
+        outputDtype: 'float32',
+      }
+
+      await FileSystem.writeAsStringAsync(
+        `${FileSystem.documentDirectory}yolo-debug/frame_000085_metadata.json`,
+        JSON.stringify(metadata, null, 2)
+      )
+
+      console.log('[YOLO DEBUG] Android output', metadata)
+    }
+
     const parsed = detector.parseOutput(
       new Float32Array(rawOutput),
       width,
@@ -227,6 +345,18 @@ export const useImageBenchmark = (yoloModelId?: string) => {
         const [videoName, filename] = key.split('/')
         const videoDir = cacheDir + videoName + '/'
         const destUri = videoDir + filename
+
+        // Temporary diagnostic: log URI construction for frame_000085.jpg
+        if (filename === 'frame_000085.jpg') {
+          console.log('[YOLO DEBUG] URI construction', {
+            key,
+            videoName,
+            filename,
+            videoDir,
+            destUri,
+            sourceUri: loaded.localUri || loaded.uri,
+          })
+        }
 
         // Create video directory if needed
         const videoDirInfo = await FileSystem.getInfoAsync(videoDir)
