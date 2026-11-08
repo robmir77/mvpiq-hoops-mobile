@@ -1,8 +1,7 @@
 // YOLO input preprocessing shared by the static benchmark and live camera path.
-// The exported MVPiQ TFLite models are float32 models whose expected pixel range
-// is 0..255 (the Python benchmark's recorded input tensor uses this range).
+// The recorded Python reference run feeds RGB float32 values in the 0..255 range.
 // VisionCamera Resizer float32 output is normalized to 0..1, so the live path
-// must scale it before invoking TFLite.
+// scales it to reproduce that reference input range before invoking TFLite.
 
 export function resizerFloat32ToYoloInput(source: Float32Array): Float32Array {
   const input = new Float32Array(source.length)
