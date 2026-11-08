@@ -37,7 +37,7 @@ Il codice della schermata contiene ancora callback e logica del percorso legacy,
 | Componente | Responsabilità corrente |
 |---|---|
 | `useShotTracker` e worker | Acquisizione dei risultati dei modelli, parsing e callback |
-| `YoloDetector` | Parsing YOLO con filtri geometrici per riduzione false positive |
+| `YoloDetector` | Parsing YOLO con filtri geometrici, validazione schema tensore e riduzione false positive |
 | `VisionEngineAdapter` | Cache delle osservazioni e timestamp/versioni per canale |
 | `VisionEngine` | Normalizzazione/orchestrazione dei risultati vision |
 | `WorkoutSessionRuntime` | State machine, coordinamento frame e dispatch degli eventi |
@@ -65,3 +65,4 @@ I test sono collocati sotto `src/features/workouts/__tests__`, `src/features/wor
 3. Verificare che non si creino percorsi duplicati di tracking/event dispatch tra runtime e callback legacy.
 4. Misurare l'uso effettivo di `TelemetrySampler` e la persistenza degli eventi in condizioni offline e di riavvio.
 5. Aggiornare questo documento dopo modifiche ai sorgenti, mantenendo esplicita la distinzione tra implementazione, test automatici e validazione su dispositivo.
+6. Eseguire `scripts/verify_tflite_metadata.py` dopo aggiunte o modifiche ai modelli TFLite per confermare coerenza dello schema di esportazione.

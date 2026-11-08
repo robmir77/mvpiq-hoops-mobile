@@ -206,6 +206,8 @@ export const useYoloWorkerAsync = (
       state: yoloModel.state,
       hasModel: !!yoloModel.model,
       error: yoloModel.state === 'error' ? yoloModel.error : null,
+      delegate: Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE,
+      note: 'Benchmark uses CPU Python, app uses GPU/NNAPI on Android - this can cause numerical differences'
     })
   }, [yoloModel.state, yoloModel.model, selectedYoloModel?.fileName])
 
@@ -299,6 +301,28 @@ export const useYoloWorkerAsync = (
       const jsPreprocessMs = 0
 
       const source = new Float32Array(inputBuffer)
+
+      // Log input tensor statistics to verify normalization (should be 0-1 if VisionCamera resizer is correct)
+      if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+        let min = Infinity
+        let max = -Infinity
+        let sum = 0
+        for (let i = 0; i < source.length; i++) {
+          const v = source[i]
+          if (v < min) min = v
+          if (v > max) max = v
+          sum += v
+        }
+        const mean = sum / source.length
+        console.log('[YoloWorkerAsync]', {
+          frameCounter,
+          inputTensorStats: { min, max, mean },
+          expectedRange: '0-1 if VisionCamera normalizes correctly',
+          yoloInputSize,
+          frameWidth,
+          frameHeight
+        })
+      }
 
       if (source.length === yoloInputElements) {
         const outputs = yoloModelInstance!.runSync([inputBuffer])

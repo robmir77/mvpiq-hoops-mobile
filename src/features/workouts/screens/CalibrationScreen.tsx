@@ -752,10 +752,9 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const userPickedResolutionRef = useRef(false)
     const previousModelIdRef = useRef<string | null>(null)
 
-    // Wrapper for setSelectedResolution with logging and stack trace
+    // Wrapper for setSelectedResolution with logging
     const setSelectedResolution = useCallback((value: { width: number; height: number } | null) => {
         console.log('[Calibration] setSelectedResolution called:', value)
-        console.log('[Calibration] Stack trace:', new Error().stack)
         setSelectedResolutionOriginal(value)
     }, [])
     const [selectedFps, setSelectedFps] = useState<number | null>(initialFps ?? DEFAULT_FPS)
@@ -839,6 +838,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         if (availableResolutions.length > 0 &&
             !availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
             // Default to maximum supported resolution
+            console.log('[Calibration] Resetting to maximum resolution:', availableResolutions[0])
             setSelectedResolution(availableResolutions[0])
         }
         if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
@@ -850,23 +850,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         if (MOVENET_MODELS.length > 0 && !MOVENET_MODELS.some(m => m.id === selectedMoveNetModelId)) {
             setSelectedMoveNetModelId(DEFAULT_MOVENET_MODEL_ID)
         }
-    }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId])
-
-    // Auto-select maximum resolution when model changes
-    useEffect(() => {
-        if (!selectedYoloModelId) return
-        
-        const prevModelId = previousModelIdRef.current
-        // Only run when model actually changes
-        if (prevModelId === selectedYoloModelId) return
-        
-        if (availableResolutions.length > 0) {
-            console.log('[Calibration] Auto-selecting maximum resolution:', availableResolutions[0])
-            setSelectedResolution(availableResolutions[0])
-        }
-        
-        previousModelIdRef.current = selectedYoloModelId
-    }, [selectedYoloModelId, setSelectedResolution])
+    }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId, selectedResolution])
 
     // Pre-positioned calibration points (hoop + 4 corners) - raised positions
     const [points, setPoints] = useState<DraggablePoint[]>([

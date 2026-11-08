@@ -83,6 +83,9 @@ export class YoloDetector {
   private adaptivePlayerThreshold: number
   private adaptiveRimThreshold: number
 
+  // Inference counter for diagnostics
+  private inferenceCounter: number = 0
+
   constructor(
     ballConfThreshold: number = YOLO_CONFIG.BALL_CONF_THRESHOLD,
     rimConfThreshold: number = YOLO_CONFIG.RIM_CONF_THRESHOLD
@@ -291,6 +294,41 @@ export class YoloDetector {
     return null
   }
 
+  // Validate output tensor schema
+  // Returns true if tensor matches expected YOLO11 export format
+  private validateOutputSchema(output: Float32Array): { valid: boolean; tensorSize?: number; nDetections?: number; error?: string } {
+    const nDetections = Math.floor(output.length / OUTPUT_CHANNELS)
+
+    // Check basic divisibility
+    if (output.length % OUTPUT_CHANNELS !== 0) {
+      return {
+        valid: false,
+        nDetections,
+        error: `Output length ${output.length} is not divisible by OUTPUT_CHANNELS (${OUTPUT_CHANNELS})`
+      }
+    }
+
+    // Check if nDetections matches known YOLO11 grid sizes
+    const knownSizes: { [key: number]: number } = {
+      2100: 320,   // 40² + 20² + 10²
+      3024: 384,   // 48² + 24² + 12²
+      4116: 448,   // 56² + 28² + 14²
+      5376: 512,   // 64² + 32² + 16²
+      8400: 640,   // 80² + 40² + 20²
+    }
+
+    const tensorSize = knownSizes[nDetections]
+    if (!tensorSize) {
+      return {
+        valid: false,
+        nDetections,
+        error: `Unknown detection count ${nDetections}. Expected one of: ${Object.keys(knownSizes).join(', ')}`
+      }
+    }
+
+    return { valid: true, tensorSize, nDetections }
+  }
+
   // Parse YOLO output to detections
   // Worklet-safe - marked with 'worklet' directive for Reanimated
   // Standard YOLOv8 TFLite format: (1, 7, num_anchors) where 7 = 4 coords + 3 class scores
@@ -305,9 +343,18 @@ export class YoloDetector {
     const effectiveFrameWidth = frameWidth || 1280
     const effectiveFrameHeight = frameHeight || 720
     const frameAspect = effectiveFrameWidth / effectiveFrameHeight
-    let TENSOR_SIZE = 512
 
     try {
+      // Validate output schema
+      const validation = this.validateOutputSchema(output)
+      if (!validation.valid) {
+        console.error('[YoloDetector] Invalid output tensor:', validation.error)
+        return { ball: null, player: null, rim: null }
+      }
+
+      const TENSOR_SIZE = validation.tensorSize!
+      const nDetections = validation.nDetections!
+
       let bestBall: { x: number; y: number; width: number; height: number; confidence: number } | null = null
       let bestPlayer: { x: number; y: number; width: number; height: number; confidence: number } | null = null
       let bestRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
@@ -319,24 +366,28 @@ export class YoloDetector {
       let bestConfidence = 0
       let rejectedConfidence = 0
 
-      const nDetections = Math.floor(output.length / OUTPUT_CHANNELS)
-      if (nDetections <= 0 || output.length % OUTPUT_CHANNELS !== 0) {
-        return { ball: null, player: null, rim: null }
-      }
-
-      // Determine input size from number of detections
-      if (nDetections === 8400) TENSOR_SIZE = 640
-      else if (nDetections === 5376) TENSOR_SIZE = 512
-      else if (nDetections === 4116) TENSOR_SIZE = 448
-      else if (nDetections === 3024) TENSOR_SIZE = 384
-      else if (nDetections === 2100) TENSOR_SIZE = 320
-
       // Calculate letterboxing parameters
       const SCALE = Math.min(TENSOR_SIZE / effectiveFrameWidth, TENSOR_SIZE / effectiveFrameHeight)
       const RESIZED_WIDTH = effectiveFrameWidth * SCALE
       const RESIZED_HEIGHT = effectiveFrameHeight * SCALE
       const LETTERBOX_OFFSET_X = RESIZED_WIDTH < TENSOR_SIZE ? (TENSOR_SIZE - RESIZED_WIDTH) / 2 : 0
       const LETTERBOX_OFFSET_Y = RESIZED_HEIGHT < TENSOR_SIZE ? (TENSOR_SIZE - RESIZED_HEIGHT) / 2 : 0
+
+      // Log letterbox calculation to verify orientation handling (every 100 frames)
+      if (__DEV__ && nDetections % 8400 === 0) {
+        console.log('[YoloDetector] Letterbox calculation', {
+          TENSOR_SIZE,
+          effectiveFrameWidth,
+          effectiveFrameHeight,
+          frameAspect,
+          SCALE,
+          RESIZED_WIDTH,
+          RESIZED_HEIGHT,
+          LETTERBOX_OFFSET_X,
+          LETTERBOX_OFFSET_Y,
+          note: 'Compare with benchmark Python preprocessing to verify orientation handling'
+        })
+      }
 
       // Exporters differ: legacy TFLite models can expose normalized xywh (0..1),
       // while ONNX -> onnx2tf commonly preserves xywh in input-pixel units (0..640).
@@ -355,9 +406,37 @@ export class YoloDetector {
         coordinateValuesOutsideNormalizedRange / totalBoxCoordinateValues < 0.01
       const coordinateScale = coordinatesAreNormalized ? TENSOR_SIZE : 1
 
+      // Log coordinate detection to verify model output format
+      if (__DEV__ && nDetections % 8400 === 0) {
+        console.log('[YoloDetector] Coordinate detection', {
+          nDetections,
+          coordinateValuesOutsideNormalizedRange,
+          totalBoxCoordinateValues,
+          coordinatesAreNormalized,
+          coordinateScale,
+          note: 'True = normalized (0-1), False = pixel units (0-TENSOR_SIZE). Compare with benchmark.'
+        })
+      }
+
       // Normalize thresholds to reference resolution 512
-      // Fixed to 1.0 since boxes are normalized on frame and don't depend on tensor size
-      const resolutionScale = 1.0
+      // Aligned with benchmark Python: tensor_size / 512
+      const resolutionScale = TENSOR_SIZE / 512
+
+      // Ball detection diagnostic counters
+      let ballRawCandidates = 0
+      let ballBestRawConfidence = 0
+      let ballConfidencePassed = 0
+      let ballGeometryPassed = 0
+      let ballRejectedConfidence = 0
+      let ballRejectedSize = 0
+      let ballRejectedAspectRatio = 0
+      let ballRejectedCoordinates = 0
+
+      // Inference counter for diagnostics (persist across calls)
+      if (!this.inferenceCounter) {
+        this.inferenceCounter = 0
+      }
+      this.inferenceCounter++
 
       // Convert coordinates from tensor space to camera-normalized space
       const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
@@ -405,21 +484,48 @@ export class YoloDetector {
         const humanProb = humanScore
         const rimProb = rimScore
 
-        if (cameraW <= 0.01 || cameraH <= 0.01) continue
+        // Ball detection diagnostics
+        if (ballProb > 0) {
+          ballRawCandidates++
+          if (ballProb > ballBestRawConfidence) {
+            ballBestRawConfidence = ballProb
+          }
+        }
+
+        if (cameraW <= 0.01 || cameraH <= 0.01) {
+          ballRejectedCoordinates++
+          continue
+        }
 
         const geometryCheck = this.isValidBallGeometry(cameraW, cameraH, frameAspect)
         const ballAdaptiveThreshold = this.getAdaptiveThreshold(cameraW, cameraH, this.adaptiveBallThreshold, resolutionScale)
 
-        if (geometryCheck.valid && ballProb >= ballAdaptiveThreshold) {
-          const detection = {
-            x: cameraCx,
-            y: cameraCy,
-            width: cameraW,
-            height: cameraH,
-            confidence: ballProb,
+        if (!geometryCheck.valid) {
+          if (geometryCheck.aspectRatio < GEO.ballMinAspect || geometryCheck.aspectRatio > GEO.ballMaxAspect) {
+            ballRejectedAspectRatio++
+          } else {
+            ballRejectedSize++
           }
-          if (!bestBall || detection.confidence > bestBall.confidence) {
-            bestBall = detection
+        }
+
+        if (ballProb >= ballAdaptiveThreshold) {
+          ballConfidencePassed++
+          if (geometryCheck.valid) {
+            ballGeometryPassed++
+            const detection = {
+              x: cameraCx,
+              y: cameraCy,
+              width: cameraW,
+              height: cameraH,
+              confidence: ballProb,
+            }
+            if (!bestBall || detection.confidence > bestBall.confidence) {
+              bestBall = detection
+            }
+          }
+        } else {
+          if (ballProb > ballRejectedConfidence) {
+            ballRejectedConfidence = ballProb
           }
         }
 
@@ -488,6 +594,30 @@ export class YoloDetector {
         rejectedConfidence,
       }
 
+      // Ball detection diagnostics log (every 50 inferences to avoid spam)
+      if (__DEV__ && this.inferenceCounter % 50 === 0) {
+        console.log('[YoloDetector] Ball detection diagnostics', {
+          inferenceCounter: this.inferenceCounter,
+          anchorsAnalyzed: nDetections,
+          ballRawCandidates,
+          ballBestRawConfidence,
+          ballConfidencePassed,
+          ballGeometryPassed,
+          ballRejectedConfidence,
+          ballRejectedSize,
+          ballRejectedAspectRatio,
+          ballRejectedCoordinates,
+          acceptedBall: bestBall ? 1 : 0,
+          adaptiveBallThreshold: this.adaptiveBallThreshold,
+          baseBallThreshold: this.ballConfThreshold,
+          resolutionScale,
+          bestBallWidth: bestBall?.width,
+          bestBallHeight: bestBall?.height,
+          bestBallAspectRatio: bestBall ? bestBall.width / bestBall.height : 0,
+          note: 'Track where ball detections are rejected: confidence, size, aspect ratio, or coordinates'
+        })
+      }
+
       // Update adaptive thresholds based on detection results
       this.adaptiveBallThreshold = this.updateAdaptiveThreshold(
         bestBall !== null,
@@ -554,5 +684,6 @@ export class YoloDetector {
   reset(): void {
     this.resetPersistentRim()
     this.resetAdaptiveState()
+    this.inferenceCounter = 0
   }
 }

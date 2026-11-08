@@ -147,7 +147,7 @@ I flag diagnostici non devono cambiare la logica di business. Quando un flag dis
 ### D27 — Modifiche ai modelli TFLite
 **Stato:** criterio di rilascio.
 
-Dopo aver cambiato un modello verificare file selezionato, input/output shape, dtype, parser, delegate e prestazioni. La presenza di più modelli in `assets/models/` non significa che siano tutti caricati o utilizzati.
+Dopo aver cambiare un modello verificare file selezionato, input/output shape, dtype, parser, delegate e prestazioni. La presenza di più modelli in `assets/models/` non significa che siano tutti caricati o utilizzati. Eseguire `scripts/verify_tflite_metadata.py` per confermare che tutti i modelli seguono lo stesso schema di esportazione YOLO11n (input [1, SIZE, SIZE, 3], output [1, 7, N] con N anchor per risoluzione).
 
 ### D28 — Test unitari vs verifica su device
 **Stato:** regola di qualità.
@@ -179,6 +179,17 @@ Le soglie confidence definitive (tarate con log device e benchmark video) sono:
 - RIM: 0.10 (massimo 0.22, tipico ~0.006)
 
 Il log diagnostico [YOLO RAW] è stato rimosso da `useYoloWorkerAsync.ts` dopo aver determinato le soglie definitive.
+
+### D36 — Validazione schema tensore YOLO
+**Stato:** implementato nel codice.
+
+`YoloDetector.validateOutputSchema()` verifica che il tensore di output corrisponda al formato YOLO11n atteso:
+- Divisibilità per OUTPUT_CHANNELS (7)
+- Numero di anchor corrispondente a risoluzioni note (2100, 3024, 4116, 5376, 8400)
+- Inferenza automatica di TENSOR_SIZE dal numero di anchor
+- Errori espliciti se il tensore non corrisponde allo schema atteso
+
+Tutti i modelli `best_N_float16.tflite` seguono lo stesso schema di esportazione: input [1, SIZE, SIZE, 3], output [1, 7, N] con layout [xc, yc, w, h, ball_score, human_score, rim_score]. La validazione previene detection errate con modelli incompatibili.
 
 ### D32 — Gestione risoluzione camera
 **Stato:** implementato nel codice; comportamento da validare su device.
@@ -226,6 +237,29 @@ Con la vecchia TTL di 150 ms, il modello 640 non riusciva a costruire traiettori
 **CalibrationScreen.tsx - fallback yoloInputSize**
 - Rimosso fallback `|| 384`
 - Ora usa solo `yoloModel?.inputSize` dal modello selezionato
+
+### D35 — Discrepanza resolutionScale tra benchmark e app (RISOLTA)
+**Stato:** risolto allineando l'app al benchmark.
+
+Il benchmark offline `yolo-ab` (`scripts/benchmark_yolo_videos.py`) usa `resolution_scale = tensor_size / 512`, mentre l'app usava `resolutionScale = 1.0` fisso in `YoloDetector.ts`.
+
+**Benchmark Python**:
+- Per modello 384: `resolution_scale = 0.75`
+- Per modello 640: `resolution_scale = 1.25`
+
+**App TypeScript (prima)**:
+- Fisso a `1.0` per tutti i modelli
+
+**App TypeScript (dopo)**:
+- Calcolato come `TENSOR_SIZE / 512` per allinearsi al benchmark
+
+**Impatto precedente**: Con modello 640, il benchmark aumentava le soglie di dimensione della palla del 25% rispetto all'app, causando differenze di detection.
+
+**Decisione**: Allineare l'app al benchmark ripristinando `resolutionScale = TENSOR_SIZE / 512`. Le bounding box sono normalizzate sul frame, ma le soglie adattive dipendono dalla dimensione del tensore per mantenere coerenza con il benchmark.
+
+**File modificati**:
+- `YoloDetector.ts` (riga 388): `const resolutionScale = TENSOR_SIZE / 512`
+- `VISION_PERFORMANCE.md`: Documentata la risoluzione
 
 ## Decisioni storiche da non considerare automaticamente attive
 

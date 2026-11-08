@@ -186,7 +186,7 @@ export class TrackingEngine implements ITrackingEngine {
 
       if (enginePrediction === null) {
         // TTL expired - invalidate tracking
-        console.log('[TRACKING_DEBUG] Ball tracking expired, TTL=150ms exceeded', {
+        console.log('[TRACKING_DEBUG] Ball tracking expired, TTL=400ms exceeded', {
           frameTs,
           inFlight: this.inFlight,
           ballPosition: this.state.ballPosition,

@@ -116,6 +116,29 @@ Il parser YOLO (`YoloDetector`) applica filtri geometrici per ridurre i false po
 
 Gli aspect ratio sono calcolati in pixel space corretti per il frame aspect ratio (es. 16:9). Su un frame 16:9, un oggetto quadrato ha w/h normalizzato ≈ 0.56.
 
+## Validazione schema tensore
+
+`YoloDetector.validateOutputSchema()` verifica che il tensore di output corrisponda al formato YOLO11n atteso:
+- Divisibilità per OUTPUT_CHANNELS (7)
+- Numero di anchor corrispondente a risoluzioni note (2100, 3024, 4116, 5376, 8400)
+- Inferenza automatica di TENSOR_SIZE dal numero di anchor
+- Errori espliciti se il tensore non corrisponde allo schema atteso
+
+Tutti i modelli `best_N_float16.tflite` seguono lo stesso schema di esportazione:
+- **Input**: `[1, SIZE, SIZE, 3]` dove SIZE corrisponde al nome del modello
+- **Output**: `[1, 7, N]` dove N = numero di anchor per la risoluzione
+- **Layout**: 4 coordinate (xc, yc, w, h) + 3 class scores (ball, human, rim)
+- **Dtype**: float32 (nessuna quantizzazione nel tensore di output)
+
+Il numero di anchor N segue la griglia YOLO standard con stride 8, 16, 32:
+- 320 → 2100 (40² + 20² + 10²)
+- 384 → 3024 (48² + 24² + 12²)
+- 448 → 4116 (56² + 28² + 14²)
+- 512 → 5376 (64² + 32² + 16²)
+- 640 → 8400 (80² + 40² + 20²)
+
+Lo script `scripts/verify_tflite_metadata.py` verifica i metadati di tutti i modelli TFLite per confermare la coerenza dello schema di esportazione.
+
 ## Soglie confidence definitive
 
 Le soglie confidence sono state tarate con log [YOLO RAW] e benchmark su video reali:
@@ -142,10 +165,43 @@ Con la vecchia TTL di 150 ms, il modello 640 non riusciva a costruire traiettori
 ## Correzioni cablaggi minori
 
 **YoloDetector.ts - resolutionScale**
-- Portato da `TENSOR_SIZE / 512` a `1.0`
-- Le bounding box sono normalizzate sul frame e non dipendono dalla dimensione del tensore
-- Eliminava scaling errato (+25% con 640, -25% con 384) delle soglie dimensione palla
+- Ripristinato da `1.0` a `TENSOR_SIZE / 512`
+- Allineamento con benchmark Python per coerenza delle soglie adattive
+- Per modello 640: scaling +25% delle soglie dimensione palla (1.25x)
+- Per modello 384: scaling -25% delle soglie dimensione palla (0.75x)
 
 **CalibrationScreen.tsx - fallback yoloInputSize**
 - Rimosso fallback `|| 384`
 - Ora usa solo `yoloModel?.inputSize` dal modello selezionato
+
+## Discrepanza YOLO-AB benchmark vs applicazione (RISOLTA)
+
+Il benchmark offline `yolo-ab` (`scripts/benchmark_yolo_videos.py`) usa la modalità `app-compatible` per replicare la logica di `YoloDetector.ts` e `BallDetectionProcessor.ts`. È stata identificata e risolta una discrepanza critica nel parametro `resolutionScale`.
+
+**Risoluzione**: Allineamento dell'app al benchmark Python
+
+**Benchmark Python** (`benchmark_yolo_videos.py` riga 223):
+```python
+resolution_scale = tensor_size / 512
+```
+- Per modello 384: `resolution_scale = 384/512 = 0.75`
+- Per modello 640: `resolution_scale = 640/512 = 1.25`
+
+**App TypeScript** (`YoloDetector.ts` riga 388):
+```typescript
+const resolutionScale = TENSOR_SIZE / 512
+```
+- Ora calcolato dinamicamente come `TENSOR_SIZE / 512` per allinearsi al benchmark
+
+**Impatto precedente**: Con il modello 640, il benchmark aumentava le soglie di dimensione della palla del 25% (1.25x), mentre l'app non le scala (1.0x). Questo causava il rifiuto di più detection nell'app rispetto al benchmark.
+
+**Altre differenze verificate (tutte risolte/identiche)**:
+- **Runtime**: Benchmark usa CPU Python, app usa GPU/NNAPI su Android (differenze numeriche possibili ma accettabili)
+- **Letterbox**: Calcolo identico tra benchmark e app (verificato con logging: SCALE=0.16, OFFSET_Y=139.84)
+- **Coordinate**: Entrambi usano coordinate normalizzate (0-1) con `coordinateScale = 640` (verificato)
+- **Normalizzazione input**: Verificata con logging (`inputTensorStats`: min=0, max=1, mean=~0.24-0.29)
+
+**Logging diagnostici attivi**:
+- `useYoloWorkerAsync.ts`: Log statistico del tensore di input (min/max/mean) ogni 10 frame per verificare normalizzazione 0-1
+- `YoloDetector.ts`: Log calcolo letterbox, rilevamento formato coordinate e validazione schema tensore per confronto con benchmark
+- `scripts/verify_tflite_metadata.py`: Script Python per verifica metadati TFLite (input/output shape, dtype, quantizzazione)

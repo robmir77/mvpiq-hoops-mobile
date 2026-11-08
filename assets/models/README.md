@@ -10,12 +10,26 @@ Questa directory contiene i modelli TensorFlow Lite usati dal percorso vision mo
 | `best_384_float16.tflite` | 384×384 | TFLite | 200 | 1280×720 |
 | `best_448_float16.tflite` | 448×448 | TFLite | 20 | 1280×720 |
 | `best_512_float16.tflite` | 512×512 | TFLite | 40 | 1280×720 |
-| `best_640_float16.tflite` | 640×640 | TFLite | 30 | 1280×720 |
+| `best_640_float16.tflite` | 640×640 | TFLite | 120 | 1280×720 |
 | `movenet_lightning_192_int8.tflite` | 192×192 | TFLite | - | - |
 
 ## YOLO
 
-I modelli `best_N_float16.tflite` sono varianti YOLO esportate per input quadrato di dimensione N. Il parser e la configurazione effettivi vanno verificati in `src/vision/yoloModels.ts` e `src/vision/engine/YoloDetector.ts`; non assumere shape, ordine dei campi, classi o normalizzazione soltanto dal nome del file. Il codice worker gestisce preprocessamento, esecuzione e parsing.
+I modelli `best_N_float16.tflite` sono varianti YOLO11n esportate con NMS disattivata (`nms=False`) e quantizzazione FLOAT16. Tutti i modelli seguono lo **stesso schema di esportazione**:
+
+- **Input**: `[1, SIZE, SIZE, 3]` dove SIZE corrisponde al nome del modello (320, 384, 448, 512, 640)
+- **Output**: `[1, 7, N]` dove N = numero di anchor per la risoluzione
+- **Layout output**: 4 coordinate (xc, yc, w, h) + 3 class scores (ball, human, rim)
+- **Dtype**: float32 (nessuna quantizzazione nel tensore di output)
+
+Il numero di anchor N segue la griglia YOLO standard con stride 8, 16, 32:
+- 320 → 2100 (40² + 20² + 10²)
+- 384 → 3024 (48² + 24² + 12²)
+- 448 → 4116 (56² + 28² + 14²)
+- 512 → 5376 (64² + 32² + 16²)
+- 640 → 8400 (80² + 40² + 20²)
+
+Il parser e la configurazione effettivi vanno verificati in `src/vision/yoloModels.ts` e `src/vision/engine/YoloDetector.ts`. Il codice worker gestisce preprocessamento, esecuzione e parsing.
 
 Il repository include anche `compare_models.py`, `inspect_model.py`, `convert_model.py` e `convert_ballrim_model.py` per attività di analisi/conversione. Prima di cambiare modello, verificare la compatibilità del tensore input/output con il parser corrente.
 
@@ -57,10 +71,11 @@ yolo detect train model=yolo11n.pt data=data.yaml imgsz=512 epochs=20
 yolo detect train model=runs/detect/train-3/weights/last.pt data=data.yaml imgsz=512 epochs=20 resume=True
 ```
 
-### best_640_float16 (30 epoche)
+### best_640_float16 (120 epoche)
 ```bash
 yolo detect train model=yolo11n.pt data=data.yaml imgsz=640 epochs=20
 yolo detect train model=runs/detect/train-2/weights/last.pt data=data.yaml imgsz=640 epochs=10 resume=True
+yolo detect train model=runs/detect/train-2/weights/last.pt data=data.yaml imgsz=640 epochs=90 resume=True
 ```
 
 ### best_448_float16 (20 epoche)
@@ -69,7 +84,17 @@ yolo detect train model=yolo11n.pt data=data.yaml imgsz=448 epochs=20
 ```
 
 ### Nota sulle prestazioni
-Il modello 384 con 200 epoche ha dimostrato il miglior riconoscimento dei tiri nei test sul device. Le performance di inferenza YOLO (FPS) sono simili tra tutti i modelli, ma l'overlay soffre di prestazioni inferiori con modelli di input più grandi (512, 640). Il modello 384 offre il miglior bilanciamento tra accuratezza del rilevamento (200 epoche di training) e fluidità dell'overlay. Gli altri modelli, con meno epoche di training (20-50 epoche), mostrano prestazioni inferiori nel rilevamento. Per migliorare gli altri modelli, eseguire training resume aggiuntivi fino a raggiungere 150-200 epoche totali.
+Il modello 384 con 200 epoche ha dimostrato il miglior riconoscimento dei tiri nei test sul device. Le performance di inferenza YOLO (FPS) sono simili tra tutti i modelli, ma l'overlay soffre di prestazioni inferiori con modelli di input più grandi (512, 640). Il modello 384 offre il miglior bilanciamento tra accuratezza del rilevamento (200 epoche di training) e fluidità dell'overlay. Gli altri modelli, con meno epoche di training (20-50 epoche), mostrano prestazioni inferiori nel rilevamento. Il modello 640 è stato aggiornato a 120 epoche per ridurre false positive. Per migliorare gli altri modelli, eseguire training resume aggiuntivi fino a raggiungere 150-200 epoche totali.
+
+## Verifica schema TFLite
+
+Lo script `scripts/verify_tflite_metadata.py` verifica i metadati di tutti i modelli TFLite per confermare che seguono lo stesso schema di esportazione. Lo script controlla:
+- Dimensione e tipo dell'input
+- Forma e tipo dell'output
+- Quantizzazione
+- Numero di tensori di input/output
+
+Eseguire `python scripts/verify_tflite_metadata.py` per verificare la coerenza dei modelli dopo aggiunte o modifiche.
 
 ## Test e diagnostica
 
