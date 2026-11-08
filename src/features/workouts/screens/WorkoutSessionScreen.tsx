@@ -101,11 +101,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const [cameraStarted, setCameraStarted] = useState(false)
     const isPaused = session?.status === 'PAUSED'
 
-    // Stabilize effectiveResolution to prevent remount when calibration loads
-    const effectiveResolutionRef = useRef<{ width: number; height: number }>(
-        selectedResolution ?? (calibration?.cameraResolution ?? CAMERA_CONFIG.DEFAULT_RESOLUTION)
+    // Wait for session to load before starting camera (for resume scenarios)
+    const sessionLoaded = !sessionId || session !== null
+
+    // Effective resolution - use state to ensure consistency across all consumers
+    const [effectiveResolution, setEffectiveResolution] = useState<{ width: number; height: number }>(
+        selectedResolution ?? CAMERA_CONFIG.DEFAULT_RESOLUTION
     )
-    const effectiveResolution = effectiveResolutionRef.current
     const [effectiveFps, setEffectiveFps] = useState<number>(selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS)
     const effectivePoseResolution = (selectedPoseResolution ?? CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION) as number
     const [effectiveYoloModelId, setEffectiveYoloModelId] = useState<string>(yoloModelId ?? DEFAULT_YOLO_MODEL_ID)
@@ -275,7 +277,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isProcessingFrameRef.current = true
         hasPendingUpdatesRef.current = false
 
-        const resolution = effectiveResolutionRef.current
+        const resolution = effectiveResolution
         const now = Date.now()
 
         void runtime.processFrame({
@@ -302,7 +304,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 setTimeout(() => scheduleRuntimeProcessFrame(), 0)
             }
         })
-    }, [])
+    }, [effectiveResolution])
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
 
@@ -879,7 +881,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Apply vision configuration from session (for session resume)
             // Only if not already provided via route.params (new session)
             if (!selectedResolution && s.cameraResolutionWidth && s.cameraResolutionHeight) {
-                effectiveResolutionRef.current = { width: s.cameraResolutionWidth, height: s.cameraResolutionHeight }
+                setEffectiveResolution({ width: s.cameraResolutionWidth, height: s.cameraResolutionHeight })
             }
             if (!selectedFps && s.fps) {
                 setEffectiveFps(s.fps)
@@ -1074,7 +1076,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
                 if (cal.fps) setEffectiveFps(cal.fps)
                 if (cal.cameraResolution) {
-                    effectiveResolutionRef.current = cal.cameraResolution
+                    setEffectiveResolution(cal.cameraResolution)
                 }
                 console.log('[WorkoutSession] Vision parameters applied from calibration:', {
                     yoloModelId: cal.yoloModelId,
@@ -1282,7 +1284,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                     if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
                     if (cal.fps) setEffectiveFps(cal.fps)
                     if (cal.cameraResolution) {
-                        effectiveResolutionRef.current = cal.cameraResolution
+                        setEffectiveResolution(cal.cameraResolution)
                     }
                     console.log('[WorkoutSession] Vision parameters applied on resume:', {
                         yoloModelId: cal.yoloModelId,
@@ -1347,11 +1349,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             ref={cameraRef}
                             style={StyleSheet.absoluteFill}
                             device={device}
-                            isActive={isActive && !isPaused}
+                            isActive={sessionLoaded && isActive && !isPaused}
                             onStarted={() => setCameraStarted(true)}
                             onStopped={() => setCameraStarted(false)}
                             outputs={[frameOutput]}
-                            zoom={isActive && !isPaused ? zoom : undefined}
+                            zoom={sessionLoaded && isActive && !isPaused ? zoom : undefined}
                             resizeMode="cover"
                             constraints={constraints}
                             onError={(error: any) => {

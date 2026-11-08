@@ -37,6 +37,7 @@ Il codice della schermata contiene ancora callback e logica del percorso legacy,
 | Componente | Responsabilità corrente |
 |---|---|
 | `useShotTracker` e worker | Acquisizione dei risultati dei modelli, parsing e callback |
+| `YoloDetector` | Parsing YOLO con filtri geometrici per riduzione false positive |
 | `VisionEngineAdapter` | Cache delle osservazioni e timestamp/versioni per canale |
 | `VisionEngine` | Normalizzazione/orchestrazione dei risultati vision |
 | `WorkoutSessionRuntime` | State machine, coordinamento frame e dispatch degli eventi |

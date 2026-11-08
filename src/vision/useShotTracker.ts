@@ -494,6 +494,11 @@ export const useShotTracker = (
                     const frameHeight = frame.height
                     const timestamp = now // Reuse single Date.now() call
 
+                    // Log frame resolution and target resolution once for verification
+                    if (currentFrame === 1) {
+                        console.log('[FrameProcessor] Frame resolution:', `${frameWidth}x${frameHeight}`, 'Target resolution (raw):', selectedResolution ? `${selectedResolution.width}x${selectedResolution.height}` : 'null')
+                    }
+
                     // Call YOLO worker every frame - it handles its own throttling internally
                     if (ballEnabledShared.value) {
                         // Async YOLO: submit frame and return immediately

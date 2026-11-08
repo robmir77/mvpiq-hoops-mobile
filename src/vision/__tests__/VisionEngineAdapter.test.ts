@@ -20,6 +20,20 @@ jest.mock('@/config/appConfig', () => ({
       LOW_CONF_THRESHOLD: 0.2,
     },
   },
+  VISION_CONFIG: {
+    CAMERA_FPS: 30,
+    YOLO: { ENABLED: true },
+    MOVENET: { ENABLED: true },
+    BALL_DETECTION_ENABLED: true,
+    PLAYER_DETECTION_ENABLED: true,
+    RIM_DETECTION_ENABLED: false,
+    POSE_DETECTION_ENABLED: true,
+    RIM_CALIBRATION: {
+      ROI_SIZE_PERCENT: 0.25,
+      MIN_CONFIDENCE: 0.40,
+      MAX_DISTANCE_FROM_CENTER: 0.15,
+    },
+  },
 }))
 
 describe('VisionEngineAdapter temporal synchronization', () => {

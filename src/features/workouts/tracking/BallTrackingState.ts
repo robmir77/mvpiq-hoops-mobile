@@ -64,7 +64,8 @@ export const KALMAN_CONFIG = {
   velocityTolerance: 1.2,
 
   // How long to predict without detection (ms)
-  predictionTtlMs: 150,
+  // Increased to 400 to accommodate slower models (640 at 5-7 FPS, 143-200ms interval)
+  predictionTtlMs: 400,
 
   // Adaptive gain thresholds
   // Distance as fraction of tolerance threshold

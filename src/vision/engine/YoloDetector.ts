@@ -8,6 +8,24 @@ import { YOLO_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 const STRIDES = [8, 16, 32]
 
+// Shape/size priors (normalized to camera frame). Defaults mirror YOLO_CONFIG
+// and only apply if a key is missing (e.g. partially mocked config in tests).
+const GEO = {
+  playerMinW: (YOLO_CONFIG as any).PLAYER_MIN_WIDTH ?? 0.05,
+  playerMinH: (YOLO_CONFIG as any).PLAYER_MIN_HEIGHT ?? 0.1,
+  playerMaxW: (YOLO_CONFIG as any).PLAYER_MAX_WIDTH ?? 0.6,
+  playerMinAspect: (YOLO_CONFIG as any).PLAYER_MIN_ASPECT ?? 0.8,
+  playerMaxAspect: (YOLO_CONFIG as any).PLAYER_MAX_ASPECT ?? 6.0,
+  ballMinSize: (YOLO_CONFIG as any).BALL_MIN_SIZE ?? 0.008,
+  ballMaxSide: (YOLO_CONFIG as any).BALL_MAX_SIDE ?? 0.15,
+  ballMinAspect: (YOLO_CONFIG as any).BALL_MIN_ASPECT ?? 0.6,
+  ballMaxAspect: (YOLO_CONFIG as any).BALL_MAX_ASPECT ?? 1.7,
+  rimMinW: (YOLO_CONFIG as any).RIM_MIN_WIDTH ?? 0.015,
+  rimMaxW: (YOLO_CONFIG as any).RIM_MAX_WIDTH ?? 0.25,
+  rimMinAspect: (YOLO_CONFIG as any).RIM_MIN_ASPECT ?? 0.8,
+  rimMaxAspect: (YOLO_CONFIG as any).RIM_MAX_ASPECT ?? 6.0,
+}
+
 export interface YoloDetection {
   x: number
   y: number
@@ -205,15 +223,17 @@ export class YoloDetector {
   ): number {
     const avgSize = (ballWidth + ballHeight) / 2
 
-    // Large object (radius 0.2 = diameter 0.4 = avgSize 0.4)
-    const MAX_SIZE = 0.40 * resolutionScale
+    // Sizes are aligned with the ball shape prior: balls at or above half of the
+    // max plausible side use the full base threshold; tiny/distant balls are
+    // allowed to relax down to the configured floor.
+    const MAX_SIZE = (GEO.ballMaxSide * 0.5) * resolutionScale
     if (avgSize >= MAX_SIZE) {
       return baseThreshold
     }
-
-    // Small / distant object (radius 0.05 = diameter 0.1 = avgSize 0.1)
-    const MIN_SIZE = 0.10 * resolutionScale
-    const MIN_THRESHOLD = 0.01
+    const MIN_SIZE = GEO.ballMinSize * resolutionScale
+    // Floor comes from config: small objects may be accepted at a lower
+    // confidence, but never down into the noise range (was hard-coded 0.01).
+    const MIN_THRESHOLD = Math.min(this.minThreshold, baseThreshold)
 
     // Normalize size to 0..1
     let t = (avgSize - MIN_SIZE) / (MAX_SIZE - MIN_SIZE)
@@ -228,20 +248,39 @@ export class YoloDetector {
     return MIN_THRESHOLD + (baseThreshold - MIN_THRESHOLD) * smoothT
   }
 
-  // Validate bounding box geometry - reject suspicious aspect ratios
-  private isValidBallGeometry(width: number, height: number): { valid: boolean; aspectRatio: number } {
+  // Validate ball geometry: roughly square and within the plausible size range.
+  private isValidBallGeometry(width: number, height: number, frameAspect: number = 1): { valid: boolean; aspectRatio: number } {
     if (width <= 0 || height <= 0) {
       return { valid: false, aspectRatio: 0 }
     }
 
-    const aspectRatio = width / height
+    // Boxes are normalized per-axis, so on a 16:9 frame a square object has
+    // w/h = 9/16. Aspect ratios must be evaluated in pixel space.
+    const aspectRatio = (width / height) * frameAspect
+    const avgSize = (width + height) / 2
 
-    // Reject extremely wide or tall boxes (aspect ratio > 4.0 or < 0.25)
-    if (aspectRatio > 4.0 || aspectRatio < 0.25) {
+    if (aspectRatio > GEO.ballMaxAspect || aspectRatio < GEO.ballMinAspect) {
+      return { valid: false, aspectRatio }
+    }
+    if (avgSize < GEO.ballMinSize || avgSize > GEO.ballMaxSide) {
       return { valid: false, aspectRatio }
     }
 
     return { valid: true, aspectRatio }
+  }
+
+  // Player: standing person, taller than wide, not frame-sized
+  private isValidPlayerGeometry(width: number, height: number, frameAspect: number = 1): boolean {
+    if (width < GEO.playerMinW || height < GEO.playerMinH || width > GEO.playerMaxW) return false
+    const aspect = height / (width * frameAspect)
+    return aspect >= GEO.playerMinAspect && aspect <= GEO.playerMaxAspect
+  }
+
+  // Rim: small, wider than tall (seen from the side/front)
+  private isValidRimGeometry(width: number, height: number, frameAspect: number = 1): boolean {
+    if (width < GEO.rimMinW || width > GEO.rimMaxW) return false
+    const aspect = (width / height) * frameAspect
+    return aspect >= GEO.rimMinAspect && aspect <= GEO.rimMaxAspect
   }
 
   // Determine ball size category based on average size
@@ -265,6 +304,7 @@ export class YoloDetector {
 
     const effectiveFrameWidth = frameWidth || 1280
     const effectiveFrameHeight = frameHeight || 720
+    const frameAspect = effectiveFrameWidth / effectiveFrameHeight
     let TENSOR_SIZE = 512
 
     try {
@@ -316,7 +356,8 @@ export class YoloDetector {
       const coordinateScale = coordinatesAreNormalized ? TENSOR_SIZE : 1
 
       // Normalize thresholds to reference resolution 512
-      const resolutionScale = TENSOR_SIZE / 512
+      // Fixed to 1.0 since boxes are normalized on frame and don't depend on tensor size
+      const resolutionScale = 1.0
 
       // Convert coordinates from tensor space to camera-normalized space
       const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
@@ -366,7 +407,7 @@ export class YoloDetector {
 
         if (cameraW <= 0.01 || cameraH <= 0.01) continue
 
-        const geometryCheck = this.isValidBallGeometry(cameraW, cameraH)
+        const geometryCheck = this.isValidBallGeometry(cameraW, cameraH, frameAspect)
         const ballAdaptiveThreshold = this.getAdaptiveThreshold(cameraW, cameraH, this.adaptiveBallThreshold, resolutionScale)
 
         if (geometryCheck.valid && ballProb >= ballAdaptiveThreshold) {
@@ -385,7 +426,7 @@ export class YoloDetector {
         // Rim detection pipeline (skip if disabled)
         if (this.rimDetectionEnabled) {
           const effectiveRimThreshold = this.adaptiveRimThreshold
-          if (rimProb >= effectiveRimThreshold) {
+          if (rimProb >= effectiveRimThreshold && this.isValidRimGeometry(cameraW, cameraH, frameAspect)) {
             const detection = {
               x: cameraCx,
               y: cameraCy,
@@ -414,6 +455,7 @@ export class YoloDetector {
 
         if (humanProb >= this.adaptivePlayerThreshold) {
           confidencePassed++
+          if (!this.isValidPlayerGeometry(cameraW, cameraH, frameAspect)) continue
           sizePassed++
           const detection = {
             x: cameraCx,

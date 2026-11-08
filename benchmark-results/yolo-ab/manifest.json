@@ -1,10 +1,10 @@
 {
   "benchmark": "MVPiQ offline YOLO video benchmark",
-  "created_utc": "2026-10-20T17:15:07Z",
+  "created_utc": "2026-11-08T08:38:00Z",
   "sampling_every_n_frames": 5,
   "warmup_per_model": 5,
   "preprocessing_options": {
-    "input_scale": 1.0,
+    "input_scale": 0.00392156862745098,
     "pad_value": 0.0
   },
   "decoder": "app-compatible",
@@ -28,14 +28,14 @@
       ],
       "output_dtype": "<class 'numpy.float32'>",
       "num_threads": 2,
-      "input_scale": 1.0,
+      "input_scale": 0.00392156862745098,
       "pad_value_after_scaling": 0.0,
       "preprocessing": "RGB, OpenCV linear resize, contain/letterbox, centered padding",
       "decoder_mode": "app-compatible",
       "thresholds": {
-        "ball": 0.001,
-        "player": 0.03,
-        "rim": 0.3
+        "ball": 0.05,
+        "player": 0.01,
+        "rim": 0.1
       },
       "videos": [
         {
@@ -77,25 +77,25 @@
       ],
       "input_tensor_stats_first_frame": {
         "min": 0.0,
-        "max": 255.0,
-        "mean": 77.29644012451172
+        "max": 1.0,
+        "mean": 0.3031233251094818
       },
       "warmup_inferences_discarded": 5,
       "measured_inferences": 77,
       "latency_ms": {
-        "mean": 26.40699740202928,
-        "median": 25.060699961613864,
-        "p95": 40.43900001561269,
-        "min": 14.75540001410991,
-        "max": 44.55940000480041
+        "mean": 40.41685713394605,
+        "median": 30.19779990427196,
+        "p95": 88.55065987445414,
+        "min": 14.822199940681458,
+        "max": 99.01800006628036
       },
       "detections_csv": "benchmark-results\\yolo-ab\\best_384_float16_detections.csv",
       "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."
     },
     {
       "model": "assets\\models\\best_640_float16.tflite",
-      "model_sha256": "c50aea034a0b9331b803b83405141afa2520573330d620558c77580131b5216e",
-      "model_size_bytes": 5367122,
+      "model_sha256": "a05d420706c341e9ebd3db4517ba2cdef0c0f104906782f4dbeb2359dc7cf6a1",
+      "model_size_bytes": 5367406,
       "input_shape": [
         1,
         640,
@@ -110,14 +110,14 @@
       ],
       "output_dtype": "<class 'numpy.float32'>",
       "num_threads": 2,
-      "input_scale": 1.0,
+      "input_scale": 0.00392156862745098,
       "pad_value_after_scaling": 0.0,
       "preprocessing": "RGB, OpenCV linear resize, contain/letterbox, centered padding",
       "decoder_mode": "app-compatible",
       "thresholds": {
-        "ball": 0.001,
-        "player": 0.03,
-        "rim": 0.3
+        "ball": 0.05,
+        "player": 0.01,
+        "rim": 0.1
       },
       "videos": [
         {
@@ -159,17 +159,17 @@
       ],
       "input_tensor_stats_first_frame": {
         "min": 0.0,
-        "max": 255.0,
-        "mean": 77.25270080566406
+        "max": 1.0,
+        "mean": 0.30295172333717346
       },
       "warmup_inferences_discarded": 5,
       "measured_inferences": 77,
       "latency_ms": {
-        "mean": 100.21681428808331,
-        "median": 98.62290002638474,
-        "p95": 148.22613999713212,
-        "min": 53.526600007899106,
-        "max": 176.54070002026856
+        "mean": 53.082263623303795,
+        "median": 50.95300008542836,
+        "p95": 70.90974012389779,
+        "min": 44.67279999516904,
+        "max": 78.47429998219013
       },
       "detections_csv": "benchmark-results\\yolo-ab\\best_640_float16_detections.csv",
       "interpretation_limit": "App-compatible mode ports class-wise candidate filtering, adaptive confidence state, and the post-selection ball filter. It is not full app-path equivalence: OpenCV preprocessing, runtime/delegate, and device scheduling differ; no ground-truth precision/recall without annotations."

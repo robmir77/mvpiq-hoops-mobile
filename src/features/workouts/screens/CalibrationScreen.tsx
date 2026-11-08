@@ -5,7 +5,7 @@
 //   - LATERAL:  vista laterale pura — palo + tabellone + traiettoria arco
 //   - FRONTAL:  vista frontale dal fondo — paint + tabellone centrato
 
-import React, { useState, useContext, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, ScrollView, Platform,
@@ -748,7 +748,16 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const isFocused = useIsFocused()
     const isActive = isFocused
     const cameraRef = useRef<CameraRef>(null)
-    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(initialResolution ?? null)
+    const [selectedResolution, setSelectedResolutionOriginal] = useState<{ width: number; height: number } | null>(initialResolution ?? null)
+    const userPickedResolutionRef = useRef(false)
+    const previousModelIdRef = useRef<string | null>(null)
+
+    // Wrapper for setSelectedResolution with logging and stack trace
+    const setSelectedResolution = useCallback((value: { width: number; height: number } | null) => {
+        console.log('[Calibration] setSelectedResolution called:', value)
+        console.log('[Calibration] Stack trace:', new Error().stack)
+        setSelectedResolutionOriginal(value)
+    }, [])
     const [selectedFps, setSelectedFps] = useState<number | null>(initialFps ?? DEFAULT_FPS)
     const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(initialPoseResolution ?? DEFAULT_POSE_RESOLUTION)
     const [selectedMoveNetModelId, setSelectedMoveNetModelId] = useState<string>(initialMoveNetModelId ?? DEFAULT_MOVENET_MODEL_ID)
@@ -829,6 +838,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
     useEffect(() => {
         if (availableResolutions.length > 0 &&
             !availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
+            // Default to maximum supported resolution
             setSelectedResolution(availableResolutions[0])
         }
         if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
@@ -842,13 +852,21 @@ export default function CalibrationScreen({ navigation, route }: any) {
         }
     }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId])
 
-    // Auto-select maximum camera resolution when YOLO model changes
+    // Auto-select maximum resolution when model changes
     useEffect(() => {
-        if (availableResolutions.length > 0 && selectedYoloModelId) {
-            // Always select the maximum available resolution (already sorted descending)
+        if (!selectedYoloModelId) return
+        
+        const prevModelId = previousModelIdRef.current
+        // Only run when model actually changes
+        if (prevModelId === selectedYoloModelId) return
+        
+        if (availableResolutions.length > 0) {
+            console.log('[Calibration] Auto-selecting maximum resolution:', availableResolutions[0])
             setSelectedResolution(availableResolutions[0])
         }
-    }, [selectedYoloModelId, availableResolutions])
+        
+        previousModelIdRef.current = selectedYoloModelId
+    }, [selectedYoloModelId, setSelectedResolution])
 
     // Pre-positioned calibration points (hoop + 4 corners) - raised positions
     const [points, setPoints] = useState<DraggablePoint[]>([
@@ -891,7 +909,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     // YOLO input size for reference (used internally by useRimCalibration)
     const yoloModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
-    const yoloInputSize = yoloModel?.inputSize || 384
+    const yoloInputSize = yoloModel?.inputSize
 
     // Frame output for rim calibration - captures single frame when requested
     useFrameOutput({
@@ -1204,6 +1222,10 @@ export default function CalibrationScreen({ navigation, route }: any) {
             showError('Errore', 'Risoluzione camera non selezionata')
             return
         }
+        
+        // Log before payload creation
+        console.log('[Calibration] Before creating payload - selectedResolution:', selectedResolution)
+        console.log('[Calibration] User picked resolution flag:', userPickedResolutionRef.current)
 
         const hoopPoint = points.find(p => p.id === 'hoop')
         if (!hoopPoint) {
@@ -1575,7 +1597,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         selectedValue={`${selectedResolution?.width ?? 1280}x${selectedResolution?.height ?? 720}`}
                                         onValueChange={(value) => {
                                             const found = availableResolutions.find(r => `${r.width}x${r.height}` === value)
-                                            if (found) setSelectedResolution(found)
+                                            if (found) {
+                                                userPickedResolutionRef.current = true
+                                                console.log('[Calibration] User picked resolution:', found)
+                                                setSelectedResolution(found)
+                                            }
                                         }}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}

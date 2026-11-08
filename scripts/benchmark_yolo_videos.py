@@ -42,7 +42,7 @@ import cv2
 import numpy as np
 
 CLASS_NAMES = ("ball", "player", "rim")
-DEFAULT_THRESHOLDS = {"ball": 0.001, "player": 0.03, "rim": 0.30}
+DEFAULT_THRESHOLDS = {"ball": 0.05, "player": 0.01, "rim": 0.10}
 
 
 def sha256_file(path: Path) -> str:
@@ -117,7 +117,7 @@ def decode_top_detections(raw: np.ndarray, input_w: int, input_h: int,
             continue
         idx = int(np.argmax(scores))
         confidence = float(scores[idx])
-        if not math.isfinite(confidence) or confidence < thresholds[class_name]:
+        if not math.isfinite(confidence):
             continue
 
         cx = float(output[0, idx]) * input_w
@@ -135,9 +135,11 @@ def decode_top_detections(raw: np.ndarray, input_w: int, input_h: int,
         h = bh_frame / frame_h
         if not all(math.isfinite(v) for v in (x, y, w, h)) or w <= 0 or h <= 0:
             continue
+        # Always save top score, but mark as detected only if above threshold
         results[class_name] = {
             "x": x, "y": y, "width": w, "height": h, "confidence": confidence,
             "anchor_index": float(idx), "anchor_count": float(n),
+            "detected": confidence >= thresholds[class_name],
         }
     return results
 
@@ -150,7 +152,7 @@ class AppCompatibleDecoder:
     """
 
     def __init__(self) -> None:
-        self.base = {"ball": 0.001, "player": 0.03, "rim": 0.30}
+        self.base = {"ball": 0.05, "player": 0.01, "rim": 0.10}
         self.threshold = dict(self.base)
         self.history: dict[str, list[bool]] = {k: [] for k in CLASS_NAMES}
         self.confidence_history: dict[str, list[float]] = {k: [] for k in CLASS_NAMES}
@@ -456,8 +458,8 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=5, help="Inferenze iniziali da scartare per ogni modello")
     parser.add_argument("--threads", type=int, default=2, help="Thread CPU TFLite (default: 2)")
     parser.add_argument(
-        "--input-scale", type=float, default=1.0,
-        help="Moltiplicatore dei pixel RGB (default 1.0; verificare contro il resizer nativo)"
+        "--input-scale", type=float, default=1.0 / 255.0,
+        help="Moltiplicatore dei pixel RGB (default 1/255 per normalizzazione 0-1)"
     )
     parser.add_argument(
         "--pad-value", type=float, default=0.0,

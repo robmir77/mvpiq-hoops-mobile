@@ -164,6 +164,69 @@ La presenza di wrapper/adapters non prova che ogni callback di un'interfaccia si
 
 Un tiro è completato soltanto quando il detector produce l'evento, il runtime lo tratta una sola volta, la queue lo accetta, la persistenza/rete ne gestisce lo stato e la UI riflette il risultato. Misurare ogni passaggio con un identificatore stabile.
 
+### D31 — Filtri geometrici per riduzione false positive
+**Stato:** implementato nel codice; soglie definitive tarate con log [YOLO RAW] e benchmark video.
+
+`YoloDetector` applica filtri geometrici prima di accettare una detection. I filtri controllano aspect ratio in pixel space (corretto per frame aspect ratio) e dimensioni normalizzate. I parametri sono configurati in `YOLO_CONFIG`:
+
+- **Palla:** aspect ratio [0.6, 1.7], dimensione media [0.008, 0.15]
+- **Giocatore:** larghezza [0.05, 0.6], altezza minima 0.1, aspect ratio h/w [0.8, 6.0]
+- **Canestro:** larghezza [0.015, 0.25], aspect ratio w/h [0.7, 6.0]
+
+Le soglie confidence definitive (tarate con log device e benchmark video) sono:
+- BALL: 0.05 (modello confident per palla, score 0.76-0.84 quando inquadrata)
+- PLAYER: 0.01 (massimi osservati ~0.002)
+- RIM: 0.10 (massimo 0.22, tipico ~0.006)
+
+Il log diagnostico [YOLO RAW] è stato rimosso da `useYoloWorkerAsync.ts` dopo aver determinato le soglie definitive.
+
+### D32 — Gestione risoluzione camera
+**Stato:** implementato nel codice; comportamento da validare su device.
+
+La risoluzione della camera è gestita in due punti chiave:
+
+**CalibrationScreen.tsx**
+- Default: massimo supportato dal dispositivo (`availableResolutions[0]`)
+- L'utente può selezionare manualmente una risoluzione diversa nel Picker
+- La scelta manuale persiste (non viene sovrascritta da auto-selezione)
+- Log aggiunti per debug chi sovrascrive la risoluzione
+- Wrapper `setSelectedResolution` con log e stack trace per identificare chiamate
+
+**WorkoutSessionScreen.tsx**
+- `effectiveResolution` è uno stato (non un ref) per garantire coerenza tra consumatori
+- Aggiornato con `setEffectiveResolution` in `loadSession` e `setCalibration`
+- `scheduleRuntimeProcessFrame` ha `effectiveResolution` nelle dipendenze per evitare closure obsoleta
+- Camera montata solo dopo caricamento sessione (`sessionLoaded`)
+
+**Log di verifica**
+- `useShotTracker.ts` stampa frame resolution e target resolution al primo frame
+- Valore grezzo senza fallback per identificare se la risoluzione è impostata correttamente
+
+### D33 — Tracking TTL per modelli YOLO lenti
+**Stato:** implementato nel codice; da validare con modelli diversi.
+
+Il tracking della palla usa una TTL (Time To Live) per predizioni senza nuove rilevazioni. La TTL è configurata in `BallTrackingState.ts`:
+
+- `predictionTtlMs: 400` ms (aggiornato da 150 ms)
+
+La TTL deve coprire l'intervallo tra inferenze successive del modello YOLO:
+- `best_384_float16`: fpsMin 20 / fpsMax 21 (intervallo ~50 ms)
+- `best_640_float16`: fpsMin 5 / fpsMax 7 (intervallo 143-200 ms)
+
+Con la vecchia TTL di 150 ms, il modello 640 non riusciva a costruire traiettorie continue. Con 400 ms, il tracker può mantenere lo stato anche con modelli più lenti.
+
+### D34 — Correzioni cablaggi minori
+**Stato:** implementato nel codice.
+
+**YoloDetector.ts - resolutionScale**
+- Portato da `TENSOR_SIZE / 512` a `1.0`
+- Le bounding box sono normalizzate sul frame e non dipendono dalla dimensione del tensore
+- Eliminava scaling errato (+25% con 640, -25% con 384) delle soglie dimensione palla
+
+**CalibrationScreen.tsx - fallback yoloInputSize**
+- Rimosso fallback `|| 384`
+- Ora usa solo `yoloModel?.inputSize` dal modello selezionato
+
 ## Decisioni storiche da non considerare automaticamente attive
 
 Le voci storiche su outbox, retry persistenti, recovery globale, batch API, configurazione half/full court, worker asincroni, telemetria, mirror coordinate, confidence adattiva e shot chart devono essere riconfermate nei sorgenti che le implementano prima di modificarle. Il titolo di una vecchia decisione non è prova sufficiente che il comportamento sia ancora attivo o che la relativa verifica sia passata.

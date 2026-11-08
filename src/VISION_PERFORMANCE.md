@@ -88,7 +88,7 @@ Le prestazioni di FPS e latenza YOLO sono simili tra tutti i modelli, ma l'overl
 - `best_384_float16`: 200 epoche (validato come più affidabile per riconoscimento tiri)
 - `best_320_float16`: 50 epoche
 - `best_512_float16`: 40 epoche
-- `best_640_float16`: 30 epoche
+- `best_640_float16`: 120 epoche (aggiornato per ridurre false positive)
 - `best_448_float16`: 20 epoche
 
 Per dettagli sui comandi di training e checkpoint, vedere `assets/models/README.md`. Quando si confrontano modelli, distinguere tra:
@@ -96,3 +96,56 @@ Per dettagli sui comandi di training e checkpoint, vedere `assets/models/README.
 - Problemi di accuratezza (modello poco addestrato, soglie inadeguate)
 - Problemi di overlay (modelli con input grande causano rendering lento)
 - Problemi di configurazione (preprocessing, NMS, delegate)
+
+## Filtri geometrici e riduzione false positive
+
+Il parser YOLO (`YoloDetector`) applica filtri geometrici per ridurre i false positive basati su forma e dimensione delle bounding box. I filtri sono configurati in `YOLO_CONFIG`:
+
+**Filtri palla:**
+- Aspect ratio in pixel space: [BALL_MIN_ASPECT, BALL_MAX_ASPECT] = [0.6, 1.7]
+- Dimensione media: [BALL_MIN_SIZE, BALL_MAX_SIDE] = [0.008, 0.15] (normalizzato al frame)
+
+**Filtri giocatore:**
+- Larghezza: [PLAYER_MIN_WIDTH, PLAYER_MAX_WIDTH] = [0.05, 0.6]
+- Altezza minima: PLAYER_MIN_HEIGHT = 0.1
+- Aspect ratio in pixel space (h/w): [PLAYER_MIN_ASPECT, PLAYER_MAX_ASPECT] = [0.8, 6.0]
+
+**Filtri canestro:**
+- Larghezza: [RIM_MIN_WIDTH, RIM_MAX_WIDTH] = [0.015, 0.25]
+- Aspect ratio in pixel space (w/h): [RIM_MIN_ASPECT, RIM_MAX_ASPECT] = [0.7, 6.0]
+
+Gli aspect ratio sono calcolati in pixel space corretti per il frame aspect ratio (es. 16:9). Su un frame 16:9, un oggetto quadrato ha w/h normalizzato ≈ 0.56.
+
+## Soglie confidence definitive
+
+Le soglie confidence sono state tarate con log [YOLO RAW] e benchmark su video reali:
+
+- BALL_CONF_THRESHOLD: 0.05 (definitivo)
+- PLAYER_CONF_THRESHOLD: 0.01 (definitivo)
+- RIM_CONF_THRESHOLD: 0.10 (definitivo)
+- ADAPTIVE_CONF.MIN_THRESHOLD: 0.03 (era 0.0005, ora evita rilassamento nel noise)
+
+Le soglie sono state determinate analizzando i massimi score osservati sul device e dai benchmark video. Il modello best_640_float16 (120 epoche) produce confidence molto alte per la palla (0.76-0.84) quando inquadrata, mentre player e rim hanno score tipicamente più bassi.
+
+## Tracking della palla e TTL
+
+Il tracking della palla usa un filtro Kalman con una TTL (Time To Live) per le predizioni senza nuove rilevazioni. La TTL è configurata in `BallTrackingState.ts`:
+
+- `predictionTtlMs: 400` ms (aggiornato da 150 ms)
+
+La TTL deve essere sufficientemente grande da coprire l'intervallo tra inferenze successive del modello YOLO. I modelli hanno FPS diversi:
+- `best_384_float16`: fpsMin 20 / fpsMax 21 (intervallo ~50 ms)
+- `best_640_float16`: fpsMin 5 / fpsMax 7 (intervallo 143-200 ms)
+
+Con la vecchia TTL di 150 ms, il modello 640 non riusciva a costruire traiettorie continue perché ogni rilevazione scadeva prima della successiva. Con 400 ms, il tracker può mantenere lo stato anche con modelli più lenti.
+
+## Correzioni cablaggi minori
+
+**YoloDetector.ts - resolutionScale**
+- Portato da `TENSOR_SIZE / 512` a `1.0`
+- Le bounding box sono normalizzate sul frame e non dipendono dalla dimensione del tensore
+- Eliminava scaling errato (+25% con 640, -25% con 384) delle soglie dimensione palla
+
+**CalibrationScreen.tsx - fallback yoloInputSize**
+- Rimosso fallback `|| 384`
+- Ora usa solo `yoloModel?.inputSize` dal modello selezionato

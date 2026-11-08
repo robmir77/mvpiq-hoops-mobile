@@ -2,33 +2,45 @@ export const API_BASE_URL = 'https://mvpiq-hoops-backend-1.onrender.com';
 
 // YOLO Detection Confidence Thresholds
 export const YOLO_CONFIG = {
-  // Ball detection thresholds
-  BALL_CONF_THRESHOLD: 0.001, // Minimum confidence for ball detection (0.1%) - lowered for small/distant balls
-
-  // Player detection thresholds
-  PLAYER_CONF_THRESHOLD: 0.03, // Minimum confidence for player detection in YOLO parser (3%) - lowered for better detection rate
+  // Confidence thresholds. The TFLite export has sigmoid built in, so scores are
+  // probabilities. Values like 0.001 turn the parser into "always return the
+  // argmax anchor", i.e. a false positive on every frame (trees, graffiti, lamps).
+  BALL_CONF_THRESHOLD: 0.05,       // definitivo, tarato con log [YOLO RAW]
+  PLAYER_CONF_THRESHOLD: 0.01,     // definitivo, tarato con log [YOLO RAW]
   PLAYER_CROP_MIN_CONFIDENCE: 0.05, // Minimum confidence for player crop manager (5%)
+  RIM_CONF_THRESHOLD: 0.10,        // definitivo, tarato con log [YOLO RAW]
 
-  // Rim detection thresholds
-  RIM_CONF_THRESHOLD: 0.30, // Minimum confidence for rim detection (30%) - increased for more reliable rim detection
+  // NMS threshold (reserved: parser returns the single best box per class)
+  NMS_IOU_THRESHOLD: 0.4,
 
-  // NMS threshold
-  NMS_IOU_THRESHOLD: 0.4, // IoU threshold for non-maximum suppression
+  // Size / shape priors (normalized to the camera frame, 0..1).
+  // Boxes outside these ranges are rejected before they can win the argmax.
+  PLAYER_MIN_WIDTH: 0.05,
+  PLAYER_MIN_HEIGHT: 0.1,
+  PLAYER_MAX_WIDTH: 0.6,
+  PLAYER_MIN_ASPECT: 0.8, // height/width (a standing player is taller than wide)
+  PLAYER_MAX_ASPECT: 6.0,
+  BALL_MIN_SIZE: 0.008, // min avg side (normalized)
+  BALL_MAX_SIDE: 0.15, // max avg side (normalized)
+  BALL_MAX_BBOX_SIZE: 0.15, // Maximum normalized bbox AREA used by useYoloWorker*
+  BALL_MIN_ASPECT: 0.6, // width/height; a ball is roughly square (motion blur tolerated)
+  BALL_MAX_ASPECT: 1.7,
+  RIM_MIN_WIDTH: 0.015,
+  RIM_MAX_WIDTH: 0.25,
+  RIM_MIN_ASPECT: 0.7, // width/height; side view is wider than tall, near-frontal can be ~square
+  RIM_MAX_ASPECT: 6.0,
 
-  // Size constraints
-  PLAYER_MIN_WIDTH: 0.05, // Minimum normalized width for player detection
-  PLAYER_MIN_HEIGHT: 0.1, // Minimum normalized height for player detection
-  BALL_MAX_BBOX_SIZE: 0.15, // Maximum normalized bbox size for ball detection (15% of frame) - filter false positives too close to camera
-
-  // Adaptive confidence threshold configuration
+  // Adaptive confidence threshold configuration.
+  // MIN_THRESHOLD is a hard floor: the adaptive logic may relax the base
+  // threshold when nothing is detected, but never into the noise range.
   ADAPTIVE_CONF: {
-    ENABLED: true, // Enable adaptive confidence threshold
-    WINDOW_SIZE: 15, // Number of frames to consider for adaptation (reduced for faster adaptation)
-    MIN_THRESHOLD: 0.0005, // Minimum adaptive threshold (0.05%) - lowered for small balls
-    MAX_THRESHOLD: 0.50, // Maximum adaptive threshold (50%)
-    ADJUSTMENT_FACTOR: 0.2, // How much to adjust threshold per frame (20% of difference) - faster adaptation
-    HIGH_CONF_THRESHOLD: 0.7, // Confidence considered "high" for raising threshold
-    LOW_CONF_THRESHOLD: 0.2, // Confidence considered "low" for lowering threshold
+    ENABLED: true,
+    WINDOW_SIZE: 15,
+    MIN_THRESHOLD: 0.03,          // era 0.0005
+    MAX_THRESHOLD: 0.50,
+    ADJUSTMENT_FACTOR: 0.2,
+    HIGH_CONF_THRESHOLD: 0.7,
+    LOW_CONF_THRESHOLD: 0.2,
   },
 } as const;
 
