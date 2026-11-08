@@ -3,6 +3,7 @@
 
 import type { SharedValue } from 'react-native-reanimated'
 import type { BallDetection, PoseResult } from '@/vision'
+import type { ShotEvent } from '../types/workouts.types'
 
 export interface VisionSharedValues {
   ballX: SharedValue<number>
@@ -45,6 +46,7 @@ export interface VisionSharedValues {
 
 export type DetectionCallback = (detection: BallDetection) => void
 export type PoseCallback = (result: PoseResult) => void
+export type ShotEventCallback = (event: ShotEvent) => void
 export type RimDetectionCallback = (rim: {
   x: number
   y: number

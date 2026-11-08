@@ -20,6 +20,7 @@ describe('Manual Shot Registration', () => {
   describe('Manual MADE Shot', () => {
     it('should register a manual MADE shot successfully', async () => {
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -30,6 +31,7 @@ describe('Manual Shot Registration', () => {
         releaseAngle: 48,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -54,6 +56,7 @@ describe('Manual Shot Registration', () => {
 
     it('should use default court position when not provided', async () => {
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -63,6 +66,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 0,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -85,6 +89,7 @@ describe('Manual Shot Registration', () => {
 
     it('should handle MADE shot with release angle', async () => {
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -95,6 +100,7 @@ describe('Manual Shot Registration', () => {
         releaseAngle: 50, // Optimal release angle
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -119,6 +125,7 @@ describe('Manual Shot Registration', () => {
   describe('Manual MISS Shot', () => {
     it('should register a manual MISS shot successfully', async () => {
       const mockShot = {
+        shotId: 'shot-2',
         id: 'shot-2',
         sessionId: 'session-123',
         timestampMs: 123456790,
@@ -129,6 +136,7 @@ describe('Manual Shot Registration', () => {
         releaseAngle: 52,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -153,6 +161,7 @@ describe('Manual Shot Registration', () => {
 
     it('should handle MISS shot with distance data', async () => {
       const mockShot = {
+        shotId: 'shot-2',
         id: 'shot-2',
         sessionId: 'session-123',
         timestampMs: 123456790,
@@ -163,6 +172,7 @@ describe('Manual Shot Registration', () => {
         releaseAngle: 55,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -187,6 +197,7 @@ describe('Manual Shot Registration', () => {
   describe('Manual BLOCKED Shot', () => {
     it('should register a manual BLOCKED shot', async () => {
       const mockShot = {
+        shotId: 'shot-3',
         id: 'shot-3',
         sessionId: 'session-123',
         timestampMs: 123456791,
@@ -196,6 +207,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 7.0,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -219,6 +231,7 @@ describe('Manual Shot Registration', () => {
   describe('Manual AIRBALL Shot', () => {
     it('should register a manual AIRBALL shot', async () => {
       const mockShot = {
+        shotId: 'shot-4',
         id: 'shot-4',
         sessionId: 'session-123',
         timestampMs: 123456792,
@@ -228,6 +241,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 10.0,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -302,6 +316,7 @@ describe('Manual Shot Registration', () => {
 
     it('should set detectionConfidence to 1.0 for manual entries', async () => {
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -311,6 +326,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 6.5,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -334,6 +350,7 @@ describe('Manual Shot Registration', () => {
   describe('Tracking Data', () => {
     it('should include manualEntry flag in tracking data', async () => {
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -343,6 +360,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 6.5,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -370,6 +388,7 @@ describe('Manual Shot Registration', () => {
       }
 
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -379,6 +398,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 6.5,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify(additionalMetadata),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -458,6 +478,7 @@ describe('Manual Shot Registration', () => {
   describe('Shot Counter Updates', () => {
     it('should increment total shots counter', async () => {
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -467,6 +488,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 6.5,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -489,6 +511,7 @@ describe('Manual Shot Registration', () => {
 
     it('should increment made shots counter for MADE shots', async () => {
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId: 'session-123',
         timestampMs: 123456789,
@@ -498,6 +521,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 6.5,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -519,6 +543,7 @@ describe('Manual Shot Registration', () => {
 
     it('should not increment made shots counter for MISS shots', async () => {
       const mockShot = {
+        shotId: 'shot-2',
         id: 'shot-2',
         sessionId: 'session-123',
         timestampMs: 123456790,
@@ -528,6 +553,7 @@ describe('Manual Shot Registration', () => {
         distanceFromHoop: 7.8,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)

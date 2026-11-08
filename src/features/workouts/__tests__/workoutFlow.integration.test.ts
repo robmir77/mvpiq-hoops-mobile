@@ -84,6 +84,7 @@ describe('Workout Flow Integration Tests', () => {
       // Step 3: Add automatic shots
       const mockShots = [
         {
+          shotId: 'shot-1',
           id: 'shot-1',
           sessionId,
           timestampMs: 123456789,
@@ -94,8 +95,10 @@ describe('Workout Flow Integration Tests', () => {
           releaseAngle: 48,
           detectionConfidence: 0.9,
           trackingData: JSON.stringify({ autoDetected: true }),
+          schemaVersion: 1,
         },
         {
+          shotId: 'shot-2',
           id: 'shot-2',
           sessionId,
           timestampMs: 123456790,
@@ -106,6 +109,7 @@ describe('Workout Flow Integration Tests', () => {
           releaseAngle: 52,
           detectionConfidence: 0.85,
           trackingData: JSON.stringify({ autoDetected: true }),
+          schemaVersion: 1,
         },
       ]
 
@@ -129,6 +133,7 @@ describe('Workout Flow Integration Tests', () => {
 
       // Step 4: Add manual shots
       const manualShot = {
+        shotId: 'shot-3',
         id: 'shot-3',
         sessionId,
         timestampMs: 123456791,
@@ -138,6 +143,7 @@ describe('Workout Flow Integration Tests', () => {
         distanceFromHoop: 7.0,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValueOnce(manualShot)
@@ -199,6 +205,7 @@ describe('Workout Flow Integration Tests', () => {
       // Add only manual shots
       const manualShots = [
         {
+          shotId: 'shot-1',
           id: 'shot-1',
           sessionId,
           timestampMs: 123456789,
@@ -208,8 +215,10 @@ describe('Workout Flow Integration Tests', () => {
           distanceFromHoop: 6.5,
           detectionConfidence: 1.0,
           trackingData: JSON.stringify({ manualEntry: true }),
+          schemaVersion: 1,
         },
         {
+          shotId: 'shot-2',
           id: 'shot-2',
           sessionId,
           timestampMs: 123456790,
@@ -219,6 +228,7 @@ describe('Workout Flow Integration Tests', () => {
           distanceFromHoop: 7.8,
           detectionConfidence: 1.0,
           trackingData: JSON.stringify({ manualEntry: true }),
+          schemaVersion: 1,
         },
       ]
 
@@ -295,6 +305,7 @@ describe('Workout Flow Integration Tests', () => {
 
       const mockShots = [
         {
+          shotId: 'shot-1',
           id: 'shot-1',
           sessionId,
           timestampMs: 123456789,
@@ -304,8 +315,10 @@ describe('Workout Flow Integration Tests', () => {
           distanceFromHoop: 6.5,
           releaseAngle: 48,
           detectionConfidence: 0.9,
+          schemaVersion: 1,
         },
         {
+          shotId: 'shot-2',
           id: 'shot-2',
           sessionId,
           timestampMs: 123456790,
@@ -315,8 +328,10 @@ describe('Workout Flow Integration Tests', () => {
           distanceFromHoop: 7.8,
           releaseAngle: 52,
           detectionConfidence: 0.85,
+          schemaVersion: 1,
         },
         {
+          shotId: 'shot-3',
           id: 'shot-3',
           sessionId,
           timestampMs: 123456791,
@@ -327,6 +342,7 @@ describe('Workout Flow Integration Tests', () => {
           releaseAngle: 50,
           detectionConfidence: 1.0,
           trackingData: JSON.stringify({ manualEntry: true }),
+          schemaVersion: 1,
         },
       ]
 
@@ -346,6 +362,7 @@ describe('Workout Flow Integration Tests', () => {
 
       const mockShots = [
         {
+          shotId: 'shot-1',
           id: 'shot-1',
           sessionId,
           timestampMs: 123456789,
@@ -354,8 +371,10 @@ describe('Workout Flow Integration Tests', () => {
           courtY: 10.2,
           distanceFromHoop: 6.5,
           detectionConfidence: 0.9,
+          schemaVersion: 1,
         },
         {
+          shotId: 'shot-2',
           id: 'shot-2',
           sessionId,
           timestampMs: 123456790,
@@ -364,8 +383,10 @@ describe('Workout Flow Integration Tests', () => {
           courtY: 12.1,
           distanceFromHoop: 7.8,
           detectionConfidence: 0.85,
+          schemaVersion: 1,
         },
         {
+          shotId: 'shot-3',
           id: 'shot-3',
           sessionId,
           timestampMs: 123456791,
@@ -374,6 +395,7 @@ describe('Workout Flow Integration Tests', () => {
           courtY: 11.0,
           distanceFromHoop: 7.0,
           detectionConfidence: 0.9,
+          schemaVersion: 1,
         },
       ]
 
@@ -396,6 +418,7 @@ describe('Workout Flow Integration Tests', () => {
 
       const mockShots = [
         {
+          shotId: 'shot-1',
           id: 'shot-1',
           sessionId,
           timestampMs: 123456789,
@@ -405,8 +428,10 @@ describe('Workout Flow Integration Tests', () => {
           distanceFromHoop: 6.5,
           detectionConfidence: 0.9,
           trackingData: JSON.stringify({ autoDetected: true }),
+          schemaVersion: 1,
         },
         {
+          shotId: 'shot-2',
           id: 'shot-2',
           sessionId,
           timestampMs: 123456790,
@@ -416,6 +441,7 @@ describe('Workout Flow Integration Tests', () => {
           distanceFromHoop: 7.8,
           detectionConfidence: 1.0,
           trackingData: JSON.stringify({ manualEntry: true }),
+          schemaVersion: 1,
         },
       ]
 
@@ -479,6 +505,7 @@ describe('Workout Flow Integration Tests', () => {
 
       // Should still be able to add shots
       const mockShot = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId,
         timestampMs: 123456789,
@@ -488,6 +515,7 @@ describe('Workout Flow Integration Tests', () => {
         distanceFromHoop: 6.5,
         detectionConfidence: 1.0,
         trackingData: JSON.stringify({ manualEntry: true }),
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValue(mockShot)
@@ -530,6 +558,7 @@ describe('Workout Flow Integration Tests', () => {
 
       // First shot succeeds
       const mockShot1 = {
+        shotId: 'shot-1',
         id: 'shot-1',
         sessionId,
         timestampMs: 123456789,
@@ -538,6 +567,7 @@ describe('Workout Flow Integration Tests', () => {
         courtY: 10.2,
         distanceFromHoop: 6.5,
         detectionConfidence: 0.9,
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValueOnce(mockShot1)
@@ -567,6 +597,7 @@ describe('Workout Flow Integration Tests', () => {
 
       // Third shot should still work
       const mockShot3 = {
+        shotId: 'shot-3',
         id: 'shot-3',
         sessionId,
         timestampMs: 123456791,
@@ -575,6 +606,7 @@ describe('Workout Flow Integration Tests', () => {
         courtY: 11.0,
         distanceFromHoop: 7.0,
         detectionConfidence: 0.9,
+        schemaVersion: 1,
       }
 
       mockAddShotEvent.mockResolvedValueOnce(mockShot3)

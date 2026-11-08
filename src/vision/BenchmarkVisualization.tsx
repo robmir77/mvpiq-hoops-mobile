@@ -15,19 +15,62 @@ const CLASS_COLORS = {
   rim: '#0000FF',       // Blu
 }
 
+const IMAGE_CONTAINER_WIDTH = 400
+const IMAGE_CONTAINER_HEIGHT = 300
+
 export const BenchmarkVisualization: React.FC<BenchmarkVisualizationProps> = ({
   results,
   imageUris,
   onClose,
 }) => {
   const [selectedIndex, setSelectedIndex] = React.useState(0)
+  const [imageSize, setImageSize] = React.useState<{ width: number; height: number } | null>(null)
 
   const result = results[selectedIndex]
   const imageUri = imageUris[selectedIndex]
 
+  React.useEffect(() => {
+    let cancelled = false
+    setImageSize(null)
+
+    if (imageUri) {
+      Image.getSize(
+        imageUri,
+        (width, height) => {
+          if (!cancelled) {
+            setImageSize({ width, height })
+          }
+        },
+        error => {
+          console.warn('[BenchmarkVisualization] Unable to read image dimensions:', error)
+          if (!cancelled) {
+            setImageSize(null)
+          }
+        },
+      )
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [imageUri])
+
   if (!result || !imageUri) {
     return null
   }
+
+  // Match the exact "contain" rectangle used by the Image inside its 400x300 box.
+  // The SVG is placed over that rectangle, not over the letterboxed container.
+  const imageScale = imageSize
+    ? Math.min(
+        IMAGE_CONTAINER_WIDTH / imageSize.width,
+        IMAGE_CONTAINER_HEIGHT / imageSize.height,
+      )
+    : 0
+  const renderedWidth = imageSize ? imageSize.width * imageScale : 0
+  const renderedHeight = imageSize ? imageSize.height * imageScale : 0
+  const imageLeft = (IMAGE_CONTAINER_WIDTH - renderedWidth) / 2
+  const imageTop = (IMAGE_CONTAINER_HEIGHT - renderedHeight) / 2
 
   return (
     <View style={styles.container}>
@@ -46,26 +89,45 @@ export const BenchmarkVisualization: React.FC<BenchmarkVisualizationProps> = ({
           style={styles.image}
           resizeMode="contain"
         />
-        <Svg style={styles.svgOverlay}>
-          {result.ball && (
-            <BBox
-              x={result.ball.x}
-              y={result.ball.y}
-              width={result.ball.width}
-              height={result.ball.height}
-              color={CLASS_COLORS.ball}
-            />
-          )}
-          {result.player && (
-            <BBox
-              x={result.player.x}
-              y={result.player.y}
-              width={result.player.width}
-              height={result.player.height}
-              color={CLASS_COLORS.player}
-            />
-          )}
-        </Svg>
+        {imageSize && (
+          <Svg
+            width={renderedWidth}
+            height={renderedHeight}
+            viewBox={`0 0 ${renderedWidth} ${renderedHeight}`}
+            style={[
+              styles.svgOverlay,
+              {
+                left: imageLeft,
+                top: imageTop,
+                width: renderedWidth,
+                height: renderedHeight,
+              },
+            ]}
+          >
+            {result.ball && (
+              <BBox
+                x={result.ball.x}
+                y={result.ball.y}
+                width={result.ball.width}
+                height={result.ball.height}
+                canvasWidth={renderedWidth}
+                canvasHeight={renderedHeight}
+                color={CLASS_COLORS.ball}
+              />
+            )}
+            {result.player && (
+              <BBox
+                x={result.player.x}
+                y={result.player.y}
+                width={result.player.width}
+                height={result.player.height}
+                canvasWidth={renderedWidth}
+                canvasHeight={renderedHeight}
+                color={CLASS_COLORS.player}
+              />
+            )}
+          </Svg>
+        )}
       </View>
 
       <View style={styles.info}>
@@ -105,27 +167,32 @@ interface BBoxProps {
   y: number
   width: number
   height: number
+  canvasWidth: number
+  canvasHeight: number
   color: string
 }
 
-const BBox: React.FC<BBoxProps> = ({ x, y, width, height, color }) => {
-  // Convert normalized coordinates to canvas coordinates (400x300)
-  const canvasWidth = 400
-  const canvasHeight = 300
-  
-  const x1 = (x - width / 2) * canvasWidth
-  const y1 = (y - height / 2) * canvasHeight
-  const x2 = (x + width / 2) * canvasWidth
-  const y2 = (y + height / 2) * canvasHeight
-  const w = x2 - x1
-  const h = y2 - y1
+const BBox: React.FC<BBoxProps> = ({
+  x,
+  y,
+  width,
+  height,
+  canvasWidth,
+  canvasHeight,
+  color,
+}) => {
+  // Detection x/y are normalized center coordinates, not top-left coordinates.
+  const rectWidth = width * canvasWidth
+  const rectHeight = height * canvasHeight
+  const left = (x - width / 2) * canvasWidth
+  const top = (y - height / 2) * canvasHeight
 
   return (
     <Rect
-      x={x1}
-      y={y1}
-      width={w}
-      height={h}
+      x={left}
+      y={top}
+      width={rectWidth}
+      height={rectHeight}
       stroke={color}
       strokeWidth={3}
       fill="transparent"
@@ -170,22 +237,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   imageContainer: {
-    width: 400,
-    height: 300,
+    width: IMAGE_CONTAINER_WIDTH,
+    height: IMAGE_CONTAINER_HEIGHT,
     backgroundColor: '#222',
     borderRadius: 8,
     overflow: 'hidden',
   },
   image: {
-    width: 400,
-    height: 300,
+    width: IMAGE_CONTAINER_WIDTH,
+    height: IMAGE_CONTAINER_HEIGHT,
   },
   svgOverlay: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 400,
-    height: 300,
   },
   info: {
     marginTop: 20,
@@ -199,7 +262,7 @@ const styles = StyleSheet.create({
   navigation: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: 400,
+    width: IMAGE_CONTAINER_WIDTH,
     marginTop: 20,
   },
   navButton: {
