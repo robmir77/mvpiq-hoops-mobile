@@ -440,8 +440,8 @@ export const useYoloWorker = (
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (source.length === yoloInputElements) {
-          // VisionCamera Resizer float32 is normalized to 0..1. The YOLO TFLite
-          // exports used here expect RGB float32 in 0..255, as in the Python runner.
+          // VisionCamera Resizer float32 is normalized to 0..1. The recorded Python reference
+          // run feeds RGB float32 in 0..255; match that range in the live path.
           // Scale into a separate owned buffer: do not mutate the GPUFrame buffer.
           const modelInput = resizerFloat32ToYoloInput(source)
           const inputBuffer = modelInput.buffer as ArrayBuffer
