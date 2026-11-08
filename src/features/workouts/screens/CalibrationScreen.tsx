@@ -37,6 +37,7 @@ import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, MOVENET_MODELS, YOLO_M
 import { CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
 import { useRimCalibration, type RoiRegion } from '@/vision/useRimCalibration'
 import { useImageBenchmark } from '@/vision/useImageBenchmark'
+import { BenchmarkVisualization } from '@/vision/BenchmarkVisualization'
 import * as FileSystem from 'expo-file-system'
 
 const { width: SW, height: SH } = Dimensions.get('window')
@@ -874,6 +875,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     // Image benchmark state
     const [showBenchmarkPanel, setShowBenchmarkPanel] = useState(false)
+    const [showBenchmarkVisualization, setShowBenchmarkVisualization] = useState(false)
+    const [benchmarkImageUris, setBenchmarkImageUris] = useState<string[]>([])
     const benchmark = useImageBenchmark(selectedYoloModelId)
     const requestFrameCapture = useSharedValue(false)
     const requestBrightnessCapture = useSharedValue(false)
@@ -1692,10 +1695,23 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                                 return
                                             }
 
-                                            // Run benchmark for each video
+                                            // Save image URIs for visualization
+                                            setBenchmarkImageUris(imageUris)
+
+                                            // Group images by video name and run benchmark for each video
                                             let allResults: any[] = []
+                                            const videoGroups: Record<string, string[]> = {}
                                             for (let i = 0; i < imageUris.length; i++) {
-                                                const summary = await benchmark.runBenchmark([imageUris[i]], videoNames[i])
+                                                const videoName = videoNames[i]
+                                                if (!videoGroups[videoName]) {
+                                                    videoGroups[videoName] = []
+                                                }
+                                                videoGroups[videoName].push(imageUris[i])
+                                            }
+
+                                            for (const [videoName, uris] of Object.entries(videoGroups)) {
+                                                console.log(`[Benchmark] Processing video: ${videoName} images: ${uris.length}`)
+                                                const summary = await benchmark.runBenchmark(uris, videoName)
                                                 if (summary) {
                                                     allResults = [...allResults, ...summary.results]
                                                 }
@@ -1726,6 +1742,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                                 }}
                                             >
                                                 <Text style={styles.closeConfigButtonText}>Esporta JSON</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.closeConfigButton, { marginTop: 8, backgroundColor: '#4CAF50' }]}
+                                                onPress={() => {
+                                                    setShowBenchmarkVisualization(true)
+                                                }}
+                                            >
+                                                <Text style={styles.closeConfigButtonText}>Visualizza BBox</Text>
                                             </TouchableOpacity>
                                         </>
                                     )}
@@ -1786,6 +1810,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
             </ScrollView>
 
             <CustomAlert {...alert} />
+
+            {showBenchmarkVisualization && benchmarkImageUris.length > 0 && (
+                <BenchmarkVisualization
+                    results={benchmark.results}
+                    imageUris={benchmarkImageUris}
+                    onClose={() => setShowBenchmarkVisualization(false)}
+                />
+            )}
         </View>
     )
 }

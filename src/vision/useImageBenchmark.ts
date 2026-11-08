@@ -8,12 +8,17 @@ import { YoloDetector } from './engine/YoloDetector'
 import { YOLO_CONFIG } from '@/config/appConfig'
 import { getYoloModel } from './yoloModels'
 import { Asset } from 'expo-asset'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import { decode } from 'jpeg-js'
 import { Platform } from 'react-native'
 import { BENCHMARK_IMAGE_ASSETS } from './benchmarkImageAssets'
 
-interface BenchmarkResult {
+// Polyfill Buffer for jpeg-js in React Native
+if (typeof (global as any).Buffer === 'undefined') {
+  (global as any).Buffer = require('buffer').Buffer
+}
+
+export interface BenchmarkResult {
   frameIndex: number
   videoName: string
   ball: { x: number; y: number; width: number; height: number; confidence: number } | null
@@ -54,7 +59,7 @@ export const useImageBenchmark = (yoloModelId?: string) => {
       encoding: FileSystem.EncodingType.Base64,
     })
 
-    // Decode JPEG using jpeg-js
+    // Decode JPEG using jpeg-js with Buffer polyfill
     const binaryString = atob(base64)
     const uint8Array = new Uint8Array(binaryString.length)
     for (let i = 0; i < binaryString.length; i++) {
@@ -89,7 +94,7 @@ export const useImageBenchmark = (yoloModelId?: string) => {
 
     // Preprocess: resize and letterbox to model input size
     // This is a simplified version - in production use react-native-vision-camera-resizer
-    const tensorSize = 640 // TODO: Get from model metadata
+    const tensorSize = model?.inputSize || 640
     const scale = Math.min(tensorSize / width, tensorSize / height)
     const resizedWidth = Math.round(width * scale)
     const resizedHeight = Math.round(height * scale)
@@ -118,13 +123,14 @@ export const useImageBenchmark = (yoloModelId?: string) => {
 
     // Run inference
     const inferenceStart = performance.now()
-    const output = tflite.model.runSync(inputBuffer.buffer as any)
+    const outputs = tflite.model.runSync([inputBuffer.buffer as any])
     const inferenceMs = performance.now() - inferenceStart
 
     // Parse output with YoloDetector
     const detector = yoloDetectorRef.current
+    const rawOutput = outputs[0] as ArrayBufferLike
     const parsed = detector.parseOutput(
-      new Float32Array(output as any),
+      new Float32Array(rawOutput),
       width,
       height
     )
@@ -145,6 +151,7 @@ export const useImageBenchmark = (yoloModelId?: string) => {
       return null
     }
 
+    console.log('[Benchmark] Starting benchmark for video:', videoName, 'images:', imageUris.length)
     setIsProcessing(true)
     setProgress({ current: 0, total: imageUris.length })
     setError(null)
@@ -154,6 +161,7 @@ export const useImageBenchmark = (yoloModelId?: string) => {
 
     try {
       for (let i = 0; i < imageUris.length; i++) {
+        console.log('[Benchmark] Processing frame', i + 1, '/', imageUris.length)
         const result = await processImage(imageUris[i], i, videoName)
         benchmarkResults.push(result)
         setResults([...benchmarkResults])
@@ -173,8 +181,10 @@ export const useImageBenchmark = (yoloModelId?: string) => {
         results: benchmarkResults,
       }
 
+      console.log('[Benchmark] Benchmark complete:', summary)
       return summary
     } catch (err) {
+      console.error('[Benchmark] Benchmark error:', err)
       setError(err instanceof Error ? err.message : String(err))
       return null
     } finally {
@@ -184,22 +194,18 @@ export const useImageBenchmark = (yoloModelId?: string) => {
 
   const loadBenchmarkImages = useCallback(async (): Promise<{ imageUris: string[]; videoNames: string[] }> => {
     try {
-      // Load manifest from assets
-      const manifestUri = Asset.fromModule(require('../../assets/benchmark-images/manifest.json')).uri
-      const manifestAsset = await Asset.fromURI(manifestUri).downloadAsync()
-      if (!manifestAsset || !manifestAsset.localUri) {
-        throw new Error('Failed to load manifest')
-      }
-
-      const manifestJson = await FileSystem.readAsStringAsync(manifestAsset.localUri)
-      const manifest = JSON.parse(manifestJson)
+      // Load manifest directly with require() - no Asset.fromModule needed
+      const manifest = require('../../assets/benchmark-images/manifest.json')
+      console.log('[Benchmark] Manifest loaded, videos:', manifest.videos?.length)
 
       // Build array of all static assets from the generated mapping
       const assetsToLoad: any[] = []
-      const assetToKey: Record<any, string> = {}
+      const assetToKey: string[] = []
 
       for (const video of manifest.videos || []) {
-        const videoName = video.video_path.split('/').pop()?.replace('.mp4', '') || 'unknown'
+        // Extract video name from output_dir, handling both / and \
+        const videoName = video.output_dir.split(/[/\\]/).pop() || 'unknown'
+        console.log('[Benchmark] Processing video:', videoName, 'frames:', video.frames?.length)
 
         for (const frame of video.frames || []) {
           const key = `${videoName}/${frame.filename}`
@@ -211,25 +217,32 @@ export const useImageBenchmark = (yoloModelId?: string) => {
           }
 
           assetsToLoad.push(staticAsset)
-          assetToKey[staticAsset] = key
+          assetToKey.push(key)
         }
       }
 
+      console.log('[Benchmark] Assets to load:', assetsToLoad.length)
+
       // Load all assets at once using Asset.loadAsync
       const loadedAssets = await Asset.loadAsync(assetsToLoad)
+      console.log('[Benchmark] Assets loaded:', loadedAssets.length)
 
       // Create cache directory
       const cacheDir = (FileSystem as any).documentDirectory + 'benchmark-images/'
       const dirInfo = await FileSystem.getInfoAsync(cacheDir)
       if (!dirInfo.exists) {
         await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true })
+        console.log('[Benchmark] Created cache directory:', cacheDir)
       }
 
       const imageUris: string[] = []
       const videoNames: string[] = []
 
-      for (const loaded of loadedAssets) {
-        const key = assetToKey[assetsToLoad.find(a => a === loaded)]
+      // Associate loaded assets by index, not by object comparison
+      for (let i = 0; i < loadedAssets.length; i++) {
+        const key = assetToKey[i]
+        const loaded = loadedAssets[i]
+
         if (!key) continue
 
         const [videoName, filename] = key.split('/')
@@ -266,6 +279,7 @@ export const useImageBenchmark = (yoloModelId?: string) => {
       }
 
       console.log('[Benchmark] Loaded image URIs:', imageUris.length)
+      console.log('[Benchmark] Video names:', [...new Set(videoNames)])
       if (imageUris.length === 0) {
         setError('No images could be loaded. Check that benchmark images are included in the bundle.')
       }
