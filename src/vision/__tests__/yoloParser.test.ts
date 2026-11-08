@@ -139,6 +139,17 @@ describe('YoloDetector', () => {
   })
 
   describe('rim detection', () => {
+    it('keeps rim decoding disabled by default, matching the Python benchmark', () => {
+      const output = new Float32Array(N_ANCHORS * OUTPUT_CHANNELS)
+      const i = 100
+      output[i] = 0.4
+      output[N_ANCHORS + i] = 0.3
+      output[N_ANCHORS * 2 + i] = 0.15
+      output[N_ANCHORS * 3 + i] = 0.15
+      output[N_ANCHORS * 6 + i] = 0.95
+      expect(new YoloDetector(0.05, 0.10).parseOutput(output, 1280, 720).rim).toBeNull()
+    })
+
     it('should detect rim with high confidence', () => {
       const mockOutput = new Float32Array(N_ANCHORS * OUTPUT_CHANNELS)
       const anchorIdx = 100
@@ -151,6 +162,7 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS * 6 + anchorIdx] = 0.85 // rim score
 
       const detector = new YoloDetector(0.05, 0.10)
+      detector.setRimDetectionEnabled(true)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.rim).toBeDefined()
@@ -200,6 +212,7 @@ describe('YoloDetector', () => {
       mockOutput[N_ANCHORS * 6 + rimIdx] = 0.85
 
       const detector = new YoloDetector(0.05, 0.10)
+      detector.setRimDetectionEnabled(true)
       const result = detector.parseOutput(mockOutput, 1280, 720)
 
       expect(result.ball).toBeDefined()
@@ -303,16 +316,16 @@ describe('YoloDetector', () => {
       expect(new YoloDetector(0.05, 0.10).parseOutput(out, 1280, 720).ball).toBeNull()
     })
 
-    it('rejects a ball box that is larger than a plausible ball', () => {
+    it('does not apply an extra maximum-size geometry filter to a ball box', () => {
       const out = new Float32Array(N * 7)
       put(out, 100, 0.5, 0.5, 0.35, 0.35, 0.9, 0, 0)
-      expect(new YoloDetector(0.05, 0.10).parseOutput(out, 1280, 720).ball).toBeNull()
+      expect(new YoloDetector(0.05, 0.10).parseOutput(out, 1280, 720).ball).not.toBeNull()
     })
 
-    it('rejects a wide, short "player" box (tree line / wall) but accepts a standing person', () => {
+    it('does not apply an additional geometry filter to player candidates', () => {
       const wide = new Float32Array(N * 7)
       put(wide, 100, 0.5, 0.5, 0.3, 0.1, 0, 0.9, 0)
-      expect(new YoloDetector(0.05, 0.10).parseOutput(wide, 1280, 720).player).toBeNull()
+      expect(new YoloDetector(0.05, 0.10).parseOutput(wide, 1280, 720).player).not.toBeNull()
 
       const person = new Float32Array(N * 7)
       put(person, 100, 0.5, 0.5, 0.1, 0.45, 0, 0.9, 0)
@@ -329,15 +342,15 @@ describe('YoloDetector', () => {
       expect(det.parseOutput(out, 1280, 720).rim).toBeNull()
     })
 
-    it('does not let the adaptive threshold relax into the noise range after many empty frames', () => {
+    it('uses the Python adaptive threshold floor after many empty frames', () => {
       const det = new YoloDetector(0.05, 0.10)
       const empty = new Float32Array(N * 7)
       for (let i = 0; i < 60; i++) det.parseOutput(empty, 1280, 720)
-      expect(det.getAdaptiveThresholds().ball).toBeGreaterThanOrEqual(0.03)
-      expect(det.getAdaptiveThresholds().player).toBeGreaterThanOrEqual(0.03)
+      expect(det.getAdaptiveThresholds().ball).toBeGreaterThanOrEqual(0.0005)
+      expect(det.getAdaptiveThresholds().player).toBeGreaterThanOrEqual(0.0005)
 
       const noise = new Float32Array(N * 7)
-      put(noise, 100, 0.5, 0.5, 0.1, 0.1, 0.01, 0.005, 0.05)
+      put(noise, 100, 0.5, 0.5, 0.1, 0.1, 0.0001, 0.0001, 0.05)
       const res = det.parseOutput(noise, 1280, 720)
       expect(res.ball).toBeNull()
       expect(res.player).toBeNull()
