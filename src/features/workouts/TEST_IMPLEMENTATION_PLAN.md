@@ -269,7 +269,7 @@ Usare tutti e tre i video già presenti nel branch `Validation-1.0`:
 
 - `src/vision/__tests__/media/Tiro Libero.mp4`
 - `src/vision/__tests__/media/Tiro da 3.mp4`
-- `src/vision/__tests__/media/Tirp a centrocampo.mp4`
+- `src/vision/__tests__/media/Tiro a centrocampo.mp4`
 
 I file sono il dataset fisso iniziale. Non assumere in anticipo quanti tiri contenga ciascun video o quali difficoltà rappresenti: ispezionarli e annotare manualmente i riferimenti prima di interpretare i risultati. Registrare nome, durata, dimensioni, FPS e hash dei file per identificare esattamente la versione usata.
 
@@ -290,7 +290,7 @@ python scripts/benchmark_yolo_videos.py \
   --models assets/models/best_384_float16.tflite assets/models/best_640_float16.tflite \
   --videos "src/vision/__tests__/media/Tiro Libero.mp4" \
           "src/vision/__tests__/media/Tiro da 3.mp4" \
-          "src/vision/__tests__/media/Tirp a centrocampo.mp4" \
+          "src/vision/__tests__/media/Tiro a centrocampo.mp4" \
   --every-n-frames 5 --warmup 5 --threads 2 \
   --output-dir benchmark-results/yolo-ab
 ```
@@ -309,7 +309,7 @@ python scripts/render_yolo_benchmark.py \\
        benchmark-results/yolo-ab-app-compatible/best_640_float16_detections.csv \\
   --videos "src/vision/__tests__/media/Tiro Libero.mp4" \\
            "src/vision/__tests__/media/Tiro da 3.mp4" \\
-           "src/vision/__tests__/media/Tirp a centrocampo.mp4" \\
+           "src/vision/__tests__/media/Tiro a centrocampo.mp4" \\
   --output-dir benchmark-results/yolo-ab-app-compatible/visualizations
 ```
 

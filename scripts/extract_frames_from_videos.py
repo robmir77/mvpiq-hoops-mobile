@@ -8,7 +8,7 @@ Usage:
     python scripts/extract_frames_from_videos.py \
       --videos "src/vision/__tests__/media/Tiro Libero.mp4" \
               "src/vision/__tests__/media/Tiro da 3.mp4" \
-              "src/vision/__tests__/media/Tirp a centrocampo.mp4" \
+              "src/vision/__tests__/media/Tiro a centrocampo.mp4" \
       --every-n-frames 5 \
       --output-dir assets/benchmark-images
 """

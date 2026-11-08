@@ -10,7 +10,7 @@ To extract frames from the benchmark videos:
 python scripts/extract_frames_from_videos.py \
   --videos "src/vision/__tests__/media/Tiro Libero.mp4" \
           "src/vision/__tests__/media/Tiro da 3.mp4" \
-          "src/vision/__tests__/media/Tirp a centrocampo.mp4" \
+          "src/vision/__tests__/media/Tiro a centrocampo.mp4" \
   --every-n-frames 5 \
   --output-dir assets/benchmark-images
 ```
@@ -27,7 +27,7 @@ assets/benchmark-images/
 │   ├── frame_000005.jpg
 │   └── ...
 ├── Tiro da 3/            # Frames from second video
-└── Tirp a centrocampo/  # Frames from third video
+└── Tiro a centrocampo/  # Frames from third video
 ```
 
 ## Purpose

@@ -6,13 +6,14 @@
 import type {
   DetectionCallback,
   PoseCallback,
-  ShotEventCallback,
   RimDetectionCallback,
+  ShotEventCallback,
   VisionPipelineConfig,
   VisionSharedValues,
   WorkoutVisionPipeline as IWorkoutVisionPipeline,
 } from './WorkoutVisionPipeline.types'
-import type { BallDetection, PoseResult, ShotEvent } from '@/vision'
+import type { BallDetection, PoseResult } from '@/vision'
+import type { ShotEvent } from '../types/workouts.types'
 
 export class WorkoutVisionPipeline implements IWorkoutVisionPipeline {
   private config: VisionPipelineConfig

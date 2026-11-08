@@ -9,7 +9,7 @@ Example:
       --models assets/models/best_384_float16.tflite assets/models/best_640_float16.tflite \
       --videos "src/vision/__tests__/media/Tiro Libero.mp4" \
               "src/vision/__tests__/media/Tiro da 3.mp4" \
-              "src/vision/__tests__/media/Tirp a centrocampo.mp4" \
+              "src/vision/__tests__/media/Tiro a centrocampo.mp4" \
       --every-n-frames 5 --warmup 5 --output-dir benchmark-results/yolo-ab
 
 Important:

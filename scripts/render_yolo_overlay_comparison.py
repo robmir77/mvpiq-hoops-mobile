@@ -12,7 +12,7 @@ Example:
     python scripts/render_yolo_overlay_comparison.py \
       --videos "src/vision/__tests__/media/Tiro Libero.mp4" \
                "src/vision/__tests__/media/Tiro da 3.mp4" \
-               "src/vision/__tests__/media/Tirp a centrocampo.mp4" \
+               "src/vision/__tests__/media/Tiro a centrocampo.mp4" \
       --csv-384 benchmark-results/yolo-ab/best_384_float16_detections.csv \
       --csv-640 benchmark-results/yolo-ab/best_640_float16_detections.csv \
       --output-dir benchmark-results/yolo-ab/overlay-comparison

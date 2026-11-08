@@ -276,7 +276,7 @@
       ]
     },
     {
-      "video_path": "src\\vision\\__tests__\\media\\Tirp a centrocampo.mp4",
+      "video_path": "src\\vision\\__tests__\\media\\Tiro a centrocampo.mp4",
       "video_sha256": "bf21bea92949a7c52db53ab51ebc2a8d306d23b2d73a5bf7ca49a45d41183c74",
       "video_width": 1024,
       "video_height": 576,
@@ -284,7 +284,7 @@
       "total_frames": 164,
       "extracted_frames": 33,
       "every_n_frames": 5,
-      "output_dir": "assets\\benchmark-images\\Tirp a centrocampo",
+      "output_dir": "assets\\benchmark-images\\Tiro a centrocampo",
       "frames": [
         {
           "frame_index": 0,
