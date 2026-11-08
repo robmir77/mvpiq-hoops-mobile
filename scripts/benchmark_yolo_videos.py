@@ -458,8 +458,8 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=5, help="Inferenze iniziali da scartare per ogni modello")
     parser.add_argument("--threads", type=int, default=2, help="Thread CPU TFLite (default: 2)")
     parser.add_argument(
-        "--input-scale", type=float, default=1.0 / 255.0,
-        help="Moltiplicatore dei pixel RGB (default 1/255 per normalizzazione 0-1)"
+        "--input-scale", type=float, default=1.0,
+        help="Moltiplicatore dei pixel RGB (default 1.0: input modello 0..255)"
     )
     parser.add_argument(
         "--pad-value", type=float, default=0.0,
