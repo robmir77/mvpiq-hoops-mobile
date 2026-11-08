@@ -11,15 +11,6 @@ const STRIDES = [8, 16, 32]
 // Shape/size priors (normalized to camera frame). Defaults mirror YOLO_CONFIG
 // and only apply if a key is missing (e.g. partially mocked config in tests).
 const GEO = {
-  playerMinW: (YOLO_CONFIG as any).PLAYER_MIN_WIDTH ?? 0.05,
-  playerMinH: (YOLO_CONFIG as any).PLAYER_MIN_HEIGHT ?? 0.1,
-  playerMaxW: (YOLO_CONFIG as any).PLAYER_MAX_WIDTH ?? 0.6,
-  playerMinAspect: (YOLO_CONFIG as any).PLAYER_MIN_ASPECT ?? 0.8,
-  playerMaxAspect: (YOLO_CONFIG as any).PLAYER_MAX_ASPECT ?? 6.0,
-  ballMinSize: (YOLO_CONFIG as any).BALL_MIN_SIZE ?? 0.008,
-  ballMaxSide: (YOLO_CONFIG as any).BALL_MAX_SIDE ?? 0.15,
-  ballMinAspect: (YOLO_CONFIG as any).BALL_MIN_ASPECT ?? 0.6,
-  ballMaxAspect: (YOLO_CONFIG as any).BALL_MAX_ASPECT ?? 1.7,
   rimMinW: (YOLO_CONFIG as any).RIM_MIN_WIDTH ?? 0.015,
   rimMaxW: (YOLO_CONFIG as any).RIM_MAX_WIDTH ?? 0.25,
   rimMinAspect: (YOLO_CONFIG as any).RIM_MIN_ASPECT ?? 0.8,
@@ -253,13 +244,6 @@ export class YoloDetector {
     }
   }
 
-  // Player: standing person, taller than wide, not frame-sized
-  private isValidPlayerGeometry(width: number, height: number, frameAspect: number = 1): boolean {
-    if (width < GEO.playerMinW || height < GEO.playerMinH || width > GEO.playerMaxW) return false
-    const aspect = height / (width * frameAspect)
-    return aspect >= GEO.playerMinAspect && aspect <= GEO.playerMaxAspect
-  }
-
   // Rim: small, wider than tall (seen from the side/front)
   private isValidRimGeometry(width: number, height: number, frameAspect: number = 1): boolean {
     if (width < GEO.rimMinW || width > GEO.rimMaxW) return false
@@ -484,7 +468,7 @@ export class YoloDetector {
         )
 
         if (!geometryCheck.valid) {
-          if (geometryCheck.aspectRatio < GEO.ballMinAspect || geometryCheck.aspectRatio > GEO.ballMaxAspect) {
+          if (geometryCheck.aspectRatio < 0.25 || geometryCheck.aspectRatio > 4.0) {
             ballRejectedAspectRatio++
           } else {
             ballRejectedSize++
