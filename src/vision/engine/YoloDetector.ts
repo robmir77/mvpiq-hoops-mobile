@@ -56,7 +56,8 @@ export class YoloDetector {
   private ballConfThreshold: number
   private rimConfThreshold: number
   private playerConfThreshold: number
-  private rimDetectionEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED
+  // Python benchmark parity: rim decoding is disabled by default.
+  private rimDetectionEnabled: boolean = false
 
   // Persistent rim detection state (for confidence-based replacement)
   private persistentRim: { x: number; y: number; width: number; height: number; confidence: number } | null = null
@@ -97,7 +98,8 @@ export class YoloDetector {
     // Adaptive configuration
     this.adaptiveEnabled = YOLO_CONFIG.ADAPTIVE_CONF.ENABLED
     this.windowSize = YOLO_CONFIG.ADAPTIVE_CONF.WINDOW_SIZE
-    this.minThreshold = YOLO_CONFIG.ADAPTIVE_CONF.MIN_THRESHOLD
+    // Match AppCompatibleDecoder in scripts/benchmark_yolo_videos.py.
+    this.minThreshold = 0.0005
     this.maxThreshold = YOLO_CONFIG.ADAPTIVE_CONF.MAX_THRESHOLD
     this.adjustmentFactor = YOLO_CONFIG.ADAPTIVE_CONF.ADJUSTMENT_FACTOR
     this.highConfThreshold = YOLO_CONFIG.ADAPTIVE_CONF.HIGH_CONF_THRESHOLD
@@ -217,59 +219,38 @@ export class YoloDetector {
     }
   }
 
-  // Adaptive confidence threshold based on detected ball size
+  // Exact port of Python _size_threshold().
   private getAdaptiveThreshold(
-    ballWidth: number,
-    ballHeight: number,
+    boxWidth: number,
+    boxHeight: number,
     baseThreshold: number,
+    minSize: number,
+    maxSize: number,
     resolutionScale: number = 1.0
   ): number {
-    const avgSize = (ballWidth + ballHeight) / 2
+    const avgSize = (boxWidth + boxHeight) / 2
+    const scaledMaxSize = maxSize * resolutionScale
+    const scaledMinSize = minSize * resolutionScale
 
-    // Sizes are aligned with the ball shape prior: balls at or above half of the
-    // max plausible side use the full base threshold; tiny/distant balls are
-    // allowed to relax down to the configured floor.
-    const MAX_SIZE = (GEO.ballMaxSide * 0.5) * resolutionScale
-    if (avgSize >= MAX_SIZE) {
-      return baseThreshold
-    }
-    const MIN_SIZE = GEO.ballMinSize * resolutionScale
-    // Floor comes from config: small objects may be accepted at a lower
-    // confidence, but never down into the noise range (was hard-coded 0.01).
-    const MIN_THRESHOLD = Math.min(this.minThreshold, baseThreshold)
+    if (avgSize >= scaledMaxSize) return baseThreshold
 
-    // Normalize size to 0..1
-    let t = (avgSize - MIN_SIZE) / (MAX_SIZE - MIN_SIZE)
-
-    // Clamp
+    let t = (avgSize - scaledMinSize) / (scaledMaxSize - scaledMinSize)
     if (t < 0) t = 0
     else if (t > 1) t = 1
 
-    // Smooth interpolation
     const smoothT = t * t * (3 - 2 * t)
-
-    return MIN_THRESHOLD + (baseThreshold - MIN_THRESHOLD) * smoothT
+    return 0.01 + (baseThreshold - 0.01) * smoothT
   }
 
-  // Validate ball geometry: roughly square and within the plausible size range.
-  private isValidBallGeometry(width: number, height: number, frameAspect: number = 1): { valid: boolean; aspectRatio: number } {
-    if (width <= 0 || height <= 0) {
-      return { valid: false, aspectRatio: 0 }
-    }
+  // Match Python _valid_ball_geometry(): aspect ratio only, without size priors.
+  private isValidBallGeometry(width: number, height: number): { valid: boolean; aspectRatio: number } {
+    if (width <= 0 || height <= 0) return { valid: false, aspectRatio: 0 }
 
-    // Boxes are normalized per-axis, so on a 16:9 frame a square object has
-    // w/h = 9/16. Aspect ratios must be evaluated in pixel space.
-    const aspectRatio = (width / height) * frameAspect
-    const avgSize = (width + height) / 2
-
-    if (aspectRatio > GEO.ballMaxAspect || aspectRatio < GEO.ballMinAspect) {
-      return { valid: false, aspectRatio }
+    const aspectRatio = width / height
+    return {
+      valid: aspectRatio >= 0.25 && aspectRatio <= 4.0,
+      aspectRatio,
     }
-    if (avgSize < GEO.ballMinSize || avgSize > GEO.ballMaxSide) {
-      return { valid: false, aspectRatio }
-    }
-
-    return { valid: true, aspectRatio }
   }
 
   // Player: standing person, taller than wide, not frame-sized
@@ -497,8 +478,10 @@ export class YoloDetector {
           continue
         }
 
-        const geometryCheck = this.isValidBallGeometry(cameraW, cameraH, frameAspect)
-        const ballAdaptiveThreshold = this.getAdaptiveThreshold(cameraW, cameraH, this.adaptiveBallThreshold, resolutionScale)
+        const geometryCheck = this.isValidBallGeometry(cameraW, cameraH)
+        const ballAdaptiveThreshold = this.getAdaptiveThreshold(
+          cameraW, cameraH, this.adaptiveBallThreshold, 0.10, 0.40, resolutionScale
+        )
 
         if (!geometryCheck.valid) {
           if (geometryCheck.aspectRatio < GEO.ballMinAspect || geometryCheck.aspectRatio > GEO.ballMaxAspect) {
@@ -561,7 +544,7 @@ export class YoloDetector {
 
         if (humanProb >= this.adaptivePlayerThreshold) {
           confidencePassed++
-          if (!this.isValidPlayerGeometry(cameraW, cameraH, frameAspect)) continue
+          // Python decoder applies no additional player geometry filter.
           sizePassed++
           const detection = {
             x: cameraCx,
@@ -581,9 +564,23 @@ export class YoloDetector {
         }
       }
 
-      const avgSize = bestBall ? (bestBall.width + bestBall.height) / 2 : 0
+      // Python applies this second ball threshold only after choosing the best
+      // candidate. If it fails, do not fall back to the runner-up.
+      let finalBall = bestBall
+      if (bestBall) {
+        const postSelectionThreshold = this.getAdaptiveThreshold(
+          bestBall.width, bestBall.height, 0.005, 0.01, 0.30, 1.0
+        )
+        if (bestBall.confidence < postSelectionThreshold) {
+          finalBall = null
+        }
+      }
+
+      const avgSize = finalBall ? (finalBall.width + finalBall.height) / 2 : 0
       const ballSizeCategory = this.getBallSizeCategory(avgSize)
-      const adaptiveThreshold = bestBall ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, this.adaptiveBallThreshold, resolutionScale) : undefined
+      const adaptiveThreshold = bestBall
+        ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, this.adaptiveBallThreshold, 0.10, 0.40, resolutionScale)
+        : undefined
 
       const playerDebug: YoloPlayerDebug = {
         rawCandidates,
@@ -652,7 +649,7 @@ export class YoloDetector {
       }
 
       return {
-        ball: bestBall,
+        ball: finalBall,
         player: bestPlayer,
         rim: bestRim,
         ballSizeCategory,
