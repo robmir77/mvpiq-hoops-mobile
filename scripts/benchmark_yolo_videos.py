@@ -459,7 +459,7 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=2, help="Thread CPU TFLite (default: 2)")
     parser.add_argument(
         "--input-scale", type=float, default=1.0,
-        help="Moltiplicatore dei pixel RGB (default 1.0: input modello 0..255)"
+        help="Moltiplicatore dei pixel RGB (default 1.0: riproduce il riferimento Python 0..255)"
     )
     parser.add_argument(
         "--pad-value", type=float, default=0.0,
