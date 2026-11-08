@@ -157,11 +157,10 @@ export const useYoloWorker = (
         console.error('[YoloWorker] No valid YOLO model source available')
         return undefined as any
       }
-      return selectedYoloModel.fileUri
-        ? { url: selectedYoloModel.fileUri } as any
-        : selectedYoloModel.asset as any
+      // react-native-fast-tflite requires the asset require(), not a file URI
+      return selectedYoloModel.asset as any
     },
-    [selectedYoloModel?.fileUri, selectedYoloModel?.asset]
+    [selectedYoloModel?.asset]
   )
 
   const yoloModel = useTensorflowModel(yoloModelSource, yoloDelegates as any)

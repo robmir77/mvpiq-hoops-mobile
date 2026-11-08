@@ -174,10 +174,11 @@ export const useMoveNetWorker = (
 
   const moveNetUri = getMoveNetModelUri(moveNetModelId)
   const poseModelSource = useMemo(
-    () => moveNetUri
-      ? { url: moveNetUri } as any
-      : selectedMoveNetModel?.asset as any,
-    [moveNetUri, selectedMoveNetModel?.asset]
+    () => {
+      // react-native-fast-tflite requires the asset require(), not a file URI
+      return selectedMoveNetModel?.asset as any
+    },
+    [selectedMoveNetModel?.asset]
   )
 
   const poseDelegates = useMemo(
