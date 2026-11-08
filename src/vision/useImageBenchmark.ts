@@ -12,6 +12,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { decode } from 'jpeg-js'
 import { Platform } from 'react-native'
 import { BENCHMARK_IMAGE_ASSETS } from './benchmarkImageAssets'
+import { letterboxRgbToYoloInput } from './engine/yoloPreprocessing'
 
 // Polyfill Buffer for jpeg-js in React Native
 if (typeof (global as any).Buffer === 'undefined') {
@@ -74,9 +75,9 @@ export const useImageBenchmark = (yoloModelId?: string) => {
     for (let i = 0; i < width * height; i++) {
       const pixelIndex = i * 4
       const rgbIndex = i * 3
-      rgbBuffer[rgbIndex] = data[pixelIndex] / 255.0     // R
-      rgbBuffer[rgbIndex + 1] = data[pixelIndex + 1] / 255.0 // G
-      rgbBuffer[rgbIndex + 2] = data[pixelIndex + 2] / 255.0 // B
+      rgbBuffer[rgbIndex] = data[pixelIndex]         // R: preserve model input range 0..255
+      rgbBuffer[rgbIndex + 1] = data[pixelIndex + 1] // G
+      rgbBuffer[rgbIndex + 2] = data[pixelIndex + 2] // B
     }
 
     return { buffer: rgbBuffer.buffer, width, height }
@@ -92,34 +93,12 @@ export const useImageBenchmark = (yoloModelId?: string) => {
     // Load image
     const { buffer, width, height } = await loadImageAsBuffer(imageUri)
 
-    // Preprocess: resize and letterbox to model input size
-    // This is a simplified version - in production use react-native-vision-camera-resizer
+    // Match the Python benchmark: RGB float32 values in the model's 0..255 range,
+    // bilinear resize, centered contain/letterbox padding.
     const tensorSize = model?.inputSize || 640
-    const scale = Math.min(tensorSize / width, tensorSize / height)
-    const resizedWidth = Math.round(width * scale)
-    const resizedHeight = Math.round(height * scale)
-
-    // Simple resize (nearest neighbor for speed - not ideal for accuracy but OK for benchmark)
-    const inputBuffer = new Float32Array(tensorSize * tensorSize * 3)
-    const offsetX = Math.floor((tensorSize - resizedWidth) / 2)
-    const offsetY = Math.floor((tensorSize - resizedHeight) / 2)
-
-    // Fill with padding value (0)
-    inputBuffer.fill(0)
-
-    // Copy resized image to center
-    const srcData = new Float32Array(buffer)
-    for (let y = 0; y < resizedHeight; y++) {
-      for (let x = 0; x < resizedWidth; x++) {
-        const srcX = Math.floor(x / scale)
-        const srcY = Math.floor(y / scale)
-        const srcIdx = (srcY * width + srcX) * 3
-        const dstIdx = ((y + offsetY) * tensorSize + (x + offsetX)) * 3
-        inputBuffer[dstIdx] = srcData[srcIdx]
-        inputBuffer[dstIdx + 1] = srcData[srcIdx + 1]
-        inputBuffer[dstIdx + 2] = srcData[srcIdx + 2]
-      }
-    }
+    const inputBuffer = letterboxRgbToYoloInput(
+      new Float32Array(buffer), width, height, tensorSize
+    )
 
     // Run inference
     const inferenceStart = performance.now()
