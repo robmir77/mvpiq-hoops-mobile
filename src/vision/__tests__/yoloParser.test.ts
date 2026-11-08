@@ -40,7 +40,7 @@ jest.mock('@/config/appConfig', () => ({
 }))
 
 describe('YoloDetector', () => {
-  const N_ANCHORS = 3549
+  const N_ANCHORS = 5376
   const OUTPUT_CHANNELS = 7 // 4 box values + 3 class scores (ball, human, rim)
 
   describe('pixel-coordinate exports', () => {
@@ -280,7 +280,7 @@ describe('YoloDetector', () => {
   })
 
   describe('false-positive rejection', () => {
-    const N = 3549 // unknown anchor count -> 512 tensor, 16:9 frame
+    const N = 5376 // 512x512 YOLO grid: 64² + 32² + 16² anchors
     const put = (
       out: Float32Array,
       i: number,
