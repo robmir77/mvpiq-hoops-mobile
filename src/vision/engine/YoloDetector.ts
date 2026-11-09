@@ -488,6 +488,17 @@ export class YoloDetector {
             }
             if (!bestBall || detection.confidence > bestBall.confidence) {
               bestBall = detection
+              // DEBUG: Log anchor index when best ball is updated
+              if (__DEV__ && i % 100 === 0) {
+                console.log('[YoloDetector] Best ball updated', {
+                  anchorIndex: i,
+                  x: detection.x,
+                  y: detection.y,
+                  width: detection.width,
+                  height: detection.height,
+                  confidence: detection.confidence
+                })
+              }
             }
           }
         } else {
@@ -630,6 +641,17 @@ export class YoloDetector {
       // Update persistent rim if we found a better one
       if (bestRim) {
         this.persistentRim = bestRim
+      }
+
+      // DEBUG: Log final ball coordinates
+      if (__DEV__ && this.inferenceCounter % 100 === 0) {
+        console.log('[YoloDetector] Final ball coordinates', {
+          inferenceCounter: this.inferenceCounter,
+          finalBall: finalBall,
+          bestBall: bestBall,
+          postSelectionThreshold: bestBall ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, 0.005, 0.01, 0.30, 1.0) : null,
+          note: 'Compare with Best ball updated log to see if post-selection threshold changed the anchor'
+        })
       }
 
       return {

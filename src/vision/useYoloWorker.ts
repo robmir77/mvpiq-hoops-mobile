@@ -227,9 +227,10 @@ export const useYoloWorker = (
     frameHeight: number,
     timestamp: number,
     tA: number,  // A: worklet start time
-    tB: number,  // B: worklet end time (before scheduleOnRN)
+    tB: number,  // B: worklet end time
     resizeMs: number,
-    resized: any
+    resized: any,
+    frameCounter?: number
   ) => {
     try {
       console.log('[YOLO DEBUG] runYoloInference entered', {
@@ -327,6 +328,17 @@ export const useYoloWorker = (
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart
 
+      // DEBUG: Log confidence scores before SharedValue assignment
+      if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+        console.log('[YoloWorker] Confidence before SharedValue assignment', {
+          frameCounter,
+          ballConfidence: ball?.confidence,
+          playerConfidence: player?.confidence,
+          rimConfidence: rim?.confidence,
+          note: 'Check if values are rounded before assignment'
+        })
+      }
+
       const tF = performance.now() // F: callback end
       const postprocessMs = tF - tE // E→F: postprocess/callback time
 
@@ -350,6 +362,17 @@ export const useYoloWorker = (
       latestResultRim.value = rim
       latestResultDebug.value = debug
       latestResultTimestamp.value = timestamp
+
+      // DEBUG: Log confidence scores after SharedValue assignment
+      if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+        console.log('[YoloWorker] Confidence after SharedValue assignment', {
+          frameCounter,
+          ballConfidence: latestResultBall.value?.confidence,
+          playerConfidence: latestResultPlayer.value?.confidence,
+          rimConfidence: latestResultRim.value?.confidence,
+          note: 'Check if values are rounded after assignment'
+        })
+      }
 
       const inferenceTime = tF - tA // Total time from worklet start to callback end
       lastInferenceMs.value = inferenceTime
@@ -447,7 +470,7 @@ export const useYoloWorker = (
           const inputBuffer = modelInput.buffer as ArrayBuffer
 
           // ASYNC: Pass buffer to JS thread for inference
-          scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, tA, tB, resizeMs, resized)
+          scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, tA, tB, resizeMs, resized, frameCounter)
         }
       }
 

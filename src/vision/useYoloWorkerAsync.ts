@@ -340,6 +340,17 @@ export const useYoloWorkerAsync = (
         const tParseEnd = performance.now()
         const parseMs = tParseEnd - tParseStart
 
+        // DEBUG: Log confidence scores before SharedValue assignment
+        if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+          console.log('[YoloWorkerAsync] Confidence before SharedValue assignment', {
+            frameCounter,
+            ballConfidence: ball?.confidence,
+            playerConfidence: player?.confidence,
+            rimConfidence: rim?.confidence,
+            note: 'Check if values are rounded before assignment'
+          })
+        }
+
         const tF = performance.now() // F: callback end
         const postprocessMs = tF - tE // E→F: postprocess/callback time
 
@@ -408,6 +419,17 @@ export const useYoloWorkerAsync = (
         latestResultRim.value = rim
         latestResultDebug.value = debug
         latestResultTimestamp.value = timestamp
+
+        // DEBUG: Log confidence scores after SharedValue assignment
+        if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+          console.log('[YoloWorkerAsync] Confidence after SharedValue assignment', {
+            frameCounter,
+            ballConfidence: latestResultBall.value?.confidence,
+            playerConfidence: latestResultPlayer.value?.confidence,
+            rimConfidence: latestResultRim.value?.confidence,
+            note: 'Check if values are rounded after assignment'
+          })
+        }
 
         const inferenceTime = tF - tA // Total time from worklet start to callback end
         lastInferenceMs.value = inferenceTime

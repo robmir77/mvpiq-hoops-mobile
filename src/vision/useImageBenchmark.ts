@@ -9,12 +9,12 @@ import { YOLO_CONFIG } from '@/config/appConfig'
 import { getYoloModel } from './yoloModels'
 import { Asset } from 'expo-asset'
 import * as FileSystem from 'expo-file-system/legacy'
-import { decode } from 'jpeg-js'
+import { loadImage } from 'react-native-nitro-image'
 import { Platform } from 'react-native'
 import { BENCHMARK_IMAGE_ASSETS } from './benchmarkImageAssets'
 import { letterboxRgbToYoloInput } from './engine/yoloPreprocessing'
 
-// Polyfill Buffer for jpeg-js in React Native
+// Polyfill Buffer for debug export
 if (typeof (global as any).Buffer === 'undefined') {
   (global as any).Buffer = require('buffer').Buffer
 }
@@ -59,8 +59,8 @@ const saveDebugTensor = async (
     data.byteLength
   )
 
+  // Save as raw binary using base64 encoding option
   const base64 = (global as any).Buffer.from(bytes).toString('base64')
-
   await FileSystem.writeAsStringAsync(
     directory + filename,
     base64,
@@ -106,29 +106,75 @@ export const useImageBenchmark = (yoloModelId?: string) => {
   const tflite = useTensorflowModel(modelSource, [])
 
   const loadImageAsBuffer = useCallback(async (assetUri: string): Promise<{ buffer: ArrayBuffer; width: number; height: number }> => {
-    // Load image from file system (already cached)
-    const base64 = await FileSystem.readAsStringAsync(assetUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    })
-
-    // Decode JPEG using jpeg-js with Buffer polyfill
-    const binaryString = atob(base64)
-    const uint8Array = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-      uint8Array[i] = binaryString.charCodeAt(i)
+    // Decode JPEG using Android's native Bitmap decoder via react-native-nitro-image
+    // This should match OpenCV's behavior more closely than jpeg-js
+    const image = await loadImage({ filePath: assetUri })
+    const pixelData = await image.toRawPixelData()
+    
+    const { width, height, buffer, pixelFormat } = pixelData
+    
+    // Convert from BGRA/ARGB to RGB based on pixel format
+    // On Android (little-endian), ARGB_8888 becomes BGRA in byte order
+    const pixelBytes = new Uint8Array(buffer)
+    const rgbBuffer = new Float32Array(width * height * 3)
+    
+    if (pixelFormat === 'BGRA') {
+      // BGRA -> RGB
+      for (let i = 0; i < width * height; i++) {
+        const src = i * 4
+        const dst = i * 3
+        rgbBuffer[dst] = pixelBytes[src + 2]     // R
+        rgbBuffer[dst + 1] = pixelBytes[src + 1] // G
+        rgbBuffer[dst + 2] = pixelBytes[src]     // B
+      }
+    } else if (pixelFormat === 'RGBA') {
+      // RGBA -> RGB
+      for (let i = 0; i < width * height; i++) {
+        const src = i * 4
+        const dst = i * 3
+        rgbBuffer[dst] = pixelBytes[src]         // R
+        rgbBuffer[dst + 1] = pixelBytes[src + 1] // G
+        rgbBuffer[dst + 2] = pixelBytes[src + 2] // B
+      }
+    } else {
+      throw new Error(`Unsupported pixel format: ${pixelFormat}`)
     }
 
-    const jpegData = decode(uint8Array)
-    const { width, height, data } = jpegData
+    // TEMPORARY DEBUG: dump decoded JPEG RGB before letterbox
+    if (assetUri.includes('frame_000085.jpg')) {
+      const rgbBytes = new Uint8Array(width * height * 3)
+      
+      // Convert from the already-processed rgbBuffer
+      for (let i = 0; i < width * height; i++) {
+        const dst = i * 3
+        rgbBytes[dst] = rgbBuffer[dst]
+        rgbBytes[dst + 1] = rgbBuffer[dst + 1]
+        rgbBytes[dst + 2] = rgbBuffer[dst + 2]
+      }
 
-    // Convert RGBA to RGB and normalize to 0-1
-    const rgbBuffer = new Float32Array(width * height * 3)
-    for (let i = 0; i < width * height; i++) {
-      const pixelIndex = i * 4
-      const rgbIndex = i * 3
-      rgbBuffer[rgbIndex] = data[pixelIndex]         // R: preserve model input range 0..255
-      rgbBuffer[rgbIndex + 1] = data[pixelIndex + 1] // G
-      rgbBuffer[rgbIndex + 2] = data[pixelIndex + 2] // B
+      const directory = `${FileSystem.documentDirectory}yolo-debug/`
+      const info = await FileSystem.getInfoAsync(directory)
+
+      if (!info.exists) {
+        await FileSystem.makeDirectoryAsync(directory, {
+          intermediates: true,
+        })
+      }
+
+      const base64 = (global as any).Buffer.from(rgbBytes).toString('base64')
+
+      await FileSystem.writeAsStringAsync(
+        `${directory}frame_000085_android_rgb.rgb`,
+        base64,
+        { encoding: FileSystem.EncodingType.Base64 }
+      )
+
+      console.log('[YOLO DEBUG] JPEG decoded RGB saved (native Bitmap decoder)', {
+        width,
+        height,
+        pixelFormat,
+        elements: rgbBytes.length,
+      })
     }
 
     return { buffer: rgbBuffer.buffer, width, height }
@@ -195,6 +241,12 @@ export const useImageBenchmark = (yoloModelId?: string) => {
     const detector = yoloDetectorRef.current
     const rawOutput = outputs[0] as ArrayBufferLike
 
+    const parsed = detector.parseOutput(
+      new Float32Array(rawOutput),
+      width,
+      height
+    )
+
     // Temporary diagnostic: capture output tensor for frame_000085.jpg
     if (isTargetFrame) {
       const outputFloat32 = new Float32Array(rawOutput)
@@ -216,6 +268,11 @@ export const useImageBenchmark = (yoloModelId?: string) => {
         outputFile,
         outputShapeExpected: [1, 7, outputFloat32.length / 7],
         outputDtype: 'float32',
+        detections: {
+          ball: parsed.ball,
+          player: parsed.player,
+          rim: parsed.rim,
+        },
       }
 
       await FileSystem.writeAsStringAsync(
@@ -225,12 +282,6 @@ export const useImageBenchmark = (yoloModelId?: string) => {
 
       console.log('[YOLO DEBUG] Android output', metadata)
     }
-
-    const parsed = detector.parseOutput(
-      new Float32Array(rawOutput),
-      width,
-      height
-    )
 
     return {
       frameIndex,
