@@ -39,9 +39,6 @@ export class WorkoutSessionRuntime implements IWorkoutSessionRuntime {
     totalShots: 0,
     madeShots: 0,
     sessionDuration: 0,
-    yoloFps: 0,
-    moveNetFps: 0,
-    cameraFps: 0,
   }
   private sessionStartTime: number | null = null
   private lastProcessDiagnosticAt = 0

@@ -5,6 +5,7 @@ import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CourtType } from '../types/workouts.types'
 import { useCustomAlert, CustomAlert } from '@/shared/components/CustomAlert'
 import { CAMERA_CONFIG } from '@/config/appConfig'
+import { DEFAULT_YOLO_MODEL_ID } from '@/vision/yoloModels'
 
 export default function WorkoutSetupScreen({ navigation }: any) {
     const auth = useContext(AuthContext)
@@ -20,12 +21,12 @@ export default function WorkoutSetupScreen({ navigation }: any) {
         const calibrationParams = {
             cameraMode,
             courtType,
-            selectedResolution: { width: 640, height: 360 }, // Force 360p for better FPS (faster inference)
+            selectedResolution: null, // Use max resolution from device (sorted descending in CalibrationScreen)
             selectedFps: 30, // Force 30 FPS for workout (better tracking)
             selectedPoseResolution: 192, // Default pose resolution
             yoloDelegate: null, // Will use default
             poseDelegate: null, // Will use default
-            yoloModelId: 'best_384_float16', // Use 384 YOLO model
+            yoloModelId: DEFAULT_YOLO_MODEL_ID, // Use default YOLO model (best_448_float16)
             moveNetModelId: null, // Will use default
         }
         console.log('[WorkoutSetup] Navigating to Calibration with params:', calibrationParams)

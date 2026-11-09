@@ -7,16 +7,17 @@ import type { IVisionEngine, VisionEngineResult, BallDetection, PlayerDetection,
 import { YoloDetector, type YoloResult } from './YoloDetector'
 import { MoveNetPoseEstimator, type PoseResult as MoveNetPoseResult } from './MoveNetPoseEstimator'
 import { BallDetectionProcessor } from './BallDetectionProcessor'
+import { VISION_CONFIG } from '@/config/appConfig'
 
 export class VisionEngine implements IVisionEngine {
   private yoloDetector: YoloDetector
   private moveNetEstimator: MoveNetPoseEstimator
   private ballProcessor: BallDetectionProcessor
 
-  private ballDetectionEnabled: boolean = true
-  private playerDetectionEnabled: boolean = true
-  private rimDetectionEnabled: boolean = true
-  private poseDetectionEnabled: boolean = true
+  private ballDetectionEnabled: boolean = VISION_CONFIG.BALL_DETECTION_ENABLED
+  private playerDetectionEnabled: boolean = VISION_CONFIG.PLAYER_DETECTION_ENABLED
+  private rimDetectionEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED
+  private poseDetectionEnabled: boolean = VISION_CONFIG.POSE_DETECTION_ENABLED
 
   private ready: boolean = false
 

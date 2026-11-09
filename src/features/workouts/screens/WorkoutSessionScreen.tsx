@@ -41,10 +41,10 @@ import { TelemetrySampler } from '../services/telemetrySampler'
 import apiClient from '@/shared/api/apiClient'
 import type { BallDetection, PoseResult, ShotEvent, JointAngles } from '@/vision'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, getYoloModel, TelemetryOverlay } from '@/vision'
-import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG, TEST_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, CAMERA_CONFIG, COURT_CONFIG, TEST_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 import RealtimeBallOverlay from '../components/RealtimeBallOverlay'
 import ReactOverlay from '../components/ReactOverlay'
-import { WorkoutControls } from '../components/WorkoutControls'
+import { WorkoutControls, type TorchMode } from '../components/WorkoutControls'
 import { WorkoutHeader } from '../components/WorkoutHeader'
 import { ShotFeedback } from '../components/ShotFeedback'
 // import { useScreenshotCapture } from '../hooks/useScreenshotCapture' // Screenshot capture disabled
@@ -97,15 +97,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
+    const [torchMode, setTorchMode] = useState<TorchMode>('auto')
+    const [cameraStarted, setCameraStarted] = useState(false)
+    const isPaused = session?.status === 'PAUSED'
 
-    // Stabilize effectiveResolution to prevent remount when calibration loads
-    const effectiveResolutionRef = useRef<{ width: number; height: number }>(
-        selectedResolution ?? (calibration?.cameraResolution ?? CAMERA_CONFIG.DEFAULT_RESOLUTION)
+    // Wait for session to load before starting camera (for resume scenarios)
+    const sessionLoaded = !sessionId || session !== null
+
+    // Effective resolution - use state to ensure consistency across all consumers
+    const [effectiveResolution, setEffectiveResolution] = useState<{ width: number; height: number }>(
+        selectedResolution ?? CAMERA_CONFIG.DEFAULT_RESOLUTION
     )
-    const effectiveResolution = effectiveResolutionRef.current
-    const [effectiveFps, setEffectiveFps] = useState(selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS)
+    const [effectiveFps, setEffectiveFps] = useState<number>(selectedFps ?? CAMERA_CONFIG.DEFAULT_FPS)
     const effectivePoseResolution = (selectedPoseResolution ?? CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION) as number
-    const [effectiveYoloModelId, setEffectiveYoloModelId] = useState(yoloModelId ?? DEFAULT_YOLO_MODEL_ID)
+    const [effectiveYoloModelId, setEffectiveYoloModelId] = useState<string>(yoloModelId ?? DEFAULT_YOLO_MODEL_ID)
 
     // Log received yoloModelId for debugging
     useEffect(() => {
@@ -124,8 +129,8 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         console.log('[WorkoutSession] Camera constraints:', constraints)
     }, [constraints])
 
-    const [isEnding, setIsEnding] = useState(false)
-    const [isRecording, setIsRecording] = useState(false)
+    const [isEnding, setIsEnding] = useState<boolean>(false)
+    const [isRecording, setIsRecording] = useState<boolean>(false)
     const isRecordingRef = useRef(false)
     const cameraViewRef = useRef<View>(null)
 
@@ -140,22 +145,28 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
 
     // Screenshot capture hook (disabled)
     // const { captureShotScreenshot, saveScreenshotWithResult } = useScreenshotCapture(cameraViewRef)
-    const [shotCount, setShotCount]         = useState({ total: 0, made: 0 })
+    const [shotCount, setShotCount]         = useState<{ total: number; made: number }>({ total: 0, made: 0 })
     const [trackingState, setTrackingState] = useState<TrackingState | null>(null)
     const [poseKeypoints, setPoseKeypoints] = useState<PoseKeypoints | null>(null)
     const [jointAngles, setJointAngles]     = useState<Partial<JointAngles>>({})
     const [lastShotResult, setLastShotResult] = useState<ShotResult | null>(null)
-    const [modelsReady, setModelsReady]     = useState(false)
+    const [modelsReady, setModelsReady]     = useState<boolean>(false)
     const [rimFromDetection, setRimFromDetection] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
-    const [poseEnabled, setPoseEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_MOVENET)
-    const [ballEnabled, setBallEnabled] = useState<boolean>(TEST_CONFIG.ENABLE_YOLO)
-    const [rimDetectionEnabled, setRimDetectionEnabled] = useState(true)
-    const [fpsMetrics, setFpsMetrics] = useState({ yoloFps: 0, moveNetFps: 0 })
-    const [cameraFps, setCameraFps] = useState(0)
+    const [poseEnabled, setPoseEnabled] = useState<boolean>(VISION_CONFIG.POSE_DETECTION_ENABLED)
+    const [ballEnabled, setBallEnabled] = useState<boolean>(VISION_CONFIG.BALL_DETECTION_ENABLED)
+    const [rimDetectionEnabled, setRimDetectionEnabled] = useState<boolean>(VISION_CONFIG.RIM_DETECTION_ENABLED)
+    const [fpsMetrics, setFpsMetrics] = useState<{ yoloFps: number; moveNetFps: number }>({ yoloFps: 0, moveNetFps: 0 })
+    const [cameraFps, setCameraFps] = useState<number>(0)
     const [showTelemetry, setShowTelemetry] = useState<boolean>(TEST_CONFIG.ENABLE_TELEMETRY_OVERLAY)
     const [debugMode, setDebugMode] = useState<boolean>(TEST_CONFIG.ENABLE_DEBUG_OVERLAY)
     const [diagnosticMode, setDiagnosticMode] = useState<boolean>(false)
-    const [diagnosticStats, setDiagnosticStats] = useState({
+    const [diagnosticStats, setDiagnosticStats] = useState<{
+      totalEvents: number
+      ballDetected: number
+      shotDetected: number
+      shotConfirmed: number
+      playerDetected: number
+    }>({
       totalEvents: 0,
       ballDetected: 0,
       shotDetected: 0,
@@ -177,15 +188,15 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         return () => clearInterval(interval)
     }, [diagnosticMode])
     
-    const [usageMinutes, setUsageMinutes] = useState(0)
-    const [usageSeconds, setUsageSeconds] = useState(0)
+    const [usageMinutes, setUsageMinutes] = useState<number>(0)
+    const [usageSeconds, setUsageSeconds] = useState<number>(0)
     const sessionStartTimeRef = useRef<number | null>(null)
     const sessionStartTimeGlobal = useRef<number | null>(null)
 
     // Zoom state for pinch-to-zoom
-    const [zoom, setZoom] = useState(1)
-    const [baseZoom, setBaseZoom] = useState(1)
-    const [isZooming, setIsZooming] = useState(false)
+    const [zoom, setZoom] = useState<number>(1)
+    const [baseZoom, setBaseZoom] = useState<number>(1)
+    const [isZooming, setIsZooming] = useState<boolean>(false)
 
     const onPinchGestureEvent = (event: any) => {
         if (event.nativeEvent.scale !== undefined) {
@@ -238,7 +249,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Initialize WorkoutSessionRuntime (Phase 4.4.2)
     const runtimeRef = useRef<WorkoutSessionRuntime | null>(null)
     const visionEngineAdapterRef = useRef<VisionEngineAdapter | null>(null)
-    const [trackingConnected, setTrackingConnected] = useState(false)
+    const [trackingConnected, setTrackingConnected] = useState<boolean>(false)
     const trackingConnectedRef = useRef(false) // Track if already connected to avoid repeated connections
     const visionEngineConnectedRef = useRef(false) // Track if VisionEngine is connected to Runtime
     const useRuntimeProcessingRef = useRef(false) // Phase 4: Toggle Runtime.processFrame() vs legacy tracking
@@ -266,7 +277,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         isProcessingFrameRef.current = true
         hasPendingUpdatesRef.current = false
 
-        const resolution = effectiveResolutionRef.current
+        const resolution = effectiveResolution
         const now = Date.now()
 
         void runtime.processFrame({
@@ -293,7 +304,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 setTimeout(() => scheduleRuntimeProcessFrame(), 0)
             }
         })
-    }, [])
+    }, [effectiveResolution])
     const selectedYoloModel = getYoloModel(effectiveYoloModelId)
     const yoloModelName = selectedYoloModel?.label || yoloModelId || 'YOLO'
 
@@ -312,6 +323,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     // Sync isRecordingRef con lo state (per evitare stale closure)
     useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
     const cameraRef       = useRef<CameraRef>(null)
+
     const lastBackendFrameTimestamp = useRef<number>(0)
     const workoutQueueRef = useRef<Awaited<ReturnType<typeof createWorkoutQueue>> | null>(null)
     const telemetrySamplerRef = useRef<TelemetrySampler | null>(null)
@@ -636,6 +648,61 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         false // runtimeActive: Decision 29 reverted - not used in frame processor
     )
 
+    // Torch control - must be after device and isActive are declared
+    const applyTorchSettings = useCallback(async (mode: TorchMode, shouldBeActive: boolean) => {
+        // VisionCamera 5.x exposes torch methods on CameraRef.controller, not CameraRef itself.
+        const controller = cameraRef.current?.controller
+        if (!controller || !device?.hasTorch) return
+
+        const brightness = calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness
+        const autoWantsTorch = typeof brightness === 'number' && brightness < 0.28
+        const wantsTorch = shouldBeActive && !!device?.hasTorch && (
+            mode === 'on' || (mode === 'auto' && autoWantsTorch)
+        )
+
+        try {
+            if (!wantsTorch) {
+                await controller.setTorchMode('off')
+                return
+            }
+
+            if (mode === 'on') {
+                if (device?.supportsTorchStrength && device.maxTorchStrength > device.minTorchStrength) {
+                    await controller.enableTorchWithStrength(device.maxTorchStrength)
+                } else {
+                    await controller.setTorchMode('on')
+                }
+                return
+            }
+
+            // AUTO: a darker calibration selects a stronger, but not always maximum, LED level.
+            if (mode === 'auto' && device?.supportsTorchStrength &&
+                device.maxTorchStrength > device.minTorchStrength && typeof brightness === 'number') {
+                const level = brightness < 0.10 ? 0.90 : brightness < 0.17 ? 0.68 : 0.42
+                const strength = device.minTorchStrength +
+                    (device.maxTorchStrength - device.minTorchStrength) * level
+                await controller.enableTorchWithStrength(strength)
+            } else {
+                await controller.setTorchMode('on')
+            }
+        } catch (error) {
+            // Strength control is not implemented by every camera even when metadata is present.
+            // Fall back to the supported binary torch API without interrupting the workout.
+            console.warn('[WorkoutSession] Torch control fallback:', error)
+            try {
+                await controller.setTorchMode(wantsTorch ? 'on' : 'off')
+            } catch (fallbackError) {
+                console.warn('[WorkoutSession] Unable to update torch:', fallbackError)
+            }
+        }
+    }, [device, calibration?.ambientBrightness, calibrationParam?.ambientBrightness])
+
+    // Torch is configured outside the frame-processing pipeline; AUTO uses only the calibration sample.
+    useEffect(() => {
+        if (!cameraStarted) return
+        void applyTorchSettings(torchMode, isActive && !isPaused && !isEnding)
+    }, [applyTorchSettings, torchMode, isActive, isPaused, isEnding, cameraStarted])
+
     // Create VisionEngineAdapter for Runtime (Phase 3)
     useEffect(() => {
         const visionEngineAdapter = new VisionEngineAdapter(
@@ -658,8 +725,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     useEffect(() => {
         if (pipelineSharedValues) {
             const now = Date.now()
-            // Throttle to max 30 updates per second
-            if (now - lastUpdateRef.current > 33) {
+            const interval: number = CAMERA_CONFIG.OVERLAY_REFRESH_INTERVAL_MS
+            // Throttle based on config (0 = update on every frame)
+            if (interval === 0 || now - lastUpdateRef.current > interval) {
                 lastUpdateRef.current = now
                 tracking.updatePlayerFromPipeline(pipelineSharedValues)
             }
@@ -813,7 +881,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             // Apply vision configuration from session (for session resume)
             // Only if not already provided via route.params (new session)
             if (!selectedResolution && s.cameraResolutionWidth && s.cameraResolutionHeight) {
-                effectiveResolutionRef.current = { width: s.cameraResolutionWidth, height: s.cameraResolutionHeight }
+                setEffectiveResolution({ width: s.cameraResolutionWidth, height: s.cameraResolutionHeight })
             }
             if (!selectedFps && s.fps) {
                 setEffectiveFps(s.fps)
@@ -873,8 +941,13 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         // }
                     },
                     onTelemetryUpdate: (metrics) => {
-                        // Disabled - FPS metrics are already available via fpsMetrics from useShotTracker
-                        // console.log('[WorkoutSession] Telemetry update:', metrics)
+                        // Runtime metrics track shot counts and session duration
+                        // FPS metrics come from useShotTracker SharedValues (camera frame pipeline)
+                        console.log('[WorkoutSession] Runtime telemetry update:', {
+                            totalShots: metrics.totalShots,
+                            madeShots: metrics.madeShots,
+                            sessionDuration: metrics.sessionDuration,
+                        })
                     },
                     onError: (error) => {
                         showError('Errore Runtime', error.message)
@@ -993,14 +1066,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 // Calibration coordinates are converted from touch to YOLO space with mirror X+Y in CalibrationScreen
                 // No inverse mirror applied here - coordinates are already in correct YOLO space
                 // mapNormalizedToCameraView will apply mirror X+Y for display
-                tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
+                // Use refined rim dimensions from YOLO calibration if available, otherwise fallback to 0.05x0.05
+                const hoopWidth = cal.hoopBbox?.width ?? 0.05
+                const hoopHeight = cal.hoopBbox?.height ?? 0.05
+                tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, hoopWidth, hoopHeight)
                 runtime.setCalibration(cal)
 
                 // Apply vision parameters from calibration (for session resume)
                 if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
                 if (cal.fps) setEffectiveFps(cal.fps)
                 if (cal.cameraResolution) {
-                    effectiveResolutionRef.current = cal.cameraResolution
+                    setEffectiveResolution(cal.cameraResolution)
                 }
                 console.log('[WorkoutSession] Vision parameters applied from calibration:', {
                     yoloModelId: cal.yoloModelId,
@@ -1198,14 +1274,17 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         poseDelegate:     sessionR.poseDelegate,
                     }
                     setCalibration(cal)
-                    tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, 0.05, 0.05)
+                    // Use refined rim dimensions from YOLO calibration if available, otherwise fallback to 0.05x0.05
+                    const hoopWidth = cal.hoopBbox?.width ?? 0.05
+                    const hoopHeight = cal.hoopBbox?.height ?? 0.05
+                    tracking.setHoopFromCalibration(cal.hoopCenter.x, cal.hoopCenter.y, hoopWidth, hoopHeight)
                     runtime.setCalibration(cal)
 
                     // Apply vision parameters from session (for session resume)
                     if (cal.yoloModelId) setEffectiveYoloModelId(cal.yoloModelId)
                     if (cal.fps) setEffectiveFps(cal.fps)
                     if (cal.cameraResolution) {
-                        effectiveResolutionRef.current = cal.cameraResolution
+                        setEffectiveResolution(cal.cameraResolution)
                     }
                     console.log('[WorkoutSession] Vision parameters applied on resume:', {
                         yoloModelId: cal.yoloModelId,
@@ -1239,7 +1318,6 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         </View>
     )
 
-    const isPaused = session?.status === 'PAUSED'
 
     return (
         <GestureHandlerRootView style={styles.container}>
@@ -1271,9 +1349,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             ref={cameraRef}
                             style={StyleSheet.absoluteFill}
                             device={device}
-                            isActive={isActive && !isPaused}
+                            isActive={sessionLoaded && isActive && !isPaused}
+                            onStarted={() => setCameraStarted(true)}
+                            onStopped={() => setCameraStarted(false)}
                             outputs={[frameOutput]}
-                            zoom={isActive && !isPaused ? zoom : undefined}
+                            zoom={sessionLoaded && isActive && !isPaused ? zoom : undefined}
                             resizeMode="cover"
                             constraints={constraints}
                             onError={(error: any) => {
@@ -1391,6 +1471,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                 rimDetectionEnabled={rimDetectionEnabled}
                 debugMode={debugMode}
                 diagnosticMode={diagnosticMode}
+                torchMode={torchMode}
+                torchAvailable={!!device?.hasTorch}
+                torchAutoReady={typeof (calibration?.ambientBrightness ?? calibrationParam?.ambientBrightness) === 'number'}
                 autoStatusText={autoStatusText}
                 autoDotActive={autoDotActive}
                 onToggleBall={() => setBallEnabled(!ballEnabled)}
@@ -1407,16 +1490,20 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                         setRimFromDetection(null)
                         // Update tracking engine to use calibration hoop
                         if (calibration?.hoopCenter) {
+                            // Use refined rim dimensions from YOLO calibration if available, otherwise fallback to 0.05x0.05
+                            const hoopWidth = calibration.hoopBbox?.width ?? 0.05
+                            const hoopHeight = calibration.hoopBbox?.height ?? 0.05
                             tracking.setHoopFromCalibration(
                                 calibration.hoopCenter.x,
                                 calibration.hoopCenter.y,
-                                0.05,
-                                0.05
+                                hoopWidth,
+                                hoopHeight
                             )
                         }
                     }
                 }}
                 onToggleDebug={() => setDebugMode(!debugMode)}
+                onCycleTorch={() => setTorchMode(current => current === 'auto' ? 'on' : current === 'on' ? 'off' : 'auto')}
                 onToggleDiagnostic={() => {
                     const newValue = !diagnosticMode
                     setDiagnosticMode(newValue)

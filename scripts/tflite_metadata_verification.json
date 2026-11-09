@@ -1,0 +1,212 @@
+[
+  {
+    "filename": "best_320_float16.tflite",
+    "input": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          320,
+          320,
+          3
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ],
+    "output": [
+      {
+        "name": "Identity",
+        "shape": [
+          1,
+          7,
+          2100
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ]
+  },
+  {
+    "filename": "best_384_float16.tflite",
+    "input": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          384,
+          384,
+          3
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ],
+    "output": [
+      {
+        "name": "Identity",
+        "shape": [
+          1,
+          7,
+          3024
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ]
+  },
+  {
+    "filename": "best_448_float16.tflite",
+    "input": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          448,
+          448,
+          3
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ],
+    "output": [
+      {
+        "name": "Identity",
+        "shape": [
+          1,
+          7,
+          4116
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ]
+  },
+  {
+    "filename": "best_512_float16.tflite",
+    "input": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          512,
+          512,
+          3
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ],
+    "output": [
+      {
+        "name": "Identity",
+        "shape": [
+          1,
+          7,
+          5376
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ]
+  },
+  {
+    "filename": "best_640_float16.tflite",
+    "input": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          640,
+          640,
+          3
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ],
+    "output": [
+      {
+        "name": "Identity",
+        "shape": [
+          1,
+          7,
+          8400
+        ],
+        "dtype": "<class 'numpy.float32'>",
+        "quantization": [
+          0.0,
+          0
+        ],
+        "quantization_parameters": {
+          "scales": [],
+          "zero_points": []
+        }
+      }
+    ]
+  }
+]

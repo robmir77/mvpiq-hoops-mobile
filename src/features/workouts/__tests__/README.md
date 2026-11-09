@@ -1,127 +1,57 @@
-# Workout Feature Tests
+# Test della feature Workout
 
-Questa directory contiene i test unitari e di integrazione per le feature di workout.
+Questo README descrive i test presenti in `src/features/workouts/__tests__`. I nomi elencati sono derivati dall'albero del repository; non vengono dichiarate percentuali di coverage né esiti di esecuzione non verificati.
 
-## Struttura dei Test
+## Test presenti
 
-### 1. `workouts.api.test.ts`
-Test unitari per le funzioni API di workout:
-- **Session Management**: Creazione, recupero, eliminazione, pausa, ripresa, fine sessione
-- **Shot Management**: Recupero tiri, aggiunta eventi tiro (automatici e manuali)
-- **Calibration**: Salvataggio calibrazione campo (centro canestro, angoli, matrice omografia)
-- **AI Tracking Data**: Salvataggio frame data e analisi pose
+- `WorkoutSessionRuntime.test.ts`: test unitari del runtime sessione.
+- `calibration.test.ts`: logica e dati di calibrazione.
+- `homography.test.ts`: trasformazioni tramite omografia.
+- `manualShotRegistration.test.ts`: registrazione manuale dei tiri.
+- `persistentOutbox.test.ts`: persistenza locale degli eventi critici.
+- `telemetrySampler.test.ts`: campionamento telemetria.
+- `useTrackingEngine.test.ts`: hook e integrazione del tracking.
+- `useWorkoutSessions.test.tsx`: hook delle sessioni workout.
+- `workoutAsyncQueue.test.ts`: coda asincrona degli eventi.
+- `workoutFlow.integration.test.ts`: flusso di integrazione workout.
+- `workoutLifecycle.e2e.test.ts`: test di lifecycle con harness di test.
+- `workouts.api.test.ts`: API workout.
+- Test di coordinamento in `screens/__tests__/RuntimeProcessFrameCoordinator.test.ts`.
+- Test engine specifici in `tracking/__tests__/`.
 
-### 2. `useTrackingEngine.test.ts`
-Test unitari per il hook `useTrackingEngine`:
-- **Ball Tracking**: Rilevamento palla, filtro Kalman, calcolo velocità
-- **Shot Detection**: Rilevamento inizio tiro, rilascio, canestro, mancato
-- **Trajectory Analysis**: Costruzione traiettoria, metriche, qualità tiro
-- **Hoop Position**: Impostazione posizione canestro da calibrazione/detection
-- **Shared Values**: Valori condivisi per overlay Skia
+## Esecuzione
 
-### 3. `useWorkoutSessions.test.ts`
-Test unitari per il hook `useWorkoutSessions`:
-- **Data Fetching**: Recupero sessioni per utente
-- **Caching Behavior**: Configurazione cache React Query
-- **Loading States**: Stati di caricamento
-- **Data Transformation**: Preservazione struttura dati sessioni
-- **Multiple Users**: Gestione dati multi-utente
-
-### 4. `manualShotRegistration.test.ts`
-Test unitari per la registrazione manuale dei tiri:
-- **Manual MADE Shot**: Registrazione tiri segnati manualmente
-- **Manual MISS Shot**: Registrazione tiri mancati manualmente
-- **Manual BLOCKED Shot**: Registrazione tiri bloccati
-- **Manual AIRBALL Shot**: Registrazione tiri a vuoto
-- **Validation**: Validazione campi obbligatori ed enum
-- **Tracking Data**: Flag manualEntry e metadati aggiuntivi
-- **Error Handling**: Gestione errori API
-- **Shot Counter Updates**: Aggiornamento contatori tiri
-
-### 5. `calibration.test.ts`
-Test unitari per la logica di calibrazione:
-- **Hoop Center Detection**: Rilevamento e salvataggio centro canestro
-- **Court Corners Detection**: Rilevamento angoli campo (full/half court)
-- **Homography Matrix**: Matrice per trasformazione coordinate
-- **Coordinate Transformation**: Trasformazione schermo → coordinate campo
-- **Calibration Validation**: Validazione dati calibrazione
-- **Camera Mode Calibration**: Calibrazione per diversi modi camera
-- **Error Handling**: Gestione errori API
-- **Calibration Persistence**: Salvataggio e aggiornamento calibrazione
-
-### 6. `workoutFlow.integration.test.ts`
-Test di integrazione per il flusso completo di workout:
-- **Complete Workout Session Flow**: Creazione → Calibrazione → Tiri → Fine sessione
-- **Session with Only Manual Shots**: Sessione con solo tiri manuali
-- **Session Pause and Resume**: Pausa e ripresa sessione
-- **Shot Retrieval and Analytics**: Recupero tiri e calcolo statistiche
-- **Distinguish Automatic/Manual Shots**: Distinguere tiri automatici da manuali
-- **Error Recovery**: Recupero da errori (calibrazione, registrazione tiri)
-- **Session State Transitions**: Transizioni ACTIVE → PAUSED → COMPLETED
-
-## Esecuzione dei Test
+Gli script definiti nel `package.json` alla radice sono:
 
 ```bash
-# Esegui tutti i test
 npm test
-
-# Esegui solo test workout
-npm test -- workout
-
-# Esegui test in modalità watch
 npm run test:watch
-
-# Esegui test con coverage
 npm run test:coverage
-
-# Esegui test specifici
-npm test -- workouts.api.test.ts
-npm test -- useTrackingEngine.test.ts
-npm test -- manualShotRegistration.test.ts
 ```
 
-## Copertura dei Test
+Per un test mirato:
 
-| Componente | Stato | Copertura |
-|------------|-------|-----------|
-| workouts.api.ts | ✅ Completo | ~90% |
-| useTrackingEngine | ✅ Completo | ~85% |
-| useWorkoutSessions | ✅ Completo | ~90% |
-| Manual Shot Registration | ✅ Completo | ~95% |
-| Calibration Logic | ✅ Completo | ~85% |
-| Workout Flow Integration | ✅ Completo | ~80% |
-
-## Note Importanti
-
-### Mocking
-- Tutti i test usano Jest per mockare le dipendenze esterne
-- `apiClient` è mockato per evitare chiamate API reali
-- `react-native-reanimated` è mockato per i test dei hook
-
-### Limitazioni
-- I test non coprono i componenti UI (Screens)
-- I test non coprono la navigazione tra schermate
-- I test non coprono l'integrazione con la camera reale
-- I test non coprono i WebSocket reali
-
-### Miglioramenti Futuri
-- Aggiungere test per i componenti UI (WorkoutSessionScreen, WorkoutSetupScreen, etc.)
-- Aggiungere test E2E con Detox o Appium
-- Aggiungere test per la navigazione
-- Aggiungere test per l'integrazione WebSocket
-- Aggiungere test con dati reali di video preregistrati
-
-## Troubleshooting
-
-**Test falliscono con errori di dipendenze:**
 ```bash
-npm install --legacy-peer-deps
+npm test -- WorkoutSessionRuntime.test.ts
+npm test -- workoutAsyncQueue.test.ts
+npm test -- persistentOutbox.test.ts
+npm test -- RuntimeProcessFrameCoordinator.test.ts
 ```
 
-**Test troppo lenti:**
-- Riduci il numero di test case nei test di integrazione
-- Usa `jest.setTimeout()` per aumentare il timeout
+Jest accetta il pattern passato dopo `--`; controllare l'output del comando per confermare quali suite sono state effettivamente selezionate.
 
-**Memory leak nei test:**
-- Assicurati di chiamare `jest.clearAllMocks()` in beforeEach
-- Usa `jest.useFakeTimers()` per test che coinvolgono timeout
+## Che cosa non dimostra la suite
+
+- I test Jest non sostituiscono una prova con camera reale e native worklets.
+- Un test di integrazione con mock non certifica il comportamento del backend remoto, della rete o del dispositivo.
+- Il superamento dei test unitari non prova la continuità dell'overlay o un determinato FPS.
+- Le percentuali di coverage devono essere ricavate da un run aggiornato di `npm run test:coverage`, non copiate da report precedenti.
+
+## Checklist dopo modifiche
+
+- [ ] Eseguire la suite mirata e verificare l'exit code.
+- [ ] Eseguire `npm test` prima di considerare conclusa una modifica trasversale.
+- [ ] Per state machine e coordinamento frame, testare chiamate concorrenti, stati non ACTIVE e callback mancanti.
+- [ ] Per shot event, testare idempotenza, enqueue fallito e normalizzazione dei risultati.
+- [ ] Per queue/outbox, testare retry, recovery e dati persistiti.
+- [ ] Per la pipeline vision, completare una verifica su dispositivo separata dai test Jest.

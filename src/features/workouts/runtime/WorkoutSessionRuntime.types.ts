@@ -22,9 +22,7 @@ export interface SessionMetrics {
   totalShots: number
   madeShots: number
   sessionDuration: number
-  yoloFps: number
-  moveNetFps: number
-  cameraFps: number
+  // FPS metrics removed - UI uses useShotTracker SharedValues instead
 }
 
 export interface SessionCallbacks {

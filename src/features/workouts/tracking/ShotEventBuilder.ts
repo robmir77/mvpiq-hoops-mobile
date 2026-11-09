@@ -319,9 +319,14 @@ export class ShotEventBuilder {
     return payload
   }
 
-  // Converte AIRBLOCK/AIRBALL a UNCERTAIN per contratto pubblico
+  // Converte AIRBLOCK/AIRBALL a MISS per contratto pubblico
+  // Un airball è per definizione un tiro sbagliato
+  // BLOCKED rimane UNCERTAIN perché non possiamo determinare l'esito
   normalizeShotResult(result: ShotResult): 'MADE' | 'MISS' | 'UNCERTAIN' {
-    if (result === 'AIRBALL' || result === 'BLOCKED') {
+    if (result === 'AIRBALL') {
+      return 'MISS'
+    }
+    if (result === 'BLOCKED') {
       return 'UNCERTAIN'
     }
     if (result === 'MADE' || result === 'MISS') {

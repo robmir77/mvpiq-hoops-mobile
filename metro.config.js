@@ -5,6 +5,7 @@ const path = require('path');
 const config = getDefaultConfig(__dirname);
 
 config.resolver.assetExts.push('onnx', 'tflite');
+config.resolver.assetExts.push('jpg', 'jpeg', 'png');
 
 // onnxruntime-web usa dynamic import() — non supportato da Metro
 // Soluzione: mock completo in React Native (ort-web non gira su RN comunque)

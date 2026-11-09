@@ -14,7 +14,7 @@ import { DEFAULT_ANDROID_DELEGATE, DEFAULT_IOS_DELEGATE } from './delegates'
 import { Platform } from 'react-native'
 import { getYoloModel } from './yoloModels'
 import { scheduleOnRN } from 'react-native-worklets'
-import { TEST_CONFIG, YOLO_CONFIG } from '@/config/appConfig'
+import { TEST_CONFIG, YOLO_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 import { telemetryLogger } from './telemetry'
 
 interface YoloWorkerResult {
@@ -87,7 +87,7 @@ export const useYoloWorkerAsync = (
   yoloScheduledCount?: { value: number },
   perfYoloScheduleWaitTotal?: SharedValue<number>,
   onResultCallback?: (result: YoloWorkerResult) => void,
-  rimEnabled: boolean = true,
+  rimEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED,
   // Ball rejection diagnostics
   ballYoloParsed?: SharedValue<number>,
   ballRejectedSize?: SharedValue<number>,
@@ -188,11 +188,10 @@ export const useYoloWorkerAsync = (
         console.error('[YoloWorkerAsync] No valid YOLO model source available')
         return undefined as any
       }
-      return selectedYoloModel.fileUri
-        ? { url: selectedYoloModel.fileUri } as any
-        : selectedYoloModel.asset as any
+      // react-native-fast-tflite requires the asset require(), not a file URI
+      return selectedYoloModel.asset as any
     },
-    [selectedYoloModel?.fileUri, selectedYoloModel?.asset]
+    [selectedYoloModel?.asset]
   )
 
   const yoloModel = useTensorflowModel(yoloModelSource, yoloDelegates as any)
@@ -206,6 +205,8 @@ export const useYoloWorkerAsync = (
       state: yoloModel.state,
       hasModel: !!yoloModel.model,
       error: yoloModel.state === 'error' ? yoloModel.error : null,
+      delegate: Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE,
+      note: 'Benchmark uses CPU Python, app uses GPU/NNAPI on Android - this can cause numerical differences'
     })
   }, [yoloModel.state, yoloModel.model, selectedYoloModel?.fileName])
 
@@ -300,6 +301,28 @@ export const useYoloWorkerAsync = (
 
       const source = new Float32Array(inputBuffer)
 
+      // Log input tensor statistics to verify normalization (should be 0-1 if VisionCamera resizer is correct)
+      if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+        let min = Infinity
+        let max = -Infinity
+        let sum = 0
+        for (let i = 0; i < source.length; i++) {
+          const v = source[i]
+          if (v < min) min = v
+          if (v > max) max = v
+          sum += v
+        }
+        const mean = sum / source.length
+        console.log('[YoloWorkerAsync]', {
+          frameCounter,
+          inputTensorStats: { min, max, mean },
+          expectedRange: '0-1 if VisionCamera normalizes correctly',
+          yoloInputSize,
+          frameWidth,
+          frameHeight
+        })
+      }
+
       if (source.length === yoloInputElements) {
         const outputs = yoloModelInstance!.runSync([inputBuffer])
         const tE = performance.now() // E: inference end
@@ -316,6 +339,17 @@ export const useYoloWorkerAsync = (
         const debug = null // YoloDetector no longer returns debug info
         const tParseEnd = performance.now()
         const parseMs = tParseEnd - tParseStart
+
+        // DEBUG: Log confidence scores before SharedValue assignment
+        if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+          console.log('[YoloWorkerAsync] Confidence before SharedValue assignment', {
+            frameCounter,
+            ballConfidence: ball?.confidence,
+            playerConfidence: player?.confidence,
+            rimConfidence: rim?.confidence,
+            note: 'Check if values are rounded before assignment'
+          })
+        }
 
         const tF = performance.now() // F: callback end
         const postprocessMs = tF - tE // E→F: postprocess/callback time
@@ -385,6 +419,17 @@ export const useYoloWorkerAsync = (
         latestResultRim.value = rim
         latestResultDebug.value = debug
         latestResultTimestamp.value = timestamp
+
+        // DEBUG: Log confidence scores after SharedValue assignment
+        if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+          console.log('[YoloWorkerAsync] Confidence after SharedValue assignment', {
+            frameCounter,
+            ballConfidence: latestResultBall.value?.confidence,
+            playerConfidence: latestResultPlayer.value?.confidence,
+            rimConfidence: latestResultRim.value?.confidence,
+            note: 'Check if values are rounded after assignment'
+          })
+        }
 
         const inferenceTime = tF - tA // Total time from worklet start to callback end
         lastInferenceMs.value = inferenceTime

@@ -54,13 +54,15 @@ export const useYoloWorker = (
   perfYoloWorkletPrepTotal?: any, // SharedValue for worklet preprocessing (A→B)
   perfYoloJsPreprocessTotal?: any, // SharedValue for JS preprocessing (C→D)
   perfYoloPostprocessTotal?: any, // SharedValue for postprocess/callback (E→F)
-  rimEnabled: boolean = true
+  rimEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED
 ) => {
   // Pure YOLO detector instance (worklet-safe)
   const yoloDetectorRef = useRef(new YoloDetector(
     YOLO_CONFIG.BALL_CONF_THRESHOLD,
     YOLO_CONFIG.RIM_CONF_THRESHOLD
   ))
+  // Temporary one-shot diagnostic for inspecting raw TFLite output before parsing.
+  const rawDebugLoggedRef = useRef(false)
 
   const latestResultBall = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
   const latestResultPlayer = useSharedValue<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
@@ -155,11 +157,10 @@ export const useYoloWorker = (
         console.error('[YoloWorker] No valid YOLO model source available')
         return undefined as any
       }
-      return selectedYoloModel.fileUri
-        ? { url: selectedYoloModel.fileUri } as any
-        : selectedYoloModel.asset as any
+      // react-native-fast-tflite requires the asset require(), not a file URI
+      return selectedYoloModel.asset as any
     },
-    [selectedYoloModel?.fileUri, selectedYoloModel?.asset]
+    [selectedYoloModel?.asset]
   )
 
   const yoloModel = useTensorflowModel(yoloModelSource, yoloDelegates as any)
@@ -225,11 +226,16 @@ export const useYoloWorker = (
     frameHeight: number,
     timestamp: number,
     tA: number,  // A: worklet start time
-    tB: number,  // B: worklet end time (before scheduleOnRN)
+    tB: number,  // B: worklet end time
     resizeMs: number,
-    resized: any
+    resized: any,
+    frameCounter?: number
   ) => {
     try {
+      console.log('[YOLO DEBUG] runYoloInference entered', {
+        model: selectedYoloModel?.fileName,
+        hasModel: !!yoloModelInstance,
+      })
       const tC = performance.now() // C: callback start (JS thread)
 
       // Profiling B→C: worklet → JS scheduling wait
@@ -242,14 +248,76 @@ export const useYoloWorker = (
       const jsPreprocessMs = 0
 
       const tD = performance.now() // D: inference start (after JS preprocessing)
+      console.log('[YOLO DEBUG] before runSync')
       const outputs = yoloModelInstance!.runSync([inputBuffer])
+      console.log('[YOLO DEBUG] after runSync', {
+        outputCount: outputs.length,
+        firstOutputType: outputs[0]?.constructor?.name,
+        firstOutputLength: outputs[0]?.byteLength,
+      })
       const tE = performance.now() // E: inference end
       const runMs = tE - tD // D→E: inference time
       const rawOutput = outputs[0] as ArrayBufferLike
 
+      const output = new Float32Array(rawOutput)
+
+      // Temporary one-shot diagnostic: inspect raw model scores without changing them.
+      if (!rawDebugLoggedRef.current) {
+        rawDebugLoggedRef.current = true
+
+        const channels = 7
+        const n = output.length / channels
+
+        if (Number.isInteger(n) && n > 0) {
+          const classes = [
+            { name: 'ball', channel: 4 },
+            { name: 'player', channel: 5 },
+            { name: 'rim', channel: 6 },
+          ]
+
+          const maxima = classes.map(({ name, channel }) => {
+            let bestIndex = 0
+            let bestScore = -Infinity
+
+            for (let i = 0; i < n; i++) {
+              const score = output[channel * n + i]
+
+              if (Number.isFinite(score) && score > bestScore) {
+                bestScore = score
+                bestIndex = i
+              }
+            }
+
+            return {
+              class: name,
+              channel,
+              anchor: bestIndex,
+              score: bestScore,
+              xywh: [
+                output[bestIndex],
+                output[n + bestIndex],
+                output[2 * n + bestIndex],
+                output[3 * n + bestIndex],
+              ],
+            }
+          })
+
+          console.log('[YOLO RAW DEBUG]', {
+            model: selectedYoloModel?.fileName,
+            outputLength: output.length,
+            anchorCount: n,
+            maxima,
+          })
+        } else {
+          console.log('[YOLO RAW DEBUG] Unexpected output length', {
+            model: selectedYoloModel?.fileName,
+            outputLength: output.length,
+          })
+        }
+      }
+
       // Parse YOLO output using pure YoloDetector class
       const tParseStart = performance.now()
-      const output = new Float32Array(rawOutput)
       const result = yoloDetectorRef.current.parseOutput(output, frameWidth, frameHeight)
       const ball = result.ball
       const player = result.player
@@ -258,6 +326,17 @@ export const useYoloWorker = (
       const debug = { conf: 0 } // Simplified debug for now
       const tParseEnd = performance.now()
       const parseMs = tParseEnd - tParseStart
+
+      // DEBUG: Log confidence scores before SharedValue assignment
+      if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+        console.log('[YoloWorker] Confidence before SharedValue assignment', {
+          frameCounter,
+          ballConfidence: ball?.confidence,
+          playerConfidence: player?.confidence,
+          rimConfidence: rim?.confidence,
+          note: 'Check if values are rounded before assignment'
+        })
+      }
 
       const tF = performance.now() // F: callback end
       const postprocessMs = tF - tE // E→F: postprocess/callback time
@@ -282,6 +361,17 @@ export const useYoloWorker = (
       latestResultRim.value = rim
       latestResultDebug.value = debug
       latestResultTimestamp.value = timestamp
+
+      // DEBUG: Log confidence scores after SharedValue assignment
+      if (__DEV__ && frameCounter && frameCounter % 10 === 0) {
+        console.log('[YoloWorker] Confidence after SharedValue assignment', {
+          frameCounter,
+          ballConfidence: latestResultBall.value?.confidence,
+          playerConfidence: latestResultPlayer.value?.confidence,
+          rimConfidence: latestResultRim.value?.confidence,
+          note: 'Check if values are rounded after assignment'
+        })
+      }
 
       const inferenceTime = tF - tA // Total time from worklet start to callback end
       lastInferenceMs.value = inferenceTime
@@ -372,11 +462,11 @@ export const useYoloWorker = (
         const source = new Float32Array(pixelBuffer as unknown as ArrayBufferLike)
 
         if (source.length === yoloInputElements) {
-          // Pass buffer directly without slice() to avoid unnecessary copy
+          // Keep the original normalized 0..1 Resizer buffer, as in the known-good pipeline.
           const inputBuffer = source.buffer as ArrayBuffer
 
           // ASYNC: Pass buffer to JS thread for inference
-          scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, tA, tB, resizeMs, resized)
+          scheduleOnRN(runYoloInference, inputBuffer, frame.width, frame.height, timestamp, tA, tB, resizeMs, resized, frameCounter)
         }
       }
 

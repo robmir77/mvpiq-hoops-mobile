@@ -64,9 +64,9 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     asset: require("../../assets/models/best_384_float16.tflite"),
     fpsMin: 20,
     fpsMax: 21,
-    epochs: 100,
+    epochs: 200,
     usageMinutes: 0,
-    defaultCameraResolution: { width: 720, height: 405 },
+    defaultCameraResolution: { width: 1280, height: 720 },
   },
   {
     id: "best_448_float16",
@@ -78,9 +78,9 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     asset: require("../../assets/models/best_448_float16.tflite"),
     fpsMin: 12,
     fpsMax: 21,
-    epochs: 5,
+    epochs: 50,
     usageMinutes: 0,
-    defaultCameraResolution: { width: 960, height: 540 },
+    defaultCameraResolution: { width: 1280, height: 720 },
   },
   {
     id: "best_512_float16",
@@ -106,7 +106,7 @@ export const YOLO_MODELS: YoloModelConfig[] = [
     asset: require("../../assets/models/best_640_float16.tflite"),
     fpsMin: 5,
     fpsMax: 7,
-    epochs: 30,
+    epochs: 120,
     usageMinutes: 0,
     defaultCameraResolution: { width: 1280, height: 720 },
   },
@@ -139,28 +139,61 @@ const modelCache = new Map<string, YoloModelConfig>()
 // Copy asset from bundle to file system and return file URI
 async function copyAssetToFile(asset: any, fileName: string): Promise<string> {
   const assetObj = Asset.fromModule(asset)
-  
   const destUri = (FileSystem as any).documentDirectory + fileName
 
-  // Check if file already exists
-  const fileInfo = await FileSystem.getInfoAsync(destUri)
-  if (fileInfo.exists) {
-    console.log('[YoloModels] File already exists:', destUri)
-    console.log('[YoloModels] File info:', fileInfo)
+  // Expo Asset exposes a bundled checksum; compare it with the cached file's
+  // MD5 so a model update under the same filename refreshes the local copy.
+  const expectedHash = typeof assetObj.hash === 'string' ? assetObj.hash.toLowerCase() : null
+  const fileInfo = await FileSystem.getInfoAsync(destUri, { md5: true } as any)
+  const cachedHash = fileInfo.exists && typeof (fileInfo as any).md5 === 'string'
+    ? (fileInfo as any).md5.toLowerCase()
+    : null
+
+  if (fileInfo.exists && expectedHash && cachedHash && expectedHash === cachedHash) {
+    console.log('[YoloModels] Cached model checksum matches bundle:', fileName, expectedHash)
     return destUri
   }
 
-  // Download asset from bundle to document directory
+  if (fileInfo.exists && expectedHash && cachedHash && expectedHash !== cachedHash) {
+    console.warn('[YoloModels] Cached model checksum differs from bundle; refreshing:', {
+      fileName,
+      cachedHash,
+      expectedHash,
+    })
+  } else if (fileInfo.exists && (!expectedHash || !cachedHash)) {
+    console.warn('[YoloModels] Cannot verify cached model checksum; refreshing:', {
+      fileName,
+      hasExpectedHash: Boolean(expectedHash),
+      hasCachedHash: Boolean(cachedHash),
+    })
+  }
+
+  // Resolve the bundled asset before replacing the cache.
   await assetObj.downloadAsync()
-  
-  // Copy from downloaded local URI to destination
-  await FileSystem.copyAsync({
-    from: assetObj.localUri || assetObj.uri,
-    to: destUri
+  const sourceUri = assetObj.localUri || assetObj.uri
+  if (!sourceUri) {
+    throw new Error(`[YoloModels] Bundled asset has no local URI: ${fileName}`)
+  }
+
+  if (fileInfo.exists) {
+    await FileSystem.deleteAsync(destUri, { idempotent: true })
+  }
+  await FileSystem.copyAsync({ from: sourceUri, to: destUri })
+
+  const copiedInfo = await FileSystem.getInfoAsync(destUri, { md5: true } as any)
+  const copiedHash = typeof (copiedInfo as any).md5 === 'string'
+    ? (copiedInfo as any).md5.toLowerCase()
+    : null
+  if (expectedHash && copiedHash && expectedHash !== copiedHash) {
+    throw new Error(`[YoloModels] Model checksum mismatch after copy: ${fileName}`)
+  }
+
+  console.log('[YoloModels] Copied bundled model to cache:', {
+    fileName,
+    uri: destUri,
+    expectedHash,
+    copiedHash,
   })
-
-  console.log('[YoloModels] Copied asset to:', destUri)
-
   return destUri
 }
 

@@ -82,10 +82,10 @@ export interface BackendPoseKeypoint {
   confidence: number
 }
 
-// Frame di posa grezza per ShotEvent
+// Frame di posa grezza per ShotEvent (formato frontend interno)
 export interface RawPoseFrame {
   timestampMs: number
-  keypoints: BackendPoseKeypoint[]  // Array di keypoints nel formato backend
+  keypoints: PoseKeypoints  // Pose keypoints nel formato frontend (named keypoints o MoveNet array)
   coordinateSpace: 'IMAGE_NORMALIZED' | 'IMAGE_PIXELS'
 }
 
@@ -138,7 +138,10 @@ export interface AddShotEventPayload {
 export interface CalibrationData {
     homographyMatrix: number[]
     hoopCenter: { x: number; y: number }
+    hoopBbox?: { x: number; y: number; width: number; height: number } // Rim bounding box from YOLO calibration
     cameraResolution?: { width: number; height: number }
+    // Normalized RGB brightness sampled during calibration (0 = dark, 1 = bright).
+    ambientBrightness?: number
     freeThrowLine?: { x: number; y: number }
     courtCorners?: {
         topLeft: { x: number; y: number }

@@ -5,7 +5,7 @@
 //   - LATERAL:  vista laterale pura — palo + tabellone + traiettoria arco
 //   - FRONTAL:  vista frontale dal fondo — paint + tabellone centrato
 
-import React, { useState, useContext, useEffect, useRef } from 'react'
+import React, { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
     View, Text, StyleSheet, TouchableOpacity,
     Dimensions, ScrollView, Platform,
@@ -14,11 +14,11 @@ import Svg, {
     Circle, Line, Polygon, Rect, Path, Defs,
     LinearGradient, Stop, G, Text as SvgText, Ellipse,
 } from 'react-native-svg'
-import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from 'react-native-vision-camera'
+import { Camera, useCameraDevice, useCameraPermission, type CameraRef, useFrameOutput, type Frame } from 'react-native-vision-camera'
 import { Picker } from '@react-native-picker/picker'
 import { useIsFocused } from '@react-navigation/native'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
-import { runOnJS } from 'react-native-reanimated'
+import { runOnJS, useSharedValue } from 'react-native-reanimated'
 import { AuthContext } from '@/features/auth/context/AuthContext'
 import { CameraMode, CalibrationData, CourtType, CreateWorkoutSessionPayload } from '../types/workouts.types'
 import { createWorkoutSession } from '../api/workouts.api'
@@ -35,6 +35,10 @@ import {
 } from '@/vision/delegates'
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, MOVENET_MODELS, YOLO_MODELS } from '@/vision/yoloModels'
 import { CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
+import { useRimCalibration, type RoiRegion } from '@/vision/useRimCalibration'
+import { useImageBenchmark } from '@/vision/useImageBenchmark'
+import { BenchmarkVisualization } from '@/vision/BenchmarkVisualization'
+import * as FileSystem from 'expo-file-system'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
@@ -49,7 +53,7 @@ interface DraggablePoint extends Point {
 }
 
 // 45° overlay: diagonal perspective, hoop top-right, court extends left/down
-const Overlay45 = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const Overlay45 = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const W = SW, H = CAM_H
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
@@ -159,13 +163,14 @@ const Overlay45 = ({ points, activePoint }: { points: DraggablePoint[]; activePo
                 fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
 
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // 45° Full Court overlay
-const Overlay45Full = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const Overlay45Full = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -245,13 +250,14 @@ const Overlay45Full = ({ points, activePoint }: { points: DraggablePoint[]; acti
             <SvgText x={W * 0.14} y={H * 0.55} textAnchor="middle" fill="rgba(255,255,255,0.30)" fontSize={9}>3PT</SvgText>
             <SvgText x={W * 0.50} y={H * 0.14} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Lateral Full Court overlay
-const OverlayLateralFull = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayLateralFull = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -295,13 +301,14 @@ const OverlayLateralFull = ({ points, activePoint }: { points: DraggablePoint[];
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle" fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Frontal Full Court overlay
-const OverlayFrontalFull = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayFrontalFull = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -348,13 +355,14 @@ const OverlayFrontalFull = ({ points, activePoint }: { points: DraggablePoint[];
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle" fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
             <SvgText x={W * 0.50} y={H * 0.12} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize={8}>CENTRO CAMPO</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Lateral overlay: side view, vertical pole, backboard, trajectory arc
-const OverlayLateral = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayLateral = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -447,13 +455,14 @@ const OverlayLateral = ({ points, activePoint }: { points: DraggablePoint[]; act
             <SvgText x={W * 0.20} y={H * 0.55} textAnchor="middle"
                 fill="rgba(255,140,0,0.45)" fontSize={9}>↗ Tiro</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
 }
 
 // Frontal overlay: front view from baseline, symmetric paint, centered backboard
-const OverlayFrontal = ({ points, activePoint }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null }) => {
+const OverlayFrontal = ({ points, activePoint, rimRoi, rimCalibrationStatus }: { points: DraggablePoint[]; activePoint: DraggablePoint['id'] | null; rimRoi: RoiRegion | null; rimCalibrationStatus: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
     const hoopCenter = points.find(p => p.id === 'hoop') || null
     const corners = points.filter(p => p.id.startsWith('corner'))
     const W = SW, H = CAM_H
@@ -547,6 +556,7 @@ const OverlayFrontal = ({ points, activePoint }: { points: DraggablePoint[]; act
             <SvgText x={W * 0.90} y={H * 0.60} textAnchor="middle"
                 fill="rgba(255,255,255,0.28)" fontSize={9}>3PT →</SvgText>
             {hoopCenter && <HoopConfirmed p={hoopCenter} />}
+            <RoiOverlay roi={rimRoi} status={rimCalibrationStatus} />
             <DraggablePointsOverlay points={points} activePoint={activePoint} />
         </Svg>
     )
@@ -567,6 +577,34 @@ const HoopConfirmed = ({ p }: { p: Point }) => (
             fill="#ff8c00" fontSize={11} fontWeight="700">✓ Canestro</SvgText>
     </G>
 )
+
+// ROI overlay for YOLO rim calibration
+const RoiOverlay = ({ roi, status }: { roi: RoiRegion | null; status: 'idle' | 'processing' | 'detected' | 'notDetected' | 'error' }) => {
+    if (!roi) return null
+
+    const W = SW, H = CAM_H
+    const strokeColor = status === 'detected' ? '#4ade80' : status === 'error' ? '#ef4444' : '#ff8c00'
+    const fillColor = status === 'detected' ? 'rgba(74,222,128,0.15)' : status === 'error' ? 'rgba(239,68,68,0.15)' : 'rgba(255,140,0,0.15)'
+
+    return (
+        <G pointerEvents="none">
+            <Rect
+                x={roi.x}
+                y={roi.y}
+                width={roi.width}
+                height={roi.height}
+                fill={fillColor}
+                stroke={strokeColor}
+                strokeWidth={2}
+                strokeDasharray="8,4"
+            />
+            <SvgText x={roi.x + roi.width / 2} y={roi.y - 8} textAnchor="middle"
+                fill={strokeColor} fontSize={10} fontWeight="700">
+                {status === 'processing' ? '⏳ Rilevamento...' : status === 'detected' ? '✓ Rilevato' : 'ROI YOLO'}
+            </SvgText>
+        </G>
+    )
+}
 
 const CornersOverlay = ({ corners }: { corners: Point[] }) => {
     const W = SW, H = CAM_H
@@ -712,7 +750,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const isFocused = useIsFocused()
     const isActive = isFocused
     const cameraRef = useRef<CameraRef>(null)
-    const [selectedResolution, setSelectedResolution] = useState<{ width: number; height: number } | null>(initialResolution ?? DEFAULT_CAPTURE)
+    const [selectedResolution, setSelectedResolutionOriginal] = useState<{ width: number; height: number } | null>(initialResolution ?? null)
+    const userPickedResolutionRef = useRef(false)
+    const previousModelIdRef = useRef<string | null>(null)
+
+    // Wrapper for setSelectedResolution with logging
+    const setSelectedResolution = useCallback((value: { width: number; height: number } | null) => {
+        console.log('[Calibration] setSelectedResolution called:', value)
+        setSelectedResolutionOriginal(value)
+    }, [])
     const [selectedFps, setSelectedFps] = useState<number | null>(initialFps ?? DEFAULT_FPS)
     const [selectedPoseResolution, setSelectedPoseResolution] = useState<number>(initialPoseResolution ?? DEFAULT_POSE_RESOLUTION)
     const [selectedMoveNetModelId, setSelectedMoveNetModelId] = useState<string>(initialMoveNetModelId ?? DEFAULT_MOVENET_MODEL_ID)
@@ -744,7 +790,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         totalPixels >= minPixels &&
                         Math.abs(aspect - 16 / 9) < 0.08
                 })
-                .sort((a: any, b: any) => a.width * a.height - b.width * b.height)
+                .sort((a: any, b: any) => b.width * b.height - a.width * a.height) // Sort descending: max resolution first
             console.log('[Calibration] Available workout resolutions:', filtered)
             return filtered.length ? filtered : [DEFAULT_CAPTURE]
         } catch (e) {
@@ -793,6 +839,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
     useEffect(() => {
         if (availableResolutions.length > 0 &&
             !availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
+            // Default to maximum supported resolution
+            console.log('[Calibration] Resetting to maximum resolution:', availableResolutions[0])
             setSelectedResolution(availableResolutions[0])
         }
         if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
@@ -804,31 +852,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         if (MOVENET_MODELS.length > 0 && !MOVENET_MODELS.some(m => m.id === selectedMoveNetModelId)) {
             setSelectedMoveNetModelId(DEFAULT_MOVENET_MODEL_ID)
         }
-    }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId])
-
-    // Auto-select default camera resolution when YOLO model changes
-    useEffect(() => {
-        if (availableResolutions.length > 0 && selectedYoloModelId) {
-            const currentModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
-            const defaultRes = currentModel?.defaultCameraResolution
-
-            if (defaultRes) {
-                // Try to find exact match
-                const exactMatch = availableResolutions.find(r => r.width === defaultRes.width && r.height === defaultRes.height)
-                if (exactMatch) {
-                    setSelectedResolution(exactMatch)
-                    return
-                }
-
-                // Find closest resolution >= default
-                const minPixels = defaultRes.width * defaultRes.height
-                const closest = availableResolutions.find(r => r.width * r.height >= minPixels)
-                if (closest) {
-                    setSelectedResolution(closest)
-                }
-            }
-        }
-    }, [selectedYoloModelId, availableResolutions])
+    }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId, selectedResolution])
 
     // Pre-positioned calibration points (hoop + 4 corners) - raised positions
     const [points, setPoints] = useState<DraggablePoint[]>([
@@ -844,10 +868,177 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [activePoint, setActivePoint] = useState<DraggablePoint['id'] | null>(null)
     const { alert, showError, showSuccess, showWarning } = useCustomAlert()
 
+    // Rim calibration state
+    const [rimRoi, setRimRoi] = useState<RoiRegion | null>(null)
+    const [rimCalibrationStatus, setRimCalibrationStatus] = useState<'idle' | 'processing' | 'detected' | 'notDetected' | 'error'>('idle')
+    const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
+
+    // Image benchmark state
+    const [showBenchmarkPanel, setShowBenchmarkPanel] = useState(false)
+    const [showBenchmarkVisualization, setShowBenchmarkVisualization] = useState(false)
+    const [benchmarkImageUris, setBenchmarkImageUris] = useState<string[]>([])
+    const benchmark = useImageBenchmark(selectedYoloModelId)
+    const requestFrameCapture = useSharedValue(false)
+    const requestBrightnessCapture = useSharedValue(false)
+    const capturedFrameRef = useRef<Float32Array | null>(null)
+    const ambientBrightnessRef = useRef<number | null>(null)
+    const storeCapturedFrame = React.useCallback((buffer: Float32Array) => {
+        capturedFrameRef.current = buffer
+    }, [])
+    const storeAmbientBrightness = React.useCallback((brightness: number) => {
+        ambientBrightnessRef.current = brightness
+    }, [])
+    const frameCaptured = useSharedValue(false)
+    // Synchronous guard: button onPressIn fires before the parent canvas onTouchEnd.
+    const ignoreCameraTouchRef = useRef(false)
+
+    // Rim calibration hook
+    const { calculateRoi, calibrateRim, isModelReady } = useRimCalibration(
+        {},
+        selectedYoloModelId,
+        yoloDelegate
+    )
+
+    // YOLO input size for reference (used internally by useRimCalibration)
+    const yoloModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
+    const yoloInputSize = yoloModel?.inputSize
+
+    // Frame output for rim calibration - captures single frame when requested
+    useFrameOutput({
+        pixelFormat: 'rgb',
+        targetResolution: selectedResolution ? { width: selectedResolution.width, height: selectedResolution.height } : undefined,
+        onFrame: (frame: Frame) => {
+            'worklet'
+
+            // Calibration brightness uses a sparse sample on the frame thread and sends back one number only.
+            // It does not copy the full camera frame to the JS thread.
+            if (requestBrightnessCapture.value) {
+                requestBrightnessCapture.value = false
+                try {
+                    const pixelBuffer = frame.getPixelBuffer()
+                    if (pixelBuffer) {
+                        const data = pixelBuffer instanceof Float32Array
+                            ? pixelBuffer
+                            : new Uint8Array(pixelBuffer as ArrayBufferLike)
+                        const pixelCount = Math.floor(data.length / 3)
+                        const step = Math.max(1, Math.floor(pixelCount / 1200))
+                        let luminanceSum = 0
+                        let samples = 0
+                        for (let pixel = 0; pixel < pixelCount; pixel += step) {
+                            const offset = pixel * 3
+                            luminanceSum += 0.2126 * data[offset] +
+                                0.7152 * data[offset + 1] +
+                                0.0722 * data[offset + 2]
+                            samples++
+                        }
+                        if (samples > 0) {
+                            runOnJS(storeAmbientBrightness)(Math.max(0, Math.min(1, (luminanceSum / samples) / 255)))
+                        }
+                    }
+                } catch (error) {
+                    console.error('[Calibration] Brightness sampling failed:', error)
+                }
+                return
+            }
+
+            if (!requestFrameCapture.value) return
+
+            // Check latch to prevent duplicate captures
+            if (frameCaptured.value) return
+
+            try {
+                // Extract pixel buffer from GPUFrame at original resolution
+                const pixelBuffer = frame.getPixelBuffer()
+                if (pixelBuffer) {
+                    // Check if buffer is already Float32Array or needs conversion
+                    let float32Buffer: Float32Array
+                    if (pixelBuffer instanceof Float32Array) {
+                        float32Buffer = pixelBuffer
+                    } else {
+                        const uint8Buffer = new Uint8Array(pixelBuffer as ArrayBufferLike)
+                        float32Buffer = new Float32Array(uint8Buffer.length)
+                        for (let i = 0; i < uint8Buffer.length; i++) {
+                            float32Buffer[i] = uint8Buffer[i]
+                        }
+                    }
+
+                    if (float32Buffer.length > 0) {
+                        frameCaptured.value = true
+                        runOnJS(storeCapturedFrame)(float32Buffer)
+                    }
+                }
+            } catch (error) {
+                console.error('[Calibration] Frame processor error:', error)
+            }
+        },
+    })
+
     // Helper to update point position
     const updatePoint = (id: DraggablePoint['id'], x: number, y: number) => {
         setPoints(prev => prev.map(p => p.id === id ? { ...p, x, y } : p))
+        // Moving a calibration point invalidates any previous saved result.
+        setSavedCalibration(null)
+        if (id === 'hoop') {
+            setRefinedRim(null)
+            setRimCalibrationStatus('idle')
+        }
     }
+
+    const normalizePoint = (rawX: number, rawY: number): Point => {
+        // Apply mirror to match YOLO detection space
+        // Touch coordinates are relative to view, but YOLO detections are in mirrored camera space
+        // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
+        const mirroredX = SW - rawX;
+        const mirroredY = CAM_H - rawY;
+        return {
+            x: Math.max(0, Math.min(1, mirroredX / SW)),
+            y: Math.max(0, Math.min(1, mirroredY / CAM_H)),
+        };
+    }
+
+    // Convert ROI from camera frame space to preview SVG space
+    const convertRoiToPreview = (roi: RoiRegion | null): RoiRegion | null => {
+        if (!roi || !selectedResolution) return null
+
+        // Scale factors: camera resolution → preview dimensions
+        const scaleX = SW / selectedResolution.width
+        const scaleY = CAM_H / selectedResolution.height
+
+        // Apply scaling
+        const scaledX = roi.x * scaleX
+        const scaledY = roi.y * scaleY
+        const scaledWidth = roi.width * scaleX
+        const scaledHeight = roi.height * scaleY
+
+        // Reverse mirroring to match screen coordinates
+        // normalizePoint applies: mirroredX = SW - rawX, mirroredY = CAM_H - rawY
+        // So to reverse: rawX = SW - mirroredX, rawY = CAM_H - mirroredY
+        const previewX = SW - (scaledX + scaledWidth)
+        const previewY = CAM_H - (scaledY + scaledHeight)
+
+        return {
+            x: previewX,
+            y: previewY,
+            width: scaledWidth,
+            height: scaledHeight,
+        }
+    }
+
+    // Update ROI when hoop point changes
+    useEffect(() => {
+        const hoopPoint = points.find(p => p.id === 'hoop')
+        if (hoopPoint && selectedResolution) {
+            const normHoop = normalizePoint(hoopPoint.x, hoopPoint.y)
+            const roi = calculateRoi(
+                normHoop.x,
+                normHoop.y,
+                selectedResolution.width,
+                selectedResolution.height
+            )
+            // Convert ROI from camera space to preview SVG space for display
+            setRimRoi(convertRoiToPreview(roi))
+        }
+    }, [points, selectedResolution, calculateRoi])
 
     const meta = MODE_META[cameraMode]
 
@@ -889,20 +1080,20 @@ export default function CalibrationScreen({ navigation, route }: any) {
         )
     }
 
-    const normalizePoint = (rawX: number, rawY: number): Point => {
-        // Apply mirror to match YOLO detection space
-        // Touch coordinates are relative to view, but YOLO detections are in mirrored camera space
-        // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
-        const mirroredX = SW - rawX;
-        const mirroredY = CAM_H - rawY;
-        return {
-            x: Math.max(0, Math.min(1, mirroredX / SW)),
-            y: Math.max(0, Math.min(1, mirroredY / CAM_H)),
-        };
-    }
-
     const handleCameraTouch = (event: any) => {
         const { locationX, locationY } = event.nativeEvent
+
+        // Controls sit on top of the camera and can overlap the hoop/court points.
+        // Ignore their hit areas even if native touch-event ordering differs by device.
+        const rimButtonTouch = locationY >= 0 && locationY <= 64 && locationX >= SW - 280
+        const configButtonCenterY = CAM_H / 2 - 150
+        const configButtonTouch = locationX <= 80 &&
+            locationY >= configButtonCenterY - 40 && locationY <= configButtonCenterY + 40
+        if (showConfigPanel || ignoreCameraTouchRef.current || rimButtonTouch || configButtonTouch) {
+            ignoreCameraTouchRef.current = false
+            return
+        }
+
         // Find closest point to touch with larger tolerance
         let closestId: DraggablePoint['id'] | null = null
         let minDist = Infinity
@@ -919,6 +1110,17 @@ export default function CalibrationScreen({ navigation, route }: any) {
         } else {
             setActivePoint(null)
         }
+    }
+
+    // Capture one RGB frame only when saving calibration; no per-frame brightness work is added to the workout pipeline.
+    const captureAmbientBrightness = async (): Promise<number | undefined> => {
+        ambientBrightnessRef.current = null
+        requestBrightnessCapture.value = true
+
+        // One preview frame should arrive quickly; keep the wait bounded.
+        await new Promise(resolve => setTimeout(resolve, 250))
+        requestBrightnessCapture.value = false
+        return ambientBrightnessRef.current ?? undefined
     }
 
     const handleSave = async () => {
@@ -955,10 +1157,33 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 }
             }
 
+            // Use YOLO-detected center if available, otherwise fall back to manual selection
+            let finalHoopCenter = normHoop
+            if (refinedRim) {
+                // Calculate center from YOLO-detected bounding box
+                finalHoopCenter = {
+                    x: refinedRim.x + refinedRim.width / 2,
+                    y: refinedRim.y + refinedRim.height / 2,
+                }
+                console.log('[Calibration] Using YOLO-detected center:', finalHoopCenter)
+            } else {
+                console.log('[Calibration] Using manually selected center:', finalHoopCenter)
+            }
+
+            const ambientBrightness = await captureAmbientBrightness()
+            console.log('[Calibration] Ambient brightness sample:', ambientBrightness ?? 'unavailable')
+
             const cal: CalibrationData = {
                 homographyMatrix,
-                hoopCenter: normHoop,
+                hoopCenter: finalHoopCenter,
+                hoopBbox: refinedRim ? {
+                    x: refinedRim.x,
+                    y: refinedRim.y,
+                    width: refinedRim.width,
+                    height: refinedRim.height,
+                } : undefined,
                 cameraResolution: selectedResolution ?? undefined,
+                ambientBrightness,
                 courtCorners,
                 courtWidth: COURT_CONFIG.WIDTH_M,
                 courtHeight: courtType === 'FULL_COURT' ? COURT_CONFIG.FULL_HEIGHT_M : COURT_CONFIG.HALF_HEIGHT_M,
@@ -966,11 +1191,101 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
             // Save calibration locally - will be sent to backend after session creation
             setSavedCalibration(cal)
-            showSuccess('✓ Calibrazione salvata', 'Puoi procedere con la sessione')
+            showSuccess(
+                '✓ Calibrazione salvata',
+                ambientBrightness !== undefined
+                    ? `Indice di luminosità immagine: ${Math.round(ambientBrightness * 100)}/100. Puoi procedere con la sessione.`
+                    : 'Luminosità non rilevata: in modalità AUTO la torcia resterà spenta. Puoi procedere con la sessione.'
+            )
         } catch (e: any) {
             showError('Errore', e.message || 'Impossibile salvare')
         } finally {
             setIsSaving(false)
+        }
+    }
+
+    const handleRimCalibration = async () => {
+        if (!isModelReady) {
+            showError('Errore', 'Modello YOLO non ancora caricato')
+            return
+        }
+
+        if (!selectedResolution) {
+            showError('Errore', 'Risoluzione camera non selezionata')
+            return
+        }
+        
+        // Log before payload creation
+        console.log('[Calibration] Before creating payload - selectedResolution:', selectedResolution)
+        console.log('[Calibration] User picked resolution flag:', userPickedResolutionRef.current)
+
+        const hoopPoint = points.find(p => p.id === 'hoop')
+        if (!hoopPoint) {
+            showError('Errore', 'Seleziona prima il centro del canestro')
+            return
+        }
+
+        // Do not clear ignoreCameraTouchRef here. This handler runs on press and
+        // the parent camera's onTouchEnd can run afterward; clearing here lets that
+        // same button tap be mistaken for a point-placement gesture (seen on first try).
+        // handleCameraTouch consumes and clears the guard when the bubbled touch arrives.
+
+        setRimCalibrationStatus('processing')
+
+        try {
+            // Reset latch and frame reference
+            frameCaptured.value = false
+            capturedFrameRef.current = null
+            requestFrameCapture.value = true
+
+            // Wait for frame to be captured (give it 2000ms)
+            await new Promise(resolve => setTimeout(resolve, 2000))
+
+            // Disable frame capture
+            requestFrameCapture.value = false
+
+            // Get the captured frame
+            const frameBuffer = capturedFrameRef.current
+            if (!frameBuffer) {
+                throw new Error('Impossibile catturare frame')
+            }
+
+            // Get normalized hoop center
+            const normHoop = normalizePoint(hoopPoint.x, hoopPoint.y)
+
+            // Run rim calibration with the captured frame at original camera resolution
+            const result = await calibrateRim(
+                frameBuffer,
+                selectedResolution.width,
+                selectedResolution.height,
+                normHoop.x,
+                normHoop.y
+            )
+
+            if (result.success && result.bbox) {
+                setRefinedRim({
+                    x: result.bbox.x,
+                    y: result.bbox.y,
+                    width: result.bbox.width,
+                    height: result.bbox.height,
+                    confidence: result.confidence,
+                })
+                setRimCalibrationStatus('detected')
+                showSuccess('Rilevamento completato', `Confidenza: ${(result.confidence * 100).toFixed(1)}%`)
+            } else {
+                // Only reset refinedRim when detection fails - keep ROI box visible
+                console.log('[Calibration] Detection failed, resetting refinedRim only. result:', result)
+                setRefinedRim(null)
+                setRimCalibrationStatus('notDetected')
+                showWarning('Rilevamento fallito', result.error || 'Nessun rilevamento valido - usa selezione manuale')
+            }
+        } catch (error) {
+            setRimCalibrationStatus('error')
+            showError('Errore', error instanceof Error ? error.message : 'Errore durante la calibrazione')
+        } finally {
+            requestFrameCapture.value = false
+            frameCaptured.value = false
+            capturedFrameRef.current = null
         }
     }
 
@@ -1094,6 +1409,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
             { id: 'corner4', x: SW * 0.08, y: CAM_H * 0.85, label: '4' },
         ])
         setSavedCalibration(null)
+        setRefinedRim(null)
+        setRimCalibrationStatus('idle')
     }
 
     const OverlayComponent =
@@ -1138,7 +1455,12 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         console.warn('[Calibration] Camera error:', error)
                     }}
                 />
-                <OverlayComponent points={points} activePoint={activePoint} />
+                <OverlayComponent 
+                    points={points} 
+                    activePoint={activePoint} 
+                    rimRoi={rimRoi} 
+                    rimCalibrationStatus={rimCalibrationStatus} 
+                />
                 {/* Crosshair sottile */}
                 <View style={styles.guideH} pointerEvents="none" />
                 <View style={styles.guideV} pointerEvents="none" />
@@ -1153,9 +1475,34 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 {/* Camera config button */}
                 <TouchableOpacity
                     style={styles.configBtn}
+                    onPressIn={() => { ignoreCameraTouchRef.current = true }}
                     onPress={() => setShowConfigPanel(!showConfigPanel)}
                 >
                     <Text style={styles.configBtnText}>⚙️</Text>
+                </TouchableOpacity>
+
+                {/* Rim calibration button */}
+                {rimRoi && (
+                    <TouchableOpacity
+                        style={[styles.rimCalibBtn, (!isModelReady || rimCalibrationStatus === 'processing') && styles.rimCalibBtnDisabled]}
+                        onPressIn={() => { ignoreCameraTouchRef.current = true }}
+                        onPress={handleRimCalibration}
+                        disabled={!isModelReady || rimCalibrationStatus === 'processing'}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                        <Text style={styles.rimCalibBtnText}>
+                            {!isModelReady ? '⏳ Caricamento YOLO...' : rimCalibrationStatus === 'processing' ? '⏳ Rilevamento...' : rimCalibrationStatus === 'detected' ? '✓ Rim rilevato · ripeti' : rimCalibrationStatus === 'notDetected' || rimCalibrationStatus === 'error' ? '↻ Riprova rim' : '🎯 Rileva rim'}
+                        </Text>
+                    </TouchableOpacity>
+                )}
+
+                {/* Benchmark button */}
+                <TouchableOpacity
+                    style={styles.benchmarkBtn}
+                    onPressIn={() => { ignoreCameraTouchRef.current = true }}
+                    onPress={() => setShowBenchmarkPanel(!showBenchmarkPanel)}
+                >
+                    <Text style={styles.benchmarkBtnText}>📊 Benchmark</Text>
                 </TouchableOpacity>
 
                 {/* Camera config panel */}
@@ -1251,7 +1598,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         selectedValue={`${selectedResolution?.width ?? 1280}x${selectedResolution?.height ?? 720}`}
                                         onValueChange={(value) => {
                                             const found = availableResolutions.find(r => `${r.width}x${r.height}` === value)
-                                            if (found) setSelectedResolution(found)
+                                            if (found) {
+                                                userPickedResolutionRef.current = true
+                                                console.log('[Calibration] User picked resolution:', found)
+                                                setSelectedResolution(found)
+                                            }
                                         }}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}
@@ -1318,6 +1669,114 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         </TouchableOpacity>
                     </View>
                 )}
+
+                {/* Benchmark panel */}
+                {showBenchmarkPanel && (
+                    <View style={[styles.configPanel, { bottom: 12 }]}>
+                        <Text style={styles.configPanelTitle}>Benchmark YOLO (Immagini)</Text>
+                        <ScrollView style={styles.configPanelScroll} contentContainerStyle={styles.configPanelContent}>
+                            <Text style={styles.configHint}>
+                                Confronta inferenza TFLite dell'app con benchmark Python.
+                                Esegui prima: python scripts/extract_frames_from_videos.py
+                            </Text>
+
+                            {!benchmark.modelLoaded && (
+                                <Text style={styles.configHint}>⏳ Caricamento modello TFLite...</Text>
+                            )}
+
+                            {benchmark.modelLoaded && !benchmark.isProcessing && (
+                                <>
+                                    <TouchableOpacity
+                                        style={styles.closeConfigButton}
+                                        onPress={async () => {
+                                            const { imageUris, videoNames } = await benchmark.loadBenchmarkImages()
+                                            if (imageUris.length === 0) {
+                                                console.warn('[Benchmark] Nessuna immagine trovata. Esegui prima: python scripts/extract_frames_from_videos.py')
+                                                return
+                                            }
+
+                                            // Save image URIs for visualization
+                                            setBenchmarkImageUris(imageUris)
+
+                                            // Group images by video name and run benchmark for each video
+                                            let allResults: any[] = []
+                                            const videoGroups: Record<string, string[]> = {}
+                                            for (let i = 0; i < imageUris.length; i++) {
+                                                const videoName = videoNames[i]
+                                                if (!videoGroups[videoName]) {
+                                                    videoGroups[videoName] = []
+                                                }
+                                                videoGroups[videoName].push(imageUris[i])
+                                            }
+
+                                            for (const [videoName, uris] of Object.entries(videoGroups)) {
+                                                console.log(`[Benchmark] Processing video: ${videoName} images: ${uris.length}`)
+                                                const summary = await benchmark.runBenchmark(uris, videoName)
+                                                if (summary) {
+                                                    allResults = [...allResults, ...summary.results]
+                                                }
+                                            }
+
+                                            console.log('[Benchmark] Total results:', allResults.length)
+                                        }}
+                                    >
+                                        <Text style={styles.closeConfigButtonText}>Esegui Benchmark</Text>
+                                    </TouchableOpacity>
+
+                                    {benchmark.results.length > 0 && (
+                                        <>
+                                            <TouchableOpacity
+                                                style={[styles.closeConfigButton, { marginTop: 8 }]}
+                                                onPress={() => {
+                                                    const csv = benchmark.exportResults('csv')
+                                                    console.log('[Benchmark] CSV:', csv)
+                                                }}
+                                            >
+                                                <Text style={styles.closeConfigButtonText}>Esporta CSV</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.closeConfigButton, { marginTop: 8 }]}
+                                                onPress={() => {
+                                                    const json = benchmark.exportResults('json')
+                                                    console.log('[Benchmark] JSON:', json)
+                                                }}
+                                            >
+                                                <Text style={styles.closeConfigButtonText}>Esporta JSON</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.closeConfigButton, { marginTop: 8, backgroundColor: '#4CAF50' }]}
+                                                onPress={() => {
+                                                    setShowBenchmarkVisualization(true)
+                                                }}
+                                            >
+                                                <Text style={styles.closeConfigButtonText}>Visualizza BBox</Text>
+                                            </TouchableOpacity>
+                                        </>
+                                    )}
+                                </>
+                            )}
+
+                            {benchmark.isProcessing && (
+                                <Text style={styles.configHint}>
+                                    ⏳ Processamento: {benchmark.progress.current}/{benchmark.progress.total}
+                                </Text>
+                            )}
+
+                            {benchmark.error && (
+                                <Text style={[styles.configHint, { color: '#ff4444' }]}>
+                                    Errore: {benchmark.error}
+                                </Text>
+                            )}
+                        </ScrollView>
+
+                        <TouchableOpacity
+                            style={styles.closeConfigButton}
+                            onPress={() => setShowBenchmarkPanel(false)}
+                        >
+                            <Text style={styles.closeConfigButtonText}>Chiudi</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
             </View>
 
             {/* Pannello info */}
@@ -1351,6 +1810,14 @@ export default function CalibrationScreen({ navigation, route }: any) {
             </ScrollView>
 
             <CustomAlert {...alert} />
+
+            {showBenchmarkVisualization && benchmarkImageUris.length > 0 && (
+                <BenchmarkVisualization
+                    results={benchmark.results}
+                    imageUris={benchmarkImageUris}
+                    onClose={() => setShowBenchmarkVisualization(false)}
+                />
+            )}
         </View>
     )
 }
@@ -1408,6 +1875,23 @@ const styles = StyleSheet.create({
     },
     configBtnText: {
         fontSize: 20,
+    },
+    benchmarkBtn: {
+        position: 'absolute',
+        right: 16,
+        top: '50%',
+        marginTop: -150,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.3)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    benchmarkBtnText: {
+        fontSize: 18,
     },
     configPanel: {
         position: 'absolute',
@@ -1507,6 +1991,26 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '600',
         color: '#fff',
+    },
+    rimCalibBtn: {
+        position: 'absolute',
+        top: 12,
+        right: 60,
+        backgroundColor: 'rgba(255,140,0,0.9)',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#ff8c00',
+    },
+    rimCalibBtnDisabled: {
+        backgroundColor: 'rgba(255,140,0,0.4)',
+        opacity: 0.6,
+    },
+    rimCalibBtnText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '700',
     },
     bottomPanel: { flex: 1, padding: 14 },
     modeCard: {

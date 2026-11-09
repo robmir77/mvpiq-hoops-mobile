@@ -34,7 +34,7 @@ import {
     incrementMoveNetFps,
 } from '@/features/workouts/hooks/usePerformanceMonitor'
 import { telemetryLogger, type DiagnosticWindowSnapshot } from './telemetry'
-import { YOLO_CONFIG, TEST_CONFIG } from '@/config/appConfig'
+import { YOLO_CONFIG, TEST_CONFIG, VISION_CONFIG } from '@/config/appConfig'
 
 
 const BALL_STABILITY_THRESHOLD = 0.02 // Position change threshold (2%)
@@ -86,9 +86,9 @@ export const useShotTracker = (
     } | null,
 
     enabled: boolean = true,
-    poseEnabled: boolean = true,
-    ballEnabled: boolean = true,
-    rimEnabled: boolean = true,
+    poseEnabled: boolean = VISION_CONFIG.POSE_DETECTION_ENABLED,
+    ballEnabled: boolean = VISION_CONFIG.BALL_DETECTION_ENABLED,
+    rimEnabled: boolean = VISION_CONFIG.RIM_DETECTION_ENABLED,
 
     // runtimeActive parameter exists for API compatibility but is not used in the frame processor
     // Vision pipeline continues to run even when Runtime is ACTIVE
@@ -493,6 +493,11 @@ export const useShotTracker = (
                     const frameWidth = frame.width
                     const frameHeight = frame.height
                     const timestamp = now // Reuse single Date.now() call
+
+                    // Log frame resolution and target resolution once for verification
+                    if (currentFrame === 1) {
+                        console.log('[FrameProcessor] Frame resolution:', `${frameWidth}x${frameHeight}`, 'Target resolution (raw):', selectedResolution ? `${selectedResolution.width}x${selectedResolution.height}` : 'null')
+                    }
 
                     // Call YOLO worker every frame - it handles its own throttling internally
                     if (ballEnabledShared.value) {

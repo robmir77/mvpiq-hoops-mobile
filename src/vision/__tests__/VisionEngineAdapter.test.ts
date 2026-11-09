@@ -2,8 +2,37 @@ import { VisionEngineAdapter } from '../VisionEngineAdapter'
 
 jest.mock('@/config/appConfig', () => ({
   YOLO_CONFIG: {
-    BALL_CONF_THRESHOLD: 0.005,
-    RIM_CONF_THRESHOLD: 0.1,
+    BALL_CONF_THRESHOLD: 0.001,
+    RIM_CONF_THRESHOLD: 0.30,
+    PLAYER_CONF_THRESHOLD: 0.03,
+    PLAYER_CROP_MIN_CONFIDENCE: 0.05,
+    NMS_IOU_THRESHOLD: 0.4,
+    PLAYER_MIN_WIDTH: 0.05,
+    PLAYER_MIN_HEIGHT: 0.1,
+    BALL_MAX_BBOX_SIZE: 0.15,
+    ADAPTIVE_CONF: {
+      ENABLED: true,
+      WINDOW_SIZE: 15,
+      MIN_THRESHOLD: 0.0005,
+      MAX_THRESHOLD: 0.50,
+      ADJUSTMENT_FACTOR: 0.2,
+      HIGH_CONF_THRESHOLD: 0.7,
+      LOW_CONF_THRESHOLD: 0.2,
+    },
+  },
+  VISION_CONFIG: {
+    CAMERA_FPS: 30,
+    YOLO: { ENABLED: true },
+    MOVENET: { ENABLED: true },
+    BALL_DETECTION_ENABLED: true,
+    PLAYER_DETECTION_ENABLED: true,
+    RIM_DETECTION_ENABLED: false,
+    POSE_DETECTION_ENABLED: true,
+    RIM_CALIBRATION: {
+      ROI_SIZE_PERCENT: 0.25,
+      MIN_CONFIDENCE: 0.40,
+      MAX_DISTANCE_FROM_CENTER: 0.15,
+    },
   },
 }))
 
@@ -40,10 +69,14 @@ describe('VisionEngineAdapter temporal synchronization', () => {
     const first = adapter.processFrame(frame(observedAt))
     const second = adapter.processFrame(frame(observedAt + 20))
 
+    // First frame: ball is present and has observation timestamp (new measurement)
     expect(first.ball).not.toBeNull()
     expect(first.observationTimestamps?.ball).toBe(observedAt)
-    expect(second.ball).toBeNull()
-    expect(second.observationTimestamps?.ball).toBeNull()
+
+    // Second frame: ball may still be present for hoop verification (cached),
+    // but observationTimestamps.ball is null (not a new measurement for tracking)
+    expect(second.ball).not.toBeNull() // Cached detection for hoop verification
+    expect(second.observationTimestamps?.ball).toBeNull() // Not a new measurement
   })
 
   it('forwards each channel only when that channel has a new observation', () => {
@@ -68,8 +101,10 @@ describe('VisionEngineAdapter temporal synchronization', () => {
     )
 
     const result = adapter.processFrame(frame(playerTimestamp))
-    expect(result.ball).toBeNull()
-    expect(result.observationTimestamps?.ball).toBeNull()
+    // Ball is cached for hoop verification but not a new measurement
+    expect(result.ball).not.toBeNull() // Cached detection for hoop verification
+    expect(result.observationTimestamps?.ball).toBeNull() // Not a new measurement
+    // Player is a new observation
     expect(result.player).not.toBeNull()
     expect(result.observationTimestamps?.player).toBe(playerTimestamp)
   })
