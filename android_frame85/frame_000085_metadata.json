@@ -1,0 +1,46 @@
+{
+  "videoName": "Tiro a centrocampo",
+  "frameIndex": 85,
+  "image": "frame_000085.jpg",
+  "assetKey": "Tiro a centrocampo/frame_000085.jpg",
+  "width": 1024,
+  "height": 576,
+  "inputSize": 640,
+  "input": {
+    "min": 0,
+    "max": 255,
+    "mean": 78.82842944168138,
+    "elements": 1228800
+  },
+  "inputFile": "file:///data/user/0/com.mvpiqhoopsmobile/files/yolo-debug/frame_000085_android_input.f32",
+  "output": {
+    "min": 0,
+    "max": 1,
+    "mean": 0.2098829619938622,
+    "elements": 58800
+  },
+  "outputFile": "file:///data/user/0/com.mvpiqhoopsmobile/files/yolo-debug/frame_000085_android_output.f32",
+  "outputShapeExpected": [
+    1,
+    7,
+    8400
+  ],
+  "outputDtype": "float32",
+  "detections": {
+    "ball": {
+      "x": 0.5246631503105164,
+      "y": 0.2836570739746094,
+      "width": 0.06196203827857971,
+      "height": 0.1483990881178114,
+      "confidence": 1
+    },
+    "player": {
+      "x": 0.024453697726130486,
+      "y": 0.06670141220092773,
+      "width": 0.07711145281791687,
+      "height": 0.14461114671495226,
+      "confidence": 1
+    },
+    "rim": null
+  }
+}
