@@ -14,6 +14,11 @@ import { Platform } from 'react-native'
 import { BENCHMARK_IMAGE_ASSETS } from './benchmarkImageAssets'
 import { letterboxRgbToYoloInput } from './engine/yoloPreprocessing'
 
+const TARGET_VIDEO_NAME = 'Tiro a centrocampo'
+const TARGET_FRAME_FILENAME = 'frame_000085.jpg'
+const TARGET_FRAME_INDEX = 85
+const TARGET_ASSET_KEY = `${TARGET_VIDEO_NAME}/${TARGET_FRAME_FILENAME}`
+
 // Polyfill Buffer for debug export
 if (typeof (global as any).Buffer === 'undefined') {
   (global as any).Buffer = require('buffer').Buffer
@@ -200,9 +205,9 @@ export const useImageBenchmark = (yoloModelId?: string) => {
     // Temporary diagnostic: capture input tensor for frame_000085.jpg
     const decodedImageUri = decodeURIComponent(imageUri)
 
-    const isTargetFrame = decodedImageUri.includes(
-      '/Tiro a centrocampo/frame_000085.jpg'
-    )
+    const isTargetFrame =
+      videoName === TARGET_VIDEO_NAME &&
+      decodedImageUri.includes(TARGET_FRAME_FILENAME)
 
     if (decodedImageUri.includes('frame_000085.jpg')) {
       console.log('[YOLO DEBUG] Frame 000085 detected', {
@@ -258,7 +263,10 @@ export const useImageBenchmark = (yoloModelId?: string) => {
       )
 
       const metadata = {
-        image: 'frame_000085.jpg',
+        videoName,
+        frameIndex,
+        image: TARGET_FRAME_FILENAME,
+        assetKey: TARGET_ASSET_KEY,
         width,
         height,
         inputSize: tensorSize,
@@ -299,7 +307,14 @@ export const useImageBenchmark = (yoloModelId?: string) => {
       return null
     }
 
-    console.log('[Benchmark] Starting benchmark for video:', videoName, 'images:', imageUris.length)
+    if (imageUris.length !== 1) {
+      const message = `Single-frame diagnostic expects exactly 1 image; received ${imageUris.length}`
+      setError(message)
+      console.error('[Benchmark]', message)
+      return null
+    }
+
+    console.log('[Benchmark] Starting single-frame diagnostic:', videoName, TARGET_FRAME_FILENAME)
     setIsProcessing(true)
     setProgress({ current: 0, total: imageUris.length })
     setError(null)
@@ -310,7 +325,7 @@ export const useImageBenchmark = (yoloModelId?: string) => {
     try {
       for (let i = 0; i < imageUris.length; i++) {
         console.log('[Benchmark] Processing frame', i + 1, '/', imageUris.length)
-        const result = await processImage(imageUris[i], i, videoName)
+        const result = await processImage(imageUris[i], TARGET_FRAME_INDEX, videoName)
         benchmarkResults.push(result)
         setResults([...benchmarkResults])
         setProgress({ current: i + 1, total: imageUris.length })
@@ -342,110 +357,61 @@ export const useImageBenchmark = (yoloModelId?: string) => {
 
   const loadBenchmarkImages = useCallback(async (): Promise<{ imageUris: string[]; videoNames: string[] }> => {
     try {
-      // Load manifest directly with require() - no Asset.fromModule needed
-      const manifest = require('../../assets/benchmark-images/manifest.json')
-      console.log('[Benchmark] Manifest loaded, videos:', manifest.videos?.length)
+      // Single-frame diagnostic: load only the exact Python-comparison asset.
+      const staticAsset = (BENCHMARK_IMAGE_ASSETS as Record<string, any>)[TARGET_ASSET_KEY]
 
-      // Build array of all static assets from the generated mapping
-      const assetsToLoad: any[] = []
-      const assetToKey: string[] = []
-
-      for (const video of manifest.videos || []) {
-        // Extract video name from output_dir, handling both / and \
-        const videoName = video.output_dir.split(/[/\\]/).pop() || 'unknown'
-        console.log('[Benchmark] Processing video:', videoName, 'frames:', video.frames?.length)
-
-        for (const frame of video.frames || []) {
-          const key = `${videoName}/${frame.filename}`
-          const staticAsset = (BENCHMARK_IMAGE_ASSETS as Record<string, any>)[key]
-
-          if (!staticAsset) {
-            console.error('[Benchmark] Asset not found in mapping:', key)
-            continue
-          }
-
-          assetsToLoad.push(staticAsset)
-          assetToKey.push(key)
-        }
+      if (!staticAsset) {
+        throw new Error(`Benchmark asset not found: ${TARGET_ASSET_KEY}`)
       }
 
-      console.log('[Benchmark] Assets to load:', assetsToLoad.length)
+      console.log('[Benchmark] Single-frame diagnostic asset:', TARGET_ASSET_KEY)
 
-      // Load all assets at once using Asset.loadAsync
-      const loadedAssets = await Asset.loadAsync(assetsToLoad)
-      console.log('[Benchmark] Assets loaded:', loadedAssets.length)
+      const loadedAssets = await Asset.loadAsync([staticAsset])
+      const loaded = loadedAssets[0]
 
-      // Create cache directory
+      if (!loaded) {
+        throw new Error(`Asset failed to load: ${TARGET_ASSET_KEY}`)
+      }
+
       const cacheDir = (FileSystem as any).documentDirectory + 'benchmark-images/'
       const dirInfo = await FileSystem.getInfoAsync(cacheDir)
       if (!dirInfo.exists) {
         await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true })
-        console.log('[Benchmark] Created cache directory:', cacheDir)
       }
 
-      const imageUris: string[] = []
-      const videoNames: string[] = []
-
-      // Associate loaded assets by index, not by object comparison
-      for (let i = 0; i < loadedAssets.length; i++) {
-        const key = assetToKey[i]
-        const loaded = loadedAssets[i]
-
-        if (!key) continue
-
-        const [videoName, filename] = key.split('/')
-        const videoDir = cacheDir + videoName + '/'
-        const destUri = videoDir + filename
-
-        // Temporary diagnostic: log URI construction for frame_000085.jpg
-        if (filename === 'frame_000085.jpg') {
-          console.log('[YOLO DEBUG] URI construction', {
-            key,
-            videoName,
-            filename,
-            videoDir,
-            destUri,
-            sourceUri: loaded.localUri || loaded.uri,
-          })
-        }
-
-        // Create video directory if needed
-        const videoDirInfo = await FileSystem.getInfoAsync(videoDir)
-        if (!videoDirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(videoDir, { intermediates: true })
-        }
-
-        const fileInfo = await FileSystem.getInfoAsync(destUri)
-        if (fileInfo.exists) {
-          // Already cached
-          imageUris.push(destUri)
-          videoNames.push(videoName)
-          continue
-        }
-
-        // Copy from loaded asset to cache
-        try {
-          const sourceUri = loaded.localUri || loaded.uri
-          if (!sourceUri) {
-            throw new Error(`Asset has no local URI: ${key}`)
-          }
-
-          await FileSystem.copyAsync({ from: sourceUri, to: destUri })
-          imageUris.push(destUri)
-          videoNames.push(videoName)
-        } catch (copyErr) {
-          console.error('[Benchmark] Failed to copy image:', key, copyErr)
-        }
+      const videoDir = cacheDir + TARGET_VIDEO_NAME + '/'
+      const videoDirInfo = await FileSystem.getInfoAsync(videoDir)
+      if (!videoDirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(videoDir, { intermediates: true })
       }
 
-      console.log('[Benchmark] Loaded image URIs:', imageUris.length)
-      console.log('[Benchmark] Video names:', [...new Set(videoNames)])
-      if (imageUris.length === 0) {
-        setError('No images could be loaded. Check that benchmark images are included in the bundle.')
+      const destUri = videoDir + TARGET_FRAME_FILENAME
+      const existing = await FileSystem.getInfoAsync(destUri)
+      if (existing.exists) {
+        await FileSystem.deleteAsync(destUri, { idempotent: true })
       }
-      return { imageUris, videoNames }
+
+      const sourceUri = loaded.localUri || loaded.uri
+      if (!sourceUri) {
+        throw new Error(`Asset has no local URI: ${TARGET_ASSET_KEY}`)
+      }
+
+      await FileSystem.copyAsync({ from: sourceUri, to: destUri })
+
+      console.log('[Benchmark] Single frame ready', {
+        videoName: TARGET_VIDEO_NAME,
+        frameIndex: TARGET_FRAME_INDEX,
+        filename: TARGET_FRAME_FILENAME,
+        sourceUri,
+        destUri,
+      })
+
+      return {
+        imageUris: [destUri],
+        videoNames: [TARGET_VIDEO_NAME],
+      }
     } catch (err) {
-      console.error('[Benchmark] Error loading images:', err)
+      console.error('[Benchmark] Error loading single diagnostic frame:', err)
       setError(err instanceof Error ? err.message : String(err))
       return { imageUris: [], videoNames: [] }
     }
