@@ -397,11 +397,27 @@ export class YoloDetector {
       let ballRejectedAspectRatio = 0
       let ballRejectedCoordinates = 0
 
+      // DIAGNOSTIC: Track all candidates with score 1.0 for frame 85
+      let ballCandidatesWithScore1: { index: number; confidence: number; x: number; y: number; width: number; height: number }[] = []
+
       // Inference counter for diagnostics (persist across calls)
       if (!this.inferenceCounter) {
         this.inferenceCounter = 0
       }
       this.inferenceCounter++
+
+      // DIAGNOSTIC: Log adaptive threshold before parsing for frame 85
+      if (__DEV__ && this.inferenceCounter === 85) {
+        console.log('[YoloDetector] FRAME 85 DIAGNOSTIC - Before parsing', {
+          inferenceCounter: this.inferenceCounter,
+          adaptiveBallThreshold: this.adaptiveBallThreshold,
+          adaptivePlayerThreshold: this.adaptivePlayerThreshold,
+          baseBallThreshold: this.ballConfThreshold,
+          ballDetectionHistory: this.ballDetectionHistory,
+          ballConfidenceHistory: this.ballConfidenceHistory,
+          note: 'Compare with Python decoder state after 84 frames'
+        })
+      }
 
       // Convert coordinates from tensor space to camera-normalized space
       const convertFromLetterbox = (cx: number, cy: number, w: number, h: number) => {
@@ -499,6 +515,18 @@ export class YoloDetector {
                   confidence: detection.confidence
                 })
               }
+            }
+
+            // DIAGNOSTIC: Track candidates with score 1.0 for frame 85
+            if (__DEV__ && this.inferenceCounter === 85 && ballProb >= 0.9999) {
+              ballCandidatesWithScore1.push({
+                index: i,
+                confidence: ballProb,
+                x: cameraCx,
+                y: cameraCy,
+                width: cameraW,
+                height: cameraH
+              })
             }
           }
         } else {
@@ -651,6 +679,21 @@ export class YoloDetector {
           bestBall: bestBall,
           postSelectionThreshold: bestBall ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, 0.005, 0.01, 0.30, 1.0) : null,
           note: 'Compare with Best ball updated log to see if post-selection threshold changed the anchor'
+        })
+      }
+
+      // DIAGNOSTIC: Log frame 85 detailed results
+      if (__DEV__ && this.inferenceCounter === 85) {
+        console.log('[YoloDetector] FRAME 85 DIAGNOSTIC - After parsing', {
+          inferenceCounter: this.inferenceCounter,
+          finalBall: finalBall,
+          bestBall: bestBall,
+          bestPlayer: bestPlayer,
+          ballCandidatesWithScore1: ballCandidatesWithScore1,
+          ballCandidatesWithScore1Count: ballCandidatesWithScore1.length,
+          postSelectionThreshold: bestBall ? this.getAdaptiveThreshold(bestBall.width, bestBall.height, 0.005, 0.01, 0.30, 1.0) : null,
+          adaptiveBallThresholdAfter: this.adaptiveBallThreshold,
+          note: 'Compare with Python decoder - check if same anchor wins with same adaptive threshold'
         })
       }
 
