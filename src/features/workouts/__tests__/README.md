@@ -1,27 +1,33 @@
-# Test della feature Workout
+# Test automatici — Workout
 
-Questo README descrive i test presenti in `src/features/workouts/__tests__`. I nomi elencati sono derivati dall'albero del repository; non vengono dichiarate percentuali di coverage né esiti di esecuzione non verificati.
+Questa cartella contiene i test Jest della feature workout. L'elenco riflette i file presenti nel repository.
 
 ## Test presenti
 
-- `WorkoutSessionRuntime.test.ts`: test unitari del runtime sessione.
-- `calibration.test.ts`: logica e dati di calibrazione.
-- `homography.test.ts`: trasformazioni tramite omografia.
-- `manualShotRegistration.test.ts`: registrazione manuale dei tiri.
-- `persistentOutbox.test.ts`: persistenza locale degli eventi critici.
-- `telemetrySampler.test.ts`: campionamento telemetria.
-- `useTrackingEngine.test.ts`: hook e integrazione del tracking.
-- `useWorkoutSessions.test.tsx`: hook delle sessioni workout.
-- `workoutAsyncQueue.test.ts`: coda asincrona degli eventi.
-- `workoutFlow.integration.test.ts`: flusso di integrazione workout.
-- `workoutLifecycle.e2e.test.ts`: test di lifecycle con harness di test.
-- `workouts.api.test.ts`: API workout.
-- Test di coordinamento in `screens/__tests__/RuntimeProcessFrameCoordinator.test.ts`.
-- Test engine specifici in `tracking/__tests__/`.
+| File | Ambito |
+|---|---|
+| `WorkoutSessionRuntime.test.ts` | State machine, coordinamento frame ed eventi runtime |
+| `calibration.test.ts` | Calibrazione |
+| `homography.test.ts` | Trasformazioni omografiche |
+| `manualShotRegistration.test.ts` | Registrazione manuale dei tiri |
+| `persistentOutbox.test.ts` | Persistenza locale degli eventi |
+| `telemetrySampler.test.ts` | Campionamento telemetria |
+| `useTrackingEngine.test.ts` | Hook di tracking |
+| `useWorkoutSessions.test.tsx` | Hook delle sessioni workout |
+| `workoutAsyncQueue.test.ts` | Coda asincrona |
+| `workoutFlow.integration.test.ts` | Flusso workout |
+| `workoutLifecycle.e2e.test.ts` | Lifecycle con dipendenze simulate |
+| `workouts.api.test.ts` | API workout |
+| `screens/__tests__/RuntimeProcessFrameCoordinator.test.ts` | Coordinamento delle chiamate runtime |
+| `tracking/__tests__/BallTrackingEngine.test.ts` | Tracking della palla |
+| `tracking/__tests__/BallTrajectoryAnalyzer.test.ts` | Analisi della traiettoria |
+| `tracking/__tests__/PlayerTrackingEngine.test.ts` | Tracking del giocatore |
+| `tracking/__tests__/ShotDetectionEngine.test.ts` | Rilevamento e classificazione del tiro |
+| `tracking/__tests__/TrackingEngine.test.ts` | Orchestrazione tracking |
 
 ## Esecuzione
 
-Gli script definiti nel `package.json` alla radice sono:
+Dalla root del progetto:
 
 ```bash
 npm test
@@ -29,29 +35,16 @@ npm run test:watch
 npm run test:coverage
 ```
 
-Per un test mirato:
+Per eseguire una suite mirata:
 
 ```bash
 npm test -- WorkoutSessionRuntime.test.ts
 npm test -- workoutAsyncQueue.test.ts
-npm test -- persistentOutbox.test.ts
-npm test -- RuntimeProcessFrameCoordinator.test.ts
+npm test -- ShotDetectionEngine.test.ts
 ```
 
-Jest accetta il pattern passato dopo `--`; controllare l'output del comando per confermare quali suite sono state effettivamente selezionate.
+Verificare sempre l'output e l'exit code del comando: questo README descrive i test presenti, non dichiara che siano tutti superati.
 
-## Che cosa non dimostra la suite
+## Limiti
 
-- I test Jest non sostituiscono una prova con camera reale e native worklets.
-- Un test di integrazione con mock non certifica il comportamento del backend remoto, della rete o del dispositivo.
-- Il superamento dei test unitari non prova la continuità dell'overlay o un determinato FPS.
-- Le percentuali di coverage devono essere ricavate da un run aggiornato di `npm run test:coverage`, non copiate da report precedenti.
-
-## Checklist dopo modifiche
-
-- [ ] Eseguire la suite mirata e verificare l'exit code.
-- [ ] Eseguire `npm test` prima di considerare conclusa una modifica trasversale.
-- [ ] Per state machine e coordinamento frame, testare chiamate concorrenti, stati non ACTIVE e callback mancanti.
-- [ ] Per shot event, testare idempotenza, enqueue fallito e normalizzazione dei risultati.
-- [ ] Per queue/outbox, testare retry, recovery e dati persistiti.
-- [ ] Per la pipeline vision, completare una verifica su dispositivo separata dai test Jest.
+I test Jest non certificano il comportamento della camera reale, dei worklet nativi, dei delegate TFLite, della fluidità dell'overlay o della sincronizzazione con un backend remoto. Questi aspetti richiedono verifiche separate nell'ambiente corrispondente.

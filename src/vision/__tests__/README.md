@@ -1,33 +1,28 @@
-# Test della pipeline Vision
+# Test automatici — Vision
+
+Questa cartella contiene i test Jest relativi alla pipeline vision.
 
 ## Test presenti
 
-- `yoloParser.test.ts`: casi di parsing e interpretazione dei risultati YOLO.
-- `VisionEngineAdapter.test.ts`: comportamento dell'adapter vision.
-
-Il codice di produzione correlato è in `src/vision/`, in particolare `VisionEngineAdapter.ts`, `engine/YoloDetector.ts`, `engine/VisionEngine.ts`, `useShotTracker.ts` e i worker YOLO/MoveNet.
+| File | Ambito |
+|---|---|
+| `VisionEngineAdapter.test.ts` | Cache delle osservazioni e adapter vision |
+| `yoloParser.test.ts` | Parsing e validazione dei risultati YOLO |
+| `yoloPreprocessing.test.ts` | Preprocessing e trasformazioni dell'input YOLO |
 
 ## Esecuzione
 
+Dalla root del progetto:
+
 ```bash
-npm test -- yoloParser.test.ts
 npm test -- VisionEngineAdapter.test.ts
+npm test -- yoloParser.test.ts
+npm test -- yoloPreprocessing.test.ts
 npm test
-npm run test:coverage
 ```
 
-Gli script sono quelli definiti nel `package.json` alla radice. Controllare l'output Jest per confermare il numero di test eseguiti e l'esito.
+Gli script disponibili sono quelli dichiarati nel `package.json`. Verificare l'output Jest e l'exit code per conoscere l'esito effettivo.
 
 ## Limiti
 
-- I test unitari non eseguono necessariamente inferenza nativa sul dispositivo.
-- Il parsing corretto non prova che il worker riceva frame o che le callback raggiungano il runtime.
-- La freshness dell'osservazione, la fluidità dell'overlay e gli FPS richiedono misure end-to-end.
-- Non sono dichiarate percentuali di coverage senza un report generato da un run corrente.
-
-## Dopo modifiche a modelli o worker
-
-- [ ] Verificare input/output shape, dtype e coordinate del modello.
-- [ ] Eseguire i test del parser e dell'adapter.
-- [ ] Verificare le callback con risultati validi, null e canale non aggiornato.
-- [ ] Validare su dispositivo inferenza, timestamp, adapter, runtime e overlay.
+I test automatici non dimostrano da soli che il worker riceva frame dalla camera, che l'inferenza nativa venga eseguita correttamente sul dispositivo o che le callback raggiungano runtime e overlay. Questi comportamenti richiedono una verifica end-to-end su device.
