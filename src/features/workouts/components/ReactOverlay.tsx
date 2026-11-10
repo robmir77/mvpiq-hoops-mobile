@@ -15,7 +15,7 @@ const CAMERA_H = SCREEN_H * 0.52
 
 // Worklet-compatible coordinate mapping function
 // Maps normalized camera coordinates (0-1) to screen coordinates
-const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number) => {
+const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number, cameraPosition: 'back' | 'front') => {
     'worklet';
 
     // X: mapping on actual view width
@@ -24,10 +24,9 @@ const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: num
     // Y: mapping on actual view height
     const screenY = normY * CAMERA_H;
 
-    // Apply mirror for YOLO detections (ball, player, rim from detection)
-    // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
+    // Keep the existing vertical mapping. Horizontal mapping depends on the physical camera.
     const result = {
-        x: SCREEN_W - screenX,
+        x: cameraPosition === 'front' ? screenX : SCREEN_W - screenX,
         y: CAMERA_H - screenY,
     };
 
@@ -149,17 +148,18 @@ interface ReactOverlayProps {
     showDebug?: boolean
     rimFromDetection?: { x: number; y: number; width: number; height: number; confidence: number } | null
     cameraMode?: string
+    cameraPosition: 'back' | 'front'
 }
 
 // React Overlay (Badges, Debug, Pose Skeleton)
 const ReactOverlay = React.memo(({
-    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution, showDebug, rimFromDetection, cameraMode,
+    trackingState, poseKeypoints, jointAngles, releaseAngle, arcHeight, calibration, sharedValues, fpsMetrics, effectiveResolution, showDebug, rimFromDetection, cameraMode, cameraPosition,
 }: ReactOverlayProps) => {
     const px = (x: number) => x * SCREEN_W
     const py = (y: number) => y * CAMERA_H
 
-    const pxCam = (x: number, y: number = 0) => mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height).x
-    const pyCam = (x: number, y: number) => mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height).y
+    const pxCam = (x: number, y: number = 0) => mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition).x
+    const pyCam = (x: number, y: number) => mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition).y
 
     const playerSize = calculatePlayerSize(poseKeypoints)
     const shotPower = calculateShotPower(trackingState?.ballVelocity ?? null)
@@ -235,7 +235,7 @@ const ReactOverlay = React.memo(({
         rimTrackAge?: number
     }) => {
         setBallLabelVisible(data.showLabel)
-        const mappedPos = mapNormalizedToCameraView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height)
+        const mappedPos = mapNormalizedToCameraView(data.ballX, data.ballY, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         setBallLabelPos({ left: mappedPos.x - 32, top: mappedPos.y - 44 })
 
         let sizeLabel = ''
@@ -262,7 +262,7 @@ const ReactOverlay = React.memo(({
         const showHoopLabel = data.hoopX > 0 && data.hoopY > 0
         setHoopLabelVisible(showHoopLabel)
         if (showHoopLabel) {
-            const hoopPos = mapNormalizedToCameraView(data.hoopX, data.hoopY, effectiveResolution.width, effectiveResolution.height)
+            const hoopPos = mapNormalizedToCameraView(data.hoopX, data.hoopY, effectiveResolution.width, effectiveResolution.height, cameraPosition)
             setHoopLabelPos({ left: hoopPos.x - 32, top: hoopPos.y - 44 })
 
             // Add tracking state to hoop label
@@ -278,7 +278,7 @@ const ReactOverlay = React.memo(({
         const showPlayerLabel = data.playerX > 0 && data.playerY > 0
         setPlayerLabelVisible(showPlayerLabel)
         if (showPlayerLabel) {
-            const playerPos = mapNormalizedToCameraView(data.playerX, data.playerY, effectiveResolution.width, effectiveResolution.height)
+            const playerPos = mapNormalizedToCameraView(data.playerX, data.playerY, effectiveResolution.width, effectiveResolution.height, cameraPosition)
             setPlayerLabelPos({ left: playerPos.x - 32, top: playerPos.y - 44 })
 
             // Add tracking state to player label
@@ -468,25 +468,29 @@ const ReactOverlay = React.memo(({
                             calibration.courtCorners.topLeft.x,
                             calibration.courtCorners.topLeft.y,
                             effectiveResolution.width,
-                            effectiveResolution.height
+                            effectiveResolution.height,
+                            cameraPosition
                         )
                         const tr = mapNormalizedToCameraView(
                             calibration.courtCorners.topRight.x,
                             calibration.courtCorners.topRight.y,
                             effectiveResolution.width,
-                            effectiveResolution.height
+                            effectiveResolution.height,
+                            cameraPosition
                         )
                         const br = mapNormalizedToCameraView(
                             calibration.courtCorners.bottomRight.x,
                             calibration.courtCorners.bottomRight.y,
                             effectiveResolution.width,
-                            effectiveResolution.height
+                            effectiveResolution.height,
+                            cameraPosition
                         )
                         const bl = mapNormalizedToCameraView(
                             calibration.courtCorners.bottomLeft.x,
                             calibration.courtCorners.bottomLeft.y,
                             effectiveResolution.width,
-                            effectiveResolution.height
+                            effectiveResolution.height,
+                            cameraPosition
                         )
 
                         return (
