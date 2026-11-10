@@ -36,9 +36,6 @@ import {
 import { DEFAULT_MOVENET_MODEL_ID, DEFAULT_YOLO_MODEL_ID, MOVENET_MODELS, YOLO_MODELS } from '@/vision/yoloModels'
 import { CAMERA_CONFIG, COURT_CONFIG } from '@/config/appConfig'
 import { useRimCalibration, type RoiRegion } from '@/vision/useRimCalibration'
-import { useImageBenchmark } from '@/vision/useImageBenchmark'
-import { BenchmarkVisualization } from '@/vision/BenchmarkVisualization'
-import * as FileSystem from 'expo-file-system'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
@@ -873,11 +870,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
     const [rimCalibrationStatus, setRimCalibrationStatus] = useState<'idle' | 'processing' | 'detected' | 'notDetected' | 'error'>('idle')
     const [refinedRim, setRefinedRim] = useState<{ x: number; y: number; width: number; height: number; confidence: number } | null>(null)
 
-    // Image benchmark state
-    const [showBenchmarkPanel, setShowBenchmarkPanel] = useState(false)
-    const [showBenchmarkVisualization, setShowBenchmarkVisualization] = useState(false)
-    const [benchmarkImageUris, setBenchmarkImageUris] = useState<string[]>([])
-    const benchmark = useImageBenchmark(selectedYoloModelId)
     const requestFrameCapture = useSharedValue(false)
     const requestBrightnessCapture = useSharedValue(false)
     const capturedFrameRef = useRef<Float32Array | null>(null)
@@ -1496,15 +1488,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     </TouchableOpacity>
                 )}
 
-                {/* Benchmark button */}
-                <TouchableOpacity
-                    style={styles.benchmarkBtn}
-                    onPressIn={() => { ignoreCameraTouchRef.current = true }}
-                    onPress={() => setShowBenchmarkPanel(!showBenchmarkPanel)}
-                >
-                    <Text style={styles.benchmarkBtnText}>📊 Benchmark</Text>
-                </TouchableOpacity>
-
                 {/* Camera config panel */}
                 {showConfigPanel && (
                     <View style={[styles.configPanel, { bottom: 12 }]}>
@@ -1670,113 +1653,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     </View>
                 )}
 
-                {/* Benchmark panel */}
-                {showBenchmarkPanel && (
-                    <View style={[styles.configPanel, { bottom: 12 }]}>
-                        <Text style={styles.configPanelTitle}>Benchmark YOLO (Immagini)</Text>
-                        <ScrollView style={styles.configPanelScroll} contentContainerStyle={styles.configPanelContent}>
-                            <Text style={styles.configHint}>
-                                Confronta inferenza TFLite dell'app con benchmark Python.
-                                Esegui prima: python scripts/extract_frames_from_videos.py
-                            </Text>
-
-                            {!benchmark.modelLoaded && (
-                                <Text style={styles.configHint}>⏳ Caricamento modello TFLite...</Text>
-                            )}
-
-                            {benchmark.modelLoaded && !benchmark.isProcessing && (
-                                <>
-                                    <TouchableOpacity
-                                        style={styles.closeConfigButton}
-                                        onPress={async () => {
-                                            const { imageUris, videoNames } = await benchmark.loadBenchmarkImages()
-                                            if (imageUris.length === 0) {
-                                                console.warn('[Benchmark] Nessuna immagine trovata. Esegui prima: python scripts/extract_frames_from_videos.py')
-                                                return
-                                            }
-
-                                            // Save image URIs for visualization
-                                            setBenchmarkImageUris(imageUris)
-
-                                            // Group images by video name and run benchmark for each video
-                                            let allResults: any[] = []
-                                            const videoGroups: Record<string, string[]> = {}
-                                            for (let i = 0; i < imageUris.length; i++) {
-                                                const videoName = videoNames[i]
-                                                if (!videoGroups[videoName]) {
-                                                    videoGroups[videoName] = []
-                                                }
-                                                videoGroups[videoName].push(imageUris[i])
-                                            }
-
-                                            for (const [videoName, uris] of Object.entries(videoGroups)) {
-                                                console.log(`[Benchmark] Processing video: ${videoName} images: ${uris.length}`)
-                                                const summary = await benchmark.runBenchmark(uris, videoName)
-                                                if (summary) {
-                                                    allResults = [...allResults, ...summary.results]
-                                                }
-                                            }
-
-                                            console.log('[Benchmark] Total results:', allResults.length)
-                                        }}
-                                    >
-                                        <Text style={styles.closeConfigButtonText}>Esegui Benchmark</Text>
-                                    </TouchableOpacity>
-
-                                    {benchmark.results.length > 0 && (
-                                        <>
-                                            <TouchableOpacity
-                                                style={[styles.closeConfigButton, { marginTop: 8 }]}
-                                                onPress={() => {
-                                                    const csv = benchmark.exportResults('csv')
-                                                    console.log('[Benchmark] CSV:', csv)
-                                                }}
-                                            >
-                                                <Text style={styles.closeConfigButtonText}>Esporta CSV</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={[styles.closeConfigButton, { marginTop: 8 }]}
-                                                onPress={() => {
-                                                    const json = benchmark.exportResults('json')
-                                                    console.log('[Benchmark] JSON:', json)
-                                                }}
-                                            >
-                                                <Text style={styles.closeConfigButtonText}>Esporta JSON</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={[styles.closeConfigButton, { marginTop: 8, backgroundColor: '#4CAF50' }]}
-                                                onPress={() => {
-                                                    setShowBenchmarkVisualization(true)
-                                                }}
-                                            >
-                                                <Text style={styles.closeConfigButtonText}>Visualizza BBox</Text>
-                                            </TouchableOpacity>
-                                        </>
-                                    )}
-                                </>
-                            )}
-
-                            {benchmark.isProcessing && (
-                                <Text style={styles.configHint}>
-                                    ⏳ Processamento: {benchmark.progress.current}/{benchmark.progress.total}
-                                </Text>
-                            )}
-
-                            {benchmark.error && (
-                                <Text style={[styles.configHint, { color: '#ff4444' }]}>
-                                    Errore: {benchmark.error}
-                                </Text>
-                            )}
-                        </ScrollView>
-
-                        <TouchableOpacity
-                            style={styles.closeConfigButton}
-                            onPress={() => setShowBenchmarkPanel(false)}
-                        >
-                            <Text style={styles.closeConfigButtonText}>Chiudi</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
             </View>
 
             {/* Pannello info */}
@@ -1811,13 +1687,6 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
             <CustomAlert {...alert} />
 
-            {showBenchmarkVisualization && benchmarkImageUris.length > 0 && (
-                <BenchmarkVisualization
-                    results={benchmark.results}
-                    imageUris={benchmarkImageUris}
-                    onClose={() => setShowBenchmarkVisualization(false)}
-                />
-            )}
         </View>
     )
 }
@@ -1875,23 +1744,6 @@ const styles = StyleSheet.create({
     },
     configBtnText: {
         fontSize: 20,
-    },
-    benchmarkBtn: {
-        position: 'absolute',
-        right: 16,
-        top: '50%',
-        marginTop: -150,
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(0,0,0,0.75)',
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    benchmarkBtnText: {
-        fontSize: 18,
     },
     configPanel: {
         position: 'absolute',
