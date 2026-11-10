@@ -38,6 +38,8 @@ export interface WorkoutSession {
     courtHeight?: number
     // Vision configuration for session resume
     fps?: number
+    cameraPosition?: 'back' | 'front'
+    cameraDeviceId?: string
     cameraResolutionWidth?: number
     cameraResolutionHeight?: number
     poseResolution?: number

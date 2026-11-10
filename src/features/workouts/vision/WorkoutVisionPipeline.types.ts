@@ -66,6 +66,7 @@ export interface VisionPipelineConfig {
   moveNetModelId?: string
   selectedResolution?: { width: number; height: number }
   selectedFps?: number
+  cameraPosition?: 'back' | 'front'
   selectedPoseResolution?: number
   rimFromCalibration?: {
     x: number

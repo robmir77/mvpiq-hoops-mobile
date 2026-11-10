@@ -13,6 +13,7 @@ import type { VisionPipelineConfig } from './WorkoutVisionPipeline.types'
 export interface UseWorkoutVisionPipelineResult {
   // Camera
   device: any
+  format: any
   hasPermission: boolean
   isActive: boolean
   requestPermission: () => Promise<boolean>
@@ -48,6 +49,7 @@ export const useWorkoutVisionPipeline = (
 ): UseWorkoutVisionPipelineResult => {
   const {
     device,
+    format,
     hasPermission,
     isActive,
     requestPermission,
@@ -78,7 +80,8 @@ export const useWorkoutVisionPipeline = (
     config.selectedResolution,
     config.selectedFps,
     config.selectedPoseResolution,
-    config.moveNetModelId
+    config.moveNetModelId,
+    config.cameraPosition ?? 'back'
   )
 
   const start = () => {

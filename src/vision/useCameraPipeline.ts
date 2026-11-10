@@ -1,7 +1,7 @@
 // src/vision/useCameraPipeline.ts
 // Camera pipeline for frame acquisition only. Integrates VisionCamera with zero-image-passing architecture.
 
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera'
 import { useShotTracker } from './useShotTracker'
 import type { BallDetection, PoseResult } from './types'
@@ -9,6 +9,7 @@ import type { AndroidDelegateOption, IosDelegateOption } from './delegates'
 
 export interface CameraPipelineResult {
   device: any
+  format: any
   hasPermission: boolean
   isActive: boolean
   requestPermission: () => Promise<boolean>
@@ -52,6 +53,7 @@ export const useCameraPipeline = (
   selectedFps?: number | null,
   selectedPoseResolution?: number,
   moveNetModelId?: string,
+  cameraPosition: 'back' | 'front' = 'back',
 ): CameraPipelineResult => {
   // TEMP: Commented to reduce log noise during performance investigation
   // console.log('[useCameraPipeline] Received params:', {
@@ -68,7 +70,18 @@ export const useCameraPipeline = (
   //     rimEnabled,
   // })
   const { hasPermission, requestPermission: reqPerm } = useCameraPermission()
-  const device = useCameraDevice('back')
+  const device = useCameraDevice(cameraPosition)
+  const format = useMemo(() => {
+    if (!device || !selectedResolution) return undefined
+    const matching = (device.formats || []).filter((candidate: any) =>
+      candidate.videoWidth === selectedResolution.width && candidate.videoHeight === selectedResolution.height
+    )
+    return matching.find((candidate: any) => !selectedFps || (candidate.frameRateRanges || []).some((range: any) => {
+      const min = range.minFrameRate ?? range.min ?? 0
+      const max = range.maxFrameRate ?? range.max ?? 0
+      return selectedFps >= min && selectedFps <= max
+    })) ?? matching[0]
+  }, [device, selectedResolution, selectedFps])
   const [isActive, setIsActive] = useState(false)
 
   const requestPermission = async (): Promise<boolean> => {
@@ -99,6 +112,7 @@ export const useCameraPipeline = (
 
   return {
     device,
+    format,
     hasPermission,
     isActive,
     requestPermission,

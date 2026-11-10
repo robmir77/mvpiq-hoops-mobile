@@ -39,7 +39,6 @@ import { useRimCalibration, type RoiRegion } from '@/vision/useRimCalibration'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 const CAM_H = SH * 0.52
-const DEFAULT_CAPTURE = CAMERA_CONFIG.DEFAULT_RESOLUTION
 const DEFAULT_FPS = CAMERA_CONFIG.DEFAULT_FPS
 const DEFAULT_POSE_RESOLUTION = CAMERA_CONFIG.DEFAULT_POSE_RESOLUTION
 
@@ -735,13 +734,16 @@ const MODE_META: Record<CameraMode, { title: string; icon: string; description: 
 }
 
 export default function CalibrationScreen({ navigation, route }: any) {
-    const { cameraMode: rawMode, courtType: rawCourtType, selectedResolution: initialResolution, selectedFps: initialFps, selectedPoseResolution: initialPoseResolution, yoloDelegate: initialYoloDelegate, poseDelegate: initialPoseDelegate, yoloModelId: initialYoloModelId, moveNetModelId: initialMoveNetModelId } = route.params || {}
+    const { cameraMode: rawMode, courtType: rawCourtType, selectedResolution: initialResolution, selectedFps: initialFps, selectedPoseResolution: initialPoseResolution, yoloDelegate: initialYoloDelegate, poseDelegate: initialPoseDelegate, yoloModelId: initialYoloModelId, moveNetModelId: initialMoveNetModelId, cameraPosition: initialCameraPosition } = route.params || {}
     // Removed hot-path logging to reduce overhead during workout
     const cameraMode: CameraMode = rawMode || 'ANGLE_45'
     const courtType: 'HALF_COURT' | 'FULL_COURT' = rawCourtType || 'HALF_COURT'
     const { user } = useContext(AuthContext) || {}
     const { hasPermission, requestPermission } = useCameraPermission()
-    const device = useCameraDevice('back')
+    const [cameraPosition, setCameraPosition] = useState<'back' | 'front'>(initialCameraPosition === 'front' ? 'front' : 'back')
+    const backDevice = useCameraDevice('back')
+    const frontDevice = useCameraDevice('front')
+    const device = cameraPosition === 'front' ? frontDevice : backDevice
 
     // Camera configuration state
     const isFocused = useIsFocused()
@@ -768,50 +770,71 @@ export default function CalibrationScreen({ navigation, route }: any) {
     )
     const [showConfigPanel, setShowConfigPanel] = useState(false)
 
-    // Get available resolutions and FPS from device
+    // Resolutions are derived from the selected physical camera's actual video formats.
     const availableResolutions = React.useMemo(() => {
-        if (!device) return [DEFAULT_CAPTURE]
+        if (!device) return []
         try {
-            const resolutions = device.getSupportedResolutions('video') || []
-            console.log('[Calibration] ALL supported resolutions:', resolutions)
             const currentModel = YOLO_MODELS.find(m => m.id === selectedYoloModelId)
             const minRes = currentModel?.defaultCameraResolution || CAMERA_CONFIG.MIN_RESOLUTION
-
-            const filtered = resolutions
-                .filter((r: { width: number; height: number }) => {
-                    const aspect = r.width / r.height
-                    const totalPixels = r.width * r.height
-                    const minPixels = minRes.width * minRes.height
-                    return r.width >= CAMERA_CONFIG.MIN_RESOLUTION.width &&
-                        r.height >= CAMERA_CONFIG.MIN_RESOLUTION.height &&
-                        totalPixels >= minPixels &&
-                        Math.abs(aspect - 16 / 9) < 0.08
-                })
-                .sort((a: any, b: any) => b.width * b.height - a.width * a.height) // Sort descending: max resolution first
-            console.log('[Calibration] Available workout resolutions:', filtered)
-            return filtered.length ? filtered : [DEFAULT_CAPTURE]
+            const raw = device.formats?.length
+                ? device.formats.map((format: any) => ({ width: format.videoWidth, height: format.videoHeight }))
+                : (device.getSupportedResolutions('video') || [])
+            const unique = new Map<string, { width: number; height: number }>()
+            for (const resolution of raw) {
+                const { width, height } = resolution
+                if (!width || !height) continue
+                const aspect = width / height
+                const totalPixels = width * height
+                const minPixels = minRes.width * minRes.height
+                if (width >= CAMERA_CONFIG.MIN_RESOLUTION.width &&
+                    height >= CAMERA_CONFIG.MIN_RESOLUTION.height &&
+                    totalPixels >= minPixels &&
+                    Math.abs(aspect - 16 / 9) < 0.08) {
+                    unique.set(`${width}x${height}`, { width, height })
+                }
+            }
+            return [...unique.values()].sort((a, b) => b.width * b.height - a.width * a.height)
         } catch (e) {
             console.warn('[Calibration] Error getting resolutions:', e)
-            return [DEFAULT_CAPTURE]
+            return []
         }
     }, [device, selectedYoloModelId])
 
+    // FPS choices are restricted to formats matching the selected resolution.
     const availableFps = React.useMemo(() => {
-        if (!device) return [DEFAULT_FPS]
+        if (!device) return []
         try {
-            const values = new Set<number>()
-            for (const range of device.supportedFPSRanges || []) {
-                values.add(range.min)
-                values.add(range.max)
+            const formats = (device.formats || []).filter((format: any) =>
+                !selectedResolution ||
+                (format.videoWidth === selectedResolution.width && format.videoHeight === selectedResolution.height)
+            )
+            const ranges = formats.flatMap((format: any) => format.frameRateRanges || [])
+            const supportedRanges = ranges.length ? ranges : (device.supportedFPSRanges || [])
+            const candidates = [15, 20, 24, 30]
+            const result = new Set<number>()
+            for (const range of supportedRanges) {
+                const min = range.minFrameRate ?? range.min ?? 0
+                const max = range.maxFrameRate ?? range.max ?? 0
+                for (const fps of candidates) if (fps >= min && fps <= max) result.add(fps)
             }
-            const result = [...values].filter(v => v >= 15 && v <= 30).sort((a, b) => a - b)
-            console.log('[Calibration] Available FPS targets:', result)
-            return result.length ? result : [DEFAULT_FPS]
+            return [...result].sort((a, b) => a - b)
         } catch (e) {
             console.warn('[Calibration] Error getting FPS ranges:', e)
-            return [DEFAULT_FPS]
+            return []
         }
-    }, [device])
+    }, [device, selectedResolution])
+
+    const selectedFormat = React.useMemo(() => {
+        if (!device || !selectedResolution) return undefined
+        const matching = (device.formats || []).filter((format: any) =>
+            format.videoWidth === selectedResolution.width && format.videoHeight === selectedResolution.height
+        )
+        return matching.find((format: any) => !selectedFps || (format.frameRateRanges || []).some((range: any) => {
+            const min = range.minFrameRate ?? range.min ?? 0
+            const max = range.maxFrameRate ?? range.max ?? 0
+            return selectedFps >= min && selectedFps <= max
+        })) ?? matching[0]
+    }, [device, selectedResolution, selectedFps])
 
     const constraints = React.useMemo(
         () => selectedFps !== null ? [{ fps: selectedFps }] : [],
@@ -834,14 +857,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
     // Keep defaults valid when device exposes different resolutions/FPS/models
     useEffect(() => {
-        if (availableResolutions.length > 0 &&
-            !availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
-            // Default to maximum supported resolution
-            console.log('[Calibration] Resetting to maximum resolution:', availableResolutions[0])
+        if (availableResolutions.length === 0) {
+            if (selectedResolution !== null) setSelectedResolution(null)
+        } else if (!availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
             setSelectedResolution(availableResolutions[0])
         }
         if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
             setSelectedFps(availableFps[0])
+        } else if (availableFps.length === 0 && selectedFps !== null) {
+            setSelectedFps(null)
         }
         if (YOLO_MODELS.length > 0 && !YOLO_MODELS.some(m => m.id === selectedYoloModelId)) {
             setSelectedYoloModelId(DEFAULT_YOLO_MODEL_ID)
@@ -849,7 +873,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
         if (MOVENET_MODELS.length > 0 && !MOVENET_MODELS.some(m => m.id === selectedMoveNetModelId)) {
             setSelectedMoveNetModelId(DEFAULT_MOVENET_MODEL_ID)
         }
-    }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId, selectedResolution])
+    }, [availableResolutions, availableFps, selectedYoloModelId, selectedMoveNetModelId, selectedResolution, selectedFps])
 
     // Pre-positioned calibration points (hoop + 4 corners) - raised positions
     const [points, setPoints] = useState<DraggablePoint[]>([
@@ -1298,6 +1322,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 courtType,
                 // Vision configuration for session
                 fps: selectedFps ?? undefined,
+                cameraPosition,
+                cameraDeviceId: device?.id,
                 cameraResolutionWidth: selectedResolution?.width,
                 cameraResolutionHeight: selectedResolution?.height,
                 poseResolution: selectedPoseResolution,
@@ -1317,6 +1343,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 courtType,
                 selectedResolution,
                 selectedFps,
+                cameraPosition,
+                cameraDeviceId: device?.id,
                 selectedPoseResolution,
                 yoloDelegate,
                 poseDelegate,
@@ -1355,6 +1383,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         courtType,
                         // Vision configuration for session
                         fps: selectedFps ?? undefined,
+                        cameraPosition,
+                        cameraDeviceId: device?.id,
                         cameraResolutionWidth: selectedResolution?.width,
                         cameraResolutionHeight: selectedResolution?.height,
                         poseResolution: selectedPoseResolution,
@@ -1374,6 +1404,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                         courtType,
                         selectedResolution,
                         selectedFps,
+                        cameraPosition,
+                        cameraDeviceId: device?.id,
                         selectedPoseResolution,
                         yoloDelegate,
                         poseDelegate,
@@ -1403,6 +1435,15 @@ export default function CalibrationScreen({ navigation, route }: any) {
         setSavedCalibration(null)
         setRefinedRim(null)
         setRimCalibrationStatus('idle')
+    }
+
+    const handleSwapCamera = () => {
+        if (cameraPosition === 'back' && !frontDevice) return
+        userPickedResolutionRef.current = false
+        setSelectedResolution(null)
+        setSelectedFps(null)
+        resetAll()
+        setCameraPosition(current => current === 'back' ? 'front' : 'back')
     }
 
     const OverlayComponent =
@@ -1438,6 +1479,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     ref={cameraRef}
                     style={StyleSheet.absoluteFill}
                     device={device}
+                    format={selectedFormat}
                     isActive={isActive}
                     resizeMode="cover"
                     constraints={constraints}
@@ -1463,6 +1505,19 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     </Text>
                 </View>
                 
+
+                {/* Camera position switch */}
+                <TouchableOpacity
+                    style={[styles.cameraSwapBtn, cameraPosition === 'back' && !frontDevice && { opacity: 0.4 }]}
+                    onPressIn={() => { ignoreCameraTouchRef.current = true }}
+                    onPress={handleSwapCamera}
+                    disabled={cameraPosition === 'back' && !frontDevice}
+                    accessibilityRole="button"
+                    accessibilityLabel={cameraPosition === 'back' ? 'Passa alla fotocamera frontale' : 'Passa alla fotocamera posteriore'}
+                >
+                    <Text style={styles.cameraSwapIcon}>⇄</Text>
+                    <Text style={styles.cameraSwapLabel}>{cameraPosition === 'back' ? 'POST' : 'FRONT'}</Text>
+                </TouchableOpacity>
 
                 {/* Camera config button */}
                 <TouchableOpacity
@@ -1575,10 +1630,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
 
                             {/* Resolution selector */}
                             <View style={styles.configSection}>
-                                <Text style={styles.configLabel}>Risoluzione acquisizione</Text>
+                                <Text style={styles.configLabel}>Risoluzione acquisizione · {cameraPosition === 'back' ? 'Posteriore' : 'Frontale'}</Text>
                                 <View style={styles.pickerWrap}>
                                     <Picker
-                                        selectedValue={`${selectedResolution?.width ?? 1280}x${selectedResolution?.height ?? 720}`}
+                                        enabled={availableResolutions.length > 0}
+                                    selectedValue={selectedResolution ? `${selectedResolution.width}x${selectedResolution.height}` : ''}
                                         onValueChange={(value) => {
                                             const found = availableResolutions.find(r => `${r.width}x${r.height}` === value)
                                             if (found) {
@@ -1595,7 +1651,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                         ))}
                                     </Picker>
                                 </View>
-                                <Text style={styles.configHint}>Minimo 1280 × 720 · default 1280 × 720</Text>
+                                <Text style={styles.configHint}>{availableResolutions.length ? `Formati supportati dalla camera: ${availableResolutions.length}` : 'Nessuna risoluzione compatibile disponibile per questa camera.'}</Text>
                             </View>
 
                             {/* MoveNet resolution selector */}
@@ -1630,7 +1686,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
                                 <Text style={styles.configLabel}>FPS desiderati</Text>
                                 <View style={styles.pickerWrap}>
                                     <Picker
-                                        selectedValue={selectedFps ?? DEFAULT_FPS}
+                                        enabled={availableFps.length > 0}
+                                        selectedValue={selectedFps ?? availableFps[0] ?? DEFAULT_FPS}
                                         onValueChange={value => setSelectedFps(Number(value))}
                                         dropdownIconColor="#ff8c00"
                                         style={styles.picker}
@@ -1728,6 +1785,15 @@ const styles = StyleSheet.create({
         fontSize: 12, fontWeight: '600',
         paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
     },
+    cameraSwapBtn: {
+        position: 'absolute', right: 16, top: '50%', marginTop: -150,
+        minWidth: 58, height: 52, borderRadius: 12,
+        backgroundColor: 'rgba(0,0,0,0.78)', borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.35)', justifyContent: 'center',
+        alignItems: 'center', paddingHorizontal: 6,
+    },
+    cameraSwapIcon: { color: '#fff', fontSize: 23, lineHeight: 26, fontWeight: '700' },
+    cameraSwapLabel: { color: '#ff8c00', fontSize: 9, fontWeight: '800' },
     configBtn: {
         position: 'absolute',
         left: 16,

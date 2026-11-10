@@ -80,7 +80,7 @@ function toCourtMeters(
 
 
 export default function WorkoutSessionScreen({ navigation, route }: any) {
-    const { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId, calibration: calibrationParam } = route.params || {}
+    const { sessionId, cameraMode, selectedResolution, selectedFps, selectedPoseResolution, yoloDelegate, poseDelegate, yoloModelId, moveNetModelId, cameraPosition: routeCameraPosition, calibration: calibrationParam } = route.params || {}
     // TEMP: Commented to reduce log noise during performance investigation
     // console.log('[WorkoutSession] Received params from route.params:', {
     //     sessionId,
@@ -96,6 +96,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
     const { user } = useContext(AuthContext) || {}
 
     const [session, setSession]             = useState<WorkoutSession | null>(null)
+    const [cameraPosition, setCameraPosition] = useState<'back' | 'front'>(routeCameraPosition === 'front' ? 'front' : 'back')
     const [calibration, setCalibration]     = useState<CalibrationData | null>(null)
     const [torchMode, setTorchMode] = useState<TorchMode>('auto')
     const [cameraStarted, setCameraStarted] = useState(false)
@@ -639,8 +640,9 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
         resetShotTracking,
         fpsMetrics: pipelineFpsMetrics,
         sharedValues: pipelineSharedValues,
+        format,
     } = useWorkoutVisionPipeline(
-        visionConfig,
+        { ...visionConfig, cameraPosition },
         handleBallDetection,
         handlePoseResult,
         rimDetectionEnabled ? handleRimDetection : undefined,
@@ -877,6 +879,11 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
             const s = await getWorkoutSession(sessionId, user.id)
             setSession(s)
             setShotCount({ total: s.totalShots, made: s.madeShots })
+
+            // Restore the saved physical camera when reopening an existing workout.
+            if (!routeCameraPosition && s.cameraPosition) {
+                setCameraPosition(s.cameraPosition === 'front' ? 'front' : 'back')
+            }
 
             // Apply vision configuration from session (for session resume)
             // Only if not already provided via route.params (new session)
@@ -1349,6 +1356,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             ref={cameraRef}
                             style={StyleSheet.absoluteFill}
                             device={device}
+                            format={format}
                             isActive={sessionLoaded && isActive && !isPaused}
                             onStarted={() => setCameraStarted(true)}
                             onStopped={() => setCameraStarted(false)}
