@@ -1,4 +1,4 @@
-// YOLO input preprocessing shared by the static benchmark and live camera path.
+// YOLO input preprocessing used by the live camera path and aligned with the Python reference.
 // The recorded Python reference run feeds RGB float32 values in the 0..255 range.
 // VisionCamera Resizer float32 output is normalized to 0..1, so the live path
 // scales it to reproduce that reference input range before invoking TFLite.
