@@ -95,6 +95,7 @@ export const useWorkoutVisionPipeline = (
   return {
     // Camera
     device,
+    format,
     hasPermission,
     isActive,
     requestPermission,

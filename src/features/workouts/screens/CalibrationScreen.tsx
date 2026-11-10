@@ -862,8 +862,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
         } else if (!availableResolutions.some(r => r.width === selectedResolution?.width && r.height === selectedResolution?.height)) {
             setSelectedResolution(availableResolutions[0])
         }
-        if (availableFps.length > 0 && !availableFps.includes(selectedFps ?? DEFAULT_FPS)) {
-            setSelectedFps(availableFps[0])
+        if (availableFps.length > 0 && (selectedFps === null || !availableFps.includes(selectedFps))) {
+            setSelectedFps(availableFps.includes(DEFAULT_FPS) ? DEFAULT_FPS : availableFps[0])
         } else if (availableFps.length === 0 && selectedFps !== null) {
             setSelectedFps(null)
         }

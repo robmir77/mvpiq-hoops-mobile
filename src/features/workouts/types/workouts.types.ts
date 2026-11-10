@@ -58,6 +58,8 @@ export interface CreateWorkoutSessionPayload {
     calibrationData?: string
     // Vision configuration for session
     fps?: number
+    cameraPosition?: 'back' | 'front'
+    cameraDeviceId?: string
     cameraResolutionWidth?: number
     cameraResolutionHeight?: number
     poseResolution?: number
