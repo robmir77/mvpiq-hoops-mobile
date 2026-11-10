@@ -29,7 +29,7 @@ const TRAIL_DELAY_POINTS = 5
 
 // Worklet-compatible coordinate mapping function
 // Maps normalized camera coordinates (0-1) to screen coordinates
-const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number) => {
+const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: number, cameraResH: number, cameraPosition: 'back' | 'front') => {
     'worklet';
 
     // X: mapping on actual view width
@@ -38,10 +38,9 @@ const mapNormalizedToCameraView = (normX: number, normY: number, cameraResW: num
     // Y: mapping on actual view height
     const screenY = normY * CAMERA_H;
 
-    // Apply mirror for YOLO detections (ball, player, rim from detection)
-    // YOLO has both horizontal (X) and vertical (Y) mirror for front camera
+    // Keep the existing vertical mapping. Horizontal mapping depends on the physical camera.
     const result = {
-        x: SCREEN_W - screenX,
+        x: cameraPosition === 'front' ? screenX : SCREEN_W - screenX,
         y: CAMERA_H - screenY,
     };
 
@@ -82,6 +81,7 @@ interface RealtimeBallOverlayProps {
     }
     effectiveResolution: { width: number; height: number }
     poseKeypoints: any
+    cameraPosition: 'back' | 'front'
 }
 
 // Realtime Ball Overlay (Pure Skia, no React state)
@@ -89,6 +89,7 @@ const RealtimeBallOverlay = React.memo(({
     sharedValues,
     effectiveResolution,
     poseKeypoints,
+    cameraPosition,
 }: RealtimeBallOverlayProps) => {
     const shotTrailPathRef = React.useRef(Skia.Path.Make())
 
@@ -97,38 +98,38 @@ const RealtimeBallOverlay = React.memo(({
     const ballXPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
         const y = sharedValues?.ballY.value ?? 0
-        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         return mapped.x
     })
     const ballYPx = useDerivedValue(() => {
         const x = sharedValues?.ballX.value ?? 0
         const y = sharedValues?.ballY.value ?? 0
-        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         return mapped.y
     })
     const hoopXPx = useDerivedValue(() => {
         const x = sharedValues?.hoopX.value ?? 0
         const y = sharedValues?.hoopY.value ?? 0
-        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         return mapped.x
     })
     const hoopYPx = useDerivedValue(() => {
         const x = sharedValues?.hoopX.value ?? 0
         const y = sharedValues?.hoopY.value ?? 0
-        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         return mapped.y
     })
 
     const ballXPxRaw = useDerivedValue(() => {
         const x = sharedValues?.ballXRaw.value ?? 0
         const y = sharedValues?.ballYRaw.value ?? 0
-        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         return mapped.x
     })
     const ballYPxRaw = useDerivedValue(() => {
         const x = sharedValues?.ballXRaw.value ?? 0
         const y = sharedValues?.ballYRaw.value ?? 0
-        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         return mapped.y
     })
 
@@ -196,7 +197,7 @@ const RealtimeBallOverlay = React.memo(({
         
         const x = sharedValues?.hoopX.value ?? 0
         const y = sharedValues?.hoopY.value ?? 0
-        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+        const mapped = mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         const hoopXPxVal = mapped.x
         const hoopYPxVal = mapped.y
         
@@ -219,8 +220,8 @@ const RealtimeBallOverlay = React.memo(({
         if (playerXVal === 0 && playerYVal === 0) return Skia.Path.Make()
 
         // Convert to screen coordinates (playerX/Y are center coordinates from YOLO)
-        const topLeft = mapNormalizedToCameraView(playerXVal - playerW/2, playerYVal - playerH/2, effectiveResolution.width, effectiveResolution.height)
-        const bottomRight = mapNormalizedToCameraView(playerXVal + playerW/2, playerYVal + playerH/2, effectiveResolution.width, effectiveResolution.height)
+        const topLeft = mapNormalizedToCameraView(playerXVal - playerW/2, playerYVal - playerH/2, effectiveResolution.width, effectiveResolution.height, cameraPosition)
+        const bottomRight = mapNormalizedToCameraView(playerXVal + playerW/2, playerYVal + playerH/2, effectiveResolution.width, effectiveResolution.height, cameraPosition)
 
         const rect = Skia.XYWHRect(
             topLeft.x,
@@ -300,8 +301,8 @@ const RealtimeBallOverlay = React.memo(({
                 const kp2 = poseKeypoints[kp2Name as keyof PoseKeypoints]
 
                 if (kp1 && kp2 && kp1.score > 0.15 && kp2.score > 0.15) {
-                    const p1 = mapNormalizedToCameraView(kp1.x, kp1.y, effectiveResolution.width, effectiveResolution.height)
-                    const p2 = mapNormalizedToCameraView(kp2.x, kp2.y, effectiveResolution.width, effectiveResolution.height)
+                    const p1 = mapNormalizedToCameraView(kp1.x, kp1.y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
+                    const p2 = mapNormalizedToCameraView(kp2.x, kp2.y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
                     builder.moveTo(p1.x, p1.y)
                     builder.lineTo(p2.x, p2.y)
                 }
@@ -350,7 +351,7 @@ const RealtimeBallOverlay = React.memo(({
         if (points.length < 2) return shotTrailPathRef.current
 
         const transformPoint = (x: number, y: number) => {
-            return mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height)
+            return mapNormalizedToCameraView(x, y, effectiveResolution.width, effectiveResolution.height, cameraPosition)
         }
 
         const p0 = transformPoint(points[0].x, points[0].y)
