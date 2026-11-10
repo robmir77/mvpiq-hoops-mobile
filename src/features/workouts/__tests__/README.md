@@ -1,6 +1,6 @@
 # Test automatici — Workout
 
-Questa cartella contiene i test Jest della feature workout. L'elenco riflette i file presenti nel repository.
+Questa cartella contiene esclusivamente test Jest unitari della feature workout.
 
 ## Test presenti
 
@@ -15,8 +15,6 @@ Questa cartella contiene i test Jest della feature workout. L'elenco riflette i 
 | `useTrackingEngine.test.ts` | Hook di tracking |
 | `useWorkoutSessions.test.tsx` | Hook delle sessioni workout |
 | `workoutAsyncQueue.test.ts` | Coda asincrona |
-| `workoutFlow.integration.test.ts` | Flusso workout |
-| `workoutLifecycle.e2e.test.ts` | Lifecycle con dipendenze simulate |
 | `workouts.api.test.ts` | API workout |
 | `screens/__tests__/RuntimeProcessFrameCoordinator.test.ts` | Coordinamento delle chiamate runtime |
 | `tracking/__tests__/BallTrackingEngine.test.ts` | Tracking della palla |
