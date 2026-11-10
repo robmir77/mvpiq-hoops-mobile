@@ -139,7 +139,7 @@ describe('YoloDetector', () => {
   })
 
   describe('rim detection', () => {
-    it('keeps rim decoding disabled by default, matching the Python benchmark', () => {
+    it('keeps rim decoding disabled by default, matching the Python reference', () => {
       const output = new Float32Array(N_ANCHORS * OUTPUT_CHANNELS)
       const i = 100
       output[i] = 0.4
