@@ -42,7 +42,7 @@ interface FrameData {
 }
 
 // Fixed YOLO target FPS - deterministic, no adaptation
-// Benchmark: testing 10 FPS (camera produces 8-11 FPS, no point processing more)
+// The 10 FPS target matches the camera's typical 8-11 FPS output.
 const YOLO_TARGET_FPS = 10
 
 interface YoloWorkerReturn {
@@ -206,7 +206,7 @@ export const useYoloWorkerAsync = (
       hasModel: !!yoloModel.model,
       error: yoloModel.state === 'error' ? yoloModel.error : null,
       delegate: Platform.OS === 'android' ? DEFAULT_ANDROID_DELEGATE : DEFAULT_IOS_DELEGATE,
-      note: 'Benchmark uses CPU Python, app uses GPU/NNAPI on Android - this can cause numerical differences'
+      note: 'Python reference runs on CPU; the app uses GPU/NNAPI on Android, which can cause numerical differences'
     })
   }, [yoloModel.state, yoloModel.model, selectedYoloModel?.fileName])
 
