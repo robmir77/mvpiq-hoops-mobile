@@ -1316,6 +1316,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
                 setIsNavigating(false)
                 return
             }
+            if (!device || !selectedResolution) {
+                showError('Camera non disponibile', 'La fotocamera selezionata non espone una risoluzione compatibile. Scegli l’altra fotocamera o verifica il dispositivo.')
+                setIsNavigating(false)
+                return
+            }
 
             const payload: CreateWorkoutSessionPayload = {
                 cameraMode,
@@ -1374,6 +1379,11 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     // Crea la sessione anche quando si salta la calibrazione
                     if (!user?.id) {
                         showError('Errore', 'Utente non autenticato')
+                        setIsNavigating(false)
+                        return
+                    }
+                    if (!device || !selectedResolution) {
+                        showError('Camera non disponibile', 'La fotocamera selezionata non espone una risoluzione compatibile. Scegli l’altra fotocamera o verifica il dispositivo.')
                         setIsNavigating(false)
                         return
                     }
@@ -1438,7 +1448,8 @@ export default function CalibrationScreen({ navigation, route }: any) {
     }
 
     const handleSwapCamera = () => {
-        if (cameraPosition === 'back' && !frontDevice) return
+        if (isNavigating || isSaving || rimCalibrationStatus === 'processing') return
+        if ((cameraPosition === 'back' && !frontDevice) || (cameraPosition === 'front' && !backDevice)) return
         userPickedResolutionRef.current = false
         setSelectedResolution(null)
         setSelectedFps(null)
@@ -1511,7 +1522,7 @@ export default function CalibrationScreen({ navigation, route }: any) {
                     style={[styles.cameraSwapBtn, cameraPosition === 'back' && !frontDevice && { opacity: 0.4 }]}
                     onPressIn={() => { ignoreCameraTouchRef.current = true }}
                     onPress={handleSwapCamera}
-                    disabled={cameraPosition === 'back' && !frontDevice}
+                    disabled={isNavigating || isSaving || rimCalibrationStatus === 'processing' || (cameraPosition === 'back' ? !frontDevice : !backDevice)}
                     accessibilityRole="button"
                     accessibilityLabel={cameraPosition === 'back' ? 'Passa alla fotocamera frontale' : 'Passa alla fotocamera posteriore'}
                 >
