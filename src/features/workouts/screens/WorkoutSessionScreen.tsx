@@ -1386,6 +1386,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             sharedValues={sharedValues}
                             effectiveResolution={effectiveResolution}
                             poseKeypoints={poseKeypoints}
+                            cameraPosition={cameraPosition}
                         />
 
                         {/* React Overlay (badges, debug, 2-5 Hz) */}
@@ -1404,6 +1405,7 @@ export default function WorkoutSessionScreen({ navigation, route }: any) {
                             showDebug={debugMode}
                             rimFromDetection={rimFromDetection}
                             cameraMode={cameraMode}
+                            cameraPosition={cameraPosition}
                         />
 
                         {/* Adaptive FPS overlay - hidden when telemetry is visible */}
