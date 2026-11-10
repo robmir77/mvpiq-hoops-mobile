@@ -47,7 +47,7 @@ export class YoloDetector {
   private ballConfThreshold: number
   private rimConfThreshold: number
   private playerConfThreshold: number
-  // Python benchmark parity: rim decoding is disabled by default.
+  // Match the Python reference: rim decoding is disabled by default.
   private rimDetectionEnabled: boolean = false
 
   // Persistent rim detection state (for confidence-based replacement)
@@ -89,7 +89,7 @@ export class YoloDetector {
     // Adaptive configuration
     this.adaptiveEnabled = YOLO_CONFIG.ADAPTIVE_CONF.ENABLED
     this.windowSize = YOLO_CONFIG.ADAPTIVE_CONF.WINDOW_SIZE
-    // Match AppCompatibleDecoder in scripts/benchmark_yolo_videos.py.
+    // Match the Python AppCompatibleDecoder reference.
     this.minThreshold = 0.0005
     this.maxThreshold = YOLO_CONFIG.ADAPTIVE_CONF.MAX_THRESHOLD
     this.adjustmentFactor = YOLO_CONFIG.ADAPTIVE_CONF.ADJUSTMENT_FACTOR
@@ -350,7 +350,7 @@ export class YoloDetector {
           RESIZED_HEIGHT,
           LETTERBOX_OFFSET_X,
           LETTERBOX_OFFSET_Y,
-          note: 'Compare with benchmark Python preprocessing to verify orientation handling'
+          note: 'Compare with Python reference preprocessing to verify orientation handling'
         })
       }
 
@@ -379,12 +379,12 @@ export class YoloDetector {
           totalBoxCoordinateValues,
           coordinatesAreNormalized,
           coordinateScale,
-          note: 'True = normalized (0-1), False = pixel units (0-TENSOR_SIZE). Compare with benchmark.'
+          note: 'True = normalized (0-1), False = pixel units (0-TENSOR_SIZE). Compare with Python reference.'
         })
       }
 
       // Normalize thresholds to reference resolution 512
-      // Aligned with benchmark Python: tensor_size / 512
+      // Aligned with Python reference: tensor_size / 512
       const resolutionScale = TENSOR_SIZE / 512
 
       // Ball detection diagnostic counters
