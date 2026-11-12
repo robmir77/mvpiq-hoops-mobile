@@ -208,9 +208,10 @@ export class BallTrackingEngine {
       // DO NOT update ballLastSeenAt on outlier - only on accepted detections
       // this.ballLastSeenAt = frameTs
 
+      // Publish the current prediction without moving the internal filter anchor.
       this.state.ballPosition = {
-        x: k.x,
-        y: k.y,
+        x: predX,
+        y: predY,
       }
 
       this.state.ballVelocity = {
