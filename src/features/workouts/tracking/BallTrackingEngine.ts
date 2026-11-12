@@ -199,8 +199,9 @@ export class BallTrackingEngine {
 
     // Outlier
     if (distance > tolerance) {
-      k.x = predX
-      k.y = predY
+      // Do not mutate the filter's anchor: lastFrameTs remains the timestamp
+      // of the last accepted measurement, so moving k.x here would project the
+      // same elapsed interval twice on the next update.
 
       // Keep lastFrameTs anchored to the last accepted measurement. The next
       // gate must account for the full elapsed time, not just one frame interval.
