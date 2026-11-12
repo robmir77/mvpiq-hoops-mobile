@@ -124,10 +124,33 @@ export class BallTrackingEngine {
       return { x: measX, y: measY }
     }
 
-    const dt = Math.max(
-      0.001,
-      Math.min(0.1, (frameTs - this.lastFrameTs) / 1000)
-    )
+    const elapsedMs = frameTs - this.lastFrameTs
+
+    // A gap longer than the tracking TTL is a new acquisition, not a reliable
+    // continuation of the previous trajectory. Re-anchor instead of projecting
+    // stale velocity across the gap.
+    if (elapsedMs > BALL_TRACK_TTL_MS) {
+      k.x = measX
+      k.y = measY
+      k.vx = 0
+      k.vy = 0
+      this.lastFrameTs = frameTs
+      this.ballLastSeenAt = frameTs
+      this.ballTrackingValid = true
+      this.lastBallWasDetected = true
+      this.state.ballPosition = { x: measX, y: measY }
+      this.state.ballPositionRaw = { x: measX, y: measY }
+      this.state.ballVelocity = { vx: 0, vy: 0 }
+      this.state.ballRejectionReason = 'Re-acquired ball after tracking gap'
+      this.state.trackState = 'DETECTED'
+      this.state.trackAge = 0
+      this.callbacks?.onBallDetected?.()
+      return { x: measX, y: measY }
+    }
+
+    // Use the real elapsed time. Capping at 100ms underestimates displacement
+    // and velocity whenever detections arrive below 10 FPS.
+    const dt = Math.max(0.001, elapsedMs / 1000)
 
     // Prediction
     const predX = k.x + k.vx * dt
@@ -166,16 +189,21 @@ export class BallTrackingEngine {
       k.vy * k.vy
     )
 
+    const expectedSpeed = Math.max(
+      velocity * KALMAN_CONFIG.velocityTolerance,
+      KALMAN_CONFIG.minimumPlausibleSpeed
+    )
     const tolerance =
       KALMAN_CONFIG.minOutlierDistance +
-      velocity * KALMAN_CONFIG.velocityTolerance * dt
+      expectedSpeed * dt
 
     // Outlier
     if (distance > tolerance) {
       k.x = predX
       k.y = predY
 
-      this.lastFrameTs = frameTs
+      // Keep lastFrameTs anchored to the last accepted measurement. The next
+      // gate must account for the full elapsed time, not just one frame interval.
       // DO NOT update ballLastSeenAt on outlier - only on accepted detections
       // this.ballLastSeenAt = frameTs
 
@@ -305,10 +333,9 @@ export class BallTrackingEngine {
   // Kalman predict (from useTrackingEngine lines 169-189)
   predict(frameTs: number, inFlight: boolean = false): BallPosition | null {
     const k = this.kalman
-    const dt = Math.max(
-      0.001,
-      Math.min(0.1, (frameTs - this.lastFrameTs) / 1000)
-    )
+    // Prediction is always relative to the last accepted measurement.
+    // Preserve the actual elapsed time, including intervals above 100ms.
+    const dt = Math.max(0.001, (frameTs - this.lastFrameTs) / 1000)
 
     const ageMs = frameTs - this.ballLastSeenAt
     // Extend TTL during inFlight to maintain tracking through brief YOLO dropouts
