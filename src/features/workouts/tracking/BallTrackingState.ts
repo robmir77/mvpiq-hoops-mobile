@@ -63,6 +63,10 @@ export const KALMAN_CONFIG = {
   // How much tolerance increases with velocity
   velocityTolerance: 1.2,
 
+  // Minimum plausible ball speed (normalized image coordinates per second)
+  // Keeps the gate responsive when a previously stationary ball accelerates.
+  minimumPlausibleSpeed: 2.5,
+
   // How long to predict without detection (ms)
   // Increased to 400 to accommodate slower models (640 at 5-7 FPS, 143-200ms interval)
   predictionTtlMs: 400,
